@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import httpx
 import nanoid
@@ -8,11 +8,12 @@ from tensorlake.function_executor.proto.function_executor_pb2 import SerializedO
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 from tensorlake.utils.http_client import get_httpx_client
 
+from indexify.proto.executor_api_pb2 import DataPayload as DataPayloadProto
 from indexify.proto.executor_api_pb2 import (
-    DataPayload,
     DataPayloadEncoding,
 )
 
+from .api_objects import DataPayload
 from .blob_store.blob_store import BLOBStore
 from .metrics.downloader import (
     metric_graph_download_errors,
@@ -49,7 +50,7 @@ class Downloader:
         namespace: str,
         graph_name: str,
         graph_version: str,
-        data_payload: Optional[DataPayload],
+        data_payload: Optional[Union[DataPayload, DataPayloadProto]],
         logger: Any,
     ) -> SerializedObject:
         logger = logger.bind(module=__name__)
@@ -99,7 +100,7 @@ class Downloader:
         function_name: str,
         graph_invocation_id: str,
         reducer_output_key: str,
-        data_payload: Optional[DataPayload],
+        data_payload: Optional[Union[DataPayload, DataPayloadProto]],
         logger: Any,
     ) -> SerializedObject:
         logger = logger.bind(module=__name__)
@@ -124,7 +125,7 @@ class Downloader:
         namespace: str,
         graph_name: str,
         graph_version: str,
-        data_payload: Optional[DataPayload],
+        data_payload: Optional[Union[DataPayload, DataPayloadProto]],
         logger: Any,
     ) -> SerializedObject:
         # Cache graph to reduce load on the server.
@@ -151,7 +152,7 @@ class Downloader:
                 graph_version=graph_version,
                 logger=logger,
             )
-        else:
+        elif isinstance(data_payload, DataPayloadProto):
             (
                 MessageValidator(data_payload)
                 .required_field("uri")
@@ -160,7 +161,15 @@ class Downloader:
             data: bytes = await self._blob_store.get(
                 uri=data_payload.uri, logger=logger
             )
-            return _data_payload_to_serialized_object(
+            return _serialized_object_from_data_payload_proto(
+                data_payload=data_payload,
+                data=data,
+            )
+        elif isinstance(data_payload, DataPayload):
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.path, logger=logger
+            )
+            return _serialized_object_from_data_payload(
                 data_payload=data_payload,
                 data=data,
             )
@@ -204,7 +213,7 @@ class Downloader:
         graph_name: str,
         graph_invocation_id: str,
         input_key: str,
-        data_payload: Optional[DataPayload],
+        data_payload: Optional[Union[DataPayload, DataPayloadProto]],
         logger: Any,
     ) -> SerializedObject:
         if data_payload is None:
@@ -221,7 +230,7 @@ class Downloader:
                 return await self._fetch_function_input_from_server(
                     input_key=input_key, logger=logger
                 )
-        else:
+        elif isinstance(data_payload, DataPayloadProto):
             (
                 MessageValidator(data_payload)
                 .required_field("uri")
@@ -230,7 +239,15 @@ class Downloader:
             data: bytes = await self._blob_store.get(
                 uri=data_payload.uri, logger=logger
             )
-            return _data_payload_to_serialized_object(
+            return _serialized_object_from_data_payload_proto(
+                data_payload=data_payload,
+                data=data,
+            )
+        elif isinstance(data_payload, DataPayload):
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.path, logger=logger
+            )
+            return _serialized_object_from_data_payload(
                 data_payload=data_payload,
                 data=data,
             )
@@ -242,7 +259,7 @@ class Downloader:
         function_name: str,
         graph_invocation_id: str,
         reducer_output_key: str,
-        data_payload: Optional[DataPayload],
+        data_payload: Optional[Union[DataPayload, DataPayloadProto]],
         logger: Any,
     ) -> SerializedObject:
         if data_payload is None:
@@ -254,7 +271,7 @@ class Downloader:
                 reducer_output_key=reducer_output_key,
                 logger=logger,
             )
-        else:
+        elif isinstance(data_payload, DataPayloadProto):
             (
                 MessageValidator(data_payload)
                 .required_field("uri")
@@ -263,7 +280,15 @@ class Downloader:
             data: bytes = await self._blob_store.get(
                 uri=data_payload.uri, logger=logger
             )
-            return _data_payload_to_serialized_object(
+            return _serialized_object_from_data_payload_proto(
+                data_payload=data_payload,
+                data=data,
+            )
+        elif isinstance(data_payload, DataPayload):
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.path, logger=logger
+            )
+            return _serialized_object_from_data_payload(
                 data_payload=data_payload,
                 data=data,
             )
@@ -315,7 +340,11 @@ class Downloader:
     async def _fetch_url(
         self, url: str, resource_description: str, logger: Any
     ) -> SerializedObject:
-        logger.info(f"fetching {resource_description}", url=url)
+        logger.warning(
+            f"downloading resource from Server",
+            url=url,
+            resource_description=resource_description,
+        )
         response: httpx.Response = await self._client.get(url)
         try:
             response.raise_for_status()
@@ -346,8 +375,23 @@ def serialized_object_from_http_response(response: httpx.Response) -> Serialized
         )
 
 
-def _data_payload_to_serialized_object(
+def _serialized_object_from_data_payload(
     data_payload: DataPayload, data: bytes
+) -> SerializedObject:
+    """Converts the given data payload and its data into SerializedObject accepted by Function Executor."""
+    if data_payload.content_type in [
+        "application/octet-stream",
+        "application/pickle",
+    ]:
+        return SerializedObject(bytes=data, content_type=data_payload.content_type)
+    else:
+        return SerializedObject(
+            string=data.decode("utf-8"), content_type=data_payload.content_type
+        )
+
+
+def _serialized_object_from_data_payload_proto(
+    data_payload: DataPayloadProto, data: bytes
 ) -> SerializedObject:
     """Converts the given data payload and its data into SerializedObject accepted by Function Executor.
 

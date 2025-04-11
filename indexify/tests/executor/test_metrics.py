@@ -195,11 +195,11 @@ class TestMetrics(unittest.TestCase):
             "task_outcome_report_latency_seconds_count",
             "task_outcome_report_latency_seconds_sum",
             "tasks_outcome_report_retries_total",
-            #
-            "server_ingest_files_requests_total",
-            "server_ingest_files_request_errors_total",
-            "server_ingest_files_request_latency_seconds_count",
-            "server_ingest_files_request_latency_seconds_sum",
+            # TODO: Add task output blob store upload metrics once we stop uploading to Server.
+            # "server_ingest_files_requests_total",
+            # "server_ingest_files_request_errors_total",
+            # "server_ingest_files_request_latency_seconds_count",
+            # "server_ingest_files_request_latency_seconds_sum",
             # Running a task
             "task_policy_runs_total",
             "task_policy_errors_total",
@@ -425,10 +425,10 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("tasks_reporting_outcome", {}, 0.0),
             SampleSpec("task_outcome_report_latency_seconds_count", {}, 1.0),
             SampleSpec("tasks_outcome_report_retries_total", {}, 0.0),
-            #
-            SampleSpec("server_ingest_files_requests_total", {}, 1.0),
-            SampleSpec("server_ingest_files_request_errors_total", {}, 0.0),
-            SampleSpec("server_ingest_files_request_latency_seconds_count", {}, 1.0),
+            # # TODO: Add task output blob store upload metrics once we stop uploading to Server.
+            # SampleSpec("server_ingest_files_requests_total", {}, 1.0),
+            # SampleSpec("server_ingest_files_request_errors_total", {}, 0.0),
+            # SampleSpec("server_ingest_files_request_latency_seconds_count", {}, 1.0),
             # Running a task
             SampleSpec("task_policy_runs_total", {}, 1.0),
             SampleSpec("task_policy_errors_total", {}, 0.0),

@@ -354,6 +354,7 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         await self.blob_store.put(object_uri, value, logger=self.logger)
         return DataPayload(
             uri=object_uri,
+            path=object_uri,
             encoding=encoding,
         )
 
@@ -1101,14 +1102,8 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_create_function_executor_then_run_task(
@@ -1254,20 +1249,15 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("output", self.mock_task_reporter.report.call_args.kwargs)
         output: TaskOutput = self.mock_task_reporter.report.call_args.kwargs["output"]
         self.assertTrue(output.success)
+        self.assertIsNone(output.output_payload_uri_prefix)
         outputs: List[Any] = self.deserialize_function_output(output.function_output)
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0], "function_a: test-input-function-a")
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_create_function_executor_and_task_allocation_in_the_same_desired_state(
@@ -1297,6 +1287,7 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
                         graph_version="test-version-1",
                         function_name="function_a",
                         graph_invocation_id="test-graph-invocation",
+                        output_payload_uri_prefix="s3://test-bucket/test-task-output-prefix",
                     ),
                 )
             ],
@@ -1392,34 +1383,21 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertIn("output", self.mock_task_reporter.report.call_args.kwargs)
         output: TaskOutput = self.mock_task_reporter.report.call_args.kwargs["output"]
         self.assertTrue(output.success)
+        self.assertEqual(
+            output.output_payload_uri_prefix, "s3://test-bucket/test-task-output-prefix"
+        )
         outputs: List[Any] = self.deserialize_function_output(output.function_output)
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0], "function_a: test-input-function-a")
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_run_task_on_function_executor_that_failed_to_startup(
-        self,
-        test_case_name: str,
-        use_blob_store: bool,
-        input_encoding: DataPayloadEncoding,
+        self, test_case_name: str, use_blob_store: bool
     ):
         await self._setup(use_blob_store)
 
@@ -1540,14 +1518,8 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_run_task_on_unhealthy_function_executor(
@@ -1697,7 +1669,6 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         [
             ("executor_uses_blob_store_via_server", False),
             ("executor_uses_blob_store_directly", True),
-            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_run_task_on_function_executor_that_doesnt_exist(
@@ -1754,14 +1725,8 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_task_timeout(
@@ -1898,18 +1863,8 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
 
     @parameterized.parameterized.expand(
         [
-            (
-                "executor_uses_blob_store_via_server",
-                False,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
-            (
-                "executor_uses_blob_store_directly",
-                True,
-            ),
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
         ]
     )
     async def test_cancel_running_task(

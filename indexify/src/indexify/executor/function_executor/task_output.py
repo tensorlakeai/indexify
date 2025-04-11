@@ -25,6 +25,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
+        output_payload_uri_prefix: Optional[str],
         output_encoding: Optional[str] = None,
         function_output: Optional[FunctionOutput] = None,
         router_output: Optional[RouterOutput] = None,
@@ -50,6 +51,7 @@ class TaskOutput:
         self.is_internal_error = is_internal_error
         self.metrics = metrics
         self.output_encoding = output_encoding
+        self.output_payload_uri_prefix = output_payload_uri_prefix
 
     @classmethod
     def internal_error(
@@ -60,6 +62,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
+        output_payload_uri_prefix: Optional[str],
     ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
@@ -72,6 +75,7 @@ class TaskOutput:
             graph_invocation_id=graph_invocation_id,
             stderr="Platform failed to execute the function.",
             is_internal_error=True,
+            output_payload_uri_prefix=output_payload_uri_prefix,
         )
 
     @classmethod
@@ -84,6 +88,7 @@ class TaskOutput:
         graph_version: str,
         graph_invocation_id: str,
         timeout_sec: float,
+        output_payload_uri_prefix: Optional[str],
     ) -> "TaskOutput":
         """Creates a TaskOutput for an function timeout error."""
         # Task stdout, stderr is not available.
@@ -96,4 +101,5 @@ class TaskOutput:
             graph_invocation_id=graph_invocation_id,
             stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
             is_internal_error=False,
+            output_payload_uri_prefix=output_payload_uri_prefix,
         )

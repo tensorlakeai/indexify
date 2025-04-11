@@ -77,8 +77,11 @@ class S3BLOBStore:
 
 
 def _bucket_name_and_object_key_from_uri(uri: str) -> tuple[str, str]:
+    # Example S3 object URI:
+    # s3://test-indexify-server-blob-store-eugene-20250411/225b83f4-2aed-40a7-adee-b7a681f817f2
     if not uri.startswith("s3://"):
         raise ValueError(f"S3 URI '{uri}' is missing 's3://' prefix")
+
     parts = uri[5:].split("/", 1)
     if len(parts) != 2:
         raise ValueError(f"Failed parsing bucket name from S3 URI '{uri}'")

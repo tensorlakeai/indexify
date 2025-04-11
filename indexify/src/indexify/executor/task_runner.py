@@ -85,6 +85,7 @@ class TaskRunner:
                 function_name=task_input.task.compute_fn,
                 graph_version=task_input.task.graph_version,
                 graph_invocation_id=task_input.task.invocation_id,
+                output_payload_uri_prefix=task_input.task.output_payload_uri_prefix,
             )
         finally:
             if state is not None:

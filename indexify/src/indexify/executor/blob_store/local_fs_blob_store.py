@@ -27,7 +27,7 @@ class LocalFSBLOBStore:
 
     def _sync_get(self, path: str) -> bytes:
         if not os.path.isabs(path):
-            raise ValueError(f"Path {path} is not absolute")
+            raise ValueError(f"Path {path} must be absolute")
 
         if os.path.exists(path):
             with open(path, mode="rb") as blob_file:
@@ -37,7 +37,7 @@ class LocalFSBLOBStore:
 
     def _sync_put(self, path: str, value: bytes) -> None:
         if not os.path.isabs(path):
-            raise ValueError(f"Path {path} is not absolute")
+            raise ValueError(f"Path {path} must be absolute")
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, mode="wb") as blob_file:
