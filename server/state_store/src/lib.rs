@@ -28,6 +28,7 @@ use tracing::{debug, error, info, span, warn};
 pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
+pub mod migration_runner;
 pub mod migrations;
 pub mod requests;
 pub mod scanner;
@@ -108,7 +109,7 @@ impl IndexifyState {
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
-        let sm_meta = migrations::migrate(&path)?;
+        let sm_meta = migration_runner::run(&path)?;
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -303,7 +304,7 @@ impl IndexifyState {
             &txn,
             &request.processed_state_changes,
         )?;
-        migrations::write_sm_meta(
+        migration_runner::write_sm_meta(
             &self.db,
             &txn,
             &StateMachineMetadata {
