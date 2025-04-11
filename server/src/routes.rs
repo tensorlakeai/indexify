@@ -636,7 +636,7 @@ async fn graph_invocations(
         Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
         None => None,
     };
-    let (invocation_ctxs, cursor) = state
+    let (invocation_ctxs, prev_cursor, next_cursor) = state
         .indexify_state
         .reader()
         .list_invocations(
@@ -651,11 +651,13 @@ async fn graph_invocations(
     for invocation_ctx in invocation_ctxs {
         invocations.push(invocation_ctx.into());
     }
-    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
+    let prev_cursor = prev_cursor.map(|c| BASE64_STANDARD.encode(c));
+    let next_cursor = next_cursor.map(|c| BASE64_STANDARD.encode(c));
 
     Ok(Json(GraphInvocations {
         invocations,
-        cursor,
+        prev_cursor,
+        next_cursor,
     }))
 }
 
@@ -971,7 +973,7 @@ async fn find_invocation(
     Ok(Json(invocation_ctx.into()))
 }
 
-/// Delete a specific invocation  
+/// Delete a specific invocation
 #[utoipa::path(
     delete,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
