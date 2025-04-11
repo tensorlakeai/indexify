@@ -19,7 +19,8 @@ export interface ComputeGraphLoaderData extends NamespaceLoaderData {
 export interface IndividualComputeGraphLoaderData extends NamespaceLoaderData {
   invocationsList: Invocation[]
   computeGraph: ComputeGraph
-  cursor: string | null;
+  prevCursor: string | null
+  nextCursor: string | null
   direction?: string
 }
 

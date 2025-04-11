@@ -17,6 +17,7 @@ use data_model::{
     TaskOutputsIngestedEvent,
     UnprocessedStateChanges,
 };
+use indexify_utils::get_epoch_time_in_ms;
 use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
@@ -493,21 +494,21 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: usize,
         direction: Option<CursorDirection>,
-    ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes()].concat();
+        let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes(), b"|"].concat();
 
         let direction = direction.unwrap_or(CursorDirection::Forward);
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(10_194_304);
 
         let mut upper_bound = key_prefix.clone();
-        upper_bound.push(0xff);
+        upper_bound.extend(&get_epoch_time_in_ms().to_be_bytes());
         read_options.set_iterate_upper_bound(upper_bound);
 
         let mut lower_bound = key_prefix.clone();
-        lower_bound.push(0x00);
+        lower_bound.extend(&(0 as u64).to_be_bytes());
         read_options.set_iterate_lower_bound(lower_bound);
 
         let mut iter = self.db.raw_iterator_cf_opt(
@@ -516,29 +517,67 @@ impl StateReader {
         );
 
         match cursor {
-            Some(cursor) => iter.seek(cursor),
-            None => iter.seek_to_last(),
+            Some(cursor) => {
+                match direction {
+                    CursorDirection::Backward => iter.seek(cursor),
+                    CursorDirection::Forward => iter.seek_for_prev(cursor),
+                }
+                // Skip the first item (cursor position)
+                if iter.valid() {
+                    match direction {
+                        CursorDirection::Forward => iter.prev(),
+                        CursorDirection::Backward => iter.next(),
+                    }
+                }
+            }
+            None => match direction {
+                CursorDirection::Backward => iter.seek_to_first(), // Start at beginning of range
+                CursorDirection::Forward => iter.seek_to_last(),   // Start at end of range
+            },
         }
 
         let mut rows = Vec::new();
         let mut next_cursor = None;
+        let mut prev_cursor = None;
 
         // Collect results
-        while iter.valid() {
+        while iter.valid() && rows.len() < limit {
             if let Some((key, _v)) = iter.item() {
-                if rows.len() < limit {
-                    rows.push(key.to_vec());
-                } else {
-                    next_cursor = Some(key.to_vec());
-                    break;
-                }
+                rows.push(key.to_vec());
             } else {
-                break;
+                break; // No valid item found
             }
 
+            // Move the iterator after capturing the current item
             match direction {
-                CursorDirection::Backward => iter.next(),
                 CursorDirection::Forward => iter.prev(),
+                CursorDirection::Backward => iter.next(),
+            }
+        }
+
+        // Check if there are more items after our limit
+        if iter.valid() {
+            let key = rows.last().cloned();
+            match direction {
+                CursorDirection::Forward => {
+                    next_cursor = key;
+                }
+                CursorDirection::Backward => {
+                    prev_cursor = key;
+                }
+            }
+        }
+
+        // Set the previous cursor if we have a valid item
+        if cursor.is_some() {
+            let key = rows.first().cloned();
+            match direction {
+                CursorDirection::Forward => {
+                    prev_cursor = key;
+                }
+                CursorDirection::Backward => {
+                    next_cursor = key;
+                }
             }
         }
 
@@ -556,6 +595,14 @@ impl StateReader {
             }
         }
 
+        match direction {
+            CursorDirection::Forward => {}
+            CursorDirection::Backward => {
+                // We keep the ordering the same even if we traverse in the opposite direction
+                invocation_prefixes.reverse();
+            }
+        }
+
         let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
             invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
             IndexifyObjectsColumns::GraphInvocationCtx,
@@ -563,6 +610,7 @@ impl StateReader {
 
         Ok((
             invocations.into_iter().filter_map(|v| v).collect(),
+            prev_cursor,
             next_cursor,
         ))
     }

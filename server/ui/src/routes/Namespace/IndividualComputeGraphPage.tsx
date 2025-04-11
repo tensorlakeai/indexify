@@ -1,4 +1,12 @@
-import { Box, Breadcrumbs, Typography, Stack, Chip, Button, CircularProgress } from '@mui/material'
+import {
+  Box,
+  Breadcrumbs,
+  Typography,
+  Stack,
+  Chip,
+  Button,
+  CircularProgress,
+} from '@mui/material'
 import { TableDocument } from 'iconsax-react'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore'
@@ -14,13 +22,18 @@ import axios from 'axios'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 
 const IndividualComputeGraphPage = () => {
-  const { invocationsList, computeGraph, namespace, cursor } = useLoaderData() as IndividualComputeGraphLoaderData
+  const {
+    invocationsList,
+    computeGraph,
+    namespace,
+    prevCursor: prevCursorLoader,
+    nextCursor: nextCursorLoader,
+  } = useLoaderData() as IndividualComputeGraphLoaderData
 
   const [invocations, setInvocations] = useState<Invocation[]>(invocationsList)
   const [isLoading, setIsLoading] = useState(false)
-  const [currentCursor, setCurrentCursor] = useState<string | null>(null)
-  const [nextCursor, setNextCursor] = useState<string | null>(cursor)
-  const [cursorHistory, setCursorHistory] = useState<string[]>([])
+  const [prevCursor, setPrevCursor] = useState<string | null>(prevCursorLoader)
+  const [nextCursor, setNextCursor] = useState<string | null>(nextCursorLoader)
 
   const handleDelete = useCallback((updatedList: Invocation[]) => {
     const sortedList = [...updatedList].sort(
@@ -29,56 +42,49 @@ const IndividualComputeGraphPage = () => {
     setInvocations(sortedList)
   }, [])
 
-  const fetchInvocations = useCallback(async (cursor: string | null, direction: 'forward' | 'backward') => {
-    setIsLoading(true)
-    try {
-      const serviceURL = getIndexifyServiceURL()
-      const limit = 20
-      const url = `${serviceURL}/namespaces/${namespace}/compute_graphs/${computeGraph.name}/invocations?limit=${limit}${
-        cursor ? `&cursor=${cursor}` : ''
-      }&direction=${direction}`
-      
-      const response = await axios.get(url)
-      const data = response.data
-      
-      setInvocations([...data.invocations].sort(
-        (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
-      ))
-      
-      if (direction === 'forward') {
-        if (cursor) {
-          setCursorHistory(prev => [...prev, cursor])
-        }
-        setCurrentCursor(cursor)
-        setNextCursor(data.cursor || null)
-      } else {
-        if (cursorHistory.length > 0) {
-          setCursorHistory(prev => prev.slice(0, -1))
-        }
-        setCurrentCursor(cursorHistory.length > 1 ? cursorHistory[cursorHistory.length - 2] : null)
-        setNextCursor(data.cursor || null)
+  const fetchInvocations = useCallback(
+    async (cursor: string | null, direction: 'forward' | 'backward') => {
+      setIsLoading(true)
+      try {
+        const serviceURL = getIndexifyServiceURL()
+        const limit = 20
+        const url = `${serviceURL}/namespaces/${namespace}/compute_graphs/${
+          computeGraph.name
+        }/invocations?limit=${limit}${
+          cursor ? `&cursor=${cursor}` : ''
+        }&direction=${direction}`
+
+        const response = await axios.get(url)
+        const data = response.data
+
+        setInvocations([...data.invocations])
+
+        setPrevCursor(data.prev_cursor)
+        setNextCursor(data.next_cursor)
+        console.log(direction, {
+          prevCursor: data.prev_cursor,
+          nextCursor: data.next_cursor,
+        })
+      } catch (error) {
+        console.error('Error fetching invocations:', error)
+      } finally {
+        setIsLoading(false)
       }
-    } catch (error) {
-      console.error("Error fetching invocations:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [namespace, computeGraph.name, cursorHistory])
+    },
+    [namespace, computeGraph.name]
+  )
 
   const handleNextPage = useCallback(() => {
-    const cursor = nextCursor || currentCursor
-    if (cursor) {
-      fetchInvocations(cursor, 'forward')
+    if (nextCursor) {
+      fetchInvocations(nextCursor, 'forward')
     }
-  }, [nextCursor, currentCursor, fetchInvocations])
+  }, [nextCursor, fetchInvocations])
 
   const handlePreviousPage = useCallback(() => {
-    if (cursorHistory.length > 0) {
-      const prevCursor = cursorHistory[cursorHistory.length - 1]
+    if (prevCursor) {
       fetchInvocations(prevCursor, 'backward')
     }
-  }, [cursorHistory, fetchInvocations])
-
+  }, [prevCursor, fetchInvocations])
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -132,29 +138,29 @@ const IndividualComputeGraphPage = () => {
           onDelete={handleDelete}
         />
 
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
             mt: 2,
-            alignItems: 'center'
+            alignItems: 'center',
           }}
         >
           <Button
             startIcon={<NavigateBeforeIcon />}
             onClick={handlePreviousPage}
-            disabled={cursorHistory.length === 0 || isLoading}
+            disabled={!prevCursor || isLoading}
             variant="outlined"
           >
             Previous
           </Button>
-          
+
           {isLoading && <CircularProgress size={24} />}
-          
+
           <Button
             endIcon={<NavigateNextIcon />}
             onClick={handleNextPage}
-            disabled={isLoading}
+            disabled={!nextCursor || isLoading}
             variant="outlined"
           >
             Next

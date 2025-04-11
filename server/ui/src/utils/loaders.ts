@@ -36,16 +36,21 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
 export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace || 'default'
   const client = createClient(namespace)
-  
+
   try {
-    const computeGraphs = await apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`)
+    const computeGraphs = await apiGet<ComputeGraphsList>(
+      `/namespaces/${namespace}/compute_graphs`
+    )
     return { client, computeGraphs, namespace }
   } catch {
     return { client, computeGraphs: { compute_graphs: [] }, namespace }
   }
 }
 
-export async function IndividualComputeGraphPageLoader({ params, request }: LoaderFunctionArgs) {
+export async function IndividualComputeGraphPageLoader({
+  params,
+  request,
+}: LoaderFunctionArgs) {
   const { namespace, 'compute-graph': computeGraph } = params
   if (!namespace) return redirect('/')
 
@@ -53,34 +58,39 @@ export async function IndividualComputeGraphPageLoader({ params, request }: Load
   const cursor = url.searchParams.get('cursor') || undefined
   const direction = url.searchParams.get('direction') || 'forward'
   const limit = 20
-  
+
   try {
     const invocationsUrl = `/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${
       cursor ? `&cursor=${cursor}` : ''
     }${direction ? `&direction=${direction}` : ''}`
-    
+
     const [computeGraphs, invocationsResponse] = await Promise.all([
       apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
-      apiGet<{ invocations: unknown[], cursor?: string }>(invocationsUrl)
+      apiGet<{
+        invocations: unknown[]
+        prev_cursor?: string
+        next_cursor?: string
+      }>(invocationsUrl),
     ])
 
     const localComputeGraph = computeGraphs.compute_graphs.find(
       (graph: ComputeGraph) => graph.name === computeGraph
     )
-    
+
     if (!localComputeGraph) {
       throw new Error(`Compute graph ${computeGraph} not found`)
     }
 
     return {
       invocationsList: invocationsResponse.invocations,
-      cursor: invocationsResponse.cursor,
+      prevCursor: invocationsResponse.prev_cursor,
+      nextCursor: invocationsResponse.next_cursor,
       currentDirection: direction,
       computeGraph: localComputeGraph,
       namespace,
     }
   } catch (error) {
-    console.error("Error fetching compute graph data:", error)
+    console.error('Error fetching compute graph data:', error)
     throw error
   }
 }
@@ -100,9 +110,15 @@ export async function ExecutorsPageLoader() {
   return { executors }
 }
 
-export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
+export async function IndividualInvocationPageLoader({
+  params,
+}: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const { namespace, 'compute-graph': computeGraph, 'invocation-id': invocationId } = params
+  const {
+    namespace,
+    'compute-graph': computeGraph,
+    'invocation-id': invocationId,
+  } = params
 
   return {
     indexifyServiceURL,

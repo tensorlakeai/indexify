@@ -421,7 +421,8 @@ pub struct CreateNamespaceResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GraphInvocations {
     pub invocations: Vec<Invocation>,
-    pub cursor: Option<String>,
+    pub prev_cursor: Option<String>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
