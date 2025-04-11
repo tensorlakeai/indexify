@@ -161,14 +161,39 @@ pub(crate) fn delete_invocation(
         "Deleting invocation",
     );
 
-    // Delete the invocation payload
-    let invocation_key =
+    // Check if the invocation was deleted before the task completes
+    let invocation_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
-    delete_cf_prefix(
-        txn,
-        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        invocation_key.as_bytes(),
-    )?;
+    let invocation_ctx = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &invocation_ctx_key,
+        )
+        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+    let invocation_ctx = match invocation_ctx {
+        Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
+        None => {
+            info!(
+                namespace = &req.namespace,
+                compute_graph = &req.compute_graph,
+                invocation_id = &req.invocation_id,
+                "Invocation to delete not found: {}",
+                &req.invocation_id
+            );
+            return Ok(());
+        }
+    };
+
+    // Delete the invocation payload
+    {
+        let invocation_key =
+            InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+
+        txn.delete_cf(
+            &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
+            &invocation_key,
+        )?;
+    }
 
     let mut tasks_deleted = Vec::new();
     let task_prefix =
@@ -247,26 +272,16 @@ pub(crate) fn delete_invocation(
     }
 
     // Delete Graph Invocation Context
-
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        invocation_key.as_bytes(),
+        invocation_ctx_key.as_bytes(),
     )?;
 
     // Delete Graph Invocation Context Secondary Index
-    // Note We don't delete the secondary index here because it's too much work to
-    // get the invocation id from the secondary index key. We purge all the
-    // secondary index keys for graphs if they are ever deleted.
-    //
-    // TODO: Only delete the secondary index keys for this invocation
-    delete_cf_prefix(
-        txn,
+    txn.delete_cf(
         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
-        &GraphInvocationCtx::secondary_index_key_prefix_from_compute_graph(
-            &req.namespace,
-            &req.compute_graph,
-        ),
+        &invocation_ctx.secondary_index_key(),
     )?;
 
     let node_output_prefix =
@@ -579,13 +594,6 @@ pub fn delete_compute_graph(
         };
         delete_invocation(db.clone(), txn, &req)?;
     }
-
-    // Delete Graph Invocation Context Secondary Index
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
-        &GraphInvocationCtx::secondary_index_key_prefix_from_compute_graph(namespace, name),
-    )?;
 
     for iter in make_prefix_iterator(
         txn,
