@@ -169,7 +169,7 @@ pub(crate) fn delete_invocation(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &invocation_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+        .map_err(|e| anyhow!("failed to get invocation: {:?}", e))?;
     let invocation_ctx = match invocation_ctx {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
@@ -177,6 +177,7 @@ pub(crate) fn delete_invocation(
                 namespace = &req.namespace,
                 compute_graph = &req.compute_graph,
                 invocation_id = &req.invocation_id,
+                invocation_ctx_key = &invocation_ctx_key,
                 "Invocation to delete not found: {}",
                 &req.invocation_id
             );
@@ -586,7 +587,6 @@ pub fn delete_compute_graph(
     ) {
         let (_key, value) = iter?;
         let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
-        info!("deleting graph invocation: {}", value.id);
         let req = DeleteInvocationRequest {
             namespace: value.namespace,
             compute_graph: value.compute_graph_name,
