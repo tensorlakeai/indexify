@@ -84,6 +84,11 @@ def function_dev(_: str) -> int:
 
 class TestFunctionAllowlist(unittest.TestCase):
     def test_function_routing(self):
+        print(
+            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
+        )
+        time.sleep(30)
+
         graph_name = test_graph_name(self)
         version = str(time.time())
 
