@@ -102,9 +102,6 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
-    executor_id: Optional[str] = typer.Option(
-        None, help="ID of the executor, if not provided, a random ID will be generated"
-    ),
     # Registred ports range ends at 49151.
     ports: Tuple[int, int] = typer.Option(
         (50000, 51000),
@@ -153,18 +150,12 @@ def executor(
                 "At least one function must be specified when not running in development mode"
             )
 
-    if executor_id is None:
-        executor_id = nanoid.generate()
-    elif not re.compile(r"^[a-zA-Z0-9_-]{10,}$").match(executor_id):
-        raise typer.BadParameter(
-            "--executor-id should be at least 10 characters long and only include characters _-[0-9][a-z][A-Z]"
-        )
-
     kv_labels: Dict[str, str] = {}
     for label in labels:
         key, value = label.split("=")
         kv_labels[key] = value
 
+    executor_id: str = nanoid.generate()
     executor_version = version("indexify")
     logger = structlog.get_logger(module=__name__, executor_id=executor_id)
 
