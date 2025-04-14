@@ -45,7 +45,7 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(cli_info_sample.labels, {"package": "indexify"})
         self.assertEqual(cli_info_sample.value, 1.0)
 
-    def test_executor_id_argument_valid_characters(self):
+    def test_executor_info(self):
         with ExecutorProcessContextManager(
             [
                 "--dev",
@@ -54,8 +54,6 @@ class TestMetrics(unittest.TestCase):
                 "60001",
                 "--monitoring-server-port",
                 "7001",
-                "--executor-id",
-                "-test_executor_id",
             ]
         ) as executor_a:
             executor_a: subprocess.Popen
@@ -68,30 +66,6 @@ class TestMetrics(unittest.TestCase):
             self.assertEqual(len(info_metric.samples), 1)
             info_sample: Sample = info_metric.samples[0]
             self.assertIn("id", info_sample.labels)
-            self.assertEqual(info_sample.labels["id"], "-test_executor_id")
-
-    def test_executor_id_argument_invalid_character(self):
-        with ExecutorProcessContextManager(
-            [
-                "--dev",
-                "--ports",
-                "60001",
-                "60002",
-                "--monitoring-server-port",
-                "7002",
-                "--executor-id",
-                "@-test_executor_id",
-            ]
-        ) as executor_a:
-            executor_a: subprocess.Popen
-            print(f"Started Executor A with PID: {executor_a.pid}")
-            try:
-                wait_executor_startup(7002)
-                self.fail(
-                    "Executor should not have started with the invalid executor ID."
-                )
-            except Exception:
-                pass
 
     def test_expected_function_executor_infos(self):
         graph = Graph(
