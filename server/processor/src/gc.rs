@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use blob_store::BlobStorage;
@@ -6,6 +6,7 @@ use state_store::{
     requests::{RequestPayload, StateMachineUpdateRequest},
     IndexifyState,
 };
+use tokio::time::{self};
 use tracing::{debug, error, info};
 
 pub struct Gc {
@@ -41,10 +42,14 @@ impl Gc {
                 Ok(has_more) => {
                     if has_more {
                         rx.mark_changed();
+                        // throttling to avoid tight loop
+                        time::sleep(Duration::from_secs(5)).await;
                     }
                 }
                 Err(err) => {
                     error!("error processing gc work: {:?}", err);
+                    // prevent spurious errors from causing a tight loop
+                    time::sleep(Duration::from_secs(30)).await;
                 }
             }
             tokio::select! {
@@ -69,13 +74,13 @@ impl Gc {
             if let Err(e) = storage.delete(url).await {
                 error!("Error deleting url {:?}: {:?}", url, e);
             } else {
-                deleted_urls.push(url);
+                deleted_urls.push(url.clone());
             }
         }
         if !deleted_urls.is_empty() {
             self.state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::RemoveGcUrls(urls),
+                    payload: RequestPayload::RemoveGcUrls(deleted_urls),
                     processed_state_changes: vec![],
                 })
                 .await?;

@@ -1,13 +1,17 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use anyhow::Result;
     use bytes::Bytes;
     use data_model::{
         test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        GraphInvocationCtx,
         InvocationPayload,
         NodeOutput,
     };
     use futures::stream;
+    use indexify_utils::get_epoch_time_in_ms;
     use state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
@@ -32,81 +36,104 @@ mod tests {
         } = test_srv.service;
 
         // Create a compute graph
-        let compute_graph = mock_graph_a("image_hash".to_string());
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(
-                    CreateOrUpdateComputeGraphRequest {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph: compute_graph.clone(),
-                        upgrade_tasks_to_current_version: false,
-                    },
-                ),
-                processed_state_changes: vec![],
-            })
-            .await?;
+        let compute_graph = {
+            let mut compute_graph = mock_graph_a("image_hash".to_string()).clone();
+            let data = "code";
+            let path = format!("{}", &compute_graph.code.path);
 
-        let data = "aaaa";
-        let path = "qqqq";
-        let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
-        let res = blob_storage.put(path, data_stream).await?;
+            let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
+            let res = blob_storage.put(&path, data_stream).await?;
+            compute_graph.code.path = res.url;
 
-        // Create a graph invocation
-        let invocation = InvocationPayload {
-            id: "invocation_id".to_string(),
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_graph_name: compute_graph.name.clone(),
-            payload: data_model::DataPayload {
-                path: res.url.clone(),
-                size: res.size_bytes,
-                sha256_hash: res.sha256_hash.clone(),
-            },
-            created_at: 5,
-            encoding: "application/octet-stream".to_string(),
+            indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                        CreateOrUpdateComputeGraphRequest {
+                            namespace: TEST_NAMESPACE.to_string(),
+                            compute_graph: compute_graph.clone(),
+                            upgrade_tasks_to_current_version: false,
+                        },
+                    ),
+                    processed_state_changes: vec![],
+                })
+                .await?;
+
+            compute_graph
         };
 
-        indexify_state.db.put_cf(
-            &IndexifyObjectsColumns::GraphInvocations.cf_db(&indexify_state.db),
-            invocation.key().as_bytes(),
-            &JsonEncoder::encode(&invocation)?,
-        )?;
+        let res = {
+            let data = "invocation_payload";
+            let path = "invocation_payload";
+            let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
+            let res = blob_storage.put(path, data_stream).await?;
 
-        let output = NodeOutput {
-            id: "id".to_string(),
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_fn_name: "fn_a".to_string(),
-            compute_graph_name: "graph_A".to_string(),
-            invocation_id: "invocation_id".to_string(),
-            payload: data_model::OutputPayload::Fn(data_model::DataPayload {
-                path: res.url.clone(),
-                size: res.size_bytes,
-                sha256_hash: res.sha256_hash.clone(),
-            }),
-            errors: None,
-            reduced_state: false,
-            created_at: 5,
-            encoding: "application/octet-stream".to_string(),
+            // Create a graph invocation
+            let invocation = InvocationPayload {
+                id: "invocation_id".to_string(),
+                namespace: TEST_NAMESPACE.to_string(),
+                compute_graph_name: compute_graph.name.clone(),
+                payload: data_model::DataPayload {
+                    path: res.url.clone(),
+                    size: res.size_bytes,
+                    sha256_hash: res.sha256_hash.clone(),
+                },
+                created_at: get_epoch_time_in_ms(),
+                encoding: "application/octet-stream".to_string(),
+            };
+
+            indexify_state.db.put_cf(
+                &IndexifyObjectsColumns::GraphInvocations.cf_db(&indexify_state.db),
+                invocation.key().as_bytes(),
+                &JsonEncoder::encode(&invocation)?,
+            )?;
+
+            indexify_state.db.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
+                invocation.key().as_bytes(),
+                &JsonEncoder::encode(&GraphInvocationCtx {
+                    invocation_id: invocation.id.clone(),
+                    compute_graph_name: compute_graph.name.clone(),
+                    namespace: TEST_NAMESPACE.to_string(),
+                    graph_version: compute_graph.version.clone(),
+                    completed: false,
+                    outcome: data_model::GraphInvocationOutcome::Failure,
+                    outstanding_tasks: 0,
+                    fn_task_analytics: HashMap::new(),
+                    created_at: get_epoch_time_in_ms(),
+                })?,
+            )?;
+
+            let output = NodeOutput {
+                id: "id".to_string(),
+                namespace: TEST_NAMESPACE.to_string(),
+                compute_fn_name: "fn_a".to_string(),
+                compute_graph_name: compute_graph.name.clone(),
+                invocation_id: invocation.id.clone(),
+                payload: data_model::OutputPayload::Fn(data_model::DataPayload {
+                    path: res.url.clone(),
+                    size: res.size_bytes,
+                    sha256_hash: res.sha256_hash.clone(),
+                }),
+                errors: None,
+                reduced_state: false,
+                created_at: 5,
+                encoding: "application/octet-stream".to_string(),
+            };
+            let key = output.key(&output.invocation_id);
+            let serialized_output = JsonEncoder::encode(&output)?;
+            indexify_state.db.put_cf(
+                &IndexifyObjectsColumns::FnOutputs.cf_db(&indexify_state.db),
+                key,
+                &serialized_output,
+            )?;
+
+            blob_storage.read_bytes(&res.url).await?;
+
+            res
         };
-        let key = output.key(&output.invocation_id);
-        let serialized_output = JsonEncoder::encode(&output)?;
-        indexify_state.db.put_cf(
-            &IndexifyObjectsColumns::FnOutputs.cf_db(&indexify_state.db),
-            key,
-            &serialized_output,
-        )?;
 
-        blob_storage.read_bytes(&res.url).await?;
-
-        let request = RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
-            namespace: TEST_NAMESPACE.to_string(),
-            name: compute_graph.name.clone(),
-        });
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: request,
-                processed_state_changes: vec![],
-            })
-            .await?;
+        let urls = indexify_state.reader().get_gc_urls(None)?;
+        assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
 
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -118,15 +145,20 @@ mod tests {
             })
             .await?;
 
+        let urls = indexify_state.reader().get_gc_urls(None)?;
+        assert!(
+            !urls.is_empty(),
+            "all gc urls should not be empty: {:?}",
+            urls
+        );
+
         gc_executor.lock().await.run().await?;
 
         let urls = indexify_state.reader().get_gc_urls(None)?;
-        assert!(urls.is_empty(), "all gc urls are empty");
+        assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
 
-        assert!(
-            blob_storage.read_bytes(&res.url).await.is_err(),
-            "file is deleted"
-        );
+        let read_res = blob_storage.read_bytes(&res.url).await;
+        assert!(read_res.is_err(), "file is not deleted: {:#?}", read_res);
 
         Ok(())
     }
