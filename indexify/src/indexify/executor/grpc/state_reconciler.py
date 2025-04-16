@@ -9,9 +9,7 @@ from indexify.proto.executor_api_pb2 import (
     GetDesiredExecutorStatesRequest,
     TaskAllocation,
 )
-from indexify.proto.executor_api_pb2_grpc import (
-    ExecutorAPIStub,
-)
+from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
 from ..downloader import Downloader
 from ..function_executor.function_executor_state import FunctionExecutorState

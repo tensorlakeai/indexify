@@ -9,9 +9,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from tensorlake.utils.http_client import get_httpx_client
 
 from indexify.proto.executor_api_pb2 import DataPayload as DataPayloadProto
-from indexify.proto.executor_api_pb2 import (
-    DataPayloadEncoding,
-)
+from indexify.proto.executor_api_pb2 import DataPayloadEncoding
 
 from .api_objects import DataPayload
 from .blob_store.blob_store import BLOBStore

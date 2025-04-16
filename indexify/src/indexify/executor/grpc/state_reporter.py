@@ -24,9 +24,7 @@ from indexify.proto.executor_api_pb2 import (
     HostResources,
     ReportExecutorStateRequest,
 )
-from indexify.proto.executor_api_pb2_grpc import (
-    ExecutorAPIStub,
-)
+from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
 from ..api_objects import FunctionURI
 from ..executor_flavor import ExecutorFlavor

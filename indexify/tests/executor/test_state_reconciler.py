@@ -19,9 +19,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     SerializedObject,
 )
-from tensorlake.functions_sdk.object_serializer import (
-    CloudPickleSerializer,
-)
+from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.blob_store.local_fs_blob_store import LocalFSBLOBStore
