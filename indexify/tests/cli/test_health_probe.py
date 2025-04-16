@@ -3,10 +3,7 @@ import unittest
 
 import httpx
 import structlog
-from testing import (
-    ExecutorProcessContextManager,
-    wait_executor_startup,
-)
+from testing import ExecutorProcessContextManager, wait_executor_startup
 
 from indexify.executor.function_executor.function_executor_state import (
     FunctionExecutorState,

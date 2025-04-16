@@ -2,12 +2,7 @@ import os
 import unittest
 from typing import List, Union
 
-from tensorlake import (
-    Graph,
-    RemoteGraph,
-    tensorlake_function,
-    tensorlake_router,
-)
+from tensorlake import Graph, RemoteGraph, tensorlake_function, tensorlake_router
 from testing import test_graph_name
 
 
