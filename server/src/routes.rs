@@ -42,7 +42,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
-    into_task_with_data_payloads,
+    into_http_api_task,
     ExecutorAllocations,
     FnExecutor,
     Invocation,
@@ -809,7 +809,7 @@ async fn executor_tasks(
             let item: Vec<Task> = item
                 .into_iter()
                 .map(|task| {
-                    into_task_with_data_payloads(
+                    into_http_api_task(
                         task,
                         indexify_state.clone(),
                         blob_store_url_scheme.clone(),

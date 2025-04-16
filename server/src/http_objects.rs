@@ -148,6 +148,208 @@ impl From<data_model::ImageInformation> for ImageInformation {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct NodeTimeoutSeconds(pub u32);
+
+impl NodeTimeoutSeconds {
+    fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.0 == 0 {
+            return Err(IndexifyAPIError::bad_request(
+                "Node timeout must be greater than 0",
+            ));
+        }
+        if self.0 > 24 * 60 * 60 {
+            return Err(IndexifyAPIError::bad_request(
+                "Node timeout must be less than or equal 24 hours",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl From<NodeTimeoutSeconds> for data_model::NodeTimeoutMS {
+    fn from(value: NodeTimeoutSeconds) -> Self {
+        data_model::NodeTimeoutMS(value.0 * 1000)
+    }
+}
+
+impl From<data_model::NodeTimeoutMS> for NodeTimeoutSeconds {
+    fn from(value: data_model::NodeTimeoutMS) -> NodeTimeoutSeconds {
+        NodeTimeoutSeconds(value.0 / 1000)
+    }
+}
+
+impl Default for NodeTimeoutSeconds {
+    fn default() -> Self {
+        data_model::NodeTimeoutMS::default().into()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct NodeGPUs {
+    pub count: u32,
+    pub model: String,
+}
+
+const GPU_MODELS: [&str; 3] = ["H100", "A100-40GB", "A100-80GB"];
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct NodeResources {
+    pub cpus: f64,
+    pub memory_mb: u32,
+    pub ephemeral_disk_mb: u32,
+    #[serde(default)]
+    pub gpu: Option<NodeGPUs>,
+}
+
+impl NodeResources {
+    fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.cpus < 0.1 {
+            return Err(IndexifyAPIError::bad_request(
+                "CPU shares must be greater than 0.1",
+            ));
+        }
+        if self.cpus > 32.0 {
+            return Err(IndexifyAPIError::bad_request(
+                "CPU shares must be less than or equal to 32.0",
+            ));
+        }
+        if self.memory_mb < 128 {
+            return Err(IndexifyAPIError::bad_request(
+                "Memory must be greater than 128 MB",
+            ));
+        }
+        if self.memory_mb > 20 * 1024 {
+            return Err(IndexifyAPIError::bad_request(
+                "Memory must be less than or equal to 20 GB",
+            ));
+        }
+        if self.ephemeral_disk_mb > 1 * 1024 * 1024 {
+            return Err(IndexifyAPIError::bad_request(
+                "Ephemeral disk must be less than 1 TB",
+            ));
+        }
+        if self.gpu.is_some() {
+            let gpu = self.gpu.as_ref().unwrap();
+            if gpu.count == 0 {
+                return Err(IndexifyAPIError::bad_request(
+                    "GPU count must be greater than 0",
+                ));
+            }
+            if gpu.count > 8 {
+                return Err(IndexifyAPIError::bad_request(
+                    "GPU count must be less than or equal to 8",
+                ));
+            }
+            if !GPU_MODELS.contains(&gpu.model.as_str()) {
+                return Err(IndexifyAPIError::bad_request(&format!(
+                    "GPU model must be one of '{}'",
+                    GPU_MODELS.join(", ")
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl From<NodeResources> for data_model::NodeResources {
+    fn from(value: NodeResources) -> Self {
+        data_model::NodeResources {
+            cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
+            memory_mb: value.memory_mb,
+            ephemeral_disk_mb: value.ephemeral_disk_mb,
+            gpu: value.gpu.map(|gpu| data_model::NodeGPUs {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
+impl From<data_model::NodeResources> for NodeResources {
+    fn from(value: data_model::NodeResources) -> NodeResources {
+        NodeResources {
+            cpus: value.cpu_ms_per_sec as f64 / 1000.0,
+            memory_mb: value.memory_mb,
+            ephemeral_disk_mb: value.ephemeral_disk_mb,
+            gpu: value.gpu.map(|gpu| NodeGPUs {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
+impl Default for NodeResources {
+    fn default() -> Self {
+        data_model::NodeResources::default().into()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct NodeRetryPolicy {
+    pub max_retries: u32,
+    pub initial_delay_sec: f64,
+    pub max_delay_sec: f64,
+    pub delay_multiplier: f64,
+}
+
+impl NodeRetryPolicy {
+    fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.max_retries > 10 {
+            return Err(IndexifyAPIError::bad_request(
+                "Max retries must be less than or equal to 10",
+            ));
+        }
+        if self.initial_delay_sec > 60.0 * 60.0 {
+            // 1 hour max delay
+            return Err(IndexifyAPIError::bad_request(
+                "Initial delay must be less than 1 hour",
+            ));
+        }
+        if self.max_delay_sec > 60.0 * 60.0 {
+            // 1 hour max delay
+            return Err(IndexifyAPIError::bad_request(
+                "Max delay must be less than 1 hour",
+            ));
+        }
+        if self.delay_multiplier < 0.1 {
+            return Err(IndexifyAPIError::bad_request(
+                "Delay multiplier must be greater than or equal to 0.1",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl From<NodeRetryPolicy> for data_model::NodeRetryPolicy {
+    fn from(value: NodeRetryPolicy) -> Self {
+        data_model::NodeRetryPolicy {
+            max_retries: value.max_retries,
+            initial_delay_ms: (value.initial_delay_sec * 1000.0).ceil() as u32,
+            max_delay_ms: (value.max_delay_sec * 1000.0).ceil() as u32,
+            delay_multiplier: (value.delay_multiplier * 1000.0).ceil() as u32,
+        }
+    }
+}
+
+impl From<data_model::NodeRetryPolicy> for NodeRetryPolicy {
+    fn from(value: data_model::NodeRetryPolicy) -> Self {
+        NodeRetryPolicy {
+            max_retries: value.max_retries,
+            initial_delay_sec: value.initial_delay_ms as f64 / 1000.0,
+            max_delay_sec: value.max_delay_ms as f64 / 1000.0,
+            delay_multiplier: value.delay_multiplier as f64 / 1000.0,
+        }
+    }
+}
+
+impl Default for NodeRetryPolicy {
+    fn default() -> Self {
+        data_model::NodeRetryPolicy::default().into()
+    }
+}
+
 fn default_encoder() -> String {
     "cloudpickle".to_string()
 }
@@ -165,6 +367,12 @@ pub struct ComputeFn {
     pub image_information: ImageInformation,
     #[serde(default)]
     pub secret_names: Vec<String>,
+    #[serde(default, rename = "timeout_sec")]
+    pub timeout: NodeTimeoutSeconds,
+    #[serde(default)]
+    pub resources: NodeResources,
+    #[serde(default)]
+    pub retry_policy: NodeRetryPolicy,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -179,6 +387,9 @@ impl From<ComputeFn> for data_model::ComputeFn {
             output_encoder: val.output_encoder.clone(),
             image_information: val.image_information.into(),
             secret_names: Some(val.secret_names),
+            timeout: val.timeout.into(),
+            resources: val.resources.into(),
+            retry_policy: val.retry_policy.into(),
         }
     }
 }
@@ -194,7 +405,29 @@ impl From<data_model::ComputeFn> for ComputeFn {
             output_encoder: c.output_encoder,
             image_information: c.image_information.into(),
             secret_names: c.secret_names.unwrap_or(vec![]),
+            timeout: c.timeout.into(),
+            resources: c.resources.into(),
+            retry_policy: c.retry_policy.into(),
         }
+    }
+}
+
+impl ComputeFn {
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.name.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "ComputeFn name cannot be empty",
+            ));
+        }
+        if self.fn_name.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "ComputeFn fn_name cannot be empty",
+            ));
+        }
+        self.timeout.validate()?;
+        self.resources.validate()?;
+        self.retry_policy.validate()?;
+        Ok(())
     }
 }
 
@@ -211,6 +444,36 @@ pub struct DynamicRouter {
     pub image_information: ImageInformation,
     #[serde(default)]
     pub secret_names: Vec<String>,
+    #[serde(default, rename = "timeout_sec")]
+    pub timeout: NodeTimeoutSeconds,
+    #[serde(default)]
+    pub resources: NodeResources,
+    #[serde(default)]
+    pub retry_policy: NodeRetryPolicy,
+}
+
+impl DynamicRouter {
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.name.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "DynamicRouter name cannot be empty",
+            ));
+        }
+        if self.source_fn.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "DynamicRouter source_fn cannot be empty",
+            ));
+        }
+        if self.target_fns.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "DynamicRouter must have at least one target_fn",
+            ));
+        }
+        self.timeout.validate()?;
+        self.resources.validate()?;
+        self.retry_policy.validate()?;
+        Ok(())
+    }
 }
 
 impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
@@ -224,6 +487,9 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             output_encoder: val.output_encoder.clone(),
             image_information: val.image_information.clone().into(),
             secret_names: Some(val.secret_names),
+            timeout: val.timeout.into(),
+            resources: val.resources.into(),
+            retry_policy: val.retry_policy.into(),
         }
     }
 }
@@ -239,6 +505,9 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             output_encoder: d.output_encoder,
             image_information: d.image_information.into(),
             secret_names: d.secret_names.unwrap_or(vec![]),
+            timeout: d.timeout.into(),
+            resources: d.resources.into(),
+            retry_policy: d.retry_policy.into(),
         }
     }
 }
@@ -256,6 +525,13 @@ impl Node {
         match self {
             Node::DynamicRouter(d) => d.name.clone(),
             Node::ComputeFn(c) => c.name.clone(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+        match self {
+            Node::DynamicRouter(d) => d.validate(),
+            Node::ComputeFn(c) => c.validate(),
         }
     }
 }
@@ -335,6 +611,7 @@ impl ComputeGraph {
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
+            node.validate()?;
             nodes.insert(name, node.into());
         }
         let start_fn: data_model::Node = self.start_node.into();
@@ -515,6 +792,9 @@ pub struct Task {
     pub input_payload: Option<DataPayload>,
     pub reducer_input_payload: Option<DataPayload>,
     pub output_payload_uri_prefix: Option<String>,
+    pub timeout: NodeTimeoutSeconds,
+    pub resources: NodeResources,
+    pub retry_policy: NodeRetryPolicy,
 }
 
 impl From<data_model::Task> for Task {
@@ -530,8 +810,11 @@ impl From<data_model::Task> for Task {
             status: task.status.into(),
             reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
-            image_uri: task.image_uri,
-            secret_names: task.secret_names.unwrap_or_default(),
+            image_uri: None,
+            secret_names: Default::default(),
+            timeout: Default::default(),
+            resources: Default::default(),
+            retry_policy: Default::default(),
             graph_payload: None,
             input_payload: None,
             reducer_input_payload: None,
@@ -540,7 +823,8 @@ impl From<data_model::Task> for Task {
     }
 }
 
-pub fn into_task_with_data_payloads(
+// Adds all the information missing in data_model::Task to the API Task object.
+pub fn into_http_api_task(
     task: data_model::Task,
     indexify_state: Arc<IndexifyState>,
     blob_store_url_scheme: String,
@@ -565,6 +849,21 @@ pub fn into_task_with_data_payloads(
                 sha256_hash: compute_graph_version.code.sha256_hash,
                 content_type: "application/octet-stream".to_string(),
             });
+
+            match compute_graph_version.nodes.get(&task.compute_fn_name) {
+                Some(node) => {
+                    api_task.image_uri = node.image_uri().clone();
+                    if let Some(secret_names) = node.secret_names() {
+                        api_task.secret_names = secret_names.clone();
+                    }
+                    api_task.timeout = node.timeout().into();
+                    api_task.retry_policy = node.retry_policy().into();
+                    api_task.resources = node.resources().into();
+                }
+                None => {
+                    error!("Function not found in compute graph version task_id: {}, namespace: {}, graph_name: {}, graph_version: {}, compute_fn_name: {}", task.id, task.namespace, task.compute_graph_name, task.graph_version, task.compute_fn_name);
+                }
+            }
         }
         Ok(None) => {
             error!("Compute graph version not found task_id: {}, namespace: {}, graph_name: {}, graph_version: {}", task.id, task.namespace, task.compute_graph_name, task.graph_version);
