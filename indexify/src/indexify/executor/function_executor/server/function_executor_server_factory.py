@@ -24,6 +24,10 @@ class FunctionExecutorServerConfiguration:
     graph_version: str
     image_uri: Optional[str]
     secret_names: List[str]
+    cpu_ms_per_sec: Optional[int]
+    memory_bytes: Optional[int]
+    disk_bytes: Optional[int]
+    gpu_count: int
 
 
 class FunctionExecutorServerFactory:
