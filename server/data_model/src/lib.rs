@@ -247,6 +247,62 @@ impl ImageInformation {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeTimeoutMS(pub u32);
+
+impl Default for NodeTimeoutMS {
+    fn default() -> Self {
+        NodeTimeoutMS(5 * 60 * 1000) // 5 minutes
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeGPUs {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeResources {
+    // 1000 CPU ms per sec is one full CPU core.
+    // 2000 CPU ms per sec is two full CPU cores.
+    pub cpu_ms_per_sec: u32,
+    pub memory_mb: u32,
+    pub ephemeral_disk_mb: u32,
+    pub gpu: Option<NodeGPUs>,
+}
+
+impl Default for NodeResources {
+    fn default() -> Self {
+        NodeResources {
+            cpu_ms_per_sec: 125,
+            memory_mb: 128,
+            ephemeral_disk_mb: 100 * 1024, // 100 GB
+            gpu: None,                     // No GPU by default
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRetryPolicy {
+    pub max_retries: u32,
+    pub initial_delay_ms: u32,
+    pub max_delay_ms: u32,
+    // The multiplier value is 1000x of the actual value to avoid working with floating point.
+    pub delay_multiplier: u32,
+}
+
+impl Default for NodeRetryPolicy {
+    fn default() -> Self {
+        NodeRetryPolicy {
+            max_retries: 0, // No retries by default
+            initial_delay_ms: 1000,
+            max_delay_ms: 1000,
+            delay_multiplier: 1000,
+        }
+    }
+}
+
 fn default_data_encoder() -> String {
     "cloudpickle".to_string()
 }
@@ -263,6 +319,12 @@ pub struct DynamicEdgeRouter {
     pub output_encoder: String,
     pub image_information: ImageInformation,
     pub secret_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub timeout: NodeTimeoutMS,
+    #[serde(default)]
+    pub resources: NodeResources,
+    #[serde(default)]
+    pub retry_policy: NodeRetryPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -278,6 +340,12 @@ pub struct ComputeFn {
     pub output_encoder: String,
     pub image_information: ImageInformation,
     pub secret_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub timeout: NodeTimeoutMS,
+    #[serde(default)]
+    pub resources: NodeResources,
+    #[serde(default)]
+    pub retry_policy: NodeRetryPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -328,6 +396,27 @@ impl Node {
             Node::Compute(compute) => compute.secret_names.clone(),
         }
     }
+
+    pub fn timeout(&self) -> NodeTimeoutMS {
+        match self {
+            Node::Router(router) => router.timeout.clone(),
+            Node::Compute(compute) => compute.timeout.clone(),
+        }
+    }
+
+    pub fn resources(&self) -> NodeResources {
+        match self {
+            Node::Router(router) => router.resources.clone(),
+            Node::Compute(compute) => compute.resources.clone(),
+        }
+    }
+
+    pub fn retry_policy(&self) -> NodeRetryPolicy {
+        match self {
+            Node::Router(router) => router.retry_policy.clone(),
+            Node::Compute(compute) => compute.retry_policy.clone(),
+        }
+    }
 }
 
 impl Node {
@@ -352,8 +441,6 @@ impl Node {
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version.clone())
-            .image_uri(self.image_uri())
-            .secret_names(self.secret_names())
             .build()?;
         Ok(task)
     }
@@ -1009,8 +1096,6 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
-    pub image_uri: Option<String>,
-    pub secret_names: Option<Vec<String>>,
 }
 
 impl Task {
@@ -1155,12 +1240,7 @@ impl TaskBuilder {
             diagnostics: None,
             reducer_output_id,
             graph_version,
-            image_uri: self.image_uri.clone().flatten(),
             creation_time_ns,
-            secret_names: self
-                .secret_names
-                .clone()
-                .ok_or(anyhow!("secret_names is required"))?,
         };
         Ok(task)
     }

@@ -46,7 +46,6 @@ pub mod tests {
             .invocation_id(inv_id.to_string())
             .reducer_output_id(None)
             .graph_version(Default::default())
-            .secret_names(None)
             .build()
             .unwrap()
     }
