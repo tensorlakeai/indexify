@@ -25,6 +25,7 @@ class FunctionExecutorServerConfiguration:
     image_uri: Optional[str]
     secret_names: List[str]
 
+
 class FunctionExecutorServerFactory:
     """Abstract class for creating FunctionExecutorServers."""
 
