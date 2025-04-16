@@ -19,9 +19,9 @@ class FunctionExecutorServerConfiguration:
     executor_id: str
     function_executor_id: str
     namespace: str
-    graph: str
-    function: str
-    version: Optional[str]
+    graph_name: str
+    function_name: str
+    graph_version: str
     image_uri: Optional[str]
     secret_names: List[str]
 

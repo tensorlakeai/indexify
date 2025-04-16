@@ -7,9 +7,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from indexify.proto.executor_api_pb2 import (
-    FunctionExecutorDescription,
-)
+from indexify.proto.executor_api_pb2 import FunctionExecutorDescription
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
 )
@@ -335,9 +333,9 @@ async def _create_function_executor(
         namespace=function_executor_description.namespace,
         image_uri=None,
         secret_names=list(function_executor_description.secret_names),
-        graph=function_executor_description.graph_name,
-        version=function_executor_description.graph_version,
-        function=function_executor_description.function_name,
+        graph_name=function_executor_description.graph_name,
+        graph_version=function_executor_description.graph_version,
+        function_name=function_executor_description.function_name,
     )
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri

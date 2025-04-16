@@ -138,9 +138,9 @@ class SingleTaskRunner:
                 namespace=self._task_input.task.namespace,
                 image_uri=self._task_input.task.image_uri,
                 secret_names=self._task_input.task.secret_names or [],
-                graph=self._task_input.task.compute_graph,
-                version=self._task_input.task.graph_version,
-                function=self._task_input.task.compute_fn,
+                graph_name=self._task_input.task.compute_graph,
+                graph_version=self._task_input.task.graph_version,
+                function_name=self._task_input.task.compute_fn,
             )
         )
         initialize_request: InitializeRequest = InitializeRequest(
