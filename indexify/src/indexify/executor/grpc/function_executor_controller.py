@@ -7,7 +7,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from indexify.proto.executor_api_pb2 import FunctionExecutorDescription
+from indexify.proto.executor_api_pb2 import (
+    FunctionExecutorDescription,
+)
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
 )

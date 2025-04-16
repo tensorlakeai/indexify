@@ -3,7 +3,9 @@ import hashlib
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
-from indexify.proto.executor_api_pb2 import AllowedFunction
+from indexify.proto.executor_api_pb2 import (
+    AllowedFunction,
+)
 from indexify.proto.executor_api_pb2 import ExecutorFlavor as ExecutorFlavorProto
 from indexify.proto.executor_api_pb2 import (
     ExecutorState,
