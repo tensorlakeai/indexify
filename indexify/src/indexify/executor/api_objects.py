@@ -10,6 +10,25 @@ class DataPayload(BaseModel):
     content_type: Optional[str] = None
 
 
+class NodeGPU(BaseModel):
+    count: int
+    model: str
+
+
+class TaskResources(BaseModel):
+    cpus: float
+    memory_mb: int
+    ephemeral_disk_mb: int
+    gpu: Optional[NodeGPU] = None
+
+
+class TaskRetryPolicy(BaseModel):
+    max_retries: int
+    initial_delay_sec: float
+    max_delay_sec: float
+    delay_multiplier: float
+
+
 class Task(BaseModel):
     id: str
     namespace: str
@@ -27,6 +46,9 @@ class Task(BaseModel):
     input_payload: Optional[DataPayload] = None
     reducer_input_payload: Optional[DataPayload] = None
     output_payload_uri_prefix: Optional[str] = None
+    timeout: Optional[int] = None  # in seconds
+    resources: Optional[TaskResources] = None
+    retry_policy: Optional[TaskRetryPolicy] = None
 
 
 class FunctionURI(BaseModel):

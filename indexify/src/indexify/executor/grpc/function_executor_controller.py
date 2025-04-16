@@ -9,6 +9,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
+    FunctionExecutorResources,
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
@@ -42,6 +43,13 @@ def validate_function_executor_description(
     # image_uri is optional.
     # secret_names can be empty.
     # resource_limits is optional.
+    # TODO: Make resources required after we migrate Server to them.
+    # validator.required_field("resources")
+    # validator = MessageValidator(function_executor_description.resources)
+    # validator.required_field("cpu_ms_per_sec")
+    # validator.required_field("memory_bytes")
+    # validator.required_field("disk_bytes")
+    # validator.required_field("gpu_count")
 
 
 def function_executor_logger(
@@ -333,14 +341,24 @@ async def _create_function_executor(
         executor_id=executor_id,
         function_executor_id=function_executor_description.id,
         namespace=function_executor_description.namespace,
-        image_uri=None,
-        secret_names=list(function_executor_description.secret_names),
         graph_name=function_executor_description.graph_name,
         graph_version=function_executor_description.graph_version,
         function_name=function_executor_description.function_name,
+        image_uri=None,
+        secret_names=list(function_executor_description.secret_names),
+        cpu_ms_per_sec=None,
+        memory_bytes=None,
+        disk_bytes=None,
+        gpu_count=0,
     )
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri
+    if function_executor_description.HasField("resources"):
+        resources: FunctionExecutorResources = function_executor_description.resources
+        config.cpu_ms_per_sec = resources.cpu_ms_per_sec
+        config.memory_bytes = resources.memory_bytes
+        config.disk_bytes = resources.disk_bytes
+        config.gpu_count = resources.gpu_count
 
     initialize_request: InitializeRequest = InitializeRequest(
         namespace=function_executor_description.namespace,

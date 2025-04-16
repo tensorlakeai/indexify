@@ -189,6 +189,24 @@ class AllowedFunction(_message.Message):
         graph_version: _Optional[str] = ...,
     ) -> None: ...
 
+class FunctionExecutorResources(_message.Message):
+    __slots__ = ("cpu_ms_per_sec", "memory_bytes", "disk_bytes", "gpu_count")
+    CPU_MS_PER_SEC_FIELD_NUMBER: _ClassVar[int]
+    MEMORY_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DISK_BYTES_FIELD_NUMBER: _ClassVar[int]
+    GPU_COUNT_FIELD_NUMBER: _ClassVar[int]
+    cpu_ms_per_sec: int
+    memory_bytes: int
+    disk_bytes: int
+    gpu_count: int
+    def __init__(
+        self,
+        cpu_ms_per_sec: _Optional[int] = ...,
+        memory_bytes: _Optional[int] = ...,
+        disk_bytes: _Optional[int] = ...,
+        gpu_count: _Optional[int] = ...,
+    ) -> None: ...
+
 class FunctionExecutorDescription(_message.Message):
     __slots__ = (
         "id",
@@ -201,6 +219,7 @@ class FunctionExecutorDescription(_message.Message):
         "resource_limits",
         "customer_code_timeout_ms",
         "graph",
+        "resources",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -212,6 +231,7 @@ class FunctionExecutorDescription(_message.Message):
     RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
+    RESOURCES_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -222,6 +242,7 @@ class FunctionExecutorDescription(_message.Message):
     resource_limits: HostResources
     customer_code_timeout_ms: int
     graph: DataPayload
+    resources: FunctionExecutorResources
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -234,6 +255,7 @@ class FunctionExecutorDescription(_message.Message):
         resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -335,6 +357,24 @@ class ReportExecutorStateResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class TaskRetryPolicy(_message.Message):
+    __slots__ = ("max_retries", "initial_delay_ms", "max_delay_ms", "delay_multiplier")
+    MAX_RETRIES_FIELD_NUMBER: _ClassVar[int]
+    INITIAL_DELAY_MS_FIELD_NUMBER: _ClassVar[int]
+    MAX_DELAY_MS_FIELD_NUMBER: _ClassVar[int]
+    DELAY_MULTIPLIER_FIELD_NUMBER: _ClassVar[int]
+    max_retries: int
+    initial_delay_ms: int
+    max_delay_ms: int
+    delay_multiplier: int
+    def __init__(
+        self,
+        max_retries: _Optional[int] = ...,
+        initial_delay_ms: _Optional[int] = ...,
+        max_delay_ms: _Optional[int] = ...,
+        delay_multiplier: _Optional[int] = ...,
+    ) -> None: ...
+
 class Task(_message.Message):
     __slots__ = (
         "id",
@@ -349,6 +389,7 @@ class Task(_message.Message):
         "input",
         "reducer_input",
         "output_payload_uri_prefix",
+        "retry_policy",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -362,6 +403,7 @@ class Task(_message.Message):
     INPUT_FIELD_NUMBER: _ClassVar[int]
     REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -374,6 +416,7 @@ class Task(_message.Message):
     input: DataPayload
     reducer_input: DataPayload
     output_payload_uri_prefix: str
+    retry_policy: TaskRetryPolicy
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -388,6 +431,7 @@ class Task(_message.Message):
         input: _Optional[_Union[DataPayload, _Mapping]] = ...,
         reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
         output_payload_uri_prefix: _Optional[str] = ...,
+        retry_policy: _Optional[_Union[TaskRetryPolicy, _Mapping]] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):

@@ -83,6 +83,15 @@ enum FunctionExecutorStatus {
 }
 
 // Immutable information that identifies and describes a Function Executor.
+message FunctionExecutorResources {
+    // 1000 CPU ms per sec is one full CPU core.
+    // 2000 CPU ms per sec is two full CPU cores.
+    optional uint32 cpu_ms_per_sec = 1;
+    optional uint64 memory_bytes = 2;
+    optional uint64 disk_bytes = 3;
+    optional uint32 gpu_count = 4;
+}
+
 message FunctionExecutorDescription {
     optional string id = 1;
     optional string namespace = 2;
@@ -95,6 +104,7 @@ message FunctionExecutorDescription {
     // Timeout for customer code duration during FE creation.
     optional uint32 customer_code_timeout_ms = 9;
     optional DataPayload graph = 10;
+    optional FunctionExecutorResources resources = 11;
 }
 
 message FunctionExecutorState {
@@ -150,6 +160,14 @@ message ReportExecutorStateResponse {
 }
 
 // ===== get_desired_executor_states RPC =====
+message TaskRetryPolicy {
+    optional uint32 max_retries = 1;
+    optional uint32 initial_delay_ms = 2;
+    optional uint32 max_delay_ms = 3;
+    // The multiplier value is 1000x of the actual value to avoid working with floating point.
+    optional uint32 delay_multiplier = 4;
+}
+
 message Task {
     optional string id = 1;
     optional string namespace = 2;
@@ -166,6 +184,7 @@ message Task {
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     optional string output_payload_uri_prefix = 13;
+    optional TaskRetryPolicy retry_policy = 14;
 }
 
 message TaskAllocation {

@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from math import ceil
 from typing import Any, Optional
 
 import grpc
@@ -131,16 +132,33 @@ class SingleTaskRunner:
         self._function_executor_state.function_executor = FunctionExecutor(
             server_factory=self._function_executor_server_factory, logger=self._logger
         )
+        task: Task = self._task_input.task
         config: FunctionExecutorServerConfiguration = (
             FunctionExecutorServerConfiguration(
                 executor_id=self._executor_id,
                 function_executor_id=self._function_executor_state.id,
-                namespace=self._task_input.task.namespace,
-                image_uri=self._task_input.task.image_uri,
-                secret_names=self._task_input.task.secret_names or [],
-                graph_name=self._task_input.task.compute_graph,
-                graph_version=self._task_input.task.graph_version,
-                function_name=self._task_input.task.compute_fn,
+                namespace=task.namespace,
+                graph_name=task.compute_graph,
+                graph_version=task.graph_version,
+                function_name=task.compute_fn,
+                image_uri=task.image_uri,
+                secret_names=task.secret_names or [],
+                cpu_ms_per_sec=(
+                    None
+                    if task.resources.cpus is None
+                    else ceil(task.resources.cpus * 1000)
+                ),
+                memory_bytes=(
+                    None
+                    if task.resources.memory_mb is None
+                    else task.resources.memory_mb * 1024 * 1024
+                ),
+                disk_bytes=(
+                    None
+                    if task.resources.ephemeral_disk_mb is None
+                    else task.resources.ephemeral_disk_mb * 1024 * 1024
+                ),
+                gpu_count=0 if task.resources.gpu is None else task.resources.gpu.count,
             )
         )
         initialize_request: InitializeRequest = InitializeRequest(
