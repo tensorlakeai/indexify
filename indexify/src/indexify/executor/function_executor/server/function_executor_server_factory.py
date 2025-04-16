@@ -19,9 +19,11 @@ class FunctionExecutorServerConfiguration:
     executor_id: str
     function_executor_id: str
     namespace: str
+    graph: str
+    function: str
+    version: Optional[str]
     image_uri: Optional[str]
     secret_names: List[str]
-
 
 class FunctionExecutorServerFactory:
     """Abstract class for creating FunctionExecutorServers."""

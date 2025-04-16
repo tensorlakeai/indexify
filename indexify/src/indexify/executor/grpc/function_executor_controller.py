@@ -335,6 +335,9 @@ async def _create_function_executor(
         namespace=function_executor_description.namespace,
         image_uri=None,
         secret_names=list(function_executor_description.secret_names),
+        graph=function_executor_description.graph_name,
+        version=function_executor_description.graph_version,
+        function=function_executor_description.function_name,
     )
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri
