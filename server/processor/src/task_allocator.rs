@@ -1,30 +1,32 @@
-use std::vec;
+use std::{
+    time::{Duration, SystemTime},
+    vec,
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
     AllocationBuilder,
     ChangeType,
+    ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
     FunctionExecutorId,
+    FunctionExecutorServerMetadata,
+    FunctionExecutorState,
     FunctionExecutorStatus,
-    FunctionURI,
+    GraphVersion,
     Task,
     TaskStatus,
 };
+use im::HashMap;
 use itertools::Itertools;
-use rand::seq::SliceRandom;
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::{FunctionExecutorIdWithExecutionId, SchedulerUpdateRequest},
 };
-use tracing::{debug, error, info, span, trace};
-
-pub struct FilteredExecutors {
-    pub executors: Vec<ExecutorId>,
-}
+use tracing::{debug, error, info, span, warn};
 
 // Maximum number of allocations per executor.
 //
@@ -34,40 +36,65 @@ pub struct FilteredExecutors {
 // - function timeout configuration
 const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
+// Maximum number of function executors allowed for each function on each
+// executor.
+//
+// In the future, this should be a dynamic value based on:
+// - function max concurrent function executors configuration
+// - the QoS of the system / invocation
+const MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR: usize = 1;
+
+// Timeout for idle function executors (20 minutes)
+// 20 minutes is used in order to support 15min synthetic tests
+// keeping the function executors warm.
+//
+// In the future, this should be a dynamic value based on:
+// - function idle timeout configuration
+const IDLE_TIMEOUT_MS: u64 = 20 * 60 * 1000;
+
+// Define the capacity threshold to trigger new FE creation (95%)
+// This represents the percentage of capacity that triggers new FE creation.
+//
+// In the future, this should be a dynamic value based on:
+// - Estimated pending tasks for this function based on pending invocations
+// - Historical invocation creation trends
+// - Task priority or QoS requirements
+// - Startup time of new function executors
+const CAPACITY_THRESHOLD: f64 = 0.95;
+
 #[derive(Debug, Clone)]
-// Define a struct to represent a candidate executor for allocation
-pub struct ExecutorCandidate {
-    pub executor_id: ExecutorId,
-    pub function_executor_id: Option<FunctionExecutorId>, // None if needs to be created
-    pub function_uri: FunctionURI,
-    pub allocation_count: usize, // Number of allocations for this function executor
+struct ExecutorCandidate {
+    executor_id: ExecutorId,
+    function_executor_id: Option<FunctionExecutorId>, // None if needs to be created
+    allocation_count: usize,                          /* Number of allocations for this function
+                                                       * executor */
+    capacity_percentage: f64, // Percentage of capacity used (0.0-1.0)
+    is_dev_executor: bool,    // Flag to indicate if this is a dev executor
+    needs_creation: bool,     // Flag to indicate if this is a creation candidate
 }
 
-pub struct TaskAllocationProcessor {}
+pub struct TaskAllocationProcessor {
+    in_memory_state: Box<InMemoryState>,
+}
 
 impl TaskAllocationProcessor {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(in_memory_state: Box<InMemoryState>) -> Self {
+        Self { in_memory_state }
     }
-}
-impl TaskAllocationProcessor {
-    #[tracing::instrument(skip(self, change, indexes))]
-    pub fn invoke(
-        &self,
-        change: &ChangeType,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+
+    #[tracing::instrument(skip(self, change))]
+    pub fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::ExecutorUpserted(ev) => {
-                let mut update = self.reconcile_executor_state(&ev.executor_id, indexes)?;
-                update.extend(self.allocate(indexes)?);
+                let mut update = self.reconcile_executor_state(&ev.executor_id)?;
+                update.extend(self.allocate()?);
                 return Ok(update);
             }
             ChangeType::ExecutorRemoved(_) => {
-                let update = self.allocate(indexes)?;
+                let update = self.allocate()?;
                 return Ok(update);
             }
-            ChangeType::TombStoneExecutor(ev) => self.deregister_executor(&ev.executor_id, indexes),
+            ChangeType::TombStoneExecutor(ev) => self.deregister_executor(&ev.executor_id),
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));
@@ -75,104 +102,334 @@ impl TaskAllocationProcessor {
         }
     }
 
-    // Updated allocate_tasks to use the new approach
-    #[tracing::instrument(skip(self, tasks, indexes))]
-    pub fn allocate_tasks(
-        &self,
-        tasks: Vec<Box<Task>>,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    /// Allocate attempts to allocate unallocated tasks to function executors.
+    /// It first runs a vacuum phase to clean up any stale function executors.
+    #[tracing::instrument(skip(self))]
+    pub fn allocate(&mut self) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        for mut task in tasks {
-            let span = span!(
-                tracing::Level::DEBUG,
-                "allocate_task",
-                task_id = task.id.to_string(),
+        // Step 1: Run vacuum phase
+        let vacuum_update = self.vacuum_phase()?;
+        update.extend(vacuum_update);
+
+        // Step 2: Fetch unallocated tasks
+        let unallocated_task_ids = self.in_memory_state.unallocated_tasks.clone();
+        let mut tasks = Vec::new();
+        for unallocated_task_id in &unallocated_task_ids {
+            if let Some(task) = self
+                .in_memory_state
+                .tasks
+                .get(&unallocated_task_id.task_key)
+            {
+                tasks.push(task.clone());
+            } else {
+                error!(
+                    task_key = unallocated_task_id.task_key,
+                    "task not found in indexes for unallocated task"
+                );
+            }
+        }
+
+        debug!("found {} unallocated tasks to process", tasks.len());
+
+        // Step 3: Allocate tasks
+        update.extend(self.allocate_tasks(tasks)?);
+
+        Ok(update)
+    }
+
+    #[tracing::instrument(skip(self, tasks))]
+    pub fn allocate_tasks(&mut self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        // Step 1: Process tasks
+        for task in tasks {
+            match self.process_task(&task) {
+                Ok((Some(allocation), new_fe_meta, Some(updated_task))) => {
+                    debug!(
+                        task_id = task.id.to_string(),
+                        "task {} allocated to function executor {}",
+                        task.id,
+                        allocation.function_executor_id.get(),
+                    );
+
+                    // We have a successful allocation
+
+                    // 1. Add new function executor if needed
+                    if let Some(fe_meta) = new_fe_meta {
+                        // Add to update
+                        update.new_function_executors.push(fe_meta.clone());
+
+                        // Create metadata
+                        // Add to in-memory state
+                        self.in_memory_state
+                            .function_executors_by_executor
+                            .entry(fe_meta.executor_id.clone())
+                            .or_default()
+                            .entry(fe_meta.function_executor.id.clone())
+                            .or_insert_with(|| Box::new(fe_meta));
+                    }
+
+                    // 2. Add allocation
+                    update.new_allocations.push(allocation.clone());
+
+                    // Update in-memory state for allocation
+                    self.in_memory_state
+                        .allocations_by_executor
+                        .entry(allocation.executor_id.clone())
+                        .or_default()
+                        .entry(allocation.function_executor_id.clone())
+                        .or_default()
+                        .push_back(Box::new(allocation.clone()));
+
+                    // 3. Update task
+                    update
+                        .updated_tasks
+                        .insert(updated_task.id.clone(), *updated_task.clone());
+
+                    // Update in-memory state for task
+                    self.in_memory_state
+                        .tasks
+                        .insert(updated_task.key(), updated_task.clone());
+                    self.in_memory_state
+                        .unallocated_tasks
+                        .remove(&UnallocatedTaskId::new(&updated_task));
+
+                    // 4. Update last_allocation_at for the function executor
+                    self.in_memory_state
+                        .function_executors_by_executor
+                        .entry(allocation.executor_id.clone())
+                        .or_default()
+                        .entry(allocation.function_executor_id.clone())
+                        .and_modify(|fe_metadata| {
+                            fe_metadata.last_allocation_at = Some(SystemTime::now());
+                        });
+                }
+                Ok((None, Some(fe_metadata), None)) => {
+                    debug!(
+                        task_id = task.id.to_string(),
+                        "task {} created function executor {}",
+                        task.id,
+                        fe_metadata.function_executor.id.get(),
+                    );
+                    // We created a function executor but couldn't allocate to it
+
+                    // Add to update
+                    update.new_function_executors.push(fe_metadata.clone());
+
+                    // Add to in-memory state
+                    self.in_memory_state
+                        .function_executors_by_executor
+                        .entry(fe_metadata.executor_id.clone())
+                        .or_default()
+                        .entry(fe_metadata.function_executor.id.clone())
+                        .or_insert_with(|| Box::new(fe_metadata));
+                }
+                Ok(_) => {
+                    debug!(
+                        task_id = task.id.to_string(),
+                        "task {} could not be allocated and could not create a function executor",
+                        task.id,
+                    );
+                    // No allocation happened
+                }
+                Err(err) => {
+                    error!("Error processing task {}: {:?}", task.id, err);
+                }
+            }
+        }
+
+        Ok(update)
+    }
+
+    // Process a single task - handling both allocation and FE creation
+    #[tracing::instrument(skip(self, task))]
+    fn process_task(
+        &self,
+        task: &Task,
+    ) -> Result<(
+        Option<Allocation>,
+        Option<FunctionExecutorServerMetadata>,
+        Option<Box<Task>>,
+    )> {
+        let span = span!(
+            tracing::Level::DEBUG,
+            "process_task",
+            task_id = task.id.to_string(),
+            namespace = task.namespace,
+            compute_graph = task.compute_graph_name,
+            compute_fn = task.compute_fn_name,
+            invocation_id = task.invocation_id
+        );
+        let _enter = span.enter();
+
+        if task.outcome.is_terminal() {
+            error!("task: {} already completed, skipping", task.id);
+            return Ok((None, None, None));
+        }
+
+        debug!("attempting to allocate task {:?} ", task.id);
+
+        // Function executor allocation phase - get unified sorted candidates
+        let candidates = self.function_executor_allocation_phase(task)?;
+
+        // Variables to track the results
+        let mut allocation = None;
+        let mut new_fe = None;
+        let mut updated_task = None;
+        let creation_needed;
+
+        // Process candidates in order of priority
+        if !candidates.is_empty() {
+            // Get the best candidate
+            let best_candidate = &candidates[0];
+
+            if !best_candidate.needs_creation {
+                // Try to allocate to existing FE
+                match self.create_allocation(task, best_candidate) {
+                    Ok(alloc) => {
+                        // Create a task with updated status
+                        let mut task_update = Box::new(task.clone());
+                        task_update.status = TaskStatus::Running;
+
+                        allocation = Some(alloc);
+                        updated_task = Some(task_update);
+
+                        // Check if we need to create a new FE due to high capacity
+                        creation_needed = best_candidate.capacity_percentage >= CAPACITY_THRESHOLD;
+                    }
+                    Err(err) => {
+                        error!("Failed to create allocation to existing FE: {:?}", err);
+                        creation_needed = true;
+                    }
+                }
+            } else {
+                // Best candidate requires creation
+                creation_needed = true;
+            }
+
+            // Create a new FE if needed
+            if creation_needed {
+                // Find the best creation candidate
+                let creation_candidate = candidates.iter().find(|c| c.needs_creation);
+
+                if let Some(creation_candidate) = creation_candidate {
+                    // Create FE - it needs to start up before it can be allocated to
+                    let fe = self
+                        .create_function_executor_metadata(task, &creation_candidate.executor_id);
+
+                    new_fe = Some(fe.clone());
+
+                    // If we don't already have an allocation, try to allocate to this new FE
+                    if allocation.is_none() {
+                        // Create a candidate with the new FE ID for allocation
+                        let new_fe_candidate = ExecutorCandidate {
+                            executor_id: creation_candidate.executor_id.clone(),
+                            function_executor_id: Some(fe.function_executor.id.clone()),
+                            allocation_count: 0,
+                            capacity_percentage: 0.0,
+                            is_dev_executor: creation_candidate.is_dev_executor,
+                            needs_creation: false,
+                        };
+
+                        // Try to allocate to the new FE
+                        match self.create_allocation(task, &new_fe_candidate) {
+                            Ok(alloc) => {
+                                debug!(
+                                    "Allocated task {} to newly created function executor {}",
+                                    task.id,
+                                    fe.function_executor.id.get()
+                                );
+
+                                // Create a task with updated status
+                                let mut task_update = Box::new(task.clone());
+                                task_update.status = TaskStatus::Running;
+
+                                allocation = Some(alloc);
+                                updated_task = Some(task_update);
+
+                                // Update the new FE's last_allocation_at time
+                                if let Some(ref mut fe_metadata) = new_fe {
+                                    fe_metadata.last_allocation_at = Some(SystemTime::now());
+                                }
+                            }
+                            Err(err) => {
+                                // This is expected since the FE isn't actually running yet
+                                debug!(
+                                    "Could not immediately allocate to new function executor: {:?}",
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we didn't allocate or create anything
+        if allocation.is_none() && new_fe.is_none() {
+            info!(
                 namespace = task.namespace,
                 compute_graph = task.compute_graph_name,
                 compute_fn = task.compute_fn_name,
-                invocation_id = task.invocation_id
+                invocation_id = task.invocation_id,
+                task_id = task.id.to_string(),
+                "no suitable candidates available for task"
             );
-            let _enter = span.enter();
+        }
 
-            if task.outcome.is_terminal() {
-                error!("task: {} already completed, skipping", task.id);
-                continue;
-            }
+        Ok((allocation, new_fe, updated_task))
+    }
 
-            debug!("attempting to allocate task {:?} ", task.id);
+    // Vacuum phase - returns scheduler update for cleanup actions
+    #[tracing::instrument(skip(self))]
+    fn vacuum_phase(&mut self) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+        let function_executors_to_mark = self.identify_executors_to_remove()?;
+        debug!(
+            "vacuum phase identified {} function executors to mark for termination",
+            function_executors_to_mark.len()
+        );
 
-            match self.allocate_task(&task, indexes) {
-                Ok(Some((allocation, function_executor))) => {
-                    info!(
-                        task_id = &task.id.to_string(),
-                        namespace = &task.namespace,
-                        compute_graph = &task.compute_graph_name,
-                        compute_fn = &task.compute_fn_name,
-                        invocation_id = &task.invocation_id,
-                        executor_id = &allocation.executor_id.get(),
-                        function_executor_id = &allocation.function_executor_id.get(),
-                        "allocated task"
+        // Mark FEs for termination (change desired state to Terminated)
+        // but don't actually remove them - reconciliation will handle that
+        for (executor_id, fe_id) in &function_executors_to_mark {
+            // Get the existing FE metadata
+            if let Some(fe_metadata) = self
+                .in_memory_state
+                .function_executors_by_executor
+                .get(executor_id)
+                .and_then(|fe_map| fe_map.get(fe_id))
+            {
+                // Only update if not already terminated
+                if fe_metadata.desired_state != FunctionExecutorState::Terminated {
+                    // Create updated metadata with Terminated state
+                    let updated_fe_metadata = FunctionExecutorServerMetadata::new(
+                        executor_id.clone(),
+                        fe_metadata.function_executor.clone(),
+                        FunctionExecutorState::Terminated,
+                        fe_metadata.last_allocation_at,
                     );
 
-                    // Record the allocation
-                    {
-                        update.new_allocations.push(allocation.clone());
+                    // Add to update
+                    update
+                        .new_function_executors
+                        .push(updated_fe_metadata.clone());
 
-                        indexes
-                            .allocations_by_executor
-                            .entry(allocation.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.function_executor_id.clone())
-                            .or_default()
-                            .push_back(Box::new(allocation.clone()));
-                    }
+                    // Update in-memory state
+                    self.in_memory_state
+                        .function_executors_by_executor
+                        .entry(executor_id.clone())
+                        .or_default()
+                        .entry(fe_id.clone())
+                        .and_modify(|existing| {
+                            **existing = updated_fe_metadata;
+                        });
 
-                    // Record new function executor
-                    if let Some(function_executor) = function_executor {
-                        update
-                            .new_function_executors
-                            .push(function_executor.clone());
-
-                        indexes
-                            .function_executors_by_executor
-                            .entry(allocation.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.function_executor_id.clone())
-                            .or_insert_with(|| Box::new(function_executor));
-                    }
-                    // Record task status update
-                    {
-                        task.status = TaskStatus::Running;
-                        update.updated_tasks.insert(task.id.clone(), *task.clone());
-
-                        indexes.tasks.insert(task.key(), task.clone());
-                        indexes
-                            .unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(&task));
-                    }
-                }
-                Ok(None) => {
                     debug!(
-                        task_id = task.id.to_string(),
-                        namespace = task.namespace,
-                        compute_graph = task.compute_graph_name,
-                        compute_fn = task.compute_fn_name,
-                        invocation_id = task.invocation_id.to_string(),
-                        "no executors available for task"
-                    );
-                }
-                Err(err) => {
-                    error!(
-                        task_id = task.id.to_string(),
-                        namespace = task.namespace,
-                        compute_graph = task.compute_graph_name,
-                        compute_fn = task.compute_fn_name,
-                        compute_graph_version = task.graph_version.0,
-                        invocation_id = task.invocation_id.to_string(),
-                        "failed to allocate task, skipping: {:?}",
-                        err
+                        "Marked function executor {} on executor {} for termination",
+                        fe_id.get(),
+                        executor_id.get()
                     );
                 }
             }
@@ -181,40 +438,396 @@ impl TaskAllocationProcessor {
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
-    pub fn reconcile_executor_state(
+    // Identify function executors that should be removed in vacuum phase
+    #[tracing::instrument(skip(self))]
+    fn identify_executors_to_remove(&self) -> Result<Vec<(ExecutorId, FunctionExecutorId)>> {
+        let mut function_executors_to_remove = Vec::new();
+
+        // For each executor in the system
+        for (executor_id, executor) in &self.in_memory_state.executors {
+            if executor.tombstoned {
+                continue;
+            }
+
+            // Get function executors for this executor from our in-memory state
+            let function_executors = self
+                .in_memory_state
+                .function_executors_by_executor
+                .get(executor_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Process each function executor based on allowlist and version status
+            for (fe_id, fe_metadata) in function_executors.iter() {
+                let fe = &fe_metadata.function_executor;
+
+                // Check if this FE is in the executor's allowlist
+                let allowlist_entry = executor
+                    .function_allowlist
+                    .as_ref()
+                    .and_then(|allowlist| allowlist.iter().find(|f| fe.matches_fn_uri(f)));
+
+                // IDLE TIMEOUT CHECK:
+                // Check if function executor has been idle for more than the timeout period
+                // (20min) regardless of dev mode or allowlist status
+                if let Some(last_allocation_time) = fe_metadata.last_allocation_at {
+                    let timeout = Duration::from_millis(IDLE_TIMEOUT_MS);
+
+                    // TODO: Add a jitter to the timeout
+
+                    if let Ok(idle_duration) =
+                        SystemTime::now().duration_since(last_allocation_time)
+                    {
+                        if idle_duration > timeout {
+                            debug!(
+                            "Removing idle timed-out function executor {} from executor {}, idle for {:?}",
+                            fe_id.get(), executor_id.get(), idle_duration
+                        );
+                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                            continue; // Skip further checks since we're
+                                      // removing this FE
+                        }
+                    }
+                }
+
+                // VERSION CHECK:
+                // Check if the FE is using an outdated version
+                if let Some(latest_version) = self.get_latest_function_version(fe) {
+                    if fe.version != latest_version {
+                        // Handle the case of an allowlist explicitly specifying the older version
+                        if let Some(allowlist_entry) = allowlist_entry {
+                            if let Some(allowlist_version) = &allowlist_entry.version {
+                                if allowlist_version == &fe.version {
+                                    // Allowlist explicitly specifies this older version - keep it
+                                    // but warn
+                                    warn!(
+                                    "Function executor {} on executor {} is using outdated version {} (latest is {}), but is explicitly allowlisted with this version",
+                                    fe_id.get(), executor_id.get(), fe.version, latest_version
+                                );
+                                    continue; // Skip further checks, we're
+                                              // keeping this FE
+                                }
+                            }
+                        }
+
+                        // Check if this FE has any pending invocations with its current version
+                        let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
+
+                        if !has_pending_invocations {
+                            // Can remove this outdated FE since it has no active invocations,
+                            // regardless of dev mode or allowlist status
+                            debug!(
+                            "Removing outdated function executor {} from executor {} (version {} < latest {})",
+                            fe_id.get(), executor_id.get(), fe.version, latest_version
+                        );
+                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                        }
+                    }
+                } else {
+                    // No latest version found - this could be a new function or a missing compute
+                    // graph
+                    warn!(
+                        "No latest version found for function executor {} on executor {} - all {:#?} - {}",
+                        fe_id.get(),
+                        executor_id.get(),
+                        self.in_memory_state.compute_graphs, ComputeGraph::key_from(&fe.namespace, &fe.compute_fn_name),
+                    );
+                }
+            }
+        }
+
+        Ok(function_executors_to_remove)
+    }
+
+    // Helper function to get the latest version of a function
+    // This would need access to compute graph versions
+    fn get_latest_function_version(&self, fe: &FunctionExecutor) -> Option<GraphVersion> {
+        self.in_memory_state
+            .compute_graphs
+            .get(&ComputeGraph::key_from(
+                &fe.namespace,
+                &fe.compute_graph_name,
+            ))
+            .map(|cg| cg.version.clone())
+    }
+
+    // Helper function to check if an FE has any pending invocations with its
+    // version
+    fn has_pending_invocations(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+        // Check if there are any allocations for this FE with pending tasks
+        if let Some(allocations_by_fe) = self
+            .in_memory_state
+            .allocations_by_executor
+            .get(&fe_meta.executor_id)
+        {
+            if let Some(allocations) = allocations_by_fe.get(&fe_meta.function_executor.id) {
+                for allocation in allocations {
+                    if let Some(task) = self.in_memory_state.tasks.get(&allocation.task_key()) {
+                        if !task.outcome.is_terminal() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    // Function executor allocation phase - returns candidates for existing and
+    // to-be-created FEs
+    #[tracing::instrument(skip(self, task))]
+    fn function_executor_allocation_phase(&self, task: &Task) -> Result<Vec<ExecutorCandidate>> {
+        let mut candidates = Vec::new();
+
+        // For each executor in the system
+        for (executor_id, executor) in &self.in_memory_state.executors {
+            if executor.tombstoned {
+                continue;
+            }
+
+            // Check if this executor can handle this task according to allowlist
+            let is_allowlisted = executor
+                .function_allowlist
+                .as_ref()
+                .map_or(false, |allowlist| {
+                    allowlist.iter().any(|f| f.matches_task(task))
+                });
+
+            // Skip if not allowlisted and not in development mode
+            if !is_allowlisted && !executor.development_mode {
+                debug!(
+                    "executor not allowlisted for function {} - {:#?}",
+                    task.function_uri(),
+                    executor,
+                );
+                continue;
+            }
+
+            // Get existing function executors for this executor
+            let function_executors = self
+                .in_memory_state
+                .function_executors_by_executor
+                .get(executor_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Check for an existing matching function executor
+            let matching_fe_metadata = function_executors
+                .iter()
+                .find(|(_, fe_metadata)| fe_metadata.function_executor.matches_task(task))
+                .map(|(id, metadata)| (id.clone(), metadata.clone()));
+
+            match matching_fe_metadata {
+                Some((fe_id, fe_metadata)) => {
+                    // Check if this FE is in Running state - skip if not
+                    if fe_metadata.desired_state != FunctionExecutorState::Running {
+                        debug!(
+                    "function executor {} is not in Running state (current state: {:?}), skipping",
+                    fe_id.get(),
+                    fe_metadata.desired_state
+                );
+                        continue;
+                    }
+
+                    // Check if this FE has capacity
+                    let allocation_count = self.get_allocation_count(executor_id, &fe_id);
+                    let capacity_percentage =
+                        allocation_count as f64 / MAX_ALLOCATIONS_PER_FN_EXECUTOR as f64;
+
+                    // Add as a candidate
+                    let candidate = ExecutorCandidate {
+                        executor_id: executor_id.clone(),
+                        function_executor_id: Some(fe_id),
+                        allocation_count,
+                        capacity_percentage,
+                        is_dev_executor: executor.development_mode,
+                        needs_creation: false,
+                    };
+
+                    candidates.push(candidate);
+
+                    // If this FE is nearing capacity, also consider creating a new one
+                    if capacity_percentage >= CAPACITY_THRESHOLD {
+                        // Count existing FEs for this function (ignoring version)
+                        let existing_fe_count = function_executors
+                            .iter()
+                            .filter(|(_, fe_metadata)| {
+                                let fe = &fe_metadata.function_executor;
+                                fe.namespace == task.namespace &&
+                                    fe.compute_graph_name == task.compute_graph_name &&
+                                    fe.compute_fn_name == task.compute_fn_name
+                            })
+                            .count();
+
+                        // Check if we can create a new FE
+                        if existing_fe_count < MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR {
+                            // Also add a creation candidate
+                            let creation_candidate = ExecutorCandidate {
+                                executor_id: executor_id.clone(),
+                                function_executor_id: None, // Will be created if selected
+                                allocation_count: 0,        // New FE has no allocations
+                                capacity_percentage: 0.0,   // New FE has no capacity used
+                                is_dev_executor: executor.development_mode,
+                                needs_creation: true,
+                            };
+
+                            candidates.push(creation_candidate);
+                        }
+                    }
+                }
+                None => {
+                    // No matching FE found - see if we can create one
+
+                    // Count existing FEs for this function (ignoring version)
+                    let existing_fe_count = function_executors
+                        .iter()
+                        .filter(|(_, fe_metadata)| {
+                            let fe = &fe_metadata.function_executor;
+                            fe.namespace == task.namespace &&
+                                fe.compute_graph_name == task.compute_graph_name &&
+                                fe.compute_fn_name == task.compute_fn_name
+                        })
+                        .count();
+
+                    // Check if we can create a new FE
+                    if existing_fe_count < MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR {
+                        // Add as candidate that needs creation
+                        let candidate = ExecutorCandidate {
+                            executor_id: executor_id.clone(),
+                            function_executor_id: None, // Will be created if selected
+                            allocation_count: 0,        // New FE has no allocations
+                            capacity_percentage: 0.0,   // New FE has no capacity used
+                            is_dev_executor: executor.development_mode,
+                            needs_creation: true,
+                        };
+
+                        candidates.push(candidate);
+                    }
+                }
+            }
+        }
+
+        // Sort candidates by priority:
+        // 1. First, prefer existing FEs (needs_creation = false)
+        // 2. Then by dev mode (prefer non-dev)
+        // 3. Then by allocation count (prefer fewer allocations)
+        candidates.sort_by(|a, b| {
+            // First sort by creation status (existing FEs first)
+            let creation_cmp = a.needs_creation.cmp(&b.needs_creation);
+            if creation_cmp != std::cmp::Ordering::Equal {
+                return creation_cmp;
+            }
+
+            // Then sort by dev mode (non-dev first)
+            let dev_cmp = a.is_dev_executor.cmp(&b.is_dev_executor);
+            if dev_cmp != std::cmp::Ordering::Equal {
+                return dev_cmp;
+            }
+
+            // Then sort by allocation count (fewer allocations first)
+            a.allocation_count.cmp(&b.allocation_count)
+        });
+
+        Ok(candidates)
+    }
+
+    // Helper function to get allocation count for a function executor
+    fn get_allocation_count(&self, executor_id: &ExecutorId, fe_id: &FunctionExecutorId) -> usize {
+        self.in_memory_state
+            .allocations_by_executor
+            .get(executor_id)
+            .and_then(|alloc_map| alloc_map.get(fe_id))
+            .map(|allocs| allocs.len())
+            .unwrap_or(0)
+    }
+
+    // Helper function to create a function executor metadata
+    fn create_function_executor_metadata(
         &self,
+        task: &Task,
         executor_id: &ExecutorId,
-        indexes: &mut Box<InMemoryState>,
+    ) -> FunctionExecutorServerMetadata {
+        // Create a new function executor
+        let function_executor_id = FunctionExecutorId::default();
+
+        let function_executor = FunctionExecutor {
+            id: function_executor_id,
+            namespace: task.namespace.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            compute_fn_name: task.compute_fn_name.clone(),
+            version: task.graph_version.clone(),
+            secret_names: task.secret_names.clone().unwrap_or_default(),
+            image_uri: task.image_uri.clone(),
+            // TODO: Support timeouts
+            customer_code_timeout_ms: None,
+            // TODO: Support resource limits
+            resource_limits: None,
+            status: FunctionExecutorStatus::Unknown,
+        };
+        // Create with current timestamp for last_allocation_at
+        FunctionExecutorServerMetadata::new(
+            executor_id.clone(),
+            function_executor,
+            FunctionExecutorState::Pending, // Start with Pending state
+            None,
+        )
+    }
+
+    // Helper function to create an allocation
+    #[tracing::instrument(skip(self, task, candidate))]
+    fn create_allocation(&self, task: &Task, candidate: &ExecutorCandidate) -> Result<Allocation> {
+        let fe_id = match &candidate.function_executor_id {
+            Some(id) => id.clone(),
+            None => return Err(anyhow!("No function executor ID available for allocation")),
+        };
+
+        let allocation = AllocationBuilder::default()
+            .namespace(task.namespace.clone())
+            .compute_graph(task.compute_graph_name.clone())
+            .compute_fn(task.compute_fn_name.clone())
+            .invocation_id(task.invocation_id.clone())
+            .task_id(task.id.clone())
+            .executor_id(candidate.executor_id.clone())
+            .function_executor_id(fe_id)
+            .build()?;
+
+        Ok(allocation)
+    }
+
+    #[tracing::instrument(skip(self, executor_id))]
+    fn reconcile_executor_state(
+        &mut self,
+        executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        let executor = indexes
+        let executor = self
+            .in_memory_state
             .executors
             .get(&executor_id)
             .ok_or(anyhow!("executor not found"))?
             .clone();
 
-        trace!(
+        debug!(
             "reconciling executor state for executor {} - {:#?}",
             executor_id.get(),
             executor
         );
 
         // Reconcile the function executors with the allowlist.
-        update.extend(self.reconcile_allowlist(&executor, indexes)?);
+        update.extend(self.reconcile_allowlist(&executor)?);
 
         // Reconcile function executors
-        update.extend(self.reconcile_function_executors(&executor, indexes)?);
+        update.extend(self.reconcile_function_executors(&executor)?);
 
         return Ok(update);
     }
 
-    #[tracing::instrument(skip(self, executor, indexes))]
+    #[tracing::instrument(skip(self, executor))]
     fn reconcile_allowlist(
-        &self,
+        &mut self,
         executor: &ExecutorMetadata,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -250,11 +863,8 @@ impl TaskAllocationProcessor {
                 );
             }
 
-            update.extend(self.remove_function_executors(
-                &executor.id,
-                &all_function_executor_ids,
-                indexes,
-            )?);
+            update
+                .extend(self.remove_function_executors(&executor.id, &all_function_executor_ids)?);
         } else {
             // Has non-empty allowlist - remove only non-allowlisted executors
             let function_executor_ids_without_allowlist = executor
@@ -286,95 +896,251 @@ impl TaskAllocationProcessor {
             update.extend(self.remove_function_executors(
                 &executor.id,
                 &function_executor_ids_without_allowlist,
-                indexes,
             )?);
         }
 
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor, indexes))]
+    #[tracing::instrument(skip(self, executor))]
     fn reconcile_function_executors(
-        &self,
+        &mut self,
         executor: &ExecutorMetadata,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // TODO: handle function executor statuses
+        // Consider both Running and Pending function executors from the executor as
+        // valid
+        let valid_function_executors = executor
+            .function_executors
+            .iter()
+            .filter(|(_, fe)| {
+                let state = fe.status.as_state();
+                state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending
+            })
+            .collect::<HashMap<_, _>>();
 
         // Get the function executors from the indexes
-        let function_executors_in_indexes = indexes
+        let function_executors_in_indexes = self
+            .in_memory_state
             .function_executors_by_executor
             .get(&executor.id)
             .cloned()
             .unwrap_or_default();
 
-        // Find function executor IDs in the indexes that don't match any in the
-        // executor
+        // Step 1: Identify and remove FEs that should be removed
+        // Cases when we should remove:
+        // 1. FE in our indexes has desired_state=Running but doesn't exist in
+        //    executor's valid list
+        // 2. FE in our indexes has desired_state=Terminated (marked by vacuum phase)
+        // 3. FE in executor has status mapping to Terminated state
+        // Note: We should never remove a FE that is in Pending state in our indexes if
+        // not present in executor's list, since it may still be creating.
         let function_executor_ids_to_remove = function_executors_in_indexes
-            .iter()
-            .filter_map(|(indexed_fe_id, indexed_fe)| {
-                // Check if there's a direct ID match in the executor's function executors
-                let id_match_exists = executor.function_executors.contains_key(indexed_fe_id);
+        .iter()
+        .filter_map(|(indexed_fe_id, indexed_fe)| {
+            // Case 1: If our indexed FE is marked as Terminated, remove it
+            if indexed_fe.desired_state == FunctionExecutorState::Terminated {
+                debug!(
+                    "Removing function executor {} that was marked for termination",
+                    indexed_fe_id.get()
+                );
+                return Some(indexed_fe_id.clone());
+            }
 
-                if id_match_exists {
-                    // Direct ID match found, keep it
-                    None
-                } else {
-                    // Temporary handle not versioned function executors
-                    // Not versioned function executors are those that start with "not_versioned/".
-                    // Which are the ones created by the host executor using the task stream as
-                    // opposed to the get_desired_state stream.
-                    let not_versioned_match_exists =
-                        executor.function_executors.iter().any(|(fe_id, fe)| {
-                            if fe_id.get().starts_with("not_versioned/") {
-                                // Compare function URIs
-                                indexed_fe.matches(&fe)
-                            } else {
-                                false
-                            }
-                        });
+            // Case 2: Check if it exists in executor's list
+            let executor_fe = valid_function_executors.get(indexed_fe_id);
 
-                    if not_versioned_match_exists {
-                        // Match found with a not_versioned function executor, keep it
-                        None
-                    } else {
-                        // No match found, should remove
-                        Some(indexed_fe_id.clone())
-                    }
+            if let Some(executor_fe) = executor_fe {
+                // It exists in executor's list, check if its state is Terminated
+                if executor_fe.status.as_state() == FunctionExecutorState::Terminated {
+                    debug!(
+                        "Removing function executor {} that is in Terminated state in executor",
+                        indexed_fe_id.get()
+                    );
+                    return Some(indexed_fe_id.clone());
                 }
-            })
-            .collect_vec();
+                // Otherwise keep it
+                None
+            } else {
+                // Not in executor's list
+                // Special case: If it's in Pending state in our indexes, keep it
+                if indexed_fe.desired_state == FunctionExecutorState::Pending {
+                    debug!(
+                        "Keeping pending function executor {} not yet in executor's list",
+                        indexed_fe_id.get()
+                    );
+                    None
+                } else if indexed_fe.desired_state == FunctionExecutorState::Running {
+                    // If it's in Running state in our indexes but not in executor's list, remove it
+                    debug!(
+                        "Removing function executor {} that is Running in our indexes but not in executor's list",
+                        indexed_fe_id.get()
+                    );
+                    Some(indexed_fe_id.clone())
+                } else {
+                    // For any other state, keep it for now
+                    None
+                }
+            }
+        })
+        .collect_vec();
 
         if !function_executor_ids_to_remove.is_empty() {
-            trace!(
-                "executor {} has function executors ({}) in indexes to be removed",
+            debug!(
+                "Executor {} has {} function executors to be removed",
                 executor.id.get(),
                 function_executor_ids_to_remove.len()
             );
 
-            update.extend(self.remove_function_executors(
-                &executor.id,
-                &function_executor_ids_to_remove,
-                indexes,
-            )?);
+            update.extend(
+                self.remove_function_executors(&executor.id, &function_executor_ids_to_remove)?,
+            );
+        }
+
+        // Step 2: Update existing FEs and add new ones
+        for (fe_id, fe) in valid_function_executors.into_iter() {
+            // Check if this FE already exists in our indexes
+            if let Some(indexed_fe) = function_executors_in_indexes.get(&fe_id) {
+                // FE exists in our indexes - check if we need to update its state
+                let executor_state = fe.status.as_state();
+
+                if indexed_fe.desired_state != executor_state {
+                    // Update state to match executor's state
+                    debug!(
+                        "Updating function executor {} state from {:?} to {:?}",
+                        fe_id.get(),
+                        indexed_fe.desired_state,
+                        executor_state
+                    );
+
+                    // Create updated metadata
+                    let updated_fe_metadata = FunctionExecutorServerMetadata::new(
+                        executor.id.clone(),
+                        fe.clone(),
+                        executor_state,
+                        indexed_fe.last_allocation_at,
+                    );
+
+                    // Add to update
+                    update
+                        .new_function_executors
+                        .push(updated_fe_metadata.clone());
+
+                    // Update in-memory state
+                    self.in_memory_state
+                        .function_executors_by_executor
+                        .entry(executor.id.clone())
+                        .or_default()
+                        .entry(fe_id.clone())
+                        .and_modify(|existing| {
+                            **existing = updated_fe_metadata;
+                        });
+                }
+            } else {
+                // This FE exists in the executor but not in our indexes - add it
+                debug!(
+                    "Adding existing function executor {} from executor {} to indexes",
+                    fe_id.get(),
+                    executor.id.get()
+                );
+
+                // Create a new FunctionExecutorMetadata
+                let fe_metadata = FunctionExecutorServerMetadata::new(
+                    executor.id.clone(),
+                    fe.clone(),
+                    fe.status.as_state(),
+                    None, // Last allocation time unknown
+                );
+
+                // Add to update
+                update.new_function_executors.push(fe_metadata.clone());
+
+                // Add to in-memory state
+                self.in_memory_state
+                    .function_executors_by_executor
+                    .entry(executor.id.clone())
+                    .or_default()
+                    .entry(fe_id.clone())
+                    .or_insert_with(|| Box::new(fe_metadata));
+            }
         }
 
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
+    #[tracing::instrument(skip(self, executor_id))]
     fn remove_function_executors(
-        &self,
+        &mut self,
         executor_id: &ExecutorId,
         function_executor_ids_to_remove: &[FunctionExecutorId],
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
+        if function_executor_ids_to_remove.is_empty() {
+            return Ok(update);
+        }
+
+        debug!(
+            "Removing {} function executors from executor {}",
+            function_executor_ids_to_remove.len(),
+            executor_id.get()
+        );
+
+        // Handle allocations for FEs to be removed and update tasks
+        let allocations_to_remove: Vec<Allocation> = if let Some(allocations_by_fe) = self
+            .in_memory_state
+            .allocations_by_executor
+            .get(executor_id)
+        {
+            function_executor_ids_to_remove
+                .iter()
+                .filter_map(|fe_id| allocations_by_fe.get(fe_id))
+                .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
+                .collect()
+        } else {
+            vec![]
+        };
+
+        debug!(
+            "Found {} allocations to remove for function executors being removed",
+            allocations_to_remove.len()
+        );
+
+        // Mark all tasks being unallocated as pending
+        for allocation in &allocations_to_remove {
+            if let Some(task) = self.in_memory_state.tasks.get(&allocation.task_key()) {
+                let mut task = *task.clone();
+                task.status = TaskStatus::Pending;
+
+                debug!(
+                    "Marking task {} as pending due to function executor removal",
+                    task.id
+                );
+
+                self.in_memory_state
+                    .tasks
+                    .insert(task.key(), Box::new(task.clone()));
+                update.updated_tasks.insert(task.id.clone(), task);
+            } else {
+                error!(
+                    "Task of allocation not found in indexes: {}",
+                    allocation.task_key(),
+                );
+            }
+        }
+
+        // Add allocations to remove list
+        update.remove_allocations = allocations_to_remove;
+
+        // Add function executors to remove list
+        update.remove_function_executors = function_executor_ids_to_remove
+            .iter()
+            .map(|fe_id| FunctionExecutorIdWithExecutionId::new(fe_id.clone(), executor_id.clone()))
+            .collect();
+
         // Remove the function executors from the indexes
-        indexes
+        self.in_memory_state
             .function_executors_by_executor
             .entry(executor_id.clone())
             .and_modify(|fe_mapping| {
@@ -385,290 +1151,46 @@ impl TaskAllocationProcessor {
                 });
             });
 
-        // Get the inner map for the executor_id
-        let allocations_to_remove =
-            if let Some(allocations_by_fe) = indexes.allocations_by_executor.get(executor_id) {
-                function_executor_ids_to_remove
-                    .iter()
-                    .filter_map(|fe_id| allocations_by_fe.get(&fe_id))
-                    .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
-                    .collect_vec()
-            } else {
-                vec![]
-            };
+        // Now that we've removed the function executors and updated tasks,
+        // we need to immediately attempt to allocate the tasks that were just marked as
+        // pending
+        if !update.updated_tasks.is_empty() {
+            let tasks_to_allocate = update
+                .updated_tasks
+                .iter()
+                .map(|(_, t)| Box::new(t.clone()))
+                .collect_vec();
 
-        // Mark all tasks being unallocated as pending.
-        for allocation in allocations_to_remove.clone() {
-            let task = indexes.tasks.get(&allocation.task_key());
-            if let Some(task) = task.cloned() {
-                let mut task = *task;
-                task.status = TaskStatus::Pending;
-                indexes.tasks.insert(task.key(), Box::new(task.clone()));
-                update.updated_tasks.insert(task.id.clone(), task);
-            } else {
-                error!(
-                    "task of allocation not found in indexes: {}",
-                    allocation.task_key(),
-                );
-            }
-        }
+            debug!(
+                "Attempting to reallocate {} tasks that were unallocated due to function executor removal",
+                tasks_to_allocate.len()
+            );
 
-        // Remove the allocations from the store.
-        update.remove_allocations = allocations_to_remove.clone();
-        update.remove_function_executors = function_executor_ids_to_remove
-            .iter()
-            .map(|fe_id| FunctionExecutorIdWithExecutionId::new(fe_id.clone(), executor_id.clone()))
-            .collect_vec();
-
-        // Immediately attempt to reallocate tasks that were unallocated due to function
-        // executor removal.
-        {
-            let allocation_update = self.allocate_tasks(
-                update
-                    .updated_tasks
-                    .iter()
-                    .map(|(_, t)| Box::new(t.clone()))
-                    .collect(),
-                indexes,
-            )?;
-
+            let allocation_update = self.allocate_tasks(tasks_to_allocate)?;
             update.extend(allocation_update);
         }
 
-        return Ok(update);
+        Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
-    fn deregister_executor(
-        &self,
-        executor_id: &ExecutorId,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self, executor_id))]
+    fn deregister_executor(&mut self, executor_id: &ExecutorId) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest {
             remove_executors: vec![executor_id.clone()],
             ..Default::default()
         };
 
         // Get all function executor ids to remove
-        let function_executor_ids_to_remove = indexes
+        let function_executor_ids_to_remove = self
+            .in_memory_state
             .allocations_by_executor
             .get(executor_id)
             .map(|a| a.keys().cloned().collect_vec());
 
         if let Some(function_executor_ids) = function_executor_ids_to_remove {
-            update.extend(self.remove_function_executors(
-                executor_id,
-                &function_executor_ids,
-                indexes,
-            )?);
+            update.extend(self.remove_function_executors(executor_id, &function_executor_ids)?);
         }
 
         return Ok(update);
-    }
-
-    #[tracing::instrument(skip(self, indexes))]
-    pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<SchedulerUpdateRequest> {
-        let unallocated_task_ids = indexes.unallocated_tasks.clone();
-        let mut tasks = Vec::new();
-        for unallocated_task_id in &unallocated_task_ids {
-            if let Some(task) = indexes.tasks.get(&unallocated_task_id.task_key) {
-                tasks.push(task.clone());
-            } else {
-                error!(
-                    task_key = unallocated_task_id.task_key,
-                    "task not found in indexes for unallocated task"
-                );
-            }
-        }
-        self.allocate_tasks(tasks, indexes)
-    }
-
-    // Get available executors considering dev mode and allowlists
-    #[tracing::instrument(skip(self, task, indexes))]
-    #[tracing::instrument(skip(self, task, indexes))]
-    fn get_executor_candidates(
-        &self,
-        task: &Task,
-        indexes: &InMemoryState,
-    ) -> Vec<ExecutorCandidate> {
-        let fn_uri = task.function_uri();
-        let mut candidates = Vec::new();
-
-        for (executor_id, executor) in indexes.executors.iter() {
-            if executor.tombstoned {
-                continue;
-            }
-
-            // Skip if this executor can't handle this task due to allowlist
-            if !executor.development_mode &&
-                !executor
-                    .function_allowlist
-                    .as_ref()
-                    .map_or(false, |allowlist| {
-                        allowlist.iter().any(|f| f.matches_task(task))
-                    })
-            {
-                trace!(
-                    "executor not allowlisted for function {} - {:#?}",
-                    fn_uri,
-                    executor,
-                );
-                continue;
-            }
-
-            // Check existing function executors for a match
-            let matching_fe = indexes
-                .function_executors_by_executor
-                .get(executor_id)
-                .and_then(|executors| {
-                    executors
-                        .iter()
-                        .find(|(_, fe)| fe.matches_task(task))
-                        .map(|(id, _)| id.clone())
-                });
-
-            // Get the allocation count specifically for the function executor we're
-            // considering If no matching function executor exists, allocation
-            // count is 0
-            let allocation_count = matching_fe
-                .as_ref()
-                .and_then(|fe_id| {
-                    indexes
-                        .allocations_by_executor
-                        .get(executor_id)
-                        .and_then(|alloc_map| alloc_map.get(fe_id))
-                        .map(|allocs| allocs.len())
-                })
-                .unwrap_or(0);
-
-            // Check if the specific function executor is at capacity
-            if allocation_count >= MAX_ALLOCATIONS_PER_FN_EXECUTOR {
-                trace!(
-                    "executor {} skipped due to function executor at capacity (allocations: {})",
-                    executor.id.get(),
-                    allocation_count
-                );
-                continue;
-            }
-
-            candidates.push(ExecutorCandidate {
-                executor_id: executor_id.clone(),
-                function_executor_id: matching_fe,
-                function_uri: fn_uri.clone(),
-                allocation_count,
-            });
-        }
-
-        candidates
-    }
-
-    #[tracing::instrument(skip(self, candidates))]
-    fn select_executor(&self, candidates: &[ExecutorCandidate]) -> Option<ExecutorCandidate> {
-        if candidates.is_empty() {
-            return None;
-        }
-
-        // Create an array of indices and shuffle them
-        let mut indices: Vec<usize> = (0..candidates.len()).collect();
-        indices.shuffle(&mut rand::rng());
-
-        // Use these indices to iterate through candidates in a random order
-        // ensuring that we select the one with the least allocation count
-        // without relying on the order of candidates.
-        indices
-            .into_iter()
-            .map(|i| &candidates[i])
-            .min_by_key(|candidate| candidate.allocation_count)
-            .cloned()
-    }
-
-    // Ensure function executor exists (or create it)
-    #[tracing::instrument(skip(self, candidate))]
-    fn ensure_function_executor(
-        &self,
-        candidate: &ExecutorCandidate,
-    ) -> Result<Option<FunctionExecutor>> {
-        // If function executor already exists, return its ID
-        if candidate.function_executor_id.is_some() {
-            return Ok(None);
-        }
-
-        // Otherwise, we need to create a new one (for dev mode)
-        let function_executor_id = FunctionExecutorId::default();
-
-        let function_executor = FunctionExecutor {
-            id: function_executor_id.clone(),
-            executor_id: candidate.executor_id.clone(),
-            namespace: candidate.function_uri.namespace.clone(),
-            compute_graph_name: candidate.function_uri.compute_graph_name.clone(),
-            compute_fn_name: candidate.function_uri.compute_fn_name.clone(),
-            version: candidate.function_uri.version.clone().ok_or(anyhow!(
-                "function uri version is required for function executor creation"
-            ))?,
-            status: FunctionExecutorStatus::Idle,
-        };
-
-        trace!(
-            "creating new function executor: {:?} for task {:?}",
-            function_executor_id,
-            candidate.function_uri
-        );
-
-        return Ok(Some(function_executor));
-    }
-
-    // Refactored allocate_task method
-    #[tracing::instrument(skip(self, task, indexes))]
-    fn allocate_task(
-        &self,
-        task: &Task,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<Option<(Allocation, Option<FunctionExecutor>)>> {
-        // Step 1: Get candidates
-        let candidates = self.get_executor_candidates(task, indexes);
-
-        // Step 2: Select best candidate
-        let candidate = match self.select_executor(&candidates) {
-            Some(c) => c,
-            None => {
-                trace!("No suitable executor candidates available");
-                return Ok(None);
-            }
-        };
-
-        trace!(
-            "available executor candidates: {:#?} - picked: {:#?}",
-            candidates
-                .iter()
-                .map(|c| format!("{} - {}", c.executor_id.get(), c.allocation_count))
-                .collect::<Vec<_>>(),
-            candidate,
-        );
-
-        // Step 3: Ensure function executor exists
-        let function_executor = self.ensure_function_executor(&candidate)?;
-
-        let function_executor_id = match function_executor {
-            Some(ref fe) => fe.id.clone(),
-            None => match candidate.function_executor_id {
-                Some(ref fe_id) => fe_id.clone(),
-                None => {
-                    return Err(anyhow!("No function executor ID available"));
-                }
-            },
-        };
-
-        // Step 4: Create allocation
-        let allocation = AllocationBuilder::default()
-            .namespace(task.namespace.clone())
-            .compute_graph(task.compute_graph_name.clone())
-            .compute_fn(task.compute_fn_name.clone())
-            .invocation_id(task.invocation_id.clone())
-            .task_id(task.id.clone())
-            .executor_id(candidate.executor_id.clone())
-            .function_executor_id(function_executor_id)
-            .build()?;
-
-        Ok(Some((allocation, function_executor)))
     }
 }
