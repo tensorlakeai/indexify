@@ -171,6 +171,7 @@ class Executor:
         executor_info: Dict[str, str] = {
             "id": id,
             "dev_mode": str(development_mode),
+            "flavor": flavor.name,
             "version": version,
             "code_path": str(code_path),
             "server_addr": server_addr,
@@ -179,6 +180,8 @@ class Executor:
             "enable_grpc_state_reconciler": str(enable_grpc_state_reconciler),
             "hostname": gethostname(),
         }
+        for key, value in labels.items():
+            executor_info["label_" + key] = value
         executor_info.update(function_allowlist_to_info_dict(function_allowlist))
         metric_executor_info.info(executor_info)
 
