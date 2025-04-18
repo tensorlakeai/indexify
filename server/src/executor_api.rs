@@ -33,7 +33,6 @@ use executor_api_pb::{
     ExecutorStatus,
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
-    GpuModel,
     OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
@@ -72,24 +71,6 @@ impl TryFrom<AllowedFunction> for FunctionURI {
             compute_fn_name,
             version,
         })
-    }
-}
-
-impl From<GpuModel> for String {
-    fn from(gpu_model: GpuModel) -> Self {
-        match gpu_model {
-            GpuModel::NvidiaTeslaT416gb => "T4".to_string(),
-            GpuModel::NvidiaTeslaV10016gb => "V100".to_string(),
-            GpuModel::NvidiaA1024gb => "A10".to_string(),
-            GpuModel::NvidiaA600048gb => "A6000".to_string(),
-            GpuModel::NvidiaA100Sxm440gb => "A100".to_string(),
-            GpuModel::NvidiaA100Sxm480gb => "A100".to_string(),
-            GpuModel::NvidiaA100Pci40gb => "A100".to_string(),
-            GpuModel::NvidiaH100Sxm580gb => "H100".to_string(),
-            GpuModel::NvidiaH100Pci80gb => "H100".to_string(),
-            GpuModel::NvidiaRtx600024gb => "RTX6000".to_string(),
-            GpuModel::Unknown => "Unknown".to_string(),
-        }
     }
 }
 

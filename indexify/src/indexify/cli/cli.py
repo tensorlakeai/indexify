@@ -7,7 +7,6 @@ from tensorlake.utils.logging import (
 configure_logging_early()
 
 import os
-import re
 import shutil
 import sys
 from importlib.metadata import version
@@ -33,6 +32,8 @@ from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
 )
+from indexify.executor.host_resources.host_resources import HostResourcesProvider
+from indexify.executor.host_resources.nvidia_gpu_allocator import NvidiaGPUAllocator
 from indexify.executor.monitoring.health_checker.generic_health_checker import (
     GenericHealthChecker,
 )
@@ -225,6 +226,7 @@ def executor(
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
         blob_store=blob_store,
+        host_resources_provider=HostResourcesProvider(NvidiaGPUAllocator(logger)),
     ).run()
 
 

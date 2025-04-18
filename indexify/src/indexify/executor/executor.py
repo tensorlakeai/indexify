@@ -24,6 +24,7 @@ from .function_executor.server.function_executor_server_factory import (
 from .grpc.channel_manager import ChannelManager
 from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
+from .host_resources.host_resources import HostResourcesProvider
 from .metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
@@ -71,6 +72,7 @@ class Executor:
         monitoring_server_port: int,
         enable_grpc_state_reconciler: bool,
         blob_store: BLOBStore,
+        host_resources_provider: HostResourcesProvider,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
@@ -118,6 +120,7 @@ class Executor:
             function_allowlist=self._function_allowlist,
             function_executor_states=self._function_executor_states,
             channel_manager=self._channel_manager,
+            host_resources_provider=host_resources_provider,
             logger=self._logger,
         )
         self._state_reporter.update_executor_status(
