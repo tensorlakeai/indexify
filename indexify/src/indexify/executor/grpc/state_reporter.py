@@ -18,10 +18,12 @@ from indexify.proto.executor_api_pb2 import (
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
 )
+from indexify.proto.executor_api_pb2 import GPUModel as GPUModelProto
 from indexify.proto.executor_api_pb2 import (
-    GPUModel,
     GPUResources,
-    HostResources,
+)
+from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
+from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
@@ -33,6 +35,7 @@ from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
+from ..host_resources.host_resources import HostResources, HostResourcesProvider
 from ..runtime_probes import RuntimeProbes
 from .channel_manager import ChannelManager
 from .metrics.state_reporter import (
@@ -57,6 +60,7 @@ class ExecutorStateReporter:
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_states: FunctionExecutorStatesContainer,
         channel_manager: ChannelManager,
+        host_resources_provider: HostResourcesProvider,
         logger: Any,
         reporting_interval_sec: int = _REPORTING_INTERVAL_SEC,
     ):
@@ -72,6 +76,9 @@ class ExecutorStateReporter:
         self._channel_manager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
         self._reporting_interval_sec: int = reporting_interval_sec
+        self._total_host_resources: HostResourcesProto = _host_resources_to_proto(
+            host_resources_provider.total_resources(logger)
+        )
 
         self._is_shutdown: bool = False
         self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
@@ -130,7 +137,9 @@ class ExecutorStateReporter:
                 flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
                 version=self._version,
                 status=self._executor_status,
-                free_resources=await self._fetch_free_host_resources(),
+                # Server requires free_resources to be set but ignores its value for now.
+                free_resources=self._total_host_resources,
+                total_resources=self._total_host_resources,
                 allowed_functions=self._allowed_functions,
                 function_executor_states=await self._fetch_function_executor_states(),
                 labels=self._labels,
@@ -150,18 +159,6 @@ class ExecutorStateReporter:
         Never raises any exceptions.
         """
         self._is_shutdown = True
-
-    async def _fetch_free_host_resources(self) -> HostResources:
-        # TODO: Implement host resource metrics reporting.
-        return HostResources(
-            cpu_count=0,
-            memory_bytes=0,
-            disk_bytes=0,
-            gpu=GPUResources(
-                count=0,
-                model=GPUModel.GPU_MODEL_UNKNOWN,
-            ),
-        )
 
     async def _fetch_function_executor_states(self) -> List[FunctionExecutorStateProto]:
         states = []
@@ -264,3 +261,20 @@ def _state_hash(state: ExecutorState) -> str:
     hasher = hashlib.sha256(usedforsecurity=False)
     hasher.update(serialized_state)
     return hasher.hexdigest()
+
+
+def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProto:
+    proto = HostResourcesProto(
+        cpu_count=host_resources.cpu_count,
+        memory_bytes=host_resources.memory_mb * 1024 * 1024,
+        disk_bytes=host_resources.disk_mb * 1024 * 1024,
+    )
+    if len(host_resources.gpus) > 0:
+        proto.gpu = GPUResources(
+            count=len(host_resources.gpus),
+            deprecated_model=GPUModelProto.GPU_MODEL_UNKNOWN,  # TODO: Remove this field
+            model=host_resources.gpus[
+                0
+            ].model.value,  # All GPUs should have the same model
+        )
+    return proto

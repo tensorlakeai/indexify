@@ -28,26 +28,17 @@ message DataPayload {
 
 // ===== report_executor_state RPC =====
 
+// Deprecated enum. TODO: remove when all the code is using model string.
 enum GPUModel {
     GPU_MODEL_UNKNOWN = 0;
-    GPU_MODEL_NVIDIA_TESLA_T4_16GB = 10;
-    GPU_MODEL_NVIDIA_TESLA_V100_16GB = 20;
-    GPU_MODEL_NVIDIA_A10_24GB = 30;
-    GPU_MODEL_NVIDIA_A6000_48GB = 40;
-    // A100 GPUs
-    GPU_MODEL_NVIDIA_A100_SXM4_40GB = 50;
-    GPU_MODEL_NVIDIA_A100_SXM4_80GB = 51;
-    GPU_MODEL_NVIDIA_A100_PCI_40GB = 52;
-    // H100 GPUs
-    GPU_MODEL_NVIDIA_H100_SXM5_80GB = 60;
-    GPU_MODEL_NVIDIA_H100_PCI_80GB = 61;
-    GPU_MODEL_NVIDIA_RTX_6000_24GB = 62;
 }
 
 // Free GPUs available at the Executor.
 message GPUResources {
     optional uint32 count = 1;
-    optional GPUModel model = 2;
+    optional GPUModel deprecated_model = 2;
+    // Either GPU_MODEL value from Tensorlake SDK or "UNKNOWN"
+    optional string model = 3;
 }
 
 // Resources that we're currently tracking and limiting on Executor.
@@ -55,7 +46,8 @@ message HostResources {
     optional uint32 cpu_count = 1;
     optional uint64 memory_bytes = 2;
     optional uint64 disk_bytes = 3;
-    optional GPUResources gpu = 4;
+    // Not set if no GPUs are available.
+    optional GPUResources gpu = 4; 
 }
 
 // Specification of a single function that is allowed to be run on the Executor.
@@ -138,8 +130,10 @@ message ExecutorState {
     optional ExecutorFlavor flavor = 4;
     optional string version = 5;
     optional ExecutorStatus status = 6;
+    // Total resources available at the Executor.
+    optional HostResources total_resources = 13;
     // Free resources available at the Executor.
-    optional HostResources free_resources = 7;
+    optional HostResources free_resources = 7; // Not used right now.
     // Empty allowed_functions list means that any function can run on the Executor.
     repeated AllowedFunction allowed_functions = 8;
     repeated FunctionExecutorState function_executor_states = 9;

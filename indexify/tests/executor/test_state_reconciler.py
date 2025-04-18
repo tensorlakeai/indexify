@@ -35,6 +35,8 @@ from indexify.executor.function_executor.task_output import TaskOutput
 from indexify.executor.grpc.channel_manager import ChannelManager
 from indexify.executor.grpc.state_reconciler import ExecutorStateReconciler
 from indexify.executor.grpc.state_reporter import ExecutorStateReporter
+from indexify.executor.host_resources.host_resources import HostResourcesProvider
+from indexify.executor.host_resources.nvidia_gpu_allocator import NvidiaGPUAllocator
 from indexify.executor.task_reporter import TaskReporter
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
@@ -285,6 +287,9 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             function_allowlist=[],
             function_executor_states=self.function_executor_states,
             channel_manager=self.channel_manager,
+            host_resources_provider=HostResourcesProvider(
+                NvidiaGPUAllocator(self.logger)
+            ),
             logger=self.logger,
             reporting_interval_sec=0.1,  # Speed up tests using the shorter interval.
         )

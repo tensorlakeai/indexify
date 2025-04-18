@@ -21,16 +21,6 @@ class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     GPU_MODEL_UNKNOWN: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_TESLA_T4_16GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_TESLA_V100_16GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_A10_24GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_A6000_48GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_A100_SXM4_40GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_A100_SXM4_80GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_A100_PCI_40GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_H100_SXM5_80GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_H100_PCI_80GB: _ClassVar[GPUModel]
-    GPU_MODEL_NVIDIA_RTX_6000_24GB: _ClassVar[GPUModel]
 
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -82,16 +72,6 @@ DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
-GPU_MODEL_NVIDIA_TESLA_T4_16GB: GPUModel
-GPU_MODEL_NVIDIA_TESLA_V100_16GB: GPUModel
-GPU_MODEL_NVIDIA_A10_24GB: GPUModel
-GPU_MODEL_NVIDIA_A6000_48GB: GPUModel
-GPU_MODEL_NVIDIA_A100_SXM4_40GB: GPUModel
-GPU_MODEL_NVIDIA_A100_SXM4_80GB: GPUModel
-GPU_MODEL_NVIDIA_A100_PCI_40GB: GPUModel
-GPU_MODEL_NVIDIA_H100_SXM5_80GB: GPUModel
-GPU_MODEL_NVIDIA_H100_PCI_80GB: GPUModel
-GPU_MODEL_NVIDIA_RTX_6000_24GB: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus
@@ -144,13 +124,18 @@ class DataPayload(_message.Message):
     ) -> None: ...
 
 class GPUResources(_message.Message):
-    __slots__ = ("count", "model")
+    __slots__ = ("count", "deprecated_model", "model")
     COUNT_FIELD_NUMBER: _ClassVar[int]
+    DEPRECATED_MODEL_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     count: int
-    model: GPUModel
+    deprecated_model: GPUModel
+    model: str
     def __init__(
-        self, count: _Optional[int] = ..., model: _Optional[_Union[GPUModel, str]] = ...
+        self,
+        count: _Optional[int] = ...,
+        deprecated_model: _Optional[_Union[GPUModel, str]] = ...,
+        model: _Optional[str] = ...,
     ) -> None: ...
 
 class HostResources(_message.Message):
@@ -281,6 +266,7 @@ class ExecutorState(_message.Message):
         "flavor",
         "version",
         "status",
+        "total_resources",
         "free_resources",
         "allowed_functions",
         "function_executor_states",
@@ -305,6 +291,7 @@ class ExecutorState(_message.Message):
     FLAVOR_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     FREE_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_STATES_FIELD_NUMBER: _ClassVar[int]
@@ -317,6 +304,7 @@ class ExecutorState(_message.Message):
     flavor: ExecutorFlavor
     version: str
     status: ExecutorStatus
+    total_resources: HostResources
     free_resources: HostResources
     allowed_functions: _containers.RepeatedCompositeFieldContainer[AllowedFunction]
     function_executor_states: _containers.RepeatedCompositeFieldContainer[
@@ -333,6 +321,7 @@ class ExecutorState(_message.Message):
         flavor: _Optional[_Union[ExecutorFlavor, str]] = ...,
         version: _Optional[str] = ...,
         status: _Optional[_Union[ExecutorStatus, str]] = ...,
+        total_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
         free_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
         allowed_functions: _Optional[
             _Iterable[_Union[AllowedFunction, _Mapping]]
