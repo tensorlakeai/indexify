@@ -270,11 +270,13 @@ def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProt
         disk_bytes=host_resources.disk_mb * 1024 * 1024,
     )
     if len(host_resources.gpus) > 0:
-        proto.gpu = GPUResources(
-            count=len(host_resources.gpus),
-            deprecated_model=GPUModelProto.GPU_MODEL_UNKNOWN,  # TODO: Remove this field
-            model=host_resources.gpus[
-                0
-            ].model.value,  # All GPUs should have the same model
+        proto.gpu.CopyFrom(
+            GPUResources(
+                count=len(host_resources.gpus),
+                deprecated_model=GPUModelProto.GPU_MODEL_UNKNOWN,  # TODO: Remove this field
+                model=host_resources.gpus[
+                    0
+                ].model.value,  # All GPUs should have the same model
+            )
         )
     return proto
