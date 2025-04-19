@@ -17,7 +17,7 @@ use state_store::{
 use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
-use crate::{task_allocator::TaskAllocationProcessor, task_creator::TaskCreator};
+use crate::{task_allocator::TaskAllocator, task_creator::TaskCreator};
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
@@ -202,7 +202,7 @@ impl GraphProcessor {
         debug!("processing state change: {}", state_change);
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut task_creator = TaskCreator::new(self.indexify_state.clone(), indexes.clone());
-        let mut task_allocator = TaskAllocationProcessor::new(indexes.clone());
+        let mut task_allocator = TaskAllocator::new(indexes.clone());
         let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
                 let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;

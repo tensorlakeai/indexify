@@ -43,16 +43,16 @@ pub struct ExecutorCandidate {
     pub allocation_count: usize, // Number of allocations for this function executor
 }
 
-pub struct TaskAllocationProcessor {
+pub struct TaskAllocator {
     in_memory_state: Box<InMemoryState>,
 }
 
-impl TaskAllocationProcessor {
+impl TaskAllocator {
     pub fn new(in_memory_state: Box<InMemoryState>) -> Self {
         Self { in_memory_state }
     }
 }
-impl TaskAllocationProcessor {
+impl TaskAllocator {
     #[tracing::instrument(skip(self, change))]
     pub fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
