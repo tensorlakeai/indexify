@@ -43,31 +43,29 @@ pub struct ExecutorCandidate {
     pub allocation_count: usize, // Number of allocations for this function executor
 }
 
-pub struct TaskAllocationProcessor {}
+pub struct TaskAllocationProcessor {
+    in_memory_state: Box<InMemoryState>,
+}
 
 impl TaskAllocationProcessor {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(in_memory_state: Box<InMemoryState>) -> Self {
+        Self { in_memory_state }
     }
 }
 impl TaskAllocationProcessor {
-    #[tracing::instrument(skip(self, change, indexes))]
-    pub fn invoke(
-        &self,
-        change: &ChangeType,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self, change))]
+    pub fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::ExecutorUpserted(ev) => {
-                let mut update = self.reconcile_executor_state(&ev.executor_id, indexes)?;
-                update.extend(self.allocate(indexes)?);
+                let mut update = self.reconcile_executor_state(&ev.executor_id)?;
+                update.extend(self.allocate()?);
                 return Ok(update);
             }
             ChangeType::ExecutorRemoved(_) => {
-                let update = self.allocate(indexes)?;
+                let update = self.allocate()?;
                 return Ok(update);
             }
-            ChangeType::TombStoneExecutor(ev) => self.deregister_executor(&ev.executor_id, indexes),
+            ChangeType::TombStoneExecutor(ev) => self.deregister_executor(&ev.executor_id),
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));
@@ -76,12 +74,8 @@ impl TaskAllocationProcessor {
     }
 
     // Updated allocate_tasks to use the new approach
-    #[tracing::instrument(skip(self, tasks, indexes))]
-    pub fn allocate_tasks(
-        &self,
-        tasks: Vec<Box<Task>>,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self, tasks))]
+    pub fn allocate_tasks(&mut self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         for mut task in tasks {
@@ -103,7 +97,7 @@ impl TaskAllocationProcessor {
 
             debug!("attempting to allocate task {:?} ", task.id);
 
-            match self.allocate_task(&task, indexes) {
+            match self.allocate_task(&task) {
                 Ok(Some((allocation, function_executor))) => {
                     info!(
                         task_id = &task.id.to_string(),
@@ -120,7 +114,7 @@ impl TaskAllocationProcessor {
                     {
                         update.new_allocations.push(allocation.clone());
 
-                        indexes
+                        self.in_memory_state
                             .allocations_by_executor
                             .entry(allocation.executor_id.clone())
                             .or_default()
@@ -135,7 +129,7 @@ impl TaskAllocationProcessor {
                             .new_function_executors
                             .push(function_executor.clone());
 
-                        indexes
+                        self.in_memory_state
                             .function_executors_by_executor
                             .entry(allocation.executor_id.clone())
                             .or_default()
@@ -147,8 +141,8 @@ impl TaskAllocationProcessor {
                         task.status = TaskStatus::Running;
                         update.updated_tasks.insert(task.id.clone(), *task.clone());
 
-                        indexes.tasks.insert(task.key(), task.clone());
-                        indexes
+                        self.in_memory_state.tasks.insert(task.key(), task.clone());
+                        self.in_memory_state
                             .unallocated_tasks
                             .remove(&UnallocatedTaskId::new(&task));
                     }
@@ -181,15 +175,15 @@ impl TaskAllocationProcessor {
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
+    #[tracing::instrument(skip(self, executor_id))]
     pub fn reconcile_executor_state(
-        &self,
+        &mut self,
         executor_id: &ExecutorId,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        let executor = indexes
+        let executor = self
+            .in_memory_state
             .executors
             .get(&executor_id)
             .ok_or(anyhow!("executor not found"))?
@@ -202,19 +196,18 @@ impl TaskAllocationProcessor {
         );
 
         // Reconcile the function executors with the allowlist.
-        update.extend(self.reconcile_allowlist(&executor, indexes)?);
+        update.extend(self.reconcile_allowlist(&executor)?);
 
         // Reconcile function executors
-        update.extend(self.reconcile_function_executors(&executor, indexes)?);
+        update.extend(self.reconcile_function_executors(&executor)?);
 
         return Ok(update);
     }
 
-    #[tracing::instrument(skip(self, executor, indexes))]
+    #[tracing::instrument(skip(self, executor))]
     fn reconcile_allowlist(
-        &self,
+        &mut self,
         executor: &ExecutorMetadata,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -250,11 +243,8 @@ impl TaskAllocationProcessor {
                 );
             }
 
-            update.extend(self.remove_function_executors(
-                &executor.id,
-                &all_function_executor_ids,
-                indexes,
-            )?);
+            update
+                .extend(self.remove_function_executors(&executor.id, &all_function_executor_ids)?);
         } else {
             // Has non-empty allowlist - remove only non-allowlisted executors
             let function_executor_ids_without_allowlist = executor
@@ -286,25 +276,24 @@ impl TaskAllocationProcessor {
             update.extend(self.remove_function_executors(
                 &executor.id,
                 &function_executor_ids_without_allowlist,
-                indexes,
             )?);
         }
 
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor, indexes))]
+    #[tracing::instrument(skip(self, executor))]
     fn reconcile_function_executors(
-        &self,
+        &mut self,
         executor: &ExecutorMetadata,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         // TODO: handle function executor statuses
 
         // Get the function executors from the indexes
-        let function_executors_in_indexes = indexes
+        let function_executors_in_indexes = self
+            .in_memory_state
             .function_executors_by_executor
             .get(&executor.id)
             .cloned()
@@ -354,27 +343,24 @@ impl TaskAllocationProcessor {
                 function_executor_ids_to_remove.len()
             );
 
-            update.extend(self.remove_function_executors(
-                &executor.id,
-                &function_executor_ids_to_remove,
-                indexes,
-            )?);
+            update.extend(
+                self.remove_function_executors(&executor.id, &function_executor_ids_to_remove)?,
+            );
         }
 
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
+    #[tracing::instrument(skip(self, executor_id))]
     fn remove_function_executors(
-        &self,
+        &mut self,
         executor_id: &ExecutorId,
         function_executor_ids_to_remove: &[FunctionExecutorId],
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Remove the function executors from the indexes
-        indexes
+        self.in_memory_state
             .function_executors_by_executor
             .entry(executor_id.clone())
             .and_modify(|fe_mapping| {
@@ -386,24 +372,29 @@ impl TaskAllocationProcessor {
             });
 
         // Get the inner map for the executor_id
-        let allocations_to_remove =
-            if let Some(allocations_by_fe) = indexes.allocations_by_executor.get(executor_id) {
-                function_executor_ids_to_remove
-                    .iter()
-                    .filter_map(|fe_id| allocations_by_fe.get(&fe_id))
-                    .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
-                    .collect_vec()
-            } else {
-                vec![]
-            };
+        let allocations_to_remove = if let Some(allocations_by_fe) = self
+            .in_memory_state
+            .allocations_by_executor
+            .get(executor_id)
+        {
+            function_executor_ids_to_remove
+                .iter()
+                .filter_map(|fe_id| allocations_by_fe.get(&fe_id))
+                .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
+                .collect_vec()
+        } else {
+            vec![]
+        };
 
         // Mark all tasks being unallocated as pending.
         for allocation in allocations_to_remove.clone() {
-            let task = indexes.tasks.get(&allocation.task_key());
+            let task = self.in_memory_state.tasks.get(&allocation.task_key());
             if let Some(task) = task.cloned() {
                 let mut task = *task;
                 task.status = TaskStatus::Pending;
-                indexes.tasks.insert(task.key(), Box::new(task.clone()));
+                self.in_memory_state
+                    .tasks
+                    .insert(task.key(), Box::new(task.clone()));
                 update.updated_tasks.insert(task.id.clone(), task);
             } else {
                 error!(
@@ -429,7 +420,6 @@ impl TaskAllocationProcessor {
                     .iter()
                     .map(|(_, t)| Box::new(t.clone()))
                     .collect(),
-                indexes,
             )?;
 
             update.extend(allocation_update);
@@ -438,40 +428,37 @@ impl TaskAllocationProcessor {
         return Ok(update);
     }
 
-    #[tracing::instrument(skip(self, executor_id, indexes))]
-    fn deregister_executor(
-        &self,
-        executor_id: &ExecutorId,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self, executor_id))]
+    fn deregister_executor(&mut self, executor_id: &ExecutorId) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest {
             remove_executors: vec![executor_id.clone()],
             ..Default::default()
         };
 
         // Get all function executor ids to remove
-        let function_executor_ids_to_remove = indexes
+        let function_executor_ids_to_remove = self
+            .in_memory_state
             .allocations_by_executor
             .get(executor_id)
             .map(|a| a.keys().cloned().collect_vec());
 
         if let Some(function_executor_ids) = function_executor_ids_to_remove {
-            update.extend(self.remove_function_executors(
-                executor_id,
-                &function_executor_ids,
-                indexes,
-            )?);
+            update.extend(self.remove_function_executors(executor_id, &function_executor_ids)?);
         }
 
         return Ok(update);
     }
 
-    #[tracing::instrument(skip(self, indexes))]
-    pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<SchedulerUpdateRequest> {
-        let unallocated_task_ids = indexes.unallocated_tasks.clone();
+    #[tracing::instrument(skip(self))]
+    pub fn allocate(&mut self) -> Result<SchedulerUpdateRequest> {
+        let unallocated_task_ids = self.in_memory_state.unallocated_tasks.clone();
         let mut tasks = Vec::new();
         for unallocated_task_id in &unallocated_task_ids {
-            if let Some(task) = indexes.tasks.get(&unallocated_task_id.task_key) {
+            if let Some(task) = self
+                .in_memory_state
+                .tasks
+                .get(&unallocated_task_id.task_key)
+            {
                 tasks.push(task.clone());
             } else {
                 error!(
@@ -480,21 +467,16 @@ impl TaskAllocationProcessor {
                 );
             }
         }
-        self.allocate_tasks(tasks, indexes)
+        self.allocate_tasks(tasks)
     }
 
     // Get available executors considering dev mode and allowlists
-    #[tracing::instrument(skip(self, task, indexes))]
-    #[tracing::instrument(skip(self, task, indexes))]
-    fn get_executor_candidates(
-        &self,
-        task: &Task,
-        indexes: &InMemoryState,
-    ) -> Vec<ExecutorCandidate> {
+    #[tracing::instrument(skip(self, task))]
+    fn get_executor_candidates(&self, task: &Task) -> Vec<ExecutorCandidate> {
         let fn_uri = task.function_uri();
         let mut candidates = Vec::new();
 
-        for (executor_id, executor) in indexes.executors.iter() {
+        for (executor_id, executor) in self.in_memory_state.executors.iter() {
             if executor.tombstoned {
                 continue;
             }
@@ -517,7 +499,8 @@ impl TaskAllocationProcessor {
             }
 
             // Check existing function executors for a match
-            let matching_fe = indexes
+            let matching_fe = self
+                .in_memory_state
                 .function_executors_by_executor
                 .get(executor_id)
                 .and_then(|executors| {
@@ -533,7 +516,7 @@ impl TaskAllocationProcessor {
             let allocation_count = matching_fe
                 .as_ref()
                 .and_then(|fe_id| {
-                    indexes
+                    self.in_memory_state
                         .allocations_by_executor
                         .get(executor_id)
                         .and_then(|alloc_map| alloc_map.get(fe_id))
@@ -618,14 +601,13 @@ impl TaskAllocationProcessor {
     }
 
     // Refactored allocate_task method
-    #[tracing::instrument(skip(self, task, indexes))]
+    #[tracing::instrument(skip(self, task))]
     fn allocate_task(
-        &self,
+        &mut self,
         task: &Task,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<Option<(Allocation, Option<FunctionExecutor>)>> {
         // Step 1: Get candidates
-        let candidates = self.get_executor_candidates(task, indexes);
+        let candidates = self.get_executor_candidates(task);
 
         // Step 2: Select best candidate
         let candidate = match self.select_executor(&candidates) {
