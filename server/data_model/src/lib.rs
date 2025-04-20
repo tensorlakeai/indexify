@@ -1446,6 +1446,18 @@ impl HostResources {
         }
         Ok(())
     }
+
+    pub fn free(&mut self, requested_resources: &HostResources) -> Result<()> {
+        self.cpu_count += requested_resources.cpu_count;
+        self.memory_bytes += requested_resources.memory_bytes;
+        self.disk_bytes += requested_resources.disk_bytes;
+        if let Some(gpu) = &mut self.gpu {
+            if let Some(resources_gpu) = &requested_resources.gpu {
+                gpu.count += resources_gpu.count;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

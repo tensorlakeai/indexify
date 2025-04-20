@@ -81,9 +81,7 @@ impl TaskAllocator {
             self.in_memory_state
                 .prune_function_executors(&executor_id)?,
         );
-
         update.extend(self.allocate()?);
-
         return Ok(update);
     }
 

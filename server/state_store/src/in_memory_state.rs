@@ -586,6 +586,8 @@ impl InMemoryState {
             let fe = self.function_executors.get(fe_id).unwrap();
             update.extend(self.remove_function_executor(fe.clone()));
         }
+        self.executors.remove(&executor_id);
+        self.function_executors_by_executor.remove(&executor_id);
         return Ok(update);
     }
 
@@ -625,11 +627,16 @@ impl InMemoryState {
             }
         }
 
+        // Add the resources back to the executor
+        let executor = self.executors.get_mut(&fe.executor_id).unwrap();
+        let _ = executor.free_resources.free(&fe.resources);
+
         // Remove the allocations from the store.
         update.remove_allocations = allocations_to_remove.clone();
         self.function_executors.remove(&fe.id);
         self.function_executors_by_executor.remove(&fe.executor_id);
         self.function_executors_by_functions.remove(&fe.into());
+
         update
     }
 
