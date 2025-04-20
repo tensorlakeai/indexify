@@ -272,6 +272,12 @@ pub struct NodeResources {
     pub gpu: Option<NodeGPUs>,
 }
 
+impl NodeResources {
+    pub fn cpu_count(&self) -> u32 {
+        self.cpu_ms_per_sec / 1000
+    }
+}
+
 impl Default for NodeResources {
     fn default() -> Self {
         NodeResources {
@@ -1076,7 +1082,7 @@ impl Display for TaskStatus {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
+#[derive(Serialize, Debug, Deserialize, Clone, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
     pub id: TaskId,
@@ -1097,6 +1103,28 @@ pub struct Task {
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
 }
+
+impl Hash for Task {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.namespace.hash(state);
+        self.compute_graph_name.hash(state);
+        self.invocation_id.hash(state);
+        self.compute_fn_name.hash(state);
+    }
+}
+
+impl PartialEq for Task {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id &&
+            self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.invocation_id == other.invocation_id &&
+            self.compute_fn_name == other.compute_fn_name
+    }
+}
+
+impl Eq for Task {}
 
 impl Task {
     pub fn is_terminal(&self) -> bool {
@@ -1123,7 +1151,7 @@ impl Task {
             namespace: self.namespace.clone(),
             compute_graph_name: self.compute_graph_name.clone(),
             compute_fn_name: self.compute_fn_name.clone(),
-            version: Some(self.graph_version.clone()),
+            version: self.graph_version.clone(),
         }
     }
 
@@ -1279,17 +1307,52 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph_name: Option<String>,
+    pub compute_fn_name: Option<String>,
+    pub version: Option<GraphVersion>,
+}
+
+impl FunctionAllowlist {
+    pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &function_executor.namespace) &&
+            self.compute_graph_name.as_ref().map_or(true, |cg_name| {
+                cg_name == &function_executor.compute_graph_name
+            }) &&
+            self.compute_fn_name.as_ref().map_or(true, |fn_name| {
+                fn_name == &function_executor.compute_fn_name
+            }) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &function_executor.version)
+    }
+
+    pub fn matches_task(&self, task: &Task) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &task.namespace) &&
+            self.compute_graph_name
+                .as_ref()
+                .map_or(true, |cg_name| cg_name == &task.compute_graph_name) &&
+            self.compute_fn_name
+                .as_ref()
+                .map_or(true, |fn_name| fn_name == &task.compute_fn_name) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &task.graph_version)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionURI {
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
-    // Temporary fix to enable internal migration
-    // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older
-    // versions after all the invocations into them have been
-    // completed, and turn on new versions of the executor.
-    pub version: Option<GraphVersion>,
+    pub version: GraphVersion,
 }
 
 impl FunctionURI {
@@ -1297,7 +1360,15 @@ impl FunctionURI {
         self.namespace == task.namespace &&
             self.compute_graph_name == task.compute_graph_name &&
             self.compute_fn_name == task.compute_fn_name &&
-            (self.version.is_none() || self.version.as_ref() == Some(&task.graph_version))
+            self.version == task.graph_version
+    }
+}
+impl Hash for FunctionURI {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.namespace.hash(state);
+        self.compute_graph_name.hash(state);
+        self.compute_fn_name.hash(state);
+        self.version.0.hash(state);
     }
 }
 
@@ -1306,12 +1377,7 @@ impl Display for FunctionURI {
         write!(
             f,
             "{}|{}|{}|{}",
-            self.namespace,
-            self.compute_graph_name,
-            self.compute_fn_name,
-            self.version
-                .as_ref()
-                .map_or("None".to_string(), |v| v.to_string())
+            self.namespace, self.compute_graph_name, self.compute_fn_name, self.version.0
         )
     }
 }
@@ -1386,7 +1452,7 @@ pub enum FunctionExecutorStatus {
     Stopped,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
@@ -1398,6 +1464,73 @@ pub struct FunctionExecutor {
     pub status: FunctionExecutorStatus,
 }
 
+impl PartialEq for FunctionExecutor {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id &&
+            self.executor_id == other.executor_id &&
+            self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.compute_fn_name == other.compute_fn_name &&
+            self.version == other.version
+    }
+}
+
+impl Eq for FunctionExecutor {}
+
+impl Hash for FunctionExecutor {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.executor_id.hash(state);
+        self.namespace.hash(state);
+        self.compute_graph_name.hash(state);
+        self.compute_fn_name.hash(state);
+        self.version.0.hash(state);
+    }
+}
+
+impl Into<FunctionURI> for Box<FunctionExecutor> {
+    fn into(self) -> FunctionURI {
+        FunctionURI {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.compute_graph_name.clone(),
+            compute_fn_name: self.compute_fn_name.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
+
+impl Into<FunctionURI> for &Box<FunctionExecutor> {
+    fn into(self) -> FunctionURI {
+        FunctionURI {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.compute_graph_name.clone(),
+            compute_fn_name: self.compute_fn_name.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
+
+impl Into<FunctionURI> for FunctionExecutor {
+    fn into(self) -> FunctionURI {
+        FunctionURI {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.compute_graph_name.clone(),
+            compute_fn_name: self.compute_fn_name.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
+
+impl Into<FunctionURI> for &FunctionExecutor {
+    fn into(self) -> FunctionURI {
+        FunctionURI {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.compute_graph_name.clone(),
+            compute_fn_name: self.compute_fn_name.clone(),
+            version: self.version.clone(),
+        }
+    }
+}
 impl FunctionExecutor {
     pub fn fn_uri_str(&self) -> String {
         format!(
@@ -1421,7 +1554,7 @@ impl FunctionExecutor {
         // If the basic fields match, then check the version
         if basic_match {
             // If the URI version is None, it matches any version
-            uri.version.as_ref().map_or(true, |v| self.version == *v)
+            uri.version == self.version
         } else {
             false
         }
@@ -1484,18 +1617,37 @@ pub struct ExecutorMetadata {
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
     pub host_resources: HostResources,
+    pub free_resources: HostResources,
     pub state: ExecutorState,
     pub tombstoned: bool,
     pub state_hash: String,
+
+    // The server clock at the time of the last state update
+    pub clock_updated_at: u64,
+}
+
+impl ExecutorMetadata {
+    pub fn fit_task_with_resources(&self, requested_resources: &NodeResources) -> bool {
+        self.free_resources.cpu_count >= requested_resources.cpu_count() &&
+            self.free_resources.memory_bytes >= requested_resources.memory_mb as u64 &&
+            self.free_resources.disk_bytes >= requested_resources.ephemeral_disk_mb as u64 &&
+            self.free_resources.gpu.as_ref().map_or(true, |g| {
+                g.count >= requested_resources.gpu.as_ref().map_or(0, |g| g.count)
+            }) &&
+            self.free_resources.gpu.as_ref().map_or(true, |g| {
+                g.model
+                    .eq(requested_resources.gpu.as_ref().map_or("", |g| &g.model))
+            })
+    }
 }
 
 impl ExecutorMetadataBuilder {
-    pub fn build(&mut self) -> Result<ExecutorMetadata> {
+    pub fn build(&mut self, clock_updated_at: u64) -> Result<ExecutorMetadata> {
         let id = self.id.clone().ok_or(anyhow!("id is required"))?;
         let executor_version = self
             .executor_version
@@ -1515,6 +1667,9 @@ impl ExecutorMetadataBuilder {
             .host_resources
             .clone()
             .ok_or(anyhow!("host_resources is required"))?;
+        let free_resources = self.host_resources.clone().ok_or(anyhow!(
+            "host_resources is required to calculate free resources"
+        ))?;
         let state = self.state.clone().ok_or(anyhow!("state is required"))?;
         let state_hash = self
             .state_hash
@@ -1534,9 +1689,11 @@ impl ExecutorMetadataBuilder {
             labels,
             function_executors,
             host_resources,
+            free_resources,
             state,
             tombstoned,
             state_hash,
+            clock_updated_at,
         })
     }
 }

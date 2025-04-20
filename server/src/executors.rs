@@ -357,9 +357,11 @@ mod tests {
             labels: Default::default(),
             function_executors: Default::default(),
             host_resources: Default::default(),
+            free_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock_updated_at: 0,
         };
         executor_manager.register_executor(executor).await?;
 
@@ -392,9 +394,11 @@ mod tests {
             labels: Default::default(),
             function_executors: Default::default(),
             host_resources: Default::default(),
+            free_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock_updated_at: 0,
         };
 
         let executor2 = ExecutorMetadata {
@@ -406,9 +410,11 @@ mod tests {
             labels: Default::default(),
             function_executors: Default::default(),
             host_resources: Default::default(),
+            free_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock_updated_at: 0,
         };
 
         let executor3 = ExecutorMetadata {
@@ -420,9 +426,11 @@ mod tests {
             labels: Default::default(),
             function_executors: Default::default(),
             host_resources: Default::default(),
+            free_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock_updated_at: 0,
         };
 
         // Pause time and send an initial heartbeats

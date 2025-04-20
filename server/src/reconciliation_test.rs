@@ -3,8 +3,8 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{mock_dev_executor, mock_executor_id, TEST_NAMESPACE},
+        FunctionAllowlist,
         FunctionExecutorId,
-        FunctionURI,
         GraphVersion,
         TaskOutcome,
     };
@@ -55,11 +55,11 @@ mod tests {
             executor
                 .update_config(
                     Some(false),
-                    Some(Some(vec![FunctionURI {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph_name: "graph_A".to_string(),
-                        compute_fn_name: "fn_a".to_string(),
-                        version: None,
+                    Some(Some(vec![FunctionAllowlist {
+                        namespace: Some(TEST_NAMESPACE.to_string()),
+                        compute_graph_name: Some("graph_A".to_string()),
+                        compute_fn_name: Some("fn_a".to_string()),
+                        version: Some(GraphVersion("1".to_string())),
                     }])),
                 )
                 .await?;
@@ -74,10 +74,10 @@ mod tests {
             executor
                 .update_config(
                     Some(false),
-                    Some(Some(vec![FunctionURI {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph_name: "graph_A".to_string(),
-                        compute_fn_name: "fn_a".to_string(),
+                    Some(Some(vec![FunctionAllowlist {
+                        namespace: Some(TEST_NAMESPACE.to_string()),
+                        compute_graph_name: Some("graph_A".to_string()),
+                        compute_fn_name: Some("fn_a".to_string()),
                         version: Some(GraphVersion("2".to_string())),
                     }])),
                 )
@@ -93,10 +93,10 @@ mod tests {
             executor
                 .update_config(
                     Some(false),
-                    Some(Some(vec![FunctionURI {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph_name: "graph_A".to_string(),
-                        compute_fn_name: "fn_a".to_string(),
+                    Some(Some(vec![FunctionAllowlist {
+                        namespace: Some(TEST_NAMESPACE.to_string()),
+                        compute_graph_name: Some("graph_A".to_string()),
+                        compute_fn_name: Some("fn_a".to_string()),
                         version: Some(GraphVersion("1".to_string())),
                     }])),
                 )
@@ -113,23 +113,23 @@ mod tests {
                 .update_config(
                     Some(false),
                     Some(Some(vec![
-                        FunctionURI {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph_name: "graph_A".to_string(),
-                            compute_fn_name: "fn_a".to_string(),
-                            version: None,
+                        FunctionAllowlist {
+                            namespace: Some(TEST_NAMESPACE.to_string()),
+                            compute_graph_name: Some("graph_A".to_string()),
+                            compute_fn_name: Some("fn_a".to_string()),
+                            version: Some(GraphVersion("1".to_string())),
                         },
-                        FunctionURI {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph_name: "graph_A".to_string(),
-                            compute_fn_name: "fn_b".to_string(),
-                            version: None,
+                        FunctionAllowlist {
+                            namespace: Some(TEST_NAMESPACE.to_string()),
+                            compute_graph_name: Some("graph_A".to_string()),
+                            compute_fn_name: Some("fn_b".to_string()),
+                            version: Some(GraphVersion("1".to_string())),
                         },
-                        FunctionURI {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph_name: "graph_A".to_string(),
-                            compute_fn_name: "fn_c".to_string(),
-                            version: None,
+                        FunctionAllowlist {
+                            namespace: Some(TEST_NAMESPACE.to_string()),
+                            compute_graph_name: Some("graph_A".to_string()),
+                            compute_fn_name: Some("fn_c".to_string()),
+                            version: Some(GraphVersion("1".to_string())),
                         },
                     ])),
                 )

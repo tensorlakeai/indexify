@@ -1096,16 +1096,10 @@ pub struct TaskAnalytics {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionURI {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
-
-    // Temporary fix to enable internal migration
-    // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older
-    // versions after all the invocations into them have been
-    // completed, and turn on new versions of the executor.
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub compute_fn: Option<String>,
     pub version: Option<GraphVersion>,
 }
 
@@ -1114,7 +1108,7 @@ pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
     pub addr: String,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub labels: HashMap<String, serde_json::Value>,
 }
 
@@ -1123,11 +1117,14 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
         let function_allowlist = executor.function_allowlist.map(|allowlist| {
             allowlist
                 .iter()
-                .map(|fn_uri| FunctionURI {
-                    namespace: fn_uri.namespace.clone(),
-                    compute_graph: fn_uri.compute_graph_name.clone(),
-                    compute_fn: fn_uri.compute_fn_name.clone(),
-                    version: fn_uri.version.clone().map(|v| v.into()),
+                .map(|fn_allowlist| FunctionAllowlist {
+                    namespace: fn_allowlist.namespace.clone(),
+                    compute_graph: fn_allowlist.compute_graph_name.clone(),
+                    compute_fn: fn_allowlist.compute_fn_name.clone(),
+                    version: fn_allowlist
+                        .version
+                        .as_ref()
+                        .map(|v| GraphVersion(v.0.clone())),
                 })
                 .collect()
         });

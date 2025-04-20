@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
     ComputeGraph,
@@ -9,6 +9,7 @@ use data_model::{
     ExecutorMetadata,
     FunctionExecutor,
     FunctionExecutorId,
+    FunctionURI,
     GraphInvocationCtx,
     ReduceTask,
     Task,
@@ -78,9 +79,17 @@ pub struct InMemoryState {
     // ExecutorId -> ExecutorMetadata
     pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
 
+    // FunctionExecutorId -> FunctionExecutor
+    pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutor>>,
+
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub function_executors_by_executor:
         im::HashMap<ExecutorId, im::HashMap<FunctionExecutorId, Box<FunctionExecutor>>>,
+
+    // Function URI -> List of Function Executors
+    // TODO: Handle removal of function executors
+    pub function_executors_by_functions:
+        im::HashMap<FunctionURI, im::HashSet<Box<FunctionExecutor>>>,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
@@ -91,6 +100,9 @@ pub struct InMemoryState {
 
     // Task Key -> Task
     pub tasks: im::OrdMap<String, Box<Task>>,
+
+    // Function URI -> List of Tasks
+    pub tasks_by_function_uri: im::HashMap<FunctionURI, im::HashSet<Box<Task>>>,
 
     // Queued Reduction Tasks
     pub queued_reduction_tasks: im::OrdMap<String, Box<ReduceTask>>,
@@ -417,6 +429,8 @@ impl InMemoryState {
         // Creating Tasks
         let mut tasks = im::OrdMap::new();
         let mut unallocated_tasks = im::OrdSet::new();
+        let mut tasks_by_function_uri: im::HashMap<FunctionURI, im::HashSet<Box<Task>>> =
+            im::HashMap::new();
         {
             let all_tasks: Vec<(String, Task)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
@@ -439,7 +453,11 @@ impl InMemoryState {
                 if task.status == TaskStatus::Pending {
                     unallocated_tasks.insert(UnallocatedTaskId::new(&task));
                 }
-                tasks.insert(task.key(), Box::new(task));
+                tasks_by_function_uri
+                    .entry(task.function_uri())
+                    .or_default()
+                    .insert(Box::new(task.clone()));
+                tasks.insert(task.key(), Box::new(task.clone()));
             }
         }
 
@@ -468,13 +486,16 @@ impl InMemoryState {
             compute_graphs,
             compute_graph_versions,
             executors: im::HashMap::new(),
+            function_executors: im::HashMap::new(),
             tasks,
             unallocated_tasks,
+            tasks_by_function_uri,
             invocation_ctx,
             queued_reduction_tasks,
             allocations_by_executor,
             // function executors by executor are not known at startup
             function_executors_by_executor: im::HashMap::new(),
+            function_executors_by_functions: im::HashMap::new(),
             // metrics
             task_pending_latency,
             task_running_latency,
@@ -523,6 +544,30 @@ impl InMemoryState {
         tasks
     }
 
+    pub fn vacuum_function_executors(&mut self) {
+        let mut function_executors_to_remove = vec![];
+        for (_fe_id, fe) in self.function_executors.iter() {
+            let fe_uri = fe.as_ref().into();
+            if self
+                .tasks_by_function_uri
+                .get(&fe_uri)
+                .unwrap_or(&im::HashSet::new())
+                .is_empty()
+            {
+                function_executors_to_remove.push(fe.clone());
+            }
+        }
+        for fe in function_executors_to_remove {
+            self.remove_function_executor(fe);
+        }
+    }
+
+    pub fn remove_function_executor(&mut self, fe: Box<FunctionExecutor>) {
+        self.function_executors.remove(&fe.id);
+        self.function_executors_by_executor.remove(&fe.executor_id);
+        self.function_executors_by_functions.remove(&fe.into());
+    }
+
     pub fn update_state(
         &mut self,
         state_machine_update_request: &StateMachineUpdateRequest,
@@ -545,6 +590,10 @@ impl InMemoryState {
                     if self.invocation_ctx.get(&invocation_ctx_key).is_some() {
                         self.tasks
                             .insert(req.task.key(), Box::new(req.task.clone()));
+                        self.tasks_by_function_uri
+                            .entry(req.task.function_uri())
+                            .or_default()
+                            .insert(Box::new(req.task.clone()));
                     }
                 }
 
@@ -625,7 +674,11 @@ impl InMemoryState {
                             });
 
                         for task in tasks_to_update {
-                            self.tasks.insert(task.key(), task);
+                            self.tasks.insert(task.key(), task.clone());
+                            self.tasks_by_function_uri
+                                .entry(task.function_uri())
+                                .or_default()
+                                .insert(task);
                         }
                     }
 
@@ -702,6 +755,10 @@ impl InMemoryState {
                             .remove(&UnallocatedTaskId::new(&task));
                     }
                     self.tasks.insert(task.key(), Box::new(task.clone()));
+                    self.tasks_by_function_uri
+                        .entry(task.function_uri())
+                        .or_default()
+                        .insert(Box::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
                     self.queued_reduction_tasks
@@ -732,6 +789,15 @@ impl InMemoryState {
                             function_executor.id.clone(),
                             Box::new(function_executor.clone()),
                         );
+                    self.function_executors.insert(
+                        function_executor.id.clone(),
+                        Box::new(function_executor.clone()),
+                    );
+                    let function_uri = function_executor.clone().into();
+                    self.function_executors_by_functions
+                        .entry(function_uri)
+                        .or_default()
+                        .insert(Box::new(function_executor.clone()));
                 }
 
                 // Note: We don't need to process req.remove_allocations here, as they are
@@ -773,9 +839,24 @@ impl InMemoryState {
                         .and_then(|allocation_map| {
                             allocation_map.remove(&function_executor.function_executor_id)
                         });
+
+                    let mut function_executor_to_remove = vec![];
                     self.function_executors_by_executor
                         .get_mut(&function_executor.executor_id)
                         .and_then(|fe_map| fe_map.remove(&function_executor.function_executor_id));
+
+                    if let Some(fe) = self
+                        .function_executors
+                        .remove(&function_executor.function_executor_id)
+                    {
+                        function_executor_to_remove.push(fe);
+                    }
+                    for function_executor in function_executor_to_remove {
+                        let function_uri = function_executor.clone().into();
+                        self.function_executors_by_functions
+                            .get_mut(&function_uri)
+                            .and_then(|fe_set| fe_set.remove(&function_executor));
+                    }
                 }
 
                 for executor_id in &req.remove_executors {
@@ -817,6 +898,11 @@ impl InMemoryState {
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
+            self.tasks_by_function_uri
+                .entry(task.function_uri())
+                .and_modify(|tasks| {
+                    tasks.remove(task);
+                });
             self.unallocated_tasks
                 .remove(&UnallocatedTaskId::new(&task));
         }
@@ -861,6 +947,55 @@ impl InMemoryState {
         }
     }
 
+    pub fn candidate_function_executors(&self, task: &Task) -> Vec<Box<FunctionExecutor>> {
+        self.function_executors_by_functions
+            .get(&task.function_uri())
+            .map(|fes| fes.iter().map(|fe| fe.clone()).collect())
+            .unwrap_or(vec![])
+    }
+
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorMetadata>>> {
+        let resources = self
+            .compute_graphs
+            .get(&ComputeGraph::key_from(
+                &task.namespace,
+                &task.compute_graph_name,
+            ))
+            .ok_or(anyhow!(format!(
+                "compute graph not found: {}",
+                &task.compute_graph_name
+            )))?
+            .nodes
+            .get(&task.compute_fn_name)
+            .map(|n| n.resources())
+            .ok_or(anyhow!(format!(
+                "compute fn not found: {} in compute graph: {} version: {}",
+                &task.compute_fn_name, &task.compute_graph_name, &task.graph_version
+            )))?;
+
+        // 1. Filter all the executors that have allowlists which don't match the task
+        let possible_executors: Vec<Box<ExecutorMetadata>> = self
+            .executors
+            .values()
+            .filter(|e| {
+                e.tombstoned ||
+                    e.function_allowlist.as_ref().map_or(false, |allowlist| {
+                        allowlist.iter().any(|f| f.matches_task(task))
+                    })
+            })
+            .map(|e| e.clone())
+            .collect();
+
+        // 2. Filter all the executors that don't have enough resources
+        let executors = possible_executors
+            .iter()
+            .filter(|e| e.fit_task_with_resources(&resources))
+            .map(|e| e.clone())
+            .collect();
+
+        Ok(executors)
+    }
+
     pub fn clone(&self) -> Box<Self> {
         Box::new(InMemoryState {
             namespaces: self.namespaces.clone(),
@@ -873,6 +1008,9 @@ impl InMemoryState {
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             function_executors_by_executor: self.function_executors_by_executor.clone(),
+            function_executors_by_functions: self.function_executors_by_functions.clone(),
+            tasks_by_function_uri: self.tasks_by_function_uri.clone(),
+            function_executors: self.function_executors.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),

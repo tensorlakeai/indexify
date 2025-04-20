@@ -317,10 +317,12 @@ pub mod tests {
             addr: "".to_string(),
             labels: Default::default(),
             host_resources: Default::default(),
+            free_resources: Default::default(),
             state: Default::default(),
             function_executors: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock_updated_at: 0,
         }
     }
 }

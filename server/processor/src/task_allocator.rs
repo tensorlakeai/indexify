@@ -15,24 +15,15 @@ use data_model::{
     TaskStatus,
 };
 use itertools::Itertools;
-use rand::seq::SliceRandom;
 use state_store::{
-    in_memory_state::{InMemoryState, UnallocatedTaskId},
+    in_memory_state::InMemoryState,
     requests::{FunctionExecutorIdWithExecutionId, SchedulerUpdateRequest},
 };
-use tracing::{debug, error, info, span, trace};
+use tracing::{error, info, trace};
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
 }
-
-// Maximum number of allocations per executor.
-//
-// In the future, this should be a dynamic value based on:
-// - function concurrency configuration
-// - function batching configuration
-// - function timeout configuration
-const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
 #[derive(Debug, Clone)]
 // Define a struct to represent a candidate executor for allocation
@@ -73,109 +64,6 @@ impl TaskAllocator {
         }
     }
 
-    // Updated allocate_tasks to use the new approach
-    #[tracing::instrument(skip(self, tasks))]
-    pub fn allocate_tasks(&mut self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
-        let mut update = SchedulerUpdateRequest::default();
-
-        for mut task in tasks {
-            let span = span!(
-                tracing::Level::DEBUG,
-                "allocate_task",
-                task_id = task.id.to_string(),
-                namespace = task.namespace,
-                compute_graph = task.compute_graph_name,
-                compute_fn = task.compute_fn_name,
-                invocation_id = task.invocation_id
-            );
-            let _enter = span.enter();
-
-            if task.outcome.is_terminal() {
-                error!("task: {} already completed, skipping", task.id);
-                continue;
-            }
-
-            debug!("attempting to allocate task {:?} ", task.id);
-
-            match self.allocate_task(&task) {
-                Ok(Some((allocation, function_executor))) => {
-                    info!(
-                        task_id = &task.id.to_string(),
-                        namespace = &task.namespace,
-                        compute_graph = &task.compute_graph_name,
-                        compute_fn = &task.compute_fn_name,
-                        invocation_id = &task.invocation_id,
-                        executor_id = &allocation.executor_id.get(),
-                        function_executor_id = &allocation.function_executor_id.get(),
-                        "allocated task"
-                    );
-
-                    // Record the allocation
-                    {
-                        update.new_allocations.push(allocation.clone());
-
-                        self.in_memory_state
-                            .allocations_by_executor
-                            .entry(allocation.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.function_executor_id.clone())
-                            .or_default()
-                            .push_back(Box::new(allocation.clone()));
-                    }
-
-                    // Record new function executor
-                    if let Some(function_executor) = function_executor {
-                        update
-                            .new_function_executors
-                            .push(function_executor.clone());
-
-                        self.in_memory_state
-                            .function_executors_by_executor
-                            .entry(allocation.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.function_executor_id.clone())
-                            .or_insert_with(|| Box::new(function_executor));
-                    }
-                    // Record task status update
-                    {
-                        task.status = TaskStatus::Running;
-                        update.updated_tasks.insert(task.id.clone(), *task.clone());
-
-                        self.in_memory_state.tasks.insert(task.key(), task.clone());
-                        self.in_memory_state
-                            .unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(&task));
-                    }
-                }
-                Ok(None) => {
-                    debug!(
-                        task_id = task.id.to_string(),
-                        namespace = task.namespace,
-                        compute_graph = task.compute_graph_name,
-                        compute_fn = task.compute_fn_name,
-                        invocation_id = task.invocation_id.to_string(),
-                        "no executors available for task"
-                    );
-                }
-                Err(err) => {
-                    error!(
-                        task_id = task.id.to_string(),
-                        namespace = task.namespace,
-                        compute_graph = task.compute_graph_name,
-                        compute_fn = task.compute_fn_name,
-                        compute_graph_version = task.graph_version.0,
-                        invocation_id = task.invocation_id.to_string(),
-                        "failed to allocate task, skipping: {:?}",
-                        err
-                    );
-                }
-            }
-        }
-
-        Ok(update)
-    }
-
-    #[tracing::instrument(skip(self, executor_id))]
     pub fn reconcile_executor_state(
         &mut self,
         executor_id: &ExecutorId,
@@ -256,7 +144,7 @@ impl TaskAllocator {
                         .as_ref()
                         .unwrap()
                         .iter()
-                        .any(|f| fe.matches_fn_uri(f))
+                        .any(|f| f.matches_function_executor(fe))
                     {
                         Some(fe.id.clone())
                     } else {
@@ -470,187 +358,89 @@ impl TaskAllocator {
         self.allocate_tasks(tasks)
     }
 
-    // Get available executors considering dev mode and allowlists
-    #[tracing::instrument(skip(self, task))]
-    fn get_executor_candidates(&self, task: &Task) -> Vec<ExecutorCandidate> {
-        let fn_uri = task.function_uri();
-        let mut candidates = Vec::new();
-
-        for (executor_id, executor) in self.in_memory_state.executors.iter() {
-            if executor.tombstoned {
-                continue;
+    pub fn allocate_tasks(&mut self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+        // 1. See if there are any function executors that are available which are under
+        //    capacity
+        // 2. If there are no function executors available, find nodes where we can
+        //    create a new one
+        // 3. If there are no nodes where we can create a new one, return NOOP
+        // 4. Create a new function executor on a node that has capacity
+        // 5. Assign the tasks to the function executor
+        // 6. Return the update
+        for task in tasks {
+            let function_executors = self.in_memory_state.candidate_function_executors(&task);
+            if function_executors.is_empty() {
+                self.in_memory_state.vacuum_function_executors();
+                let candidate_nodes = self.in_memory_state.candidate_executors(&task)?;
+                if candidate_nodes.is_empty() {
+                    continue;
+                }
+                let candidate_node = candidate_nodes.first().unwrap();
+                let function_executor = self.create_function_executor(candidate_node, &task)?;
+                update.new_function_executors.push(function_executor);
             }
-
-            // Skip if this executor can't handle this task due to allowlist
-            if !executor.development_mode &&
-                !executor
-                    .function_allowlist
-                    .as_ref()
-                    .map_or(false, |allowlist| {
-                        allowlist.iter().any(|f| f.matches_task(task))
-                    })
-            {
-                trace!(
-                    "executor not allowlisted for function {} - {:#?}",
-                    fn_uri,
-                    executor,
-                );
-                continue;
+            if let Some(function_executor) = function_executors.first() {
+                let allocation = self.assign_tasks(&task, &function_executor)?;
+                update.new_allocations.push(allocation);
             }
+        }
 
-            // Check existing function executors for a match
-            let matching_fe = self
+        Ok(update)
+    }
+
+    pub fn vacuum_function_executors(&mut self) -> Result<Vec<FunctionExecutorIdWithExecutionId>> {
+        let mut function_executors = Vec::new();
+        for (fe_id, fe) in self.in_memory_state.function_executors.iter() {
+            if self
                 .in_memory_state
-                .function_executors_by_executor
-                .get(executor_id)
-                .and_then(|executors| {
-                    executors
-                        .iter()
-                        .find(|(_, fe)| fe.matches_task(task))
-                        .map(|(id, _)| id.clone())
+                .tasks_by_function_uri
+                .get(&fe.into())
+                .unwrap_or(&im::HashSet::new())
+                .is_empty()
+            {
+                function_executors.push(FunctionExecutorIdWithExecutionId {
+                    function_executor_id: fe_id.clone(),
+                    executor_id: fe.executor_id.clone(),
                 });
-
-            // Get the allocation count specifically for the function executor we're
-            // considering If no matching function executor exists, allocation
-            // count is 0
-            let allocation_count = matching_fe
-                .as_ref()
-                .and_then(|fe_id| {
-                    self.in_memory_state
-                        .allocations_by_executor
-                        .get(executor_id)
-                        .and_then(|alloc_map| alloc_map.get(fe_id))
-                        .map(|allocs| allocs.len())
-                })
-                .unwrap_or(0);
-
-            // Check if the specific function executor is at capacity
-            if allocation_count >= MAX_ALLOCATIONS_PER_FN_EXECUTOR {
-                trace!(
-                    "executor {} skipped due to function executor at capacity (allocations: {})",
-                    executor.id.get(),
-                    allocation_count
-                );
-                continue;
             }
-
-            candidates.push(ExecutorCandidate {
-                executor_id: executor_id.clone(),
-                function_executor_id: matching_fe,
-                function_uri: fn_uri.clone(),
-                allocation_count,
-            });
         }
-
-        candidates
+        Ok(function_executors)
     }
 
-    #[tracing::instrument(skip(self, candidates))]
-    fn select_executor(&self, candidates: &[ExecutorCandidate]) -> Option<ExecutorCandidate> {
-        if candidates.is_empty() {
-            return None;
-        }
-
-        // Create an array of indices and shuffle them
-        let mut indices: Vec<usize> = (0..candidates.len()).collect();
-        indices.shuffle(&mut rand::rng());
-
-        // Use these indices to iterate through candidates in a random order
-        // ensuring that we select the one with the least allocation count
-        // without relying on the order of candidates.
-        indices
-            .into_iter()
-            .map(|i| &candidates[i])
-            .min_by_key(|candidate| candidate.allocation_count)
-            .cloned()
-    }
-
-    // Ensure function executor exists (or create it)
-    #[tracing::instrument(skip(self, candidate))]
-    fn ensure_function_executor(
-        &self,
-        candidate: &ExecutorCandidate,
-    ) -> Result<Option<FunctionExecutor>> {
-        // If function executor already exists, return its ID
-        if candidate.function_executor_id.is_some() {
-            return Ok(None);
-        }
-
-        // Otherwise, we need to create a new one (for dev mode)
+    pub fn create_function_executor(
+        &mut self,
+        executor: &Box<ExecutorMetadata>,
+        task: &Task,
+    ) -> Result<FunctionExecutor> {
         let function_executor_id = FunctionExecutorId::default();
-
         let function_executor = FunctionExecutor {
             id: function_executor_id.clone(),
-            executor_id: candidate.executor_id.clone(),
-            namespace: candidate.function_uri.namespace.clone(),
-            compute_graph_name: candidate.function_uri.compute_graph_name.clone(),
-            compute_fn_name: candidate.function_uri.compute_fn_name.clone(),
-            version: candidate.function_uri.version.clone().ok_or(anyhow!(
-                "function uri version is required for function executor creation"
-            ))?,
+            executor_id: executor.id.clone(),
+            namespace: task.namespace.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            compute_fn_name: task.compute_fn_name.clone(),
+            version: task.graph_version.clone(),
             status: FunctionExecutorStatus::Idle,
         };
-
-        trace!(
-            "creating new function executor: {:?} for task {:?}",
-            function_executor_id,
-            candidate.function_uri
-        );
-
-        return Ok(Some(function_executor));
+        Ok(function_executor)
     }
 
-    // Refactored allocate_task method
-    #[tracing::instrument(skip(self, task))]
-    fn allocate_task(
+    pub fn assign_tasks(
         &mut self,
-        task: &Task,
-    ) -> Result<Option<(Allocation, Option<FunctionExecutor>)>> {
-        // Step 1: Get candidates
-        let candidates = self.get_executor_candidates(task);
-
-        // Step 2: Select best candidate
-        let candidate = match self.select_executor(&candidates) {
-            Some(c) => c,
-            None => {
-                trace!("No suitable executor candidates available");
-                return Ok(None);
-            }
-        };
-
-        trace!(
-            "available executor candidates: {:#?} - picked: {:#?}",
-            candidates
-                .iter()
-                .map(|c| format!("{} - {}", c.executor_id.get(), c.allocation_count))
-                .collect::<Vec<_>>(),
-            candidate,
-        );
-
-        // Step 3: Ensure function executor exists
-        let function_executor = self.ensure_function_executor(&candidate)?;
-
-        let function_executor_id = match function_executor {
-            Some(ref fe) => fe.id.clone(),
-            None => match candidate.function_executor_id {
-                Some(ref fe_id) => fe_id.clone(),
-                None => {
-                    return Err(anyhow!("No function executor ID available"));
-                }
-            },
-        };
-
-        // Step 4: Create allocation
+        task: &Box<Task>,
+        function_executor: &FunctionExecutor,
+    ) -> Result<Allocation> {
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
             .compute_fn(task.compute_fn_name.clone())
             .invocation_id(task.invocation_id.clone())
             .task_id(task.id.clone())
-            .executor_id(candidate.executor_id.clone())
-            .function_executor_id(function_executor_id)
+            .executor_id(function_executor.executor_id.clone())
+            .function_executor_id(function_executor.id.clone())
             .build()?;
 
-        Ok(Some((allocation, function_executor)))
+        Ok(allocation)
     }
 }

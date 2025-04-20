@@ -6,8 +6,8 @@ use data_model::{
     test_objects::tests::mock_node_fn_output,
     DataPayload,
     ExecutorMetadata,
+    FunctionAllowlist,
     FunctionExecutor,
-    FunctionURI,
     Task,
     TaskDiagnostics,
     TaskOutcome,
@@ -264,7 +264,7 @@ impl TestExecutor<'_> {
     pub async fn update_config(
         &mut self,
         dev_mode: Option<bool>,
-        functions: Option<Option<Vec<FunctionURI>>>,
+        functions: Option<Option<Vec<FunctionAllowlist>>>,
     ) -> Result<()> {
         if let Some(dev_mode) = dev_mode {
             self.executor.development_mode = dev_mode;
