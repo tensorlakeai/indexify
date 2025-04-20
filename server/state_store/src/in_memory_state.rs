@@ -8,6 +8,7 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
+    FunctionExecutorBuilder,
     FunctionExecutorId,
     FunctionURI,
     GraphInvocationCtx,
@@ -25,7 +26,12 @@ use tokio::sync::RwLock;
 use tracing::{debug, error};
 
 use crate::{
-    requests::{RequestPayload, StateMachineUpdateRequest},
+    requests::{
+        FunctionExecutorIdWithExecutionId,
+        RequestPayload,
+        SchedulerUpdateRequest,
+        StateMachineUpdateRequest,
+    },
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };
@@ -562,10 +568,69 @@ impl InMemoryState {
         }
     }
 
-    pub fn remove_function_executor(&mut self, fe: Box<FunctionExecutor>) {
+    pub fn remove_executor(&mut self, executor_id: &ExecutorId) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+        let mut function_executors_to_remove = vec![];
+
+        // Remove the function executors from the indexes
+        self.function_executors_by_executor
+            .entry(executor_id.clone())
+            .and_modify(|fe_mapping| {
+                fe_mapping.retain(|fe_id, _fe| {
+                    function_executors_to_remove.push(fe_id.clone());
+                    false
+                });
+            });
+
+        for fe_id in function_executors_to_remove.iter() {
+            let fe = self.function_executors.get(fe_id).unwrap();
+            update.extend(self.remove_function_executor(fe.clone()));
+        }
+        return Ok(update);
+    }
+
+    pub fn remove_function_executor(
+        &mut self,
+        fe: Box<FunctionExecutor>,
+    ) -> SchedulerUpdateRequest {
+        let mut update = SchedulerUpdateRequest::default();
+        update
+            .remove_function_executors
+            .push(FunctionExecutorIdWithExecutionId::new(
+                fe.id.clone(),
+                fe.executor_id.clone(),
+            ));
+
+        // Get the inner map for the executor_id
+        let allocations_to_remove = self
+            .allocations_by_executor
+            .get(&fe.executor_id)
+            .and_then(|allocations_by_fe| allocations_by_fe.get(&fe.id))
+            .map(|allocations| allocations.iter().map(|alloc| *alloc.clone()).collect())
+            .unwrap_or(vec![]);
+
+        // Mark all tasks being unallocated as pending.
+        for allocation in allocations_to_remove.iter() {
+            let task = self.tasks.get(&allocation.task_key());
+            if let Some(task) = task.cloned() {
+                let mut task = *task;
+                task.status = TaskStatus::Pending;
+                self.tasks.insert(task.key(), Box::new(task.clone()));
+                update.updated_tasks.insert(task.id.clone(), task);
+            } else {
+                error!(
+                    "task of allocation not found in indexes: {}",
+                    allocation.task_key(),
+                );
+            }
+        }
+
+        // Remove the allocations from the store.
+        update.remove_allocations = allocations_to_remove.clone();
         self.function_executors.remove(&fe.id);
         self.function_executors_by_executor.remove(&fe.executor_id);
         self.function_executors_by_functions.remove(&fe.into());
+        update
     }
 
     pub fn update_state(
@@ -945,6 +1010,84 @@ impl InMemoryState {
         for k in queued_reduction_tasks_to_remove {
             self.queued_reduction_tasks.remove(&k);
         }
+    }
+
+    pub fn create_function_executor(
+        &mut self,
+        executor: &mut Box<ExecutorMetadata>,
+        task: &Task,
+        server_clock: u64,
+    ) -> Result<FunctionExecutor> {
+        let function_executor = FunctionExecutorBuilder::default()
+            .namespace(task.namespace.clone())
+            .compute_graph_name(task.compute_graph_name.clone())
+            .compute_fn_name(task.compute_fn_name.clone())
+            .version(task.graph_version.clone())
+            .status(data_model::FunctionExecutorStatus::Idle)
+            .executor_id(executor.id.clone())
+            .build()?;
+        self.function_executors.insert(
+            function_executor.id.clone(),
+            Box::new(function_executor.clone()),
+        );
+        self.function_executors_by_executor
+            .entry(executor.id.clone())
+            .or_default()
+            .insert(
+                function_executor.id.clone(),
+                Box::new(function_executor.clone()),
+            );
+        self.function_executors_by_functions
+            .entry(function_executor.clone().into())
+            .or_default()
+            .insert(Box::new(function_executor.clone()));
+        self.executors.get_mut(&executor.id).and_then(|executor| {
+            executor
+                .function_executors
+                .insert(function_executor.id.clone(), function_executor.clone());
+            Some(executor)
+        });
+        let mut current_resources = executor.host_resources.clone();
+        current_resources.consume(&function_executor.resources)?;
+        executor.host_resources = current_resources;
+        executor.clock_updated_at = server_clock;
+        Ok(function_executor)
+    }
+
+    pub fn prune_function_executors(
+        &mut self,
+        executor_id: &ExecutorId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+        let executor = self
+            .executors
+            .get(&executor_id)
+            .ok_or(anyhow!("executor not found"))?
+            .clone();
+
+        let allowlist = executor.function_allowlist.clone();
+        let mut function_executors_to_remove = vec![];
+        if let Some(allowlist) = allowlist {
+            let current_function_executors = self
+                .function_executors_by_executor
+                .get(&executor_id)
+                .map(|fe_map| fe_map.values().collect::<Vec<_>>())
+                .unwrap_or(vec![]);
+            for function_executor in current_function_executors.iter() {
+                if !allowlist
+                    .iter()
+                    .any(|f| f.matches_function_executor(function_executor))
+                {
+                    function_executors_to_remove.push(function_executor.id.clone());
+                }
+            }
+        }
+
+        for function_executor in function_executors_to_remove.iter() {
+            let fe = self.function_executors.get(&function_executor).unwrap();
+            update.extend(self.remove_function_executor(fe.clone()));
+        }
+        Ok(update)
     }
 
     pub fn candidate_function_executors(&self, task: &Task) -> Vec<Box<FunctionExecutor>> {

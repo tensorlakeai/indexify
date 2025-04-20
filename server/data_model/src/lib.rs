@@ -1410,6 +1410,44 @@ impl Default for HostResources {
     }
 }
 
+impl HostResources {
+    pub fn consume(&mut self, requested_resources: &HostResources) -> Result<()> {
+        if self.cpu_count < requested_resources.cpu_count {
+            return Err(anyhow!(
+                "Not enough CPU resources, {} < {}",
+                self.cpu_count,
+                requested_resources.cpu_count
+            ));
+        }
+        if self.memory_bytes < requested_resources.memory_bytes {
+            return Err(anyhow!(
+                "Not enough memory resources, {} < {}",
+                self.memory_bytes,
+                requested_resources.memory_bytes
+            ));
+        }
+        if self.disk_bytes < requested_resources.disk_bytes {
+            return Err(anyhow!("Not enough disk resources"));
+        }
+        self.cpu_count -= requested_resources.cpu_count;
+        self.disk_bytes -= requested_resources.disk_bytes;
+        self.memory_bytes -= requested_resources.memory_bytes;
+        if let Some(gpu) = &mut self.gpu {
+            if let Some(resources_gpu) = &requested_resources.gpu {
+                if gpu.count < resources_gpu.count {
+                    return Err(anyhow!(
+                        "Not enough GPU resources, {} < {}",
+                        gpu.count,
+                        resources_gpu.count
+                    ));
+                }
+                gpu.count -= resources_gpu.count;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum ExecutorState {
     #[default]
@@ -1462,6 +1500,7 @@ pub struct FunctionExecutor {
     pub compute_fn_name: String,
     pub version: GraphVersion,
     pub status: FunctionExecutorStatus,
+    pub resources: HostResources,
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1598,6 +1637,7 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let resources = self.resources.clone().unwrap_or(HostResources::default());
         Ok(FunctionExecutor {
             id,
             executor_id,
@@ -1606,6 +1646,7 @@ impl FunctionExecutorBuilder {
             compute_fn_name,
             version,
             status,
+            resources,
         })
     }
 }

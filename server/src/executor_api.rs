@@ -17,7 +17,6 @@ use data_model::{
     FunctionURI,
     GpuResources,
     GraphVersion,
-    HostResources,
     NodeOutputBuilder,
     OutputPayload,
     TaskDiagnostics,
@@ -34,6 +33,7 @@ use executor_api_pb::{
     ExecutorStatus,
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
+    HostResources,
     OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
@@ -91,10 +91,10 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
     }
 }
 
-fn executor_state_to_executor_metadata(
-    executor_state: ExecutorState,
-    clock: u64,
-) -> Result<ExecutorMetadata> {
+fn executor_state_to_executor_metadata(executor_state: ExecutorState) -> Result<ExecutorMetadata> {
+    let server_clock = executor_state
+        .server_clock
+        .ok_or(anyhow::anyhow!("server_clock is required"))?;
     let mut executor_metadata = ExecutorMetadataBuilder::default();
     let executor_id = executor_state
         .executor_id
@@ -168,14 +168,14 @@ fn executor_state_to_executor_metadata(
             count: g.count(),
             model: g.model().into(),
         });
-        executor_metadata.host_resources(HostResources {
+        executor_metadata.host_resources(data_model::HostResources {
             cpu_count: cpu,
             memory_bytes: memory,
             disk_bytes: disk,
             gpu,
         });
     }
-    Ok(executor_metadata.build(clock)?)
+    Ok(executor_metadata.build(server_clock)?)
 }
 
 struct WithExecutorId<T> {
@@ -186,6 +186,28 @@ struct WithExecutorId<T> {
 impl<T> WithExecutorId<T> {
     fn new(executor_id: ExecutorId, inner: T) -> Self {
         Self { executor_id, inner }
+    }
+}
+
+impl TryFrom<HostResources> for data_model::HostResources {
+    type Error = anyhow::Error;
+
+    fn try_from(host_resources: HostResources) -> Result<Self, Self::Error> {
+        Ok(data_model::HostResources {
+            cpu_count: host_resources
+                .cpu_count
+                .ok_or(anyhow::anyhow!("cpu_count is required"))?,
+            memory_bytes: host_resources
+                .memory_bytes
+                .ok_or(anyhow::anyhow!("memory_bytes is required"))?,
+            disk_bytes: host_resources
+                .disk_bytes
+                .ok_or(anyhow::anyhow!("disk_bytes is required"))?,
+            gpu: host_resources.gpu.map(|g| GpuResources {
+                count: g.count(),
+                model: g.model().into(),
+            }),
+        })
     }
 }
 
@@ -211,6 +233,10 @@ impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
             .graph_version
             .map(GraphVersion)
             .ok_or(anyhow::anyhow!("version is required"))?;
+        let resources: data_model::HostResources = function_executor_description
+            .resources
+            .ok_or(anyhow::anyhow!("resources is required"))?
+            .try_into()?;
 
         Ok(FunctionExecutor {
             id,
@@ -220,6 +246,7 @@ impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
             compute_fn_name,
             version,
             status: FunctionExecutorStatus::Unknown,
+            resources,
         })
     }
 }
@@ -266,13 +293,8 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
-        let executor_metadata = executor_state_to_executor_metadata(
-            executor_state,
-            self.indexify_state
-                .last_state_change_id
-                .load(std::sync::atomic::Ordering::Relaxed),
-        )
-        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let executor_metadata = executor_state_to_executor_metadata(executor_state)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.executor_manager
             .heartbeat(executor_metadata)
             .await

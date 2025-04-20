@@ -74,16 +74,6 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_SHUTDOWN = 9;
 }
 
-// Immutable information that identifies and describes a Function Executor.
-message FunctionExecutorResources {
-    // 1000 CPU ms per sec is one full CPU core.
-    // 2000 CPU ms per sec is two full CPU cores.
-    optional uint32 cpu_ms_per_sec = 1;
-    optional uint64 memory_bytes = 2;
-    optional uint64 disk_bytes = 3;
-    optional uint32 gpu_count = 4;
-}
-
 message FunctionExecutorDescription {
     optional string id = 1;
     optional string namespace = 2;
@@ -96,7 +86,7 @@ message FunctionExecutorDescription {
     // Timeout for customer code duration during FE creation.
     optional uint32 customer_code_timeout_ms = 9;
     optional DataPayload graph = 10;
-    optional FunctionExecutorResources resources = 11;
+    optional HostResources resources = 11;
 }
 
 message FunctionExecutorState {

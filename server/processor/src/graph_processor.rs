@@ -202,7 +202,7 @@ impl GraphProcessor {
         debug!("processing state change: {}", state_change);
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut task_creator = TaskCreator::new(self.indexify_state.clone(), indexes.clone());
-        let mut task_allocator = TaskAllocator::new(indexes.clone());
+        let mut task_allocator = TaskAllocator::new(self.indexify_state.clone(), indexes.clone());
         let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
                 let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;

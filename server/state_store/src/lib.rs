@@ -207,17 +207,7 @@ impl IndexifyState {
                 for allocation in &request.new_allocations {
                     allocated_tasks_by_executor.push(allocation.executor_id.clone());
                 }
-
-                // Trigger the executor deregistration state change only once even if multiple
-                // executors are removed.
-                if let Some(executor_id) = request.remove_executors.first() {
-                    state_changes::deregister_executor_event(
-                        &self.last_state_change_id,
-                        executor_id.clone(),
-                    )?
-                } else {
-                    vec![]
-                }
+                vec![]
             }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
