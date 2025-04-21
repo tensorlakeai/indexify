@@ -9,7 +9,12 @@ import {
   List,
   ListItemButton,
   ListItemText,
-  Divider
+  Divider,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  SelectChangeEvent
 } from '@mui/material';
 import {
   LoaderFunctionArgs,
@@ -24,6 +29,7 @@ import theme from '../theme';
 
 import Footer from '../components/Footer';
 import VersionDisplay from '../components/VersionDisplay';
+import { useNavigate, useLoaderData } from 'react-router-dom';
 
 const DRAWER_WIDTH = 240;
 const SERVICE_URL = getIndexifyServiceURL();
@@ -34,12 +40,25 @@ interface NavItem {
   label: string;
 }
 
+interface RootLoaderData {
+  namespaces: { name: string; created_at: number }[];
+  namespace: string;
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
   return redirect('/default/compute-graphs');
 }
 
 function Dashboard() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { namespaces, namespace } = useLoaderData() as RootLoaderData;
+
+  const handleNamespaceChange = (event: SelectChangeEvent) => {
+    const newNamespace = event.target.value;
+    const newPath = location.pathname.replace(/^\/[^/]+/, `/${newNamespace}`);
+    navigate(newPath);
+  };
 
   const navItems: NavItem[] = [
     {
@@ -114,6 +133,24 @@ function Dashboard() {
                 overflow: 'auto',
               }}
             >
+              <Box sx={{ p: 1 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="namespace-select-label">Namespace</InputLabel>
+                  <Select
+                    labelId="namespace-select-label"
+                    id="namespace-select"
+                    value={namespace}
+                    label="Namespace"
+                    onChange={handleNamespaceChange}
+                  >
+                    {namespaces.map((ns) => (
+                      <MenuItem key={ns.name} value={ns.name}>
+                        {ns.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
               <List sx={{ flexGrow: 1 }}>
                 {navItems.map(({ path, icon, label }) => (
                   <ListItemButton
