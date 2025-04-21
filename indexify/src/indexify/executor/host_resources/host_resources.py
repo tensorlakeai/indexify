@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from .nvidia_gpu import NvidiaGPUInfo
 from .nvidia_gpu_allocator import NvidiaGPUAllocator
-
+from psutil import cpu_count, virtual_memory, disk_usage
 
 class HostResources(BaseModel):
     cpu_count: int
@@ -28,12 +28,7 @@ class HostResourcesProvider:
         """
         logger = logger.bind(module=__name__)
 
-        return HostResources(
-            cpu_count=0,  # TODO: Implement for Linux and MacOS hosts
-            memory_mb=0,  # TODO: Implement for Linux and MacOS hosts
-            disk_mb=0,  # TODO: Implement for Linux and MacOS hosts
-            gpus=self._gpu_allocator.list_all(),
-        )
+        return self.free_resources(logger)
 
     def free_resources(self, logger) -> HostResources:
         """Returns all hardware resources that are free at the host.
@@ -41,10 +36,10 @@ class HostResourcesProvider:
         Raises Exception on error.
         """
         logger = logger.bind(module=__name__)
-
+        
         return HostResources(
-            cpu_count=0,  # TODO: Implement for Linux and MacOS hosts
-            memory_mb=0,  # TODO: Implement for Linux and MacOS hosts
-            disk_mb=0,  # TODO: Implement for Linux and MacOS hosts
-            gpus=self._gpu_allocator.list_free(),
+            cpu_count=int(cpu_count()),
+            memory_mb=int(virtual_memory().total / 1024 / 1024),
+            disk_mb=int(disk_usage("/").total / 1024 / 1024),
+            gpus=self._gpu_allocator.list_all(),
         )

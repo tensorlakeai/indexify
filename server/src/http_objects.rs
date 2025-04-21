@@ -1103,6 +1103,35 @@ pub struct FunctionAllowlist {
     pub version: Option<GraphVersion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct GpuResources {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct HostResources {
+    pub cpu_count: u32,
+    pub memory_bytes: u64,
+    pub disk_bytes: u64,
+    // Not all Executors have GPUs.
+    pub gpu: Option<GpuResources>,
+}
+
+impl From<data_model::HostResources> for HostResources {
+    fn from(host_resources: data_model::HostResources) -> Self {
+        Self {
+            cpu_count: host_resources.cpu_count,
+            memory_bytes: host_resources.memory_bytes,
+            disk_bytes: host_resources.disk_bytes,
+            gpu: host_resources.gpu.map(|gpu| GpuResources {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
@@ -1110,6 +1139,8 @@ pub struct ExecutorMetadata {
     pub addr: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub labels: HashMap<String, serde_json::Value>,
+    pub host_resources: HostResources,
+    pub free_resources: HostResources,
 }
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
@@ -1134,6 +1165,8 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             addr: executor.addr,
             function_allowlist,
             labels: executor.labels,
+            host_resources: executor.host_resources.into(),
+            free_resources: executor.free_resources.into(),
         }
     }
 }
