@@ -1402,9 +1402,9 @@ impl Default for HostResources {
         // There are no sensible defaults for these values.
         // Use values that won't be seen in real life as defaults.
         Self {
-            cpu_count: 0,
-            memory_bytes: 0,
-            disk_bytes: 0,
+            cpu_count: 8,
+            memory_bytes: 1024 * 1024 * 1024,
+            disk_bytes: 1024 * 1024 * 1024,
             gpu: None,
         }
     }
