@@ -17,7 +17,7 @@ use tokio::{
     sync::{watch, Mutex, RwLock},
     time::Instant,
 };
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -43,12 +43,25 @@ fn far_future() -> Instant {
     Instant::now() + Duration::from_secs(24 * 60 * 60)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExecutorState {
+    pub executor_id: ExecutorId,
+    pub executor_clock: u64,
+    pub hash: String,
+}
+
+impl ExecutorState {
+    pub fn state_changed(&self, hash: &str, clock: u64) -> bool {
+        self.hash != hash || self.executor_clock != clock
+    }
+}
+
 pub struct ExecutorManager {
     heartbeat_deadline_queue: Mutex<PriorityQueue<ExecutorId, ReverseInstant>>,
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
     indexify_state: Arc<IndexifyState>,
-    executor_hashes: RwLock<HashMap<ExecutorId, String>>,
+    executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
 }
 
 impl ExecutorManager {
@@ -65,7 +78,7 @@ impl ExecutorManager {
         let heartbeat_future = Arc::new(Mutex::new(heartbeat_future));
         let em = ExecutorManager {
             indexify_state,
-            executor_hashes: RwLock::new(HashMap::new()),
+            executor_states: RwLock::new(HashMap::new()),
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
@@ -140,16 +153,18 @@ impl ExecutorManager {
         // 6. Register the executor to upsert its metadata only if the state_hash is
         //    different to prevent doing duplicate work.
         if !self
-            .executor_hashes
+            .executor_states
             .read()
             .await
             .get(&executor.id)
-            .map(|stored_hash| stored_hash == &executor.state_hash)
+            .map(|stored_state| {
+                stored_state.state_changed(&executor.state_hash, executor.clock_updated_at)
+            })
             .unwrap_or(false)
         {
-            trace!(
+            info!(
                 executor_id = executor.id.get(),
-                state_hash = executor.state_hash,
+                state_hash = executor.state_hash.clone(),
                 "Executor state hash changed, registering executor"
             );
             // TODO: Add clock check only act on the heartbeat for the latest state change
@@ -160,10 +175,14 @@ impl ExecutorManager {
                 );
                 return Err(e);
             }
-            self.executor_hashes
-                .write()
-                .await
-                .insert(executor.id.clone(), executor.state_hash.clone());
+            self.executor_states.write().await.insert(
+                executor.id.clone(),
+                ExecutorState {
+                    executor_id: executor.id.clone(),
+                    executor_clock: executor.clock_updated_at,
+                    hash: executor.state_hash.clone(),
+                },
+            );
         }
 
         Ok(())

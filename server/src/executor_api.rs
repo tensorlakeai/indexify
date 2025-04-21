@@ -327,11 +327,13 @@ impl ExecutorApi for ExecutorAPIService {
             while let Some(item) = stream.next().await {
                 match tx.send(Result::<_, Status>::Ok(item)).await {
                     Ok(_) => {
+                        info!("get_desired_executor_states stream sent item to client");
                         // item (server response) was queued to be send to
                         // client
                     }
                     Err(_item) => {
                         // output_stream was build from rx and both are dropped
+                        info!("get_desired_executor_states stream finished, client disconnected");
                         break;
                     }
                 }
