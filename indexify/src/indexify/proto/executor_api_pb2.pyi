@@ -174,24 +174,6 @@ class AllowedFunction(_message.Message):
         graph_version: _Optional[str] = ...,
     ) -> None: ...
 
-class FunctionExecutorResources(_message.Message):
-    __slots__ = ("cpu_ms_per_sec", "memory_bytes", "disk_bytes", "gpu_count")
-    CPU_MS_PER_SEC_FIELD_NUMBER: _ClassVar[int]
-    MEMORY_BYTES_FIELD_NUMBER: _ClassVar[int]
-    DISK_BYTES_FIELD_NUMBER: _ClassVar[int]
-    GPU_COUNT_FIELD_NUMBER: _ClassVar[int]
-    cpu_ms_per_sec: int
-    memory_bytes: int
-    disk_bytes: int
-    gpu_count: int
-    def __init__(
-        self,
-        cpu_ms_per_sec: _Optional[int] = ...,
-        memory_bytes: _Optional[int] = ...,
-        disk_bytes: _Optional[int] = ...,
-        gpu_count: _Optional[int] = ...,
-    ) -> None: ...
-
 class FunctionExecutorDescription(_message.Message):
     __slots__ = (
         "id",
@@ -227,7 +209,7 @@ class FunctionExecutorDescription(_message.Message):
     resource_limits: HostResources
     customer_code_timeout_ms: int
     graph: DataPayload
-    resources: FunctionExecutorResources
+    resources: HostResources
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -240,7 +222,7 @@ class FunctionExecutorDescription(_message.Message):
         resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
+        resources: _Optional[_Union[HostResources, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):

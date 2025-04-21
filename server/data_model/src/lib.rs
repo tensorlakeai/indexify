@@ -1648,7 +1648,7 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let status = self.status.clone().unwrap_or(FunctionExecutorStatus::Unknown);
         let resources = self.resources.clone().unwrap_or(HostResources::default());
         Ok(FunctionExecutor {
             id,

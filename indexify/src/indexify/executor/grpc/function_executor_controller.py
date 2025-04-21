@@ -9,7 +9,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
-    FunctionExecutorResources,
+    HostResources,
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
@@ -354,11 +354,11 @@ async def _create_function_executor(
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri
     if function_executor_description.HasField("resources"):
-        resources: FunctionExecutorResources = function_executor_description.resources
-        config.cpu_ms_per_sec = resources.cpu_ms_per_sec
+        resources: HostResources = function_executor_description.resources
+        config.cpu_ms_per_sec = resources.cpu_count * 1000
         config.memory_bytes = resources.memory_bytes
         config.disk_bytes = resources.disk_bytes
-        config.gpu_count = resources.gpu_count
+        config.gpu_count = resources.gpu.count if resources.HasField("gpu") else 0
 
     initialize_request: InitializeRequest = InitializeRequest(
         namespace=function_executor_description.namespace,

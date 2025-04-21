@@ -86,7 +86,11 @@ class ExecutorStateReporter:
             function_allowlist
         )
         self._labels.update(_label_values_to_strings(RuntimeProbes().probe().labels))
-        self._last_server_clock: Optional[int] = None
+
+        # At the start of the Executor, the Server clock is unknown and we set this to 0.
+        # The scheduler is probably ahead of the Executor in time, so this will be updated
+        # by the state reconciler.
+        self._last_server_clock: int = 0
 
     def update_executor_status(self, value: ExecutorStatus):
         self._executor_status = value
@@ -145,8 +149,7 @@ class ExecutorStateReporter:
                 labels=self._labels,
             )
             state.state_hash = _state_hash(state)
-            if self._last_server_clock is not None:
-                state.server_clock = self._last_server_clock
+            state.server_clock = self._last_server_clock
 
             await stub.report_executor_state(
                 ReportExecutorStateRequest(executor_state=state),

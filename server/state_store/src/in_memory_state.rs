@@ -1030,7 +1030,6 @@ impl InMemoryState {
             .compute_graph_name(task.compute_graph_name.clone())
             .compute_fn_name(task.compute_fn_name.clone())
             .version(task.graph_version.clone())
-            .status(data_model::FunctionExecutorStatus::Idle)
             .executor_id(executor.id.clone())
             .build()?;
         self.function_executors.insert(
