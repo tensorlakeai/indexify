@@ -1648,7 +1648,10 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let status = self.status.clone().unwrap_or(FunctionExecutorStatus::Unknown);
+        let status = self
+            .status
+            .clone()
+            .unwrap_or(FunctionExecutorStatus::Unknown);
         let resources = self.resources.clone().unwrap_or(HostResources::default());
         Ok(FunctionExecutor {
             id,
@@ -1661,6 +1664,13 @@ impl FunctionExecutorBuilder {
             resources,
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct DesiredExecutorState {
+    pub function_executors: Vec<FunctionExecutor>,
+    pub task_allocations: Vec<Allocation>,
+    pub clock: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]

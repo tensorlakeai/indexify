@@ -5,6 +5,7 @@ use data_model::{
     Allocation,
     ComputeGraph,
     ComputeGraphVersion,
+    DesiredExecutorState,
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
@@ -22,7 +23,7 @@ use opentelemetry::{
     metrics::{Histogram, ObservableGauge},
     KeyValue,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error};
 
 use crate::{
@@ -84,6 +85,10 @@ pub struct InMemoryState {
 
     // ExecutorId -> ExecutorMetadata
     pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
+
+    // Watches
+    pub watches:
+        Arc<std::sync::RwLock<im::HashMap<ExecutorId, broadcast::Sender<DesiredExecutorState>>>>,
 
     // FunctionExecutorId -> FunctionExecutor
     pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutor>>,
@@ -492,6 +497,7 @@ impl InMemoryState {
             compute_graphs,
             compute_graph_versions,
             executors: im::HashMap::new(),
+            watches: Arc::new(std::sync::RwLock::new(im::HashMap::new())),
             function_executors: im::HashMap::new(),
             tasks,
             unallocated_tasks,
@@ -952,6 +958,26 @@ impl InMemoryState {
         Ok(())
     }
 
+    pub fn register_executor_watch(
+        &self,
+        executor_id: ExecutorId,
+    ) -> broadcast::Receiver<DesiredExecutorState> {
+        let mut watches = self.watches.write().unwrap();
+        if let Some(tx) = watches.get_mut(&executor_id) {
+            let rx = tx.subscribe();
+            rx
+        } else {
+            let (tx, _rx) = broadcast::channel(100);
+            let rx = tx.subscribe();
+            watches.insert(executor_id.clone(), tx);
+            rx
+        }
+    }
+
+    pub fn unregister_executor_watch(&self, executor_id: ExecutorId) {
+        self.watches.write().unwrap().remove(&executor_id);
+    }
+
     pub fn next_reduction_task(
         &self,
         ns: &str,
@@ -1164,6 +1190,11 @@ impl InMemoryState {
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
+
+            // We don't expect the scheduler to use the watches, so we don't clone them
+            // The watches are used by the version of the in memory state that is created
+            // by the Main Service
+            watches: Arc::new(std::sync::RwLock::new(im::HashMap::new())),
         })
     }
 }

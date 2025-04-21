@@ -152,7 +152,7 @@ impl ExecutorManager {
 
         // 6. Register the executor to upsert its metadata only if the state_hash is
         //    different to prevent doing duplicate work.
-        if !self
+        if self
             .executor_states
             .read()
             .await
@@ -160,7 +160,7 @@ impl ExecutorManager {
             .map(|stored_state| {
                 stored_state.state_changed(&executor.state_hash, executor.clock_updated_at)
             })
-            .unwrap_or(false)
+            .unwrap_or(true)
         {
             info!(
                 executor_id = executor.id.get(),

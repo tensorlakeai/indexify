@@ -2,7 +2,13 @@
 pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use anyhow::Result;
 use data_model::{
@@ -251,6 +257,90 @@ impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
     }
 }
 
+impl From<data_model::DesiredExecutorState> for DesiredExecutorState {
+    fn from(desired_executor_state: data_model::DesiredExecutorState) -> Self {
+        let mut desired_executor_state_pb = DesiredExecutorState::default();
+        desired_executor_state_pb.clock = Some(desired_executor_state.clock);
+        desired_executor_state_pb
+    }
+}
+
+pub struct DropDetectorStream<T> {
+    inner: ReceiverStream<T>,
+    indexify_state: Arc<IndexifyState>,
+    executor_id: ExecutorId,
+}
+
+impl<T> DropDetectorStream<T> {
+    pub fn new(
+        receiver: mpsc::Receiver<T>,
+        indexify_state: Arc<IndexifyState>,
+        executor_id: ExecutorId,
+    ) -> Self {
+        Self {
+            inner: ReceiverStream::new(receiver),
+            indexify_state,
+            executor_id,
+        }
+    }
+}
+
+impl<T> Stream for DropDetectorStream<T> {
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+impl<T> Deref for DropDetectorStream<T> {
+    type Target = ReceiverStream<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> Drop for DropDetectorStream<T> {
+    fn drop(&mut self) {
+        let indexify_state = self.indexify_state.clone();
+        let executor_id = self.executor_id.clone();
+        tokio::spawn(async move {
+            info!(
+                "Dropping DropDetectorStream for executor_id: {}",
+                executor_id
+            );
+            indexify_state
+                .in_memory_state
+                .write()
+                .await
+                .unregister_executor_watch(executor_id);
+        });
+    }
+}
+
+struct DesiredExecutorStateStreamGuard {
+    indexify_state: Arc<IndexifyState>,
+    executor_id: ExecutorId,
+}
+
+impl Drop for DesiredExecutorStateStreamGuard {
+    fn drop(&mut self) {
+        let indexify_state = self.indexify_state.clone();
+        let executor_id = self.executor_id.clone();
+        tokio::spawn(async move {
+            info!(
+                "Dropping DesiredExecutorStateStreamGuard for executor_id: {}",
+                executor_id
+            );
+            indexify_state
+                .in_memory_state
+                .write()
+                .await
+                .unregister_executor_watch(executor_id);
+        });
+    }
+}
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
@@ -311,40 +401,61 @@ impl ExecutorApi for ExecutorAPIService {
             request.get_ref().executor_id()
         );
 
-        // Based on https://github.com/hyperium/tonic/blob/72b0fd59442d71804d4104e313ef6f140ab8f6d1/examples/src/streaming/server.rs#L46
-        // creating infinite stream with fake message
-        let repeat = std::iter::repeat(DesiredExecutorState {
-            function_executors: vec![],
-            task_allocations: vec![],
-            clock: Some(3),
-        });
-        let mut stream = Box::pin(tokio_stream::iter(repeat));
+        let executor_id = ExecutorId::new(request.get_ref().executor_id().to_string());
+
+        let mut desired_executor_state_rx = self
+            .indexify_state
+            .in_memory_state
+            .write()
+            .await
+            .register_executor_watch(executor_id.clone());
 
         // spawn and channel are required if you want handle "disconnect" functionality
         // the `out_stream` will not be polled after client disconnect
         let (tx, rx) = mpsc::channel(128);
+        let indexify_state = self.indexify_state.clone();
+        let executor_id_clone = executor_id.clone();
         tokio::spawn(async move {
-            while let Some(item) = stream.next().await {
-                match tx.send(Result::<_, Status>::Ok(item)).await {
-                    Ok(_) => {
-                        info!("get_desired_executor_states stream sent item to client");
-                        // item (server response) was queued to be send to
-                        // client
+            let _guard = DesiredExecutorStateStreamGuard {
+                indexify_state: indexify_state.clone(),
+                executor_id: executor_id.clone(),
+            };
+            loop {
+                match desired_executor_state_rx.recv().await {
+                    Ok(desired_executor_state) => {
+                        let desired_executor_state_pb =
+                            DesiredExecutorState::from(desired_executor_state);
+                        match tx
+                            .send(Result::<_, Status>::Ok(desired_executor_state_pb))
+                            .await
+                        {
+                            Ok(_) => {
+                                info!("get_desired_executor_states stream sent item to client");
+                            }
+                            Err(_item) => {
+                                info!("get_desired_executor_states stream finished, client disconnected");
+                                break;
+                            }
+                        }
                     }
-                    Err(_item) => {
-                        // output_stream was build from rx and both are dropped
-                        info!("get_desired_executor_states stream finished, client disconnected");
+                    Err(err) => {
+                        info!(
+                            "internal error: desired_executor_state_rx changed error: {}",
+                            err
+                        );
                         break;
                     }
                 }
             }
-            info!("get_desired_executor_states stream finished, client disconnected");
         });
 
-        let output_stream = ReceiverStream::new(rx);
-        Ok(Response::new(
-            Box::pin(output_stream) as Self::get_desired_executor_statesStream
-        ))
+        let output_stream =
+            DropDetectorStream::new(rx, self.indexify_state.clone(), executor_id_clone);
+
+        Ok(Response::new(Box::pin(
+            output_stream.map(move |result| result.map_err(|e| Status::internal(e.to_string()))),
+        )
+            as Self::get_desired_executor_statesStream))
     }
 
     async fn report_task_outcome(
