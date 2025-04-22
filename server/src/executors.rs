@@ -9,8 +9,7 @@ use std::{
 
 use anyhow::Result;
 use data_model::{
-    AllocatedTask,
-    DesiredExecutorState,
+    ComputeGraphVersion,
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutorServerMetadata,
@@ -32,7 +31,21 @@ use tokio::{
 };
 use tracing::{error, trace};
 
-use crate::http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor};
+use crate::{
+    executor_api::{
+        blob_store_path_to_url,
+        executor_api_pb::{
+            DataPayload,
+            DataPayloadEncoding,
+            DesiredExecutorState,
+            FunctionExecutorDescription,
+            Task,
+            TaskAllocation,
+            TaskRetryPolicy,
+        },
+    },
+    http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
+};
 
 pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -56,6 +69,16 @@ impl PartialOrd for ReverseInstant {
 /// This is used whenever there are no executors.
 fn far_future() -> Instant {
     Instant::now() + Duration::from_secs(24 * 60 * 60)
+}
+
+/// A struct containing only the computed fields needed for desired state
+#[derive(Debug, Clone)]
+pub struct ComputedTask {
+    pub reducer_input_payload: Option<DataPayload>,
+    pub output_payload_uri_prefix: String,
+    pub input_payload: DataPayload,
+    pub timeout_ms: u32,
+    pub retry_policy: TaskRetryPolicy,
 }
 
 /// ExecutorRuntimeData stores runtime state for an executor that is not
@@ -98,6 +121,8 @@ impl ExecutorRuntimeData {
 }
 
 pub struct ExecutorManager {
+    blob_store_url_scheme: String,
+    blob_store_url: String,
     heartbeat_deadline_queue: Mutex<PriorityQueue<ExecutorId, ReverseInstant>>,
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
@@ -106,7 +131,11 @@ pub struct ExecutorManager {
 }
 
 impl ExecutorManager {
-    pub async fn new(indexify_state: Arc<IndexifyState>) -> Arc<Self> {
+    pub async fn new(
+        indexify_state: Arc<IndexifyState>,
+        blob_store_url_scheme: String,
+        blob_store_url: String,
+    ) -> Arc<Self> {
         let (heartbeat_future, heartbeat_sender) = DynamicSleepFuture::new(
             far_future(),
             // Chunk duration for the heartbeat future is set to 2 seconds before the timeout
@@ -123,6 +152,8 @@ impl ExecutorManager {
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
+            blob_store_url_scheme,
+            blob_store_url,
         };
 
         let em = Arc::new(em);
@@ -340,7 +371,82 @@ impl ExecutorManager {
             .iter()
             .flat_map(|fe| fe.values())
             .filter(|fe| fe.desired_state != data_model::FunctionExecutorState::Terminated)
-            .map(|fe| *fe.clone())
+            .filter_map(|fe| {
+                let fe_meta = *fe.clone();
+                let fe = fe_meta.function_executor.clone();
+
+                let cg_version =
+                    match indexes
+                        .compute_graph_versions
+                        .get(&ComputeGraphVersion::key_from(
+                            &fe.namespace,
+                            &fe.compute_graph_name,
+                            &fe.version,
+                        )) {
+                        Some(cg_version) => cg_version,
+                        None => {
+                            error!(
+                                executor_id = executor_id.get(),
+                                function_executor_id = fe.id.get(),
+                                "Compute graph version not found"
+                            );
+                            return None;
+                        }
+                    };
+
+                let cg_node = match cg_version.nodes.get(&fe.compute_fn_name) {
+                    Some(cg_node) => cg_node,
+                    None => {
+                        error!(
+                            executor_id = executor_id.get(),
+                            function_executor_id = fe.id.get(),
+                            "Compute graph node not found"
+                        );
+                        return None;
+                    }
+                };
+
+                let resources = match cg_node.resources().try_into() {
+                    Ok(fe_resources) => fe_resources,
+                    Err(e) => {
+                        error!(
+                            executor_id = executor_id.get(),
+                            function_executor_id = fe.id.get(),
+                            "Failed to convert resources: {:?}",
+                            e
+                        );
+                        return None;
+                    }
+                };
+
+                Some((
+                    FunctionExecutorDescription {
+                        id: Some(fe.id.get().to_string()),
+                        namespace: Some(fe.namespace.clone()),
+                        graph_name: Some(fe.compute_graph_name.clone()),
+                        graph_version: Some(fe.version.0),
+                        function_name: Some(fe.compute_fn_name.clone()),
+                        image_uri: cg_node.image_uri(),
+                        secret_names: cg_node.secret_names(),
+                        resource_limits: None, // deprecated
+                        customer_code_timeout_ms: Some(cg_node.timeout().0),
+                        graph: Some(DataPayload {
+                            path: Some(cg_version.code.path.clone()),
+                            uri: Some(blob_store_path_to_url(
+                                &cg_version.code.path,
+                                &self.blob_store_url_scheme,
+                                &self.blob_store_url,
+                            )),
+                            size: Some(cg_version.code.size),
+                            sha256_hash: Some(cg_version.code.sha256_hash.clone()),
+                            encoding: Some(DataPayloadEncoding::BinaryPickle.into()),
+                            encoding_version: None,
+                        }),
+                        resources: Some(resources),
+                    },
+                    fe_meta,
+                ))
+            })
             .collect::<Vec<_>>();
 
         // Calculate current task allocations
@@ -363,10 +469,38 @@ impl ExecutorManager {
                         return None;
                     }
                 };
-                Some(AllocatedTask {
-                    function_executor_id: allocation.function_executor_id.clone(),
-                    executor_id: executor_id.clone(),
-                    task,
+
+                let computed_task = match self.extract_computed_fields(&task) {
+                    Ok(computed_task) => computed_task,
+                    Err(e) => {
+                        error!(
+                            executor_id = executor_id.get(),
+                            task_id = allocation.task_id.get(),
+                            task_key = allocation.task_key(),
+                            "Failed to extract computed fields: {:?}",
+                            e
+                        );
+                        return None;
+                    }
+                };
+
+                Some(TaskAllocation {
+                    function_executor_id: Some(allocation.function_executor_id.get().to_string()),
+                    task: Some(Task {
+                        id: Some(task.id.get().to_string()),
+                        namespace: Some(task.namespace.clone()),
+                        graph_name: Some(task.compute_graph_name.clone()),
+                        graph_version: Some(task.graph_version.0),
+                        function_name: Some(task.compute_fn_name.clone()),
+                        graph_invocation_id: Some(task.invocation_id.clone()),
+                        input_key: Some(task.input_node_output_key.clone()),
+                        reducer_output_key: task.reducer_output_id.clone(),
+                        timeout_ms: Some(computed_task.timeout_ms),
+                        input: Some(computed_task.input_payload),
+                        reducer_input: computed_task.reducer_input_payload,
+                        output_payload_uri_prefix: Some(computed_task.output_payload_uri_prefix),
+                        retry_policy: Some(computed_task.retry_policy),
+                    }),
                 })
             })
             .collect::<Vec<_>>();
@@ -374,7 +508,12 @@ impl ExecutorManager {
         // We return a new clock value whenever the function executors state changes.
 
         // Compute the current hash of function executors' desired states
-        let current_hash = compute_function_executors_hash(&function_executors);
+        let current_hash = compute_function_executors_hash(
+            &function_executors
+                .iter()
+                .map(|(_, fe_meta)| fe_meta)
+                .collect::<Vec<_>>(),
+        );
 
         // Determine what clock value to use
         let clock = {
@@ -402,10 +541,130 @@ impl ExecutorManager {
         };
 
         DesiredExecutorState {
-            function_executors,
+            function_executors: function_executors
+                .iter()
+                .map(|(fd, _)| fd.clone())
+                .collect(),
             task_allocations,
-            clock,
+            clock: Some(clock),
         }
+    }
+
+    /// Extracts only the computed fields from a data_model::Task
+    pub fn extract_computed_fields(&self, task: &data_model::Task) -> anyhow::Result<ComputedTask> {
+        // Extract graph payload
+        let compute_graph_version = self
+            .indexify_state
+            .reader()
+            .get_compute_graph_version(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.graph_version,
+            )?
+            .ok_or_else(|| anyhow::anyhow!("Compute graph version not found"))?;
+
+        let node = compute_graph_version
+            .nodes
+            .get(&task.compute_fn_name)
+            .ok_or_else(|| anyhow::anyhow!("Compute graph node not found"))?;
+
+        // Extract input payload
+        let input_payload = if task.invocation_id ==
+            task.input_node_output_key.split("|").last().unwrap_or("")
+        {
+            // First function in graph
+            let invocation_payload = self.indexify_state.reader().invocation_payload(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.invocation_id,
+            )?;
+
+            DataPayload {
+                path: Some(invocation_payload.payload.path.clone()),
+                uri: Some(blob_store_path_to_url(
+                    &invocation_payload.payload.path,
+                    &self.blob_store_url_scheme,
+                    &self.blob_store_url,
+                )),
+                size: Some(invocation_payload.payload.size),
+                sha256_hash: Some(invocation_payload.payload.sha256_hash),
+                encoding: Some(DataPayloadEncoding::try_from(invocation_payload.encoding)?.into()),
+                encoding_version: None,
+            }
+        } else {
+            // Intermediate function
+            let node_output = self
+                .indexify_state
+                .reader()
+                .fn_output_payload_by_key(&task.input_node_output_key)?;
+
+            match node_output.payload {
+                data_model::OutputPayload::Fn(payload) => DataPayload {
+                    path: Some(payload.path.clone()),
+                    uri: Some(blob_store_path_to_url(
+                        &payload.path,
+                        &self.blob_store_url_scheme,
+                        &self.blob_store_url,
+                    )),
+                    size: Some(payload.size),
+                    sha256_hash: Some(payload.sha256_hash),
+                    encoding: Some(DataPayloadEncoding::try_from(node_output.encoding)?.into()),
+                    encoding_version: None,
+                },
+                _ => return Err(anyhow::anyhow!("Unexpected node output payload type")),
+            }
+        };
+
+        // Extract reducer input payload (optional)
+        let reducer_input_payload = match task.reducer_output_id.as_ref() {
+            Some(reducer_output_id) => {
+                let reducer_output = self.indexify_state.reader().fn_output_payload(
+                    &task.namespace,
+                    &task.compute_graph_name,
+                    &task.invocation_id,
+                    &task.compute_fn_name,
+                    reducer_output_id,
+                )?;
+
+                match reducer_output {
+                    Some(output) => match output.payload {
+                        data_model::OutputPayload::Fn(payload) => Some(DataPayload {
+                            path: Some(payload.path.clone()),
+                            uri: Some(blob_store_path_to_url(
+                                &payload.path,
+                                &self.blob_store_url_scheme,
+                                &self.blob_store_url,
+                            )),
+                            size: Some(payload.size),
+                            sha256_hash: Some(payload.sha256_hash),
+                            encoding: Some(DataPayloadEncoding::try_from(output.encoding)?.into()),
+                            encoding_version: None,
+                        }),
+                        _ => return Err(anyhow::anyhow!("Unexpected reducer output payload type")),
+                    },
+                    None => None,
+                }
+            }
+            None => None,
+        };
+
+        // Create output payload URI prefix
+        let output_payload_uri_prefix = format!(
+            "{}/{}.{}.{}.{}",
+            self.blob_store_url,
+            task.namespace,
+            task.compute_graph_name,
+            task.compute_fn_name,
+            task.invocation_id,
+        );
+
+        Ok(ComputedTask {
+            reducer_input_payload,
+            output_payload_uri_prefix,
+            input_payload,
+            timeout_ms: node.timeout().0,
+            retry_policy: node.retry_policy().into(),
+        })
     }
 
     pub async fn upsert_executor(&self, executor: ExecutorMetadata) -> Result<()> {
@@ -490,7 +749,7 @@ impl ExecutorManager {
 
 /// Helper function to compute a hash of function executors' desired states
 fn compute_function_executors_hash(
-    function_executors: &[FunctionExecutorServerMetadata],
+    function_executors: &[&FunctionExecutorServerMetadata],
 ) -> String {
     let mut hasher = DefaultHasher::new();
 

@@ -257,6 +257,12 @@ impl Default for NodeTimeoutMS {
     }
 }
 
+impl Into<NodeTimeoutMS> for u32 {
+    fn into(self) -> NodeTimeoutMS {
+        NodeTimeoutMS(self)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeGPUConfig {
     pub count: u32,
@@ -392,10 +398,10 @@ impl Node {
         }
     }
 
-    pub fn secret_names(&self) -> Option<Vec<String>> {
+    pub fn secret_names(&self) -> Vec<String> {
         match self {
-            Node::Router(router) => router.secret_names.clone(),
-            Node::Compute(compute) => compute.secret_names.clone(),
+            Node::Router(router) => router.secret_names.clone().unwrap_or_default(),
+            Node::Compute(compute) => compute.secret_names.clone().unwrap_or_default(),
         }
     }
 
@@ -1281,20 +1287,6 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
-#[derive(Debug, Clone)]
-pub struct AllocatedTask {
-    pub executor_id: ExecutorId,
-    pub function_executor_id: FunctionExecutorId,
-    pub task: Task,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DesiredExecutorState {
-    pub function_executors: Vec<FunctionExecutorServerMetadata>,
-    pub task_allocations: Vec<AllocatedTask>,
-    pub clock: u64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FunctionURI {
     pub namespace: String,
@@ -1456,10 +1448,6 @@ pub struct FunctionExecutor {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: GraphVersion,
-    pub secret_names: Vec<String>,
-    pub image_uri: Option<String>,
-    pub customer_code_timeout_ms: Option<u32>,
-    pub resource_limits: Option<HostResources>,
     pub status: FunctionExecutorStatus,
 }
 
@@ -1525,22 +1513,6 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let secret_names = self
-            .secret_names
-            .clone()
-            .ok_or(anyhow!("secret_names is required"))?;
-        let image_uri = self
-            .image_uri
-            .clone()
-            .ok_or(anyhow!("version is required"))?;
-        let customer_code_timeout_ms = self
-            .customer_code_timeout_ms
-            .clone()
-            .ok_or(anyhow!("version is required"))?;
-        let resource_limits = self
-            .resource_limits
-            .clone()
-            .ok_or(anyhow!("resource_limits is required"))?;
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
         Ok(FunctionExecutor {
             id,
@@ -1548,10 +1520,6 @@ impl FunctionExecutorBuilder {
             compute_graph_name,
             compute_fn_name,
             version,
-            secret_names,
-            image_uri,
-            customer_code_timeout_ms,
-            resource_limits,
             status,
         })
     }

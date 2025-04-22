@@ -55,7 +55,14 @@ impl Service {
         );
 
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
-        let executor_manager = ExecutorManager::new(indexify_state.clone()).await;
+        let blob_store_url_scheme = blob_storage.get_url_scheme();
+        let blob_store_url = blob_storage.get_url();
+        let executor_manager = ExecutorManager::new(
+            indexify_state.clone(),
+            blob_store_url_scheme,
+            blob_store_url,
+        )
+        .await;
 
         let gc_executor = Arc::new(Mutex::new(Gc::new(
             indexify_state.clone(),

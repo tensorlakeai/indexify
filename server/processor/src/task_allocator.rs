@@ -23,8 +23,12 @@ use data_model::{
 use im::HashMap;
 use itertools::Itertools;
 use state_store::{
-    in_memory_state::{InMemoryState, UnallocatedTaskId},
-    requests::{FunctionExecutorIdWithExecutionId, SchedulerUpdateRequest},
+    in_memory_state::InMemoryState,
+    requests::{
+        FunctionExecutorIdWithExecutionId,
+        SchedulerUpdateRequest,
+        StateMachineUpdateRequest,
+    },
 };
 use tracing::{debug, error, info, span, warn};
 
@@ -68,9 +72,8 @@ struct ExecutorCandidate {
     function_executor_id: Option<FunctionExecutorId>, // None if needs to be created
     allocation_count: usize,                          /* Number of allocations for this function
                                                        * executor */
-    capacity_percentage: f64, // Percentage of capacity used (0.0-1.0)
-    is_dev_executor: bool,    // Flag to indicate if this is a dev executor
-    needs_creation: bool,     // Flag to indicate if this is a creation candidate
+    is_dev_executor: bool, // Flag to indicate if this is a dev executor
+    needs_creation: bool,  // Flag to indicate if this is a creation candidate
 }
 
 pub struct TaskAllocationProcessor {
@@ -110,6 +113,15 @@ impl TaskAllocationProcessor {
 
         // Step 1: Run vacuum phase
         let vacuum_update = self.vacuum_phase()?;
+        self.in_memory_state.update_state(
+            self.in_memory_state.clock,
+            &StateMachineUpdateRequest {
+                payload: state_store::requests::RequestPayload::SchedulerUpdate(Box::new(
+                    vacuum_update.clone(),
+                )),
+                processed_state_changes: vec![],
+            },
+        )?;
         update.extend(vacuum_update);
 
         // Step 2: Fetch unallocated tasks
@@ -145,7 +157,8 @@ impl TaskAllocationProcessor {
         // Step 1: Process tasks
         for task in tasks {
             match self.process_task(&task) {
-                Ok((Some(allocation), new_fe_meta, Some(updated_task))) => {
+                Ok((Some(allocation), new_function_executors)) => {
+                    let mut task_update = SchedulerUpdateRequest::default();
                     debug!(
                         task_id = task.id.to_string(),
                         "task {} allocated to function executor {}",
@@ -155,83 +168,68 @@ impl TaskAllocationProcessor {
 
                     // We have a successful allocation
 
-                    // 1. Add new function executor if needed
-                    if let Some(fe_meta) = new_fe_meta {
+                    // 1. Add new function executors
+                    for fe_meta in &new_function_executors {
                         // Add to update
-                        update.new_function_executors.push(fe_meta.clone());
-
-                        // Create metadata
-                        // Add to in-memory state
-                        self.in_memory_state
-                            .function_executors_by_executor
-                            .entry(fe_meta.executor_id.clone())
-                            .or_default()
-                            .entry(fe_meta.function_executor.id.clone())
-                            .or_insert_with(|| Box::new(fe_meta));
+                        task_update.new_function_executors.push(fe_meta.clone());
                     }
 
                     // 2. Add allocation
-                    update.new_allocations.push(allocation.clone());
+                    task_update.new_allocations.push(allocation.clone());
 
-                    // Update in-memory state for allocation
-                    self.in_memory_state
-                        .allocations_by_executor
-                        .entry(allocation.executor_id.clone())
-                        .or_default()
-                        .entry(allocation.function_executor_id.clone())
-                        .or_default()
-                        .push_back(Box::new(allocation.clone()));
+                    // 3. Create and update task with Running status
+                    let mut updated_task = *task.clone();
+                    updated_task.status = TaskStatus::Running;
 
-                    // 3. Update task
-                    update
+                    task_update
                         .updated_tasks
-                        .insert(updated_task.id.clone(), *updated_task.clone());
+                        .insert(updated_task.id.clone(), updated_task.clone());
 
-                    // Update in-memory state for task
-                    self.in_memory_state
-                        .tasks
-                        .insert(updated_task.key(), updated_task.clone());
-                    self.in_memory_state
-                        .unallocated_tasks
-                        .remove(&UnallocatedTaskId::new(&updated_task));
+                    self.in_memory_state.update_state(
+                        self.in_memory_state.clock,
+                        &StateMachineUpdateRequest {
+                            payload: state_store::requests::RequestPayload::SchedulerUpdate(
+                                Box::new(task_update.clone()),
+                            ),
+                            processed_state_changes: vec![],
+                        },
+                    )?;
 
-                    // 4. Update last_allocation_at for the function executor
-                    self.in_memory_state
-                        .function_executors_by_executor
-                        .entry(allocation.executor_id.clone())
-                        .or_default()
-                        .entry(allocation.function_executor_id.clone())
-                        .and_modify(|fe_metadata| {
-                            fe_metadata.last_allocation_at = Some(SystemTime::now());
-                        });
+                    update.extend(task_update);
                 }
-                Ok((None, Some(fe_metadata), None)) => {
-                    debug!(
-                        task_id = task.id.to_string(),
-                        "task {} created function executor {}",
-                        task.id,
-                        fe_metadata.function_executor.id.get(),
-                    );
-                    // We created a function executor but couldn't allocate to it
+                Ok((None, new_function_executors)) => {
+                    let mut task_update = SchedulerUpdateRequest::default();
+                    if !new_function_executors.is_empty() {
+                        debug!(
+                            task_id = task.id.to_string(),
+                            "task {} created {} function executors",
+                            task.id,
+                            new_function_executors.len(),
+                        );
 
-                    // Add to update
-                    update.new_function_executors.push(fe_metadata.clone());
+                        // Add new function executors to update and in-memory state
+                        for fe_metadata in &new_function_executors {
+                            // Add to update
+                            task_update.new_function_executors.push(fe_metadata.clone());
 
-                    // Add to in-memory state
-                    self.in_memory_state
-                        .function_executors_by_executor
-                        .entry(fe_metadata.executor_id.clone())
-                        .or_default()
-                        .entry(fe_metadata.function_executor.id.clone())
-                        .or_insert_with(|| Box::new(fe_metadata));
-                }
-                Ok(_) => {
-                    debug!(
-                        task_id = task.id.to_string(),
-                        "task {} could not be allocated and could not create a function executor",
-                        task.id,
-                    );
-                    // No allocation happened
+                            self.in_memory_state.update_state(
+                                self.in_memory_state.clock,
+                                &StateMachineUpdateRequest {
+                                    payload: state_store::requests::RequestPayload::SchedulerUpdate(
+                                        Box::new(task_update.clone()),
+                                    ),
+                                    processed_state_changes: vec![],
+                                },
+                            )?;
+                        }
+                    } else {
+                        debug!(
+                            task_id = task.id.to_string(),
+                            "task {} could not be allocated and could not create any function executors",
+                            task.id,
+                        );
+                    }
+                    update.extend(task_update);
                 }
                 Err(err) => {
                     error!("Error processing task {}: {:?}", task.id, err);
@@ -243,15 +241,12 @@ impl TaskAllocationProcessor {
     }
 
     // Process a single task - handling both allocation and FE creation
+    // Process a single task - handling both allocation and FE creation
     #[tracing::instrument(skip(self, task))]
     fn process_task(
         &self,
         task: &Task,
-    ) -> Result<(
-        Option<Allocation>,
-        Option<FunctionExecutorServerMetadata>,
-        Option<Box<Task>>,
-    )> {
+    ) -> Result<(Option<Allocation>, Vec<FunctionExecutorServerMetadata>)> {
         let span = span!(
             tracing::Level::DEBUG,
             "process_task",
@@ -264,8 +259,14 @@ impl TaskAllocationProcessor {
         let _enter = span.enter();
 
         if task.outcome.is_terminal() {
-            error!("task: {} already completed, skipping", task.id);
-            return Ok((None, None, None));
+            error!(
+                namespace = task.namespace,
+                compute_graph = task.compute_graph_name,
+                compute_fn = task.compute_fn_name,
+                invocation_id = task.invocation_id,
+                "task already completed, skipping"
+            );
+            return Ok((None, Vec::new()));
         }
 
         debug!("attempting to allocate task {:?} ", task.id);
@@ -275,99 +276,9 @@ impl TaskAllocationProcessor {
 
         // Variables to track the results
         let mut allocation = None;
-        let mut new_fe = None;
-        let mut updated_task = None;
-        let creation_needed;
+        let mut new_function_executors = Vec::new();
 
-        // Process candidates in order of priority
-        if !candidates.is_empty() {
-            // Get the best candidate
-            let best_candidate = &candidates[0];
-
-            if !best_candidate.needs_creation {
-                // Try to allocate to existing FE
-                match self.create_allocation(task, best_candidate) {
-                    Ok(alloc) => {
-                        // Create a task with updated status
-                        let mut task_update = Box::new(task.clone());
-                        task_update.status = TaskStatus::Running;
-
-                        allocation = Some(alloc);
-                        updated_task = Some(task_update);
-
-                        // Check if we need to create a new FE due to high capacity
-                        creation_needed = best_candidate.capacity_percentage >= CAPACITY_THRESHOLD;
-                    }
-                    Err(err) => {
-                        error!("Failed to create allocation to existing FE: {:?}", err);
-                        creation_needed = true;
-                    }
-                }
-            } else {
-                // Best candidate requires creation
-                creation_needed = true;
-            }
-
-            // Create a new FE if needed
-            if creation_needed {
-                // Find the best creation candidate
-                let creation_candidate = candidates.iter().find(|c| c.needs_creation);
-
-                if let Some(creation_candidate) = creation_candidate {
-                    // Create FE - it needs to start up before it can be allocated to
-                    let fe = self
-                        .create_function_executor_metadata(task, &creation_candidate.executor_id);
-
-                    new_fe = Some(fe.clone());
-
-                    // If we don't already have an allocation, try to allocate to this new FE
-                    if allocation.is_none() {
-                        // Create a candidate with the new FE ID for allocation
-                        let new_fe_candidate = ExecutorCandidate {
-                            executor_id: creation_candidate.executor_id.clone(),
-                            function_executor_id: Some(fe.function_executor.id.clone()),
-                            allocation_count: 0,
-                            capacity_percentage: 0.0,
-                            is_dev_executor: creation_candidate.is_dev_executor,
-                            needs_creation: false,
-                        };
-
-                        // Try to allocate to the new FE
-                        match self.create_allocation(task, &new_fe_candidate) {
-                            Ok(alloc) => {
-                                debug!(
-                                    "Allocated task {} to newly created function executor {}",
-                                    task.id,
-                                    fe.function_executor.id.get()
-                                );
-
-                                // Create a task with updated status
-                                let mut task_update = Box::new(task.clone());
-                                task_update.status = TaskStatus::Running;
-
-                                allocation = Some(alloc);
-                                updated_task = Some(task_update);
-
-                                // Update the new FE's last_allocation_at time
-                                if let Some(ref mut fe_metadata) = new_fe {
-                                    fe_metadata.last_allocation_at = Some(SystemTime::now());
-                                }
-                            }
-                            Err(err) => {
-                                // This is expected since the FE isn't actually running yet
-                                debug!(
-                                    "Could not immediately allocate to new function executor: {:?}",
-                                    err
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // If we didn't allocate or create anything
-        if allocation.is_none() && new_fe.is_none() {
+        if candidates.is_empty() {
             info!(
                 namespace = task.namespace,
                 compute_graph = task.compute_graph_name,
@@ -376,9 +287,98 @@ impl TaskAllocationProcessor {
                 task_id = task.id.to_string(),
                 "no suitable candidates available for task"
             );
+            return Ok((None, Vec::new()));
         }
 
-        Ok((allocation, new_fe, updated_task))
+        // Step 1: Create all FEs that need creation
+        let creation_candidates: Vec<&ExecutorCandidate> =
+            candidates.iter().filter(|c| c.needs_creation).collect();
+
+        // Create all needed FEs
+        let mut new_fe_candidates = Vec::new();
+        for creation_candidate in creation_candidates {
+            let fe = self.create_function_executor_metadata(task, &creation_candidate.executor_id);
+            new_fe_candidates.push((creation_candidate.executor_id.clone(), fe.clone()));
+            new_function_executors.push(fe);
+        }
+
+        // Step 2: Try to allocate to existing FE first (non-creation candidates)
+        let existing_candidates: Vec<&ExecutorCandidate> =
+            candidates.iter().filter(|c| !c.needs_creation).collect();
+
+        if !existing_candidates.is_empty() {
+            // Get the best existing candidate (should be the first one due to sorting)
+            let best_candidate = existing_candidates[0];
+
+            // Try to allocate to this existing FE
+            match self.create_allocation(task, best_candidate) {
+                Ok(alloc) => {
+                    allocation = Some(alloc);
+
+                    debug!(
+                        "Allocated task {} to existing function executor {}",
+                        task.id,
+                        best_candidate.function_executor_id.as_ref().unwrap().get()
+                    );
+                }
+                Err(err) => {
+                    error!("Failed to create allocation to existing FE: {:?}", err);
+                }
+            }
+        }
+
+        // Step 3: If we couldn't allocate to an existing FE, try with newly created
+        // ones
+        if allocation.is_none() && !new_fe_candidates.is_empty() {
+            for (executor_id, fe_metadata) in &new_fe_candidates {
+                // Create a candidate with the new FE ID for allocation
+                let new_fe_candidate = ExecutorCandidate {
+                    executor_id: executor_id.clone(),
+                    function_executor_id: Some(fe_metadata.function_executor.id.clone()),
+                    allocation_count: 0,
+                    is_dev_executor: false, // This value doesn't matter for allocation
+                    needs_creation: false,  // We're treating it as already created now
+                };
+
+                // Try to allocate to this new FE
+                match self.create_allocation(task, &new_fe_candidate) {
+                    Ok(alloc) => {
+                        allocation = Some(alloc);
+
+                        debug!(
+                            "Allocated task {} to newly created function executor {}",
+                            task.id,
+                            fe_metadata.function_executor.id.get()
+                        );
+
+                        // Successfully allocated to this FE, no need to try others
+                        break;
+                    }
+                    Err(err) => {
+                        // This is expected since the FE isn't actually running yet
+                        debug!(
+                            "Could not immediately allocate to new function executor {}: {:?}",
+                            fe_metadata.function_executor.id.get(),
+                            err
+                        );
+                        // Continue to try other newly created FEs
+                    }
+                }
+            }
+        }
+
+        if allocation.is_none() && new_function_executors.is_empty() {
+            info!(
+                namespace = task.namespace,
+                compute_graph = task.compute_graph_name,
+                compute_fn = task.compute_fn_name,
+                invocation_id = task.invocation_id,
+                task_id = task.id.to_string(),
+                "could not allocate task or create any function executors"
+            );
+        }
+
+        Ok((allocation, new_function_executors))
     }
 
     // Vacuum phase - returns scheduler update for cleanup actions
@@ -415,16 +415,6 @@ impl TaskAllocationProcessor {
                     update
                         .new_function_executors
                         .push(updated_fe_metadata.clone());
-
-                    // Update in-memory state
-                    self.in_memory_state
-                        .function_executors_by_executor
-                        .entry(executor_id.clone())
-                        .or_default()
-                        .entry(fe_id.clone())
-                        .and_modify(|existing| {
-                            **existing = updated_fe_metadata;
-                        });
 
                     debug!(
                         "Marked function executor {} on executor {} for termination",
@@ -640,7 +630,6 @@ impl TaskAllocationProcessor {
                         executor_id: executor_id.clone(),
                         function_executor_id: Some(fe_id),
                         allocation_count,
-                        capacity_percentage,
                         is_dev_executor: executor.development_mode,
                         needs_creation: false,
                     };
@@ -667,7 +656,6 @@ impl TaskAllocationProcessor {
                                 executor_id: executor_id.clone(),
                                 function_executor_id: None, // Will be created if selected
                                 allocation_count: 0,        // New FE has no allocations
-                                capacity_percentage: 0.0,   // New FE has no capacity used
                                 is_dev_executor: executor.development_mode,
                                 needs_creation: true,
                             };
@@ -697,7 +685,6 @@ impl TaskAllocationProcessor {
                             executor_id: executor_id.clone(),
                             function_executor_id: None, // Will be created if selected
                             allocation_count: 0,        // New FE has no allocations
-                            capacity_percentage: 0.0,   // New FE has no capacity used
                             is_dev_executor: executor.development_mode,
                             needs_creation: true,
                         };
@@ -757,12 +744,6 @@ impl TaskAllocationProcessor {
             compute_graph_name: task.compute_graph_name.clone(),
             compute_fn_name: task.compute_fn_name.clone(),
             version: task.graph_version.clone(),
-            secret_names: task.secret_names.clone().unwrap_or_default(),
-            image_uri: task.image_uri.clone(),
-            // TODO: Support timeouts
-            customer_code_timeout_ms: None,
-            // TODO: Support resource limits
-            resource_limits: None,
             status: FunctionExecutorStatus::Unknown,
         };
         // Create with current timestamp for last_allocation_at

@@ -6,41 +6,16 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use data_model::{
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorMetadataBuilder,
-    FunctionExecutor,
-    FunctionExecutorId,
-    FunctionURI,
-    GraphVersion,
-    NodeOutputBuilder,
-    OutputPayload,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskOutputsIngestionStatus,
-    TaskStatus,
+    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionExecutor,
+    FunctionExecutorId, FunctionURI, GraphVersion, NodeOutputBuilder, OutputPayload,
+    TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus, TaskStatus,
 };
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
-    AllowedFunction,
-    DataPayloadEncoding,
-    DesiredExecutorState,
-    ExecutorState,
-    ExecutorStatus,
-    FunctionExecutorDescription,
-    FunctionExecutorStatus,
-    GetDesiredExecutorStatesRequest,
-    GpuModel,
-    GpuResources,
-    HostResources,
-    OutputEncoding,
-    ReportExecutorStateRequest,
-    ReportExecutorStateResponse,
-    ReportTaskOutcomeRequest,
+    executor_api_server::ExecutorApi, AllowedFunction, DataPayloadEncoding, DesiredExecutorState,
+    ExecutorState, ExecutorStatus, FunctionExecutorDescription, FunctionExecutorResources,
+    FunctionExecutorStatus, GetDesiredExecutorStatesRequest, HostResources, OutputEncoding,
+    ReportExecutorStateRequest, ReportExecutorStateResponse, ReportTaskOutcomeRequest,
     ReportTaskOutcomeResponse,
-    Task,
-    TaskAllocation,
 };
 use metrics::api_io_stats;
 use state_store::{
@@ -77,19 +52,6 @@ impl TryFrom<AllowedFunction> for FunctionURI {
     }
 }
 
-impl TryFrom<data_model::GpuResources> for GpuResources {
-    type Error = anyhow::Error;
-
-    fn try_from(from: data_model::GpuResources) -> Result<Self, Self::Error> {
-        let model: GpuModel = from.model.into();
-        let model = model.try_into()?;
-        Ok(GpuResources {
-            count: Some(from.count),
-            model: Some(model),
-        })
-    }
-}
-
 impl TryFrom<data_model::HostResources> for HostResources {
     type Error = anyhow::Error;
 
@@ -116,10 +78,7 @@ impl TryFrom<HostResources> for data_model::HostResources {
         let disk = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-        let gpu = from.gpu.map(|g| data_model::GpuResources {
-            count: g.count(),
-            model: g.model().into(),
-        });
+        let gpu = from.gpu.map(|g| g.try_into()).transpose()?;
         Ok(data_model::HostResources {
             cpu_count: cpu,
             memory_bytes: memory,
@@ -129,41 +88,15 @@ impl TryFrom<HostResources> for data_model::HostResources {
     }
 }
 
-impl From<GpuModel> for String {
-    fn from(gpu_model: GpuModel) -> Self {
-        match gpu_model {
-            GpuModel::NvidiaTeslaT416gb => "T4".to_string(),
-            GpuModel::NvidiaTeslaV10016gb => "V100".to_string(),
-            GpuModel::NvidiaA1024gb => "A10".to_string(),
-            GpuModel::NvidiaA600048gb => "A6000".to_string(),
-            GpuModel::NvidiaA100Sxm440gb => "A100".to_string(),
-            GpuModel::NvidiaA100Sxm480gb => "A100".to_string(),
-            GpuModel::NvidiaA100Pci40gb => "A100".to_string(),
-            GpuModel::NvidiaH100Sxm580gb => "H100".to_string(),
-            GpuModel::NvidiaH100Pci80gb => "H100".to_string(),
-            GpuModel::NvidiaRtx600024gb => "RTX6000".to_string(),
-            GpuModel::Unknown => "Unknown".to_string(),
-        }
-    }
-}
+impl TryFrom<String> for DataPayloadEncoding {
+    type Error = anyhow::Error;
 
-impl From<String> for GpuModel {
-    fn from(s: String) -> Self {
-        match s.as_str() {
-            "T4" => GpuModel::NvidiaTeslaT416gb,
-            "V100" => GpuModel::NvidiaTeslaV10016gb,
-            "A10" => GpuModel::NvidiaA1024gb,
-            "A6000" => GpuModel::NvidiaA600048gb,
-            "A100" => {
-                // Note: This is ambiguous as there are three A100 variants
-                GpuModel::NvidiaA100Sxm480gb
-            }
-            "RTX6000" => GpuModel::NvidiaRtx600024gb,
-            "H100" => {
-                // Note: This is ambiguous as there are two H100 variants
-                GpuModel::NvidiaH100Sxm580gb
-            }
-            _ => GpuModel::Unknown,
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "application/json" => Ok(DataPayloadEncoding::Utf8Json),
+            "application/octet-stream" => Ok(DataPayloadEncoding::BinaryPickle),
+            "text/plain" => Ok(DataPayloadEncoding::Utf8Text),
+            _ => Err(anyhow::anyhow!("unknown data payload encoding")),
         }
     }
 }
@@ -178,6 +111,26 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
             ExecutorStatus::Stopped => data_model::ExecutorState::Stopped,
             ExecutorStatus::Unknown => data_model::ExecutorState::Unknown,
         }
+    }
+}
+
+impl TryFrom<data_model::GpuResources> for executor_api_pb::GpuResources {
+    type Error = anyhow::Error;
+
+    fn try_from(gpu_resources: data_model::GpuResources) -> Result<Self, Self::Error> {
+        if gpu_resources.count == 0 {
+            return Err(anyhow::anyhow!("data_model gpu_resources.count is 0"));
+        }
+        let proto_model = match gpu_resources.model.as_str() {
+            data_model::GPU_MODEL_NVIDIA_A100_40GB => Ok(executor_api_pb::GpuModel::NvidiaA10040gb),
+            data_model::GPU_MODEL_NVIDIA_A100_80GB => Ok(executor_api_pb::GpuModel::NvidiaA10080gb),
+            data_model::GPU_MODEL_NVIDIA_H100_80GB => Ok(executor_api_pb::GpuModel::NvidiaH10080gb),
+            _ => Err(anyhow::anyhow!("unknown data_model gpu_resources.model")),
+        }?;
+        Ok(executor_api_pb::GpuResources {
+            count: Some(gpu_resources.count),
+            model: Some(proto_model.into()),
+        })
     }
 }
 
@@ -222,6 +175,64 @@ impl From<FunctionExecutorStatus> for data_model::FunctionExecutorStatus {
             FunctionExecutorStatus::Shutdown => data_model::FunctionExecutorStatus::Shutdown,
             FunctionExecutorStatus::Unknown => data_model::FunctionExecutorStatus::Unknown,
         }
+    }
+}
+
+impl From<data_model::NodeRetryPolicy> for executor_api_pb::TaskRetryPolicy {
+    fn from(from: data_model::NodeRetryPolicy) -> Self {
+        executor_api_pb::TaskRetryPolicy {
+            max_retries: Some(from.max_retries),
+            initial_delay_ms: Some(from.initial_delay_ms),
+            delay_multiplier: Some(from.delay_multiplier),
+            max_delay_ms: Some(from.max_delay_ms),
+        }
+    }
+}
+
+impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
+        let cpu_ms_per_sec = from
+            .cpu_ms_per_sec
+            .ok_or(anyhow::anyhow!("cpu_ms_per_sec is required"))?;
+        let memory_bytes = from
+            .memory_bytes
+            .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
+        let ephemeral_disk_bytes = from
+            .disk_bytes
+            .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+        let gpu_count = from.gpu_count.unwrap_or(0);
+        Ok(data_model::NodeResources {
+            cpu_ms_per_sec,
+            memory_mb: (memory_bytes / 1024 / 1024) as u32,
+            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
+            gpu: if gpu_count > 0 {
+                Some(data_model::NodeGPUs {
+                    count: gpu_count,
+                    // TODO: Add GPU model in FunctionExecutorResources
+                    model: "unknown".to_string(),
+                })
+            } else {
+                None
+            },
+        })
+    }
+}
+
+impl TryFrom<data_model::NodeResources> for FunctionExecutorResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: data_model::NodeResources) -> Result<Self, Self::Error> {
+        Ok(FunctionExecutorResources {
+            cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
+            memory_bytes: Some(from.memory_mb as u64 * 1024 * 1024),
+            disk_bytes: Some(from.ephemeral_disk_mb as u64 * 1024 * 1024),
+            gpu_count: match from.gpu {
+                Some(gpus) => Some(gpus.count),
+                None => Some(0),
+            },
+        })
     }
 }
 
@@ -293,7 +304,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
                 Some(gpu_resources) => gpu_resources.try_into().ok(),
                 None => None,
             };
-            executor_metadata.host_resources(HostResources {
+            executor_metadata.host_resources(data_model::HostResources {
                 cpu_count: cpu,
                 memory_bytes: memory,
                 disk_bytes: disk,
@@ -338,88 +349,8 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             compute_graph_name,
             compute_fn_name,
             version,
-            secret_names: function_executor_description.secret_names,
-            image_uri: function_executor_description.image_uri,
-            customer_code_timeout_ms: function_executor_description.customer_code_timeout_ms,
-            resource_limits: function_executor_description
-                .resource_limits
-                .map(|rl| rl.try_into())
-                .transpose()?,
-            // is set when the function executor status is converted
+            // is set when the parent proto message FunctionExecutorStatus is converted
             status: data_model::FunctionExecutorStatus::Unknown,
-        })
-    }
-}
-
-impl TryFrom<FunctionExecutor> for FunctionExecutorDescription {
-    type Error = anyhow::Error;
-
-    fn try_from(from: FunctionExecutor) -> Result<Self, Self::Error> {
-        Ok(FunctionExecutorDescription {
-            id: Some(from.id.get().to_string()),
-            namespace: Some(from.namespace),
-            graph_name: Some(from.compute_graph_name),
-            function_name: Some(from.compute_fn_name),
-            graph_version: Some(from.version.0),
-            secret_names: from.secret_names,
-            image_uri: from.image_uri,
-            customer_code_timeout_ms: from.customer_code_timeout_ms,
-            resource_limits: None,
-            // TODO
-            graph: None,
-        })
-    }
-}
-
-impl TryFrom<data_model::AllocatedTask> for Task {
-    type Error = anyhow::Error;
-
-    fn try_from(from: data_model::AllocatedTask) -> Result<Self, Self::Error> {
-        Ok(Task {
-            id: Some(from.task.id.get().to_string()),
-            namespace: Some(from.task.namespace),
-            graph_name: Some(from.task.compute_graph_name),
-            function_name: Some(from.task.compute_fn_name),
-            graph_version: Some(from.task.graph_version.0),
-            graph_invocation_id: Some(from.task.invocation_id),
-            input_key: Some(from.task.input_node_output_key),
-            reducer_output_key: from.task.reducer_output_id,
-            // TODO: Support configured timeouts
-            timeout_ms: None,
-            input: None,
-            reducer_input: None,
-            output_payload_uri_prefix: None,
-        })
-    }
-}
-
-impl TryFrom<data_model::AllocatedTask> for TaskAllocation {
-    type Error = anyhow::Error;
-
-    fn try_from(from: data_model::AllocatedTask) -> Result<Self, Self::Error> {
-        Ok(TaskAllocation {
-            function_executor_id: Some(from.function_executor_id.get().to_string()),
-            task: Some(Task::try_from(from)?),
-        })
-    }
-}
-
-impl TryFrom<data_model::DesiredExecutorState> for DesiredExecutorState {
-    type Error = anyhow::Error;
-
-    fn try_from(desired_state: data_model::DesiredExecutorState) -> Result<Self, Self::Error> {
-        Ok(DesiredExecutorState {
-            function_executors: desired_state
-                .function_executors
-                .into_iter()
-                .map(|fe| fe.function_executor.try_into())
-                .collect::<Result<Vec<_>, _>>()?,
-            task_allocations: desired_state
-                .task_allocations
-                .into_iter()
-                .map(|ta| ta.try_into())
-                .collect::<Result<Vec<_>, _>>()?,
-            clock: Some(desired_state.clock),
         })
     }
 }
