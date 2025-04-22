@@ -1322,6 +1322,11 @@ pub struct GpuResources {
     pub model: String,
 }
 
+// Supported GPU models.
+pub const GPU_MODEL_NVIDIA_H100_80GB: &str = "H100";
+pub const GPU_MODEL_NVIDIA_A100_40GB: &str = "A100-40GB";
+pub const GPU_MODEL_NVIDIA_A100_80GB: &str = "A100-80GB";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HostResources {
     pub cpu_count: u32,

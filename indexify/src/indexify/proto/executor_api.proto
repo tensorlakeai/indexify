@@ -27,18 +27,18 @@ message DataPayload {
 }
 
 // ===== report_executor_state RPC =====
-
-// Deprecated enum. TODO: remove when all the code is using model string.
 enum GPUModel {
     GPU_MODEL_UNKNOWN = 0;
+    GPU_MODEL_NVIDIA_A100_40GB = 1;
+    GPU_MODEL_NVIDIA_A100_80GB = 2;
+    GPU_MODEL_NVIDIA_H100_80GB = 3;
 }
 
 // Free GPUs available at the Executor.
 message GPUResources {
     optional uint32 count = 1;
-    optional GPUModel deprecated_model = 2;
-    // Either GPU_MODEL value from Tensorlake SDK or "UNKNOWN"
-    optional string model = 3;
+    optional GPUModel model = 2;
+    reserved 3;
 }
 
 // Resources that we're currently tracking and limiting on Executor.

@@ -21,6 +21,9 @@ class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     GPU_MODEL_UNKNOWN: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A100_40GB: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A100_80GB: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_H100_80GB: _ClassVar[GPUModel]
 
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -72,6 +75,9 @@ DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
+GPU_MODEL_NVIDIA_A100_40GB: GPUModel
+GPU_MODEL_NVIDIA_A100_80GB: GPUModel
+GPU_MODEL_NVIDIA_H100_80GB: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus
@@ -124,18 +130,13 @@ class DataPayload(_message.Message):
     ) -> None: ...
 
 class GPUResources(_message.Message):
-    __slots__ = ("count", "deprecated_model", "model")
+    __slots__ = ("count", "model")
     COUNT_FIELD_NUMBER: _ClassVar[int]
-    DEPRECATED_MODEL_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     count: int
-    deprecated_model: GPUModel
-    model: str
+    model: GPUModel
     def __init__(
-        self,
-        count: _Optional[int] = ...,
-        deprecated_model: _Optional[_Union[GPUModel, str]] = ...,
-        model: _Optional[str] = ...,
+        self, count: _Optional[int] = ..., model: _Optional[_Union[GPUModel, str]] = ...
     ) -> None: ...
 
 class HostResources(_message.Message):
