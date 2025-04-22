@@ -65,6 +65,7 @@ use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_complet
 use logs::download_task_logs;
 
 use crate::{
+    config::ServerConfig,
     executors::ExecutorManager,
     http_objects::{
         Allocation,
@@ -150,6 +151,7 @@ struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
+    pub config: Arc<ServerConfig>,
     pub indexify_state: Arc<IndexifyState>,
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub kvs: Arc<KVS>,
@@ -489,6 +491,7 @@ async fn create_or_update_compute_graph(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
+        &state.config.executor,
     )?;
     let name = compute_graph.name.clone();
     info!(
