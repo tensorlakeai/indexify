@@ -170,7 +170,7 @@ class ExecutorAPIServerTestScenario(ExecutorAPIStub):
         executor_states_reported_by_executor: List[ExecutorState],
     ):
         self._desired_executor_states_sent_to_executor = (
-            desired_executor_states_sent_to_executor
+            desired_executor_states_sent_to_executor()
         )
         self._executor_states_reported_by_executor = (
             executor_states_reported_by_executor
@@ -194,7 +194,11 @@ class ExecutorAPIServerTestScenario(ExecutorAPIStub):
     def get_desired_executor_states(
         self, request: GetDesiredExecutorStatesRequest, context: grpc.ServicerContext
     ) -> Generator[DesiredExecutorState, None, None]:
-        yield from self._desired_executor_states_sent_to_executor()
+        yield next(self._desired_executor_states_sent_to_executor)
+        raise grpc.RpcError(
+            grpc.StatusCode.UNAVAILABLE,
+            "Simulated stream disconnect after returning one element.",
+        )
 
     def report_task_outcome(
         self, request: ReportTaskOutcomeRequest, context: grpc.ServicerContext
@@ -307,6 +311,7 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             channel_manager=self.channel_manager,
             state_reporter=self.state_reporter,
             logger=self.logger,
+            server_backoff_interval_sec=0.1,  # Override to speed up tests.
         )
         self.state_reconciler_task = asyncio.create_task(self.state_reconciler.run())
         self.desired_states_generator = DesiredStatesGenerator()
