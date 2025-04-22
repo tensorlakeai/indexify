@@ -19,9 +19,7 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
 )
 from indexify.proto.executor_api_pb2 import GPUModel as GPUModelProto
-from indexify.proto.executor_api_pb2 import (
-    GPUResources,
-)
+from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
@@ -36,6 +34,7 @@ from ..function_executor.function_executor_states_container import (
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..host_resources.host_resources import HostResources, HostResourcesProvider
+from ..host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from ..runtime_probes import RuntimeProbes
 from .channel_manager import ChannelManager
 from .metrics.state_reporter import (
@@ -271,12 +270,22 @@ def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProt
     )
     if len(host_resources.gpus) > 0:
         proto.gpu.CopyFrom(
-            GPUResources(
+            GPUResourcesProto(
                 count=len(host_resources.gpus),
-                deprecated_model=GPUModelProto.GPU_MODEL_UNKNOWN,  # TODO: Remove this field
-                model=host_resources.gpus[
-                    0
-                ].model.value,  # All GPUs should have the same model
+                model=_gpu_model_to_proto(
+                    host_resources.gpus[0].model
+                ),  # All GPUs have the same model
             )
         )
     return proto
+
+
+def _gpu_model_to_proto(gpu_model: NVIDIA_GPU_MODEL) -> GPUModelProto:
+    if gpu_model == NVIDIA_GPU_MODEL.A100_40GB:
+        return GPUModelProto.GPU_MODEL_NVIDIA_A100_40GB
+    elif gpu_model == NVIDIA_GPU_MODEL.A100_80GB:
+        return GPUModelProto.GPU_MODEL_NVIDIA_A100_80GB
+    elif gpu_model == NVIDIA_GPU_MODEL.H100_80GB:
+        return GPUModelProto.GPU_MODEL_NVIDIA_H100_80GB
+    else:
+        return GPUModelProto.GPU_MODEL_UNKNOWN

@@ -185,13 +185,19 @@ impl Default for NodeTimeoutSeconds {
     }
 }
 
+// TODO: Make this configurable because this depends on hardware availability in
+// a region.
+const AVAILABLE_GPU_MODELS: [&str; 3] = [
+    data_model::GPU_MODEL_NVIDIA_H100_80GB,
+    data_model::GPU_MODEL_NVIDIA_A100_40GB,
+    data_model::GPU_MODEL_NVIDIA_A100_80GB,
+];
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeGPUs {
     pub count: u32,
     pub model: String,
 }
-
-const GPU_MODELS: [&str; 3] = ["H100", "A100-40GB", "A100-80GB"];
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeResources {
@@ -241,10 +247,10 @@ impl NodeResources {
                     "GPU count must be less than or equal to 8",
                 ));
             }
-            if !GPU_MODELS.contains(&gpu.model.as_str()) {
+            if !AVAILABLE_GPU_MODELS.contains(&gpu.model.as_str()) {
                 return Err(IndexifyAPIError::bad_request(&format!(
                     "GPU model must be one of '{}'",
-                    GPU_MODELS.join(", ")
+                    AVAILABLE_GPU_MODELS.join(", ")
                 )));
             }
         }

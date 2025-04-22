@@ -14,7 +14,6 @@ use data_model::{
     FunctionExecutorId,
     FunctionExecutorStatus,
     FunctionURI,
-    GpuResources,
     GraphVersion,
     HostResources,
     NodeOutputBuilder,
@@ -87,6 +86,28 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
     }
 }
 
+impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
+    type Error = anyhow::Error;
+
+    fn try_from(gpu_resources: executor_api_pb::GpuResources) -> Result<Self, Self::Error> {
+        if gpu_resources.count() == 0 {
+            return Err(anyhow::anyhow!("proto gpu_resources.count is 0"));
+        }
+        let str_model = match gpu_resources.model() {
+            executor_api_pb::GpuModel::Unknown => {
+                Err(anyhow::anyhow!("proto gpu_resources.model is unknown"))
+            }
+            executor_api_pb::GpuModel::NvidiaA10040gb => Ok(data_model::GPU_MODEL_NVIDIA_A100_40GB),
+            executor_api_pb::GpuModel::NvidiaA10080gb => Ok(data_model::GPU_MODEL_NVIDIA_A100_80GB),
+            executor_api_pb::GpuModel::NvidiaH10080gb => Ok(data_model::GPU_MODEL_NVIDIA_H100_80GB),
+        }?;
+        Ok(data_model::GpuResources {
+            count: gpu_resources.count(),
+            model: str_model.into(),
+        })
+    }
+}
+
 impl TryFrom<ExecutorState> for ExecutorMetadata {
     type Error = anyhow::Error;
 
@@ -151,10 +172,12 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             let disk = host_resources
                 .disk_bytes
                 .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-            let gpu = host_resources.gpu.map(|g| GpuResources {
-                count: g.count(),
-                model: g.model().into(),
-            });
+            // Ignore errors during conversion as they are expected e.g. if Executor GPU
+            // model is unknown.
+            let gpu = match host_resources.gpu {
+                Some(gpu_resources) => gpu_resources.try_into().ok(),
+                None => None,
+            };
             executor_metadata.host_resources(HostResources {
                 cpu_count: cpu,
                 memory_bytes: memory,

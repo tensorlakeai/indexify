@@ -9,9 +9,9 @@ from tensorlake.functions_sdk.resources import GPU_MODEL
 # Only NVIDIA GPUs currently supported in Tensorlake SDK are listed here.
 class NVIDIA_GPU_MODEL(str, Enum):
     UNKNOWN = "UNKNOWN"
-    A100_40GB = GPU_MODEL.A100_40GB
-    A100_80GB = GPU_MODEL.A100_80GB
-    H100_80GB = GPU_MODEL.H100
+    A100_40GB = "A100-40GB"
+    A100_80GB = "A100-80GB"
+    H100_80GB = "H100"
 
 
 class NvidiaGPUInfo(BaseModel):
