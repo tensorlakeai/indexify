@@ -31,7 +31,7 @@ pub mod executor_api_descriptor {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
-    pub config: ServerConfig,
+    pub config: Arc<ServerConfig>,
     pub shutdown_tx: watch::Sender<()>,
     pub shutdown_rx: watch::Receiver<()>,
     pub blob_storage: Arc<BlobStorage>,
@@ -47,6 +47,7 @@ pub struct Service {
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
+        let config = Arc::new(config);
         let registry = init_provider()?;
         let metrics_registry = Arc::new(registry);
         let (shutdown_tx, shutdown_rx) = watch::channel(());
@@ -123,6 +124,7 @@ impl Service {
         let api_metrics = Arc::new(metrics::api_io_stats::Metrics::new());
 
         let route_state = RouteState {
+            config: self.config.clone(),
             indexify_state: self.indexify_state.clone(),
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage.clone(),

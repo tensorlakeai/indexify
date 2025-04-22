@@ -11,7 +11,7 @@ use state_store::IndexifyState;
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::executor_api::blob_store_path_to_url;
+use crate::{config::ExecutorConfig, executor_api::blob_store_path_to_url};
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
 pub struct IndexifyAPIError {
@@ -185,14 +185,6 @@ impl Default for NodeTimeoutSeconds {
     }
 }
 
-// TODO: Make this configurable because this depends on hardware availability in
-// a region.
-const AVAILABLE_GPU_MODELS: [&str; 3] = [
-    data_model::GPU_MODEL_NVIDIA_H100_80GB,
-    data_model::GPU_MODEL_NVIDIA_A100_40GB,
-    data_model::GPU_MODEL_NVIDIA_A100_80GB,
-];
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeGPUs {
     pub count: u32,
@@ -209,31 +201,34 @@ pub struct NodeResources {
 }
 
 impl NodeResources {
-    fn validate(&self) -> Result<(), IndexifyAPIError> {
+    fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
         if self.cpus < 0.1 {
             return Err(IndexifyAPIError::bad_request(
                 "CPU shares must be greater than 0.1",
             ));
         }
-        if self.cpus > 32.0 {
-            return Err(IndexifyAPIError::bad_request(
-                "CPU shares must be less than or equal to 32.0",
-            ));
+        if self.cpus > executor_config.max_cpus_per_function as f64 {
+            return Err(IndexifyAPIError::bad_request(&format!(
+                "CPU shares must be less than or equal to {}",
+                executor_config.max_cpus_per_function
+            )));
         }
         if self.memory_mb < 128 {
             return Err(IndexifyAPIError::bad_request(
                 "Memory must be greater than 128 MB",
             ));
         }
-        if self.memory_mb > 20 * 1024 {
-            return Err(IndexifyAPIError::bad_request(
-                "Memory must be less than or equal to 20 GB",
-            ));
+        if self.memory_mb > executor_config.max_memory_gb_per_function * 1024 {
+            return Err(IndexifyAPIError::bad_request(&format!(
+                "Memory must be less than or equal to {} GB",
+                executor_config.max_memory_gb_per_function
+            )));
         }
-        if self.ephemeral_disk_mb > 1 * 1024 * 1024 {
-            return Err(IndexifyAPIError::bad_request(
-                "Ephemeral disk must be less than 1 TB",
-            ));
+        if self.ephemeral_disk_mb > executor_config.max_disk_gb_per_function * 1024 {
+            return Err(IndexifyAPIError::bad_request(&format!(
+                "Ephemeral disk must be less than or equal to {} GB",
+                executor_config.max_disk_gb_per_function
+            )));
         }
         if self.gpu.is_some() {
             let gpu = self.gpu.as_ref().unwrap();
@@ -242,15 +237,16 @@ impl NodeResources {
                     "GPU count must be greater than 0",
                 ));
             }
-            if gpu.count > 8 {
-                return Err(IndexifyAPIError::bad_request(
-                    "GPU count must be less than or equal to 8",
-                ));
+            if gpu.count > executor_config.max_gpus_per_function {
+                return Err(IndexifyAPIError::bad_request(&format!(
+                    "GPU count must be less than or equal to {}",
+                    executor_config.max_gpus_per_function
+                )));
             }
-            if !AVAILABLE_GPU_MODELS.contains(&gpu.model.as_str()) {
+            if !executor_config.allowed_gpu_models.contains(&gpu.model) {
                 return Err(IndexifyAPIError::bad_request(&format!(
                     "GPU model must be one of '{}'",
-                    AVAILABLE_GPU_MODELS.join(", ")
+                    executor_config.allowed_gpu_models.join(", ")
                 )));
             }
         }
@@ -419,7 +415,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
         if self.name.is_empty() {
             return Err(IndexifyAPIError::bad_request(
                 "ComputeFn name cannot be empty",
@@ -431,7 +427,7 @@ impl ComputeFn {
             ));
         }
         self.timeout.validate()?;
-        self.resources.validate()?;
+        self.resources.validate(executor_config)?;
         self.retry_policy.validate()?;
         Ok(())
     }
@@ -459,7 +455,7 @@ pub struct DynamicRouter {
 }
 
 impl DynamicRouter {
-    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
         if self.name.is_empty() {
             return Err(IndexifyAPIError::bad_request(
                 "DynamicRouter name cannot be empty",
@@ -476,7 +472,7 @@ impl DynamicRouter {
             ));
         }
         self.timeout.validate()?;
-        self.resources.validate()?;
+        self.resources.validate(executor_config)?;
         self.retry_policy.validate()?;
         Ok(())
     }
@@ -534,10 +530,10 @@ impl Node {
         }
     }
 
-    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
         match self {
-            Node::DynamicRouter(d) => d.validate(),
-            Node::ComputeFn(c) => c.validate(),
+            Node::DynamicRouter(d) => d.validate(executor_config),
+            Node::ComputeFn(c) => c.validate(executor_config),
         }
     }
 }
@@ -614,10 +610,11 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
+        executor_config: &ExecutorConfig,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
-            node.validate()?;
+            node.validate(executor_config)?;
             nodes.insert(name, node.into());
         }
         let start_fn: data_model::Node = self.start_node.into();

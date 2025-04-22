@@ -16,6 +16,7 @@ pub struct ServerConfig {
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
     pub tracing: TracingConfig,
+    pub executor: ExecutorConfig,
 }
 
 impl Default for ServerConfig {
@@ -28,6 +29,7 @@ impl Default for ServerConfig {
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
             tracing: TracingConfig::default(),
+            executor: ExecutorConfig::default(),
         }
     }
 }
@@ -66,4 +68,28 @@ pub struct TracingConfig {
     // OpenTelemetry collector grpc endpoint. Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var
     // or to localhost:4317 if empty.
     pub endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorConfig {
+    pub max_cpus_per_function: u32,
+    pub max_memory_gb_per_function: u32,
+    pub max_disk_gb_per_function: u32,
+    pub max_gpus_per_function: u32,
+    pub allowed_gpu_models: Vec<String>,
+}
+
+impl Default for ExecutorConfig {
+    fn default() -> Self {
+        ExecutorConfig {
+            max_cpus_per_function: 216,          // 90% of 240
+            max_memory_gb_per_function: 1620,    // 90% of 1800 GiB
+            max_disk_gb_per_function: 20 * 1024, // 90% of 22 TiB
+            max_gpus_per_function: 8,
+            allowed_gpu_models: data_model::ALL_GPU_MODELS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        }
+    }
 }
