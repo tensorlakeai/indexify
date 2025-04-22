@@ -52,6 +52,7 @@ class ExecutorStateReconciler:
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
+        server_backoff_interval_sec: int = _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
         self._function_executor_server_factory: FunctionExecutorServerFactory = (
@@ -65,6 +66,7 @@ class ExecutorStateReconciler:
         self._state_reporter: ExecutorStateReporter = state_reporter
         self._reconciliation_loop_task: Optional[asyncio.Task] = None
         self._logger: Any = logger.bind(module=__name__)
+        self._server_backoff_interval_sec: int = server_backoff_interval_sec
 
         # Mutable state. Doesn't need lock because we access from async tasks running in the same thread.
         self._is_shutdown: bool = False
@@ -93,26 +95,29 @@ class ExecutorStateReconciler:
 
         # TODO: Move this into a new async task and cancel it in shutdown().
         while not self._is_shutdown:
-            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
-            while not self._is_shutdown:
-                try:
-                    # Report state once before starting the stream so Server
-                    # doesn't use stale state it knew about this Executor in the past.
-                    await self._state_reporter.report_state(stub)
+            try:
+                stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+                # Report state once before starting the stream so Server
+                # doesn't use stale state it knew about this Executor in the past.
+                await self._state_reporter.report_state(stub)
 
-                    desired_states_stream: AsyncGenerator[
-                        DesiredExecutorState, None
-                    ] = stub.get_desired_executor_states(
+                desired_states_stream: AsyncGenerator[DesiredExecutorState, None] = (
+                    stub.get_desired_executor_states(
                         GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
                     )
-                    await self._process_desired_states_stream(desired_states_stream)
-                except Exception as e:
-                    self._logger.error(
-                        f"Failed processing desired states stream, reconnecting in {_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC} sec.",
-                        exc_info=e,
-                    )
-                    await asyncio.sleep(_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC)
-                    break
+                )
+                self._logger.info("created new desired states stream")
+                await self._process_desired_states_stream(desired_states_stream)
+            except Exception as e:
+                self._logger.error(
+                    f"error while processing desired states stream",
+                    exc_info=e,
+                )
+
+            self._logger.info(
+                f"desired states stream closed, reconnecting in {self._server_backoff_interval_sec} sec"
+            )
+            await asyncio.sleep(self._server_backoff_interval_sec)
 
     async def _process_desired_states_stream(
         self, desired_states: AsyncGenerator[DesiredExecutorState, None]
@@ -127,13 +132,18 @@ class ExecutorStateReconciler:
                 validator.required_field("clock")
             except ValueError as e:
                 self._logger.error(
-                    "Received invalid DesiredExecutorState from Server. Ignoring.",
+                    "received invalid DesiredExecutorState from Server, ignoring",
                     exc_info=e,
                 )
                 continue
 
             if self._last_server_clock is not None:
                 if self._last_server_clock >= new_state.clock:
+                    self._logger.warning(
+                        "received outdated DesiredExecutorState from Server, ignoring",
+                        current_clock=self._last_server_clock,
+                        ignored_clock=new_state.clock,
+                    )
                     continue  # Duplicate or outdated message state sent by Server.
 
             self._last_server_clock = new_state.clock
@@ -151,7 +161,7 @@ class ExecutorStateReconciler:
         self._is_shutdown = True
         if self._reconciliation_loop_task is not None:
             self._reconciliation_loop_task.cancel()
-            self._logger.info("Reconciliation loop shutdown.")
+            self._logger.info("reconciliation loop shutdown")
 
         for controller in self._task_controllers.values():
             await controller.destroy()
@@ -195,7 +205,7 @@ class ExecutorStateReconciler:
                 return
             except Exception as e:
                 self._logger.error(
-                    "Failed to reconcile desired state. Retrying in 5 secs.",
+                    "failed to reconcile desired state, retrying in 5 secs",
                     exc_info=e,
                     attempt=attempt,
                     attempts_left=_RECONCILIATION_RETRIES - attempt,
@@ -204,7 +214,7 @@ class ExecutorStateReconciler:
 
         metric_state_reconciliation_errors.inc()
         self._logger.error(
-            f"Failed to reconcile desired state after {_RECONCILIATION_RETRIES} attempts.",
+            f"failed to reconcile desired state after {_RECONCILIATION_RETRIES} attempts",
         )
 
     async def _reconcile_function_executors(
@@ -246,7 +256,7 @@ class ExecutorStateReconciler:
                 validate_function_executor_description(function_executor_description)
             except ValueError as e:
                 logger.error(
-                    "Received invalid FunctionExecutorDescription from Server. Dropping it from desired state.",
+                    "received invalid FunctionExecutorDescription from Server, dropping it from desired state",
                     exc_info=e,
                 )
                 continue
@@ -309,7 +319,7 @@ class ExecutorStateReconciler:
             # IDLE and start running tasks on it. Server currently doesn't explicitly manage the desired FE status.
             await controller.startup()
         except Exception as e:
-            logger.error("Failed adding Function Executor", exc_info=e)
+            logger.error("failed adding Function Executor", exc_info=e)
 
     async def _remove_function_executor_after_shutdown(
         self, function_executor_id: str
@@ -362,7 +372,7 @@ class ExecutorStateReconciler:
                 logger=self._logger,
             )
         except Exception as e:
-            logger.error("Failed adding TaskController", exc_info=e)
+            logger.error("failed adding TaskController", exc_info=e)
 
     async def _remove_task(self, task_id: str) -> None:
         """Schedules removal of an existing task.
@@ -382,7 +392,7 @@ class ExecutorStateReconciler:
             except ValueError as e:
                 # There's no way to report this error to Server so just log it.
                 logger.error(
-                    "Received invalid TaskAllocation from Server. Dropping it from desired state.",
+                    "received invalid TaskAllocation from Server, dropping it from desired state",
                     exc_info=e,
                 )
                 continue
@@ -393,7 +403,7 @@ class ExecutorStateReconciler:
             except ValueError as e:
                 # There's no way to report this error to Server so just log it.
                 logger.error(
-                    "Received invalid TaskAllocation from Server. Dropping it from desired state.",
+                    "received invalid TaskAllocation from Server, dropping it from desired state",
                     exc_info=e,
                 )
                 continue
@@ -405,7 +415,7 @@ class ExecutorStateReconciler:
                 # Current policy: don't report task outcomes for tasks that didn't run.
                 # This is required to simplify the protocol so Server doesn't need to care about task states.
                 logger.error(
-                    "Received TaskAllocation for a Function Executor that doesn't exist. Dropping it from desired state."
+                    "received TaskAllocation for a Function Executor that doesn't exist, dropping it from desired state"
                 )
                 continue
 
