@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Any, List
 
 from pydantic import BaseModel
-from tensorlake.functions_sdk.resources import GPU_MODEL
 
 
 # Only NVIDIA GPUs currently supported in Tensorlake SDK are listed here.
