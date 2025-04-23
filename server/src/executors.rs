@@ -47,7 +47,12 @@ use crate::{
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
 };
 
+/// Executor timeout duration for heartbeat
 pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Timeout duration before deregistering executors that haven't re-registered
+/// at service startup
+pub const STARTUP_EXECUTOR_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Wrapper for `tokio::time::Instant` that reverses the ordering for deadline.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -167,7 +172,7 @@ impl ExecutorManager {
         let indexify_state = self.indexify_state.clone();
         let executor_hashes = self.executor_hashes.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(EXECUTOR_TIMEOUT).await;
+            tokio::time::sleep(STARTUP_EXECUTOR_TIMEOUT).await;
 
             // Get all executor IDs of executors that haven't registered.
             let missing_executor_ids: Vec<_> = {

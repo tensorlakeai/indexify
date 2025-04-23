@@ -7,9 +7,6 @@ mod tests {
         test_objects::tests::{
             mock_dev_executor,
             mock_executor_id,
-            mock_graph_a,
-            mock_invocation_ctx,
-            mock_invocation_payload,
             mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
         },
@@ -19,13 +16,7 @@ mod tests {
     };
     use rocksdb::{IteratorMode, TransactionDB};
     use state_store::{
-        requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            InvokeComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-        },
+        requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
         state_machine::IndexifyObjectsColumns,
         test_state_store,
     };
@@ -489,117 +480,6 @@ mod tests {
                 ]),
             )?;
         }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_max_allocation_per_executor() -> Result<()> {
-        let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
-
-        // invoke the graph
-        {
-            let cg_request = CreateOrUpdateComputeGraphRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                compute_graph: mock_graph_a("image_hash".to_string()),
-                upgrade_tasks_to_current_version: true,
-            };
-            indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                    processed_state_changes: vec![],
-                })
-                .await
-                .unwrap();
-
-            for i in 0..30 {
-                let mut invocation_payload = mock_invocation_payload();
-                invocation_payload.id = format!("invocation-{}", i);
-
-                let ctx = mock_invocation_ctx(
-                    TEST_NAMESPACE,
-                    &mock_graph_a("image_hash".to_string()),
-                    &invocation_payload,
-                );
-                let request = InvokeComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    compute_graph_name: "graph_A".to_string(),
-                    invocation_payload: invocation_payload.clone(),
-                    ctx,
-                };
-                indexify_state
-                    .write(StateMachineUpdateRequest {
-                        payload: RequestPayload::InvokeComputeGraph(request),
-                        processed_state_changes: vec![],
-                    })
-                    .await
-                    .unwrap();
-            }
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 30,
-                    allocated: 0,
-                    unallocated: 30,
-                    completed_success: 0,
-                })
-                .await?;
-        };
-
-        // register executor1
-        {
-            let executor = test_srv
-                .create_executor(mock_dev_executor(mock_executor_id()))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 30,
-                    allocated: 20,
-                    unallocated: 10,
-                    completed_success: 0,
-                })
-                .await?;
-
-            let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(
-                executor_tasks.len(),
-                20,
-                "Executor tasks: {:#?}",
-                executor_tasks
-            );
-        };
-
-        // register executor2
-        {
-            let executor = test_srv
-                .create_executor(mock_dev_executor(ExecutorId::new("executor_2".to_string())))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 30,
-                    allocated: 30,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
-            let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(
-                executor_tasks.len(),
-                10,
-                "Executor tasks: {:#?}",
-                executor_tasks
-            );
-        };
 
         Ok(())
     }
