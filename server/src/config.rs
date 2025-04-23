@@ -57,6 +57,7 @@ impl ServerConfig {
                 self.listen_addr_grpc
             ));
         }
+        self.executor.validate()?;
         Ok(())
     }
 }
@@ -77,6 +78,39 @@ pub struct ExecutorConfig {
     pub max_disk_gb_per_function: u32,
     pub max_gpus_per_function: u32,
     pub allowed_gpu_models: Vec<String>,
+}
+
+impl ExecutorConfig {
+    fn validate(&self) -> Result<()> {
+        // Just check for impossible values.
+        if self.max_cpus_per_function == 0 || self.max_cpus_per_function > 1024 {
+            return Err(anyhow::anyhow!(
+                "max_cpus_per_function must be greater than 0 and less than or equal 1024"
+            ));
+        }
+        if self.max_memory_gb_per_function == 0 || self.max_memory_gb_per_function > 100 * 1024 {
+            return Err(anyhow::anyhow!(
+                "max_memory_gb_per_function must be greater than 0 and less than or equal 100 TB"
+            ));
+        }
+        if self.max_disk_gb_per_function > 500 * 1024 {
+            return Err(anyhow::anyhow!(
+                "max_disk_gb_per_function must be greater than 0 and less than or equal 500 TB"
+            ));
+        }
+        // Allow 0 GPUs for CPU-only clusters and 0 ephimeral disk for diskless
+        // clusters.
+        for model in &self.allowed_gpu_models {
+            if !data_model::ALL_GPU_MODELS.contains(&model.as_str()) {
+                return Err(anyhow::anyhow!(
+                    "invalid GPU model: {:?}, supported GPU models: {:?}",
+                    model,
+                    data_model::ALL_GPU_MODELS
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for ExecutorConfig {
