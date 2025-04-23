@@ -48,7 +48,7 @@ pub struct ExecutorManager {
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
     indexify_state: Arc<IndexifyState>,
-    executor_hashes: RwLock<HashMap<ExecutorId, String>>,
+    executor_hashes: Arc<RwLock<HashMap<ExecutorId, String>>>,
 }
 
 impl ExecutorManager {
@@ -65,7 +65,7 @@ impl ExecutorManager {
         let heartbeat_future = Arc::new(Mutex::new(heartbeat_future));
         let em = ExecutorManager {
             indexify_state,
-            executor_hashes: RwLock::new(HashMap::new()),
+            executor_hashes: Arc::new(RwLock::new(HashMap::new())),
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
@@ -78,6 +78,7 @@ impl ExecutorManager {
 
     pub fn schedule_clean_lapsed_executors(&self) {
         let indexify_state = self.indexify_state.clone();
+        let executor_hashes = self.executor_hashes.clone();
         tokio::spawn(async move {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
 
@@ -95,7 +96,7 @@ impl ExecutorManager {
 
             // Deregister all executors that haven't registered.
             for executor_id in missing_executor_ids {
-                self.executor_hashes.write().await.remove(&executor_id);
+                executor_hashes.write().await.remove(&executor_id);
                 let sm_req = StateMachineUpdateRequest {
                     payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                         executor_id: executor_id.clone(),
