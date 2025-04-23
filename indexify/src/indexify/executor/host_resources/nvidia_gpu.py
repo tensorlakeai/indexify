@@ -65,9 +65,10 @@ def fetch_nvidia_gpu_infos(logger: Any) -> List[NvidiaGPUInfo]:
             model = NVIDIA_GPU_MODEL.A100_40GB
         elif product_name.startswith("NVIDIA H100"):
             model = NVIDIA_GPU_MODEL.H100_80GB
-
-        if model == NVIDIA_GPU_MODEL.UNKNOWN:
-            logger.warning("Unknown GPU model detected", nvidia_smi_output=line)
+        else:
+            logger.warning(
+                "Unknown GPU model was detected, ignoring", nvidia_smi_output=line
+            )
 
         infos.append(
             NvidiaGPUInfo(
