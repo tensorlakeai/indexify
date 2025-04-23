@@ -8,7 +8,7 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
-    FunctionURI,
+    FunctionExecutorStatus,
     Task,
     TaskDiagnostics,
     TaskOutcome,
@@ -288,39 +288,43 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn update_config(
-        &mut self,
-        dev_mode: Option<bool>,
-        functions: Option<Option<Vec<FunctionURI>>>,
-    ) -> Result<()> {
+    pub async fn update_function_executors(&self, functions: Vec<FunctionExecutor>) -> Result<()> {
+        // First, get current executor state
         let mut executor = self.get_executor_server_state().await?;
-        if let Some(dev_mode) = dev_mode {
-            executor.development_mode = dev_mode;
-        }
-        if let Some(functions) = functions {
-            executor.function_allowlist = functions;
-        }
 
+        // Update function executors, preserving the status (important for unhealthy
+        // function executor tests)
+        executor.function_executors = functions.into_iter().map(|f| (f.id.clone(), f)).collect();
+
+        // Update state hash and send heartbeat
         executor.state_hash = nanoid!();
         self.heartbeat(executor).await?;
 
         Ok(())
     }
 
-    pub async fn update_function_executors(
-        &mut self,
-        functions: Vec<FunctionExecutor>,
-    ) -> Result<()> {
-        let mut executor = self.get_executor_server_state().await?;
-        executor.function_executors = functions.into_iter().map(|f| (f.id.clone(), f)).collect();
+    pub async fn mark_function_executors_as_idle(&self) -> Result<()> {
+        let fes = self
+            .get_executor_server_state()
+            .await?
+            .function_executors
+            .into_values()
+            .map(|mut fe| {
+                fe.status = FunctionExecutorStatus::Idle;
+                fe
+            })
+            .collect();
 
-        executor.state_hash = nanoid!();
-        self.heartbeat(executor).await?;
+        self.update_function_executors(fes).await?;
+
+        // Process state changes to ensure changes take effect
+        self.test_service.process_all_state_changes().await?;
 
         Ok(())
     }
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {
+        // Get the in-memory state first to check if executor exists
         let indexes = self
             .test_service
             .service
@@ -329,20 +333,128 @@ impl TestExecutor<'_> {
             .read()
             .await
             .clone();
-        let mut executor = indexes
+
+        // Get executor from in-memory state - this is the base executor without
+        // complete function executors
+        let base_executor = indexes
             .executors
             .get(&self.executor_id)
             .cloned()
             .ok_or(anyhow::anyhow!("Executor not found in state store"))?;
-        executor.function_executors = indexes
-            .function_executors_by_executor
-            .get(&executor.id)
-            .unwrap_or(&Default::default())
-            .iter()
-            .map(|(key, value)| (key.clone(), (**value).function_executor.clone()))
+
+        // Clone base executor
+        let mut executor = *base_executor.clone();
+
+        // Use executor_manager to get current state - this has the most up-to-date
+        // function executors and tasks
+        let desired_executor_state = self
+            .test_service
+            .service
+            .executor_manager
+            .get_executor_state(&self.executor_id)
+            .await;
+
+        // Convert function executors from desired state to ExecutorMetadata format
+        executor.function_executors = desired_executor_state
+            .function_executors
+            .into_iter()
+            .filter_map(|desc| {
+                // Create FunctionExecutor
+                let function_executor: FunctionExecutor = desc.try_into().unwrap();
+
+                Some((function_executor.id.clone(), function_executor))
+            })
             .collect();
 
-        Ok(*executor.clone())
+        Ok(executor)
+    }
+
+    pub async fn assert_state(&self, assertions: ExecutorStateAssertions) -> Result<()> {
+        // Get desired state from executor manager
+        let desired_state = self
+            .test_service
+            .service
+            .executor_manager
+            .get_executor_state(&self.executor_id)
+            .await;
+
+        // Check function executor count
+        let func_executors_count = desired_state.function_executors.len();
+        assert_eq!(
+            assertions.num_func_executors, func_executors_count,
+            "function executors: expected {}, got {}",
+            assertions.num_func_executors, func_executors_count
+        );
+
+        // Check task allocation count
+        let tasks_count = desired_state.task_allocations.len();
+        assert_eq!(
+            assertions.num_allocated_tasks, tasks_count,
+            "tasks: expected {}, got {}",
+            assertions.num_allocated_tasks, tasks_count
+        );
+
+        Ok(())
+    }
+
+    pub async fn get_tasks(&self) -> Result<Vec<Task>> {
+        // First check if we can get the tasks directly from in-memory state
+        // This is more reliable for testing as it contains all task fields
+        let indexes = self
+            .test_service
+            .service
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await;
+
+        let tasks_from_memory = indexes.active_tasks_for_executor(&self.executor_id);
+
+        if !tasks_from_memory.is_empty() {
+            return Ok(tasks_from_memory
+                .into_iter()
+                .map(|task| (*task).clone())
+                .collect());
+        }
+
+        // Fallback to using executor_manager if no tasks found in memory
+        let desired_state = self
+            .test_service
+            .service
+            .executor_manager
+            .get_executor_state(&self.executor_id)
+            .await;
+
+        // Convert TaskAllocation to Task
+        let tasks = desired_state
+            .task_allocations
+            .into_iter()
+            .filter_map(|allocation| {
+                // Skip if task is missing
+                let proto_task = allocation.task?;
+
+                // Get required fields
+                let id = proto_task.id?;
+                let namespace = proto_task.namespace?;
+                let compute_graph_name = proto_task.graph_name?;
+                let compute_fn_name = proto_task.function_name?;
+                let invocation_id = proto_task.graph_invocation_id?;
+
+                // Look up the task in the state store to get all fields
+                match self.test_service.service.indexify_state.reader().get_task(
+                    &namespace,
+                    &compute_graph_name,
+                    &invocation_id,
+                    &compute_fn_name,
+                    &id,
+                ) {
+                    Ok(Some(task)) => Some(task),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        Ok(tasks)
     }
 
     pub async fn deregister(&self) -> Result<()> {
@@ -357,54 +469,6 @@ impl TestExecutor<'_> {
             })
             .await?;
         Ok(())
-    }
-
-    pub async fn assert_state(&self, assertions: ExecutorStateAssertions) -> Result<()> {
-        let indexes = self
-            .test_service
-            .service
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await;
-
-        let func_executors = indexes
-            .function_executors_by_executor
-            .get(&self.executor_id)
-            .iter()
-            .flat_map(|inner_map| inner_map.iter())
-            .map(|(_key, value)| value)
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            assertions.num_func_executors,
-            func_executors.len(),
-            "function executors: {:#?}",
-            func_executors
-        );
-
-        let tasks = indexes.active_tasks_for_executor(&self.executor_id);
-        assert_eq!(
-            assertions.num_allocated_tasks,
-            tasks.len(),
-            "tasks: {:#?}",
-            tasks
-        );
-
-        Ok(())
-    }
-
-    pub async fn get_tasks(&self) -> Result<Vec<Task>> {
-        let tasks = self
-            .test_service
-            .service
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .active_tasks_for_executor(&self.executor_id);
-
-        Ok(tasks.into_iter().map(|task| (*task).clone()).collect())
     }
 
     pub async fn finalize_task(&self, task: &Task, args: FinalizeTaskArgs) -> Result<()> {

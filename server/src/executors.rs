@@ -86,37 +86,37 @@ pub struct ComputedTask {
 #[derive(Debug, Clone)]
 struct ExecutorRuntimeData {
     /// Hash of the executor's overall state (used for heartbeat optimization)
-    pub state_hash: String,
+    pub last_state_hash: String,
     /// Clock value when the state was last updated
-    pub clock: u64,
+    pub last_executor_clock: u64,
     /// Hash of the function executors' desired states (used for
     /// get_executor_state optimization)
     pub function_executors_hash: String,
     /// Clock value when the function executors state was last updated
-    pub function_executors_clock: u64,
+    pub desired_server_clock: u64,
 }
 
 impl ExecutorRuntimeData {
     /// Create a new ExecutorRuntimeData
     pub fn new(state_hash: String, clock: u64) -> Self {
         Self {
-            state_hash,
-            clock,
+            last_state_hash: state_hash,
+            last_executor_clock: clock,
             function_executors_hash: String::new(),
-            function_executors_clock: clock,
+            desired_server_clock: clock,
         }
     }
 
     /// Update the function executors state hash and clock
     pub fn update_function_executors_state(&mut self, hash: String, clock: u64) {
         self.function_executors_hash = hash;
-        self.function_executors_clock = clock;
+        self.desired_server_clock = clock;
     }
 
     /// Update the overall state hash and clock
     pub fn update_state(&mut self, hash: String, clock: u64) {
-        self.state_hash = hash;
-        self.clock = clock;
+        self.last_state_hash = hash;
+        self.last_executor_clock = clock;
     }
 }
 
@@ -226,7 +226,10 @@ impl ExecutorManager {
             let runtime_data_read = self.runtime_data.read().await;
             !runtime_data_read
                 .get(&executor.id)
-                .map(|data| data.state_hash == executor.state_hash && data.clock == executor.clock)
+                .map(|data| {
+                    data.last_state_hash == executor.state_hash &&
+                        data.last_executor_clock == executor.clock
+                })
                 .unwrap_or(false)
         };
 
@@ -522,7 +525,7 @@ impl ExecutorManager {
             if let Some(data) = runtime_data.get_mut(executor_id) {
                 if data.function_executors_hash == current_hash {
                     // Hash matches, return the stored clock
-                    data.function_executors_clock
+                    data.desired_server_clock
                 } else {
                     // Hash doesn't match, update and return the current clock
                     data.update_function_executors_state(current_hash, indexes.clock);
@@ -650,7 +653,7 @@ impl ExecutorManager {
 
         // Create output payload URI prefix
         let output_payload_uri_prefix = format!(
-            "{}/{}.{}.{}.{}",
+            "{}{}.{}.{}.{}",
             self.blob_store_url,
             task.namespace,
             task.compute_graph_name,

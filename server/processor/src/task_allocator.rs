@@ -796,91 +796,10 @@ impl TaskAllocationProcessor {
             executor
         );
 
-        // Reconcile the function executors with the allowlist.
-        update.extend(self.reconcile_allowlist(&executor)?);
-
         // Reconcile function executors
         update.extend(self.reconcile_function_executors(&executor)?);
 
         return Ok(update);
-    }
-
-    #[tracing::instrument(skip(self, executor))]
-    fn reconcile_allowlist(
-        &mut self,
-        executor: &ExecutorMetadata,
-    ) -> Result<SchedulerUpdateRequest> {
-        let mut update = SchedulerUpdateRequest::default();
-
-        if executor.development_mode {
-            return Ok(update);
-        }
-
-        // Reconcile the function executors with the allowlist.
-
-        let remove_all = executor
-            .function_allowlist
-            .as_ref()
-            .map_or(true, |functions| functions.is_empty());
-
-        if remove_all {
-            // Remove all if the allowlist is empty or not present.
-            let all_function_executor_ids: Vec<_> = executor
-                .function_executors
-                .iter()
-                .map(|(_id, fe)| fe.id.clone())
-                .collect();
-
-            if !all_function_executor_ids.is_empty() {
-                info!(
-                    "executor {} has {} allowlist, removing all {} function executors",
-                    executor.id.get(),
-                    if executor.function_allowlist.is_some() {
-                        "empty"
-                    } else {
-                        "no"
-                    },
-                    all_function_executor_ids.len()
-                );
-            }
-
-            update
-                .extend(self.remove_function_executors(&executor.id, &all_function_executor_ids)?);
-        } else {
-            // Has non-empty allowlist - remove only non-allowlisted executors
-            let function_executor_ids_without_allowlist = executor
-                .function_executors
-                .iter()
-                .filter_map(|(_id, fe)| {
-                    if !executor
-                        .function_allowlist
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .any(|f| fe.matches_fn_uri(f))
-                    {
-                        Some(fe.id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect_vec();
-
-            if !function_executor_ids_without_allowlist.is_empty() {
-                info!(
-                    "executor {} has function executors not allowlisted: {}",
-                    executor.id.get(),
-                    function_executor_ids_without_allowlist.len()
-                );
-            }
-
-            update.extend(self.remove_function_executors(
-                &executor.id,
-                &function_executor_ids_without_allowlist,
-            )?);
-        }
-
-        Ok(update)
     }
 
     #[tracing::instrument(skip(self, executor))]
