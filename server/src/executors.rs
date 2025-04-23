@@ -95,6 +95,7 @@ impl ExecutorManager {
 
             // Deregister all executors that haven't registered.
             for executor_id in missing_executor_ids {
+                self.executor_hashes.write().await.remove(&executor_id);
                 let sm_req = StateMachineUpdateRequest {
                     payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                         executor_id: executor_id.clone(),
@@ -256,6 +257,7 @@ impl ExecutorManager {
         &self,
         executor_id: ExecutorId,
     ) -> Result<(), anyhow::Error> {
+        self.executor_hashes.write().await.remove(&executor_id);
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                 executor_id: executor_id.clone(),
