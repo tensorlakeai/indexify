@@ -287,5 +287,7 @@ def _gpu_model_to_proto(gpu_model: NVIDIA_GPU_MODEL) -> GPUModelProto:
         return GPUModelProto.GPU_MODEL_NVIDIA_A100_80GB
     elif gpu_model == NVIDIA_GPU_MODEL.H100_80GB:
         return GPUModelProto.GPU_MODEL_NVIDIA_H100_80GB
+    elif gpu_model == NVIDIA_GPU_MODEL.TESLA_T4:
+        return GPUModelProto.GPU_MODEL_NVIDIA_TESLA_T4
     else:
         return GPUModelProto.GPU_MODEL_UNKNOWN

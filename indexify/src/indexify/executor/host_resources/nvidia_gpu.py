@@ -11,6 +11,7 @@ class NVIDIA_GPU_MODEL(str, Enum):
     A100_40GB = "A100-40GB"
     A100_80GB = "A100-80GB"
     H100_80GB = "H100"
+    TESLA_T4 = "T4"
 
 
 class NvidiaGPUInfo(BaseModel):
@@ -52,6 +53,7 @@ def fetch_nvidia_gpu_infos(logger: Any) -> List[NvidiaGPUInfo]:
         # 0, NVIDIA A100-SXM4-80GB, GPU-89fdc1e1-18b2-f499-c12b-82bcb9bfb3fa
         # 1, NVIDIA A100-PCIE-40GB, GPU-e9c9aa65-bff3-405a-ab7c-dc879cc88169
         # 2, NVIDIA H100 80GB HBM3, GPU-8c35f4c9-4dff-c9a2-866f-afb5d82e1dd7
+        # 3, Tesla T4, GPU-2a7fadae-a692-1c44-2c57-6645a0d117e4
         parts = line.split(",")
         index = parts[0].strip()
         product_name = parts[1].strip()
@@ -64,6 +66,8 @@ def fetch_nvidia_gpu_infos(logger: Any) -> List[NvidiaGPUInfo]:
             model = NVIDIA_GPU_MODEL.A100_40GB
         elif product_name.startswith("NVIDIA H100"):
             model = NVIDIA_GPU_MODEL.H100_80GB
+        elif product_name.startswith("Tesla T4"):
+            model = NVIDIA_GPU_MODEL.TESLA_T4
         else:
             logger.warning(
                 "Unknown GPU model was detected, ignoring", nvidia_smi_output=line
