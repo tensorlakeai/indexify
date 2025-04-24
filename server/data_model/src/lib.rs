@@ -257,7 +257,7 @@ impl Default for NodeTimeoutMS {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NodeGPUs {
+pub struct NodeGPUConfig {
     pub count: u32,
     pub model: String,
 }
@@ -269,7 +269,8 @@ pub struct NodeResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u32,
     pub ephemeral_disk_mb: u32,
-    pub gpu: Option<NodeGPUs>,
+    // The list is ordered from most to least preferred GPU configuration.
+    pub gpu_configs: Vec<NodeGPUConfig>,
 }
 
 impl Default for NodeResources {
@@ -278,7 +279,7 @@ impl Default for NodeResources {
             cpu_ms_per_sec: 125,
             memory_mb: 128,
             ephemeral_disk_mb: 100 * 1024, // 100 GB
-            gpu: None,                     // No GPU by default
+            gpu_configs: vec![],           // No GPUs by default
         }
     }
 }

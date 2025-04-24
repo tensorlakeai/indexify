@@ -186,7 +186,7 @@ impl Default for NodeTimeoutSeconds {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct NodeGPUs {
+pub struct NodeGPUConfig {
     pub count: u32,
     pub model: String,
 }
@@ -196,8 +196,8 @@ pub struct NodeResources {
     pub cpus: f64,
     pub memory_mb: u32,
     pub ephemeral_disk_mb: u32,
-    #[serde(default)]
-    pub gpu: Option<NodeGPUs>,
+    #[serde(default, rename = "gpus")]
+    pub gpu_configs: Vec<NodeGPUConfig>,
 }
 
 impl NodeResources {
@@ -230,20 +230,22 @@ impl NodeResources {
                 executor_config.max_disk_gb_per_function
             )));
         }
-        if self.gpu.is_some() {
-            let gpu = self.gpu.as_ref().unwrap();
-            if gpu.count == 0 {
+        for gpu_config in self.gpu_configs.iter() {
+            if gpu_config.count == 0 {
                 return Err(IndexifyAPIError::bad_request(
                     "GPU count must be greater than 0",
                 ));
             }
-            if gpu.count > executor_config.max_gpus_per_function {
+            if gpu_config.count > executor_config.max_gpus_per_function {
                 return Err(IndexifyAPIError::bad_request(&format!(
                     "GPU count must be less than or equal to {}",
                     executor_config.max_gpus_per_function
                 )));
             }
-            if !executor_config.allowed_gpu_models.contains(&gpu.model) {
+            if !executor_config
+                .allowed_gpu_models
+                .contains(&gpu_config.model)
+            {
                 return Err(IndexifyAPIError::bad_request(&format!(
                     "GPU model must be one of '{}'",
                     executor_config.allowed_gpu_models.join(", ")
@@ -260,10 +262,14 @@ impl From<NodeResources> for data_model::NodeResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
-            gpu: value.gpu.map(|gpu| data_model::NodeGPUs {
-                count: gpu.count,
-                model: gpu.model,
-            }),
+            gpu_configs: value
+                .gpu_configs
+                .into_iter()
+                .map(|gpu| data_model::NodeGPUConfig {
+                    count: gpu.count,
+                    model: gpu.model,
+                })
+                .collect(),
         }
     }
 }
@@ -274,10 +280,14 @@ impl From<data_model::NodeResources> for NodeResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
-            gpu: value.gpu.map(|gpu| NodeGPUs {
-                count: gpu.count,
-                model: gpu.model,
-            }),
+            gpu_configs: value
+                .gpu_configs
+                .into_iter()
+                .map(|gpu| NodeGPUConfig {
+                    count: gpu.count,
+                    model: gpu.model,
+                })
+                .collect(),
         }
     }
 }
