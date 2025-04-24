@@ -69,7 +69,7 @@ def build_image(
         exec(open(workflow_file_path).read(), globals_dict)
     except FileNotFoundError as e:
         raise Exception(
-            f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
+            f"Could not find workflow file to execute at: `{workflow_file_path}`"
         )
     for _, obj in globals_dict.items():
         if type(obj) and isinstance(obj, Image):
@@ -122,16 +122,6 @@ def executor(
             help="Port where to run Executor Monitoring server",
         ),
     ] = 7000,
-    enable_grpc_state_reconciler: Annotated[
-        bool,
-        typer.Option(
-            "--enable-grpc-state-reconciler",
-            help=(
-                "(exprimental) Enable gRPC state reconciler that will reconcile the state of the Function Executors and Task Allocations\n"
-                "with the desired state provided by Server. Required --grpc-server-addr to be set."
-            ),
-        ),
-    ] = False,
     labels: Annotated[
         List[str],
         typer.Option(
@@ -174,7 +164,7 @@ def executor(
         dev_mode=dev,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
+        enable_grpc_state_reconciler=True,
     )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
