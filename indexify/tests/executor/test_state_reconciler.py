@@ -292,7 +292,8 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             function_executor_states=self.function_executor_states,
             channel_manager=self.channel_manager,
             host_resources_provider=HostResourcesProvider(
-                NvidiaGPUAllocator(self.logger)
+                gpu_allocator=NvidiaGPUAllocator(self.logger),
+                function_executors_ephimeral_disks_path=self.tmp_dir_path,
             ),
             logger=self.logger,
             reporting_interval_sec=0.1,  # Speed up tests using the shorter interval.

@@ -203,7 +203,7 @@ class TaskController:
                 reducer_output_key=(
                     self._task.reducer_output_key
                     if self._task.HasField("reducer_output_key")
-                    else ""
+                    else None
                 ),
                 data_payload=(
                     self._task.reducer_input
