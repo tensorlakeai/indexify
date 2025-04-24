@@ -202,20 +202,11 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let ephemeral_disk_bytes = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-        let gpu_count = from.gpu_count.unwrap_or(0);
         Ok(data_model::NodeResources {
             cpu_ms_per_sec,
             memory_mb: (memory_bytes / 1024 / 1024) as u32,
             ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
-            gpu: if gpu_count > 0 {
-                Some(data_model::NodeGPUs {
-                    count: gpu_count,
-                    // TODO: Add GPU model in FunctionExecutorResources
-                    model: "unknown".to_string(),
-                })
-            } else {
-                None
-            },
+            gpu_configs: vec![], // TODO: add GPU mapping support
         })
     }
 }
@@ -228,10 +219,7 @@ impl TryFrom<data_model::NodeResources> for FunctionExecutorResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
             memory_bytes: Some(from.memory_mb as u64 * 1024 * 1024),
             disk_bytes: Some(from.ephemeral_disk_mb as u64 * 1024 * 1024),
-            gpu_count: match from.gpu {
-                Some(gpus) => Some(gpus.count),
-                None => Some(0),
-            },
+            gpu_count: Some(from.gpu_configs.len() as u32),
         })
     }
 }

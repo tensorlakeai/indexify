@@ -9,19 +9,13 @@ use std::{
 
 use anyhow::Result;
 use data_model::{
-    ComputeGraphVersion,
-    ExecutorId,
-    ExecutorMetadata,
-    FunctionExecutorServerMetadata,
+    ComputeGraphVersion, ExecutorId, ExecutorMetadata, FunctionExecutorServerMetadata,
 };
 use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
 use state_store::{
     requests::{
-        DeregisterExecutorRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        UpsertExecutorRequest,
+        DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest,
     },
     IndexifyState,
 };
@@ -35,13 +29,8 @@ use crate::{
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
-            DataPayload,
-            DataPayloadEncoding,
-            DesiredExecutorState,
-            FunctionExecutorDescription,
-            Task,
-            TaskAllocation,
-            TaskRetryPolicy,
+            DataPayload, DataPayloadEncoding, DesiredExecutorState, FunctionExecutorDescription,
+            Task, TaskAllocation, TaskRetryPolicy,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -170,7 +159,6 @@ impl ExecutorManager {
 
     pub fn schedule_clean_lapsed_executors(self: Arc<Self>) {
         let indexify_state = self.indexify_state.clone();
-        let executor_hashes = self.executor_hashes.clone();
         tokio::spawn(async move {
             tokio::time::sleep(STARTUP_EXECUTOR_TIMEOUT).await;
 
@@ -232,8 +220,8 @@ impl ExecutorManager {
             !runtime_data_read
                 .get(&executor.id)
                 .map(|data| {
-                    data.last_state_hash == executor.state_hash &&
-                        data.last_executor_clock == executor.clock
+                    data.last_state_hash == executor.state_hash
+                        && data.last_executor_clock == executor.clock
                 })
                 .unwrap_or(false)
         };
@@ -577,8 +565,8 @@ impl ExecutorManager {
             .ok_or_else(|| anyhow::anyhow!("Compute graph node not found"))?;
 
         // Extract input payload
-        let input_payload = if task.invocation_id ==
-            task.input_node_output_key.split("|").last().unwrap_or("")
+        let input_payload = if task.invocation_id
+            == task.input_node_output_key.split("|").last().unwrap_or("")
         {
             // First function in graph
             let invocation_payload = self.indexify_state.reader().invocation_payload(
@@ -658,7 +646,7 @@ impl ExecutorManager {
 
         // Create output payload URI prefix
         let output_payload_uri_prefix = format!(
-            "{}{}.{}.{}.{}",
+            "{}/{}.{}.{}.{}",
             self.blob_store_url,
             task.namespace,
             task.compute_graph_name,

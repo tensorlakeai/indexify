@@ -8,9 +8,7 @@ use object_store::{
     aws::{AmazonS3Builder, S3ConditionalPut},
     parse_url,
     path::Path,
-    ObjectStore,
-    ObjectStoreScheme,
-    WriteMultipart,
+    ObjectStore, ObjectStoreScheme, WriteMultipart,
 };
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
@@ -87,6 +85,7 @@ impl BlobStorage {
                 // credentials.
                 let s3_builder = AmazonS3Builder::from_env()
                     .with_url(url_str)
+                    .with_allow_http(true)
                     .with_conditional_put(S3ConditionalPut::ETagMatch)
                     .build()
                     .expect("failed to create object store");
