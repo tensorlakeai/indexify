@@ -1759,14 +1759,14 @@ typing = ["mypy (>=1.4)", "rich", "twisted"]
 
 [[package]]
 name = "tensorlake"
-version = "0.1.61"
+version = "0.1.65"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Workflows"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.1.61-py3-none-any.whl", hash = "sha256:b45762ae48535009a97c5fc817ed46d1f95ba0e660ee6da325483f8020c236d5"},
-    {file = "tensorlake-0.1.61.tar.gz", hash = "sha256:319828b53cf16a67a83c066bc3a2c321c8f4055bfe101badeca3b4851e7ed6a5"},
+    {file = "tensorlake-0.1.65-py3-none-any.whl", hash = "sha256:df511884101237921b99cde2bddc9c955c683966f9efe87013d73a8ecff2c2fd"},
+    {file = "tensorlake-0.1.65.tar.gz", hash = "sha256:9ce216c2699b19a365dbad6605e6ac4ce037fa95834725f15335e624609ad26a"},
 ]
 
 [package.dependencies]
