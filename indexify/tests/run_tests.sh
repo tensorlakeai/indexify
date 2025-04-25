@@ -16,11 +16,14 @@ run_test_suite() {
   # stop if a test command fails.
   #
   # Run the tests from Indexify pyenv so Executor and SDK client are in the same pyenv.
-  echo "$test_files" | xargs -L1 poetry run python
-  test_suite_exit_code=$?
-  if [ $test_suite_exit_code -ne 0 ]; then
-    echo "One or more tests failed in ${test_suite_name} test suite. Please check output log for details."
-  fi
+  for test_file in $test_files; do
+    echo "Running $test_file for $test_suite_name test suite"
+    poetry run python $test_file
+    test_suite_exit_code=$?
+    if [ $test_suite_exit_code -ne 0 ]; then
+      echo "One or more tests failed in $test_file for ${test_suite_name} test suite. Please check output log for details."
+    fi
+  done
   return $test_suite_exit_code
 }
 
