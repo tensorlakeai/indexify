@@ -73,11 +73,10 @@ class ExecutorStateReporter:
             function_executor_states
         )
         self._channel_manager = channel_manager
+        self._host_resources_provider: HostResourcesProvider = host_resources_provider
         self._logger: Any = logger.bind(module=__name__)
         self._reporting_interval_sec: int = reporting_interval_sec
-        self._total_host_resources: HostResourcesProto = _host_resources_to_proto(
-            host_resources_provider.total_resources(logger)
-        )
+        self._total_host_resources: Optional[HostResourcesProto] = None
 
         self._is_shutdown: bool = False
         self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
@@ -85,7 +84,9 @@ class ExecutorStateReporter:
             function_allowlist
         )
         self._labels.update(_label_values_to_strings(RuntimeProbes().probe().labels))
-        self._last_server_clock: Optional[int] = None
+        self._last_server_clock: int = (
+            0  # Server expects initial value to be 0 until it is set by Server.
+        )
 
     def update_executor_status(self, value: ExecutorStatus):
         self._executor_status = value
@@ -98,7 +99,7 @@ class ExecutorStateReporter:
 
         Never raises any exceptions.
         """
-        # TODO: Move this into a new async task and cancel it in shutdown().
+        # TODO: Move this method into a new async task and cancel it in shutdown().
         while not self._is_shutdown:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
             while not self._is_shutdown:
@@ -111,19 +112,29 @@ class ExecutorStateReporter:
                     await asyncio.sleep(self._reporting_interval_sec)
                 except Exception as e:
                     self._logger.error(
-                        f"Failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
+                        f"failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
                         exc_info=e,
                     )
                     await asyncio.sleep(_REPORT_BACKOFF_ON_ERROR_SEC)
                     break
 
-        self._logger.info("State reporter shutdown")
+        self._logger.info("state reporter shutdown")
 
     async def report_state(self, stub: ExecutorAPIStub):
         """Reports the current state to the server represented by the supplied stub.
 
         Raises exceptions on failure.
         """
+        if self._total_host_resources is None:
+            # We need to fetch total host resources only once, because they are not changing.
+            total_resources: HostResources = (
+                await self._host_resources_provider.total_resources(self._logger)
+            )
+            self._logger.info(
+                "detected host resources", total_resources=total_resources
+            )
+            self._total_host_resources = _host_resources_to_proto(total_resources)
+
         with (
             metric_state_report_errors.count_exceptions(),
             metric_state_report_latency.time(),
@@ -136,7 +147,8 @@ class ExecutorStateReporter:
                 flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
                 version=self._version,
                 status=self._executor_status,
-                # Server requires free_resources to be set but ignores its value for now.
+                # Server requires free_resources to be set but ignores its value for now
+                # because it deduces free resources available on Executor from FE resource limits.
                 free_resources=self._total_host_resources,
                 total_resources=self._total_host_resources,
                 allowed_functions=self._allowed_functions,
@@ -144,8 +156,8 @@ class ExecutorStateReporter:
                 labels=self._labels,
             )
             state.state_hash = _state_hash(state)
-            if self._last_server_clock is not None:
-                state.server_clock = self._last_server_clock
+            # Set fields not included in the state hash.
+            state.server_clock = self._last_server_clock
 
             await stub.report_executor_state(
                 ReportExecutorStateRequest(executor_state=state),
@@ -227,7 +239,7 @@ def _to_grpc_function_executor_status(
     )
 
     if result == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNKNOWN:
-        logger.error("Unexpected Function Executor status", status=status)
+        logger.error("unexpected Function Executor status", status=status)
 
     return result
 
@@ -246,7 +258,7 @@ def _to_grpc_executor_flavor(
     )
 
     if result == ExecutorFlavorProto.EXECUTOR_FLAVOR_UNKNOWN:
-        logger.error("Unexpected Executor flavor", flavor=flavor)
+        logger.error("unexpected Executor flavor", flavor=flavor)
 
     return result
 
