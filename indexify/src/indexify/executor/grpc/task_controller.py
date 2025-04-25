@@ -233,6 +233,7 @@ class TaskController:
             # and no other tasks run on this FE because it'd result in undefined behavior.
             if self._is_timed_out:
                 next_status = FunctionExecutorStatus.UNHEALTHY
+            # TODO: When task controller is removed do FE health check here to stop scheduling tasks on unhealthy FE asap.
             await self._release_function_executor(next_status=next_status)
 
     async def _acquire_function_executor(self) -> None:
