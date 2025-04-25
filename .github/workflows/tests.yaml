@@ -127,7 +127,7 @@ jobs:
         with:
           run: |
             cd indexify
-            poetry run indexify-cli executor --grpc-server-addr localhost:8901 --enable-grpc-state-reconciler --dev &
+            poetry run indexify-cli executor --grpc-server-addr localhost:8901 --dev &
             echo $! > /tmp/indexify-executor.pid &
 
           wait-on: |
