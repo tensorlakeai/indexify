@@ -10,6 +10,7 @@ use data_model::{
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
     GraphInvocationCtx,
+    GraphVersion,
     ReduceTask,
     Task,
     TaskStatus,
@@ -501,6 +502,35 @@ impl InMemoryState {
         self.tasks
             .range(key.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key))
+            .map(|(_, v)| v.clone())
+            .collect()
+    }
+
+    pub fn get_tasks_by_invocation(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> Vec<Box<Task>> {
+        let key = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
+        self.tasks
+            .range(key.clone()..)
+            .take_while(|(k, _v)| k.starts_with(&key))
+            .map(|(_, v)| v.clone())
+            .collect()
+    }
+
+    pub fn get_invocations_by_compute_graph_version(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        compute_graph_version: &GraphVersion,
+    ) -> Vec<Box<GraphInvocationCtx>> {
+        let key_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, compute_graph);
+        self.invocation_ctx
+            .range(key_prefix.clone()..)
+            .take_while(|(k, _v)| k.starts_with(&key_prefix))
+            .take_while(|(_k, v)| v.graph_version == *compute_graph_version)
             .map(|(_, v)| v.clone())
             .collect()
     }

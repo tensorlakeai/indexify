@@ -187,19 +187,12 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::SchedulerUpdate(request) => {
-                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
-                // Trigger the executor deregistration state change only once even if multiple
-                // executors are removed.
-                if let Some(executor_id) = request.remove_executors.first() {
-                    state_changes::deregister_executor_event(
-                        &self.last_state_change_id,
-                        executor_id.clone(),
-                    )?
-                } else {
-                    vec![]
-                }
-            }
+            RequestPayload::SchedulerUpdate(request) => state_machine::handle_scheduler_update(
+                &self.last_state_change_id,
+                self.db.clone(),
+                &txn,
+                request,
+            )?,
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),

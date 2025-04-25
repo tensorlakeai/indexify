@@ -717,13 +717,14 @@ impl ExecutorManager {
                         .get(executor_id)
                         .map(|allocations| {
                             allocations
-                                .values()
-                                .flat_map(|allocations| {
+                                .get(&fe_meta.function_executor.id)
+                                .map(|allocations| {
                                     allocations
                                         .iter()
                                         .map(|allocation| allocation.as_ref().clone().into())
+                                        .collect::<Vec<_>>()
                                 })
-                                .collect()
+                                .unwrap_or_default()
                         })
                         .unwrap_or_default();
 

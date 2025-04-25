@@ -1659,7 +1659,6 @@ pub struct TaskOutputsIngestedEvent {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
-    pub executor_id: ExecutorId,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
