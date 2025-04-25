@@ -200,6 +200,13 @@ def executor(
         s3=S3BLOBStore(),
     )
 
+    host_resources_provider: HostResourcesProvider = HostResourcesProvider(
+        gpu_allocator=NvidiaGPUAllocator(logger),
+        # Assuming a simple setup in OSS where Executor container has a single file system
+        # used by all Function Executors.
+        function_executors_ephimeral_disks_path="/",
+    )
+
     prometheus_client.Info("cli", "CLI information").info(
         {
             "package": "indexify",
@@ -226,7 +233,7 @@ def executor(
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
         blob_store=blob_store,
-        host_resources_provider=HostResourcesProvider(NvidiaGPUAllocator(logger)),
+        host_resources_provider=host_resources_provider,
     ).run()
 
 
