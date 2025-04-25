@@ -8,7 +8,9 @@ use object_store::{
     aws::{AmazonS3Builder, S3ConditionalPut},
     parse_url,
     path::Path,
-    ObjectStore, ObjectStoreScheme, WriteMultipart,
+    ObjectStore,
+    ObjectStoreScheme,
+    WriteMultipart,
 };
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
