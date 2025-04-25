@@ -532,7 +532,7 @@ impl TaskCreator {
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,
-                            &task.compute_fn_name,
+                            &compute_node.name(),
                         );
                         if prev_reducer_tasks.is_empty() {
                             return Err(anyhow!(

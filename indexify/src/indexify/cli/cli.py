@@ -221,7 +221,7 @@ def executor(
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
+        enable_grpc_state_reconciler=True,
         blob_store=blob_store,
         host_resources_provider=host_resources_provider,
     ).run()

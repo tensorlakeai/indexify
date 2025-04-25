@@ -6,15 +6,37 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use data_model::{
-    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionExecutor,
-    FunctionExecutorId, FunctionURI, GraphVersion, NodeOutputBuilder, OutputPayload,
-    TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus, TaskStatus,
+    DataPayload,
+    ExecutorId,
+    ExecutorMetadata,
+    ExecutorMetadataBuilder,
+    FunctionExecutor,
+    FunctionExecutorId,
+    FunctionURI,
+    GraphVersion,
+    NodeOutputBuilder,
+    OutputPayload,
+    TaskDiagnostics,
+    TaskOutcome,
+    TaskOutputsIngestionStatus,
+    TaskStatus,
 };
 use executor_api_pb::{
-    executor_api_server::ExecutorApi, AllowedFunction, DataPayloadEncoding, DesiredExecutorState,
-    ExecutorState, ExecutorStatus, FunctionExecutorDescription, FunctionExecutorResources,
-    FunctionExecutorStatus, GetDesiredExecutorStatesRequest, HostResources, OutputEncoding,
-    ReportExecutorStateRequest, ReportExecutorStateResponse, ReportTaskOutcomeRequest,
+    executor_api_server::ExecutorApi,
+    AllowedFunction,
+    DataPayloadEncoding,
+    DesiredExecutorState,
+    ExecutorState,
+    ExecutorStatus,
+    FunctionExecutorDescription,
+    FunctionExecutorResources,
+    FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest,
+    HostResources,
+    OutputEncoding,
+    ReportExecutorStateRequest,
+    ReportExecutorStateResponse,
+    ReportTaskOutcomeRequest,
     ReportTaskOutcomeResponse,
 };
 use metrics::api_io_stats;
@@ -202,6 +224,7 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let ephemeral_disk_bytes = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+        let _gpu_count = from.gpu_count.unwrap_or(0);
         Ok(data_model::NodeResources {
             cpu_ms_per_sec,
             memory_mb: (memory_bytes / 1024 / 1024) as u32,
@@ -624,6 +647,7 @@ impl ExecutorApi for ExecutorAPIService {
                 .compute_fn_name(compute_fn.to_string())
                 .payload(OutputPayload::Fn(data_payload))
                 .encoding(encoding_str.to_string())
+                .reduced_state(request.get_ref().reducer.unwrap_or(false))
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
             node_outputs.push(node_output);
