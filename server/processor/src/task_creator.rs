@@ -1,4 +1,7 @@
-use std::{ops::Deref, sync::Arc, vec};
+use std::{
+    sync::{Arc, RwLock},
+    vec,
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -15,8 +18,8 @@ use data_model::{
     TaskOutputsIngestedEvent,
 };
 use state_store::{
-    in_memory_state::{InMemoryState, UnallocatedTaskId},
-    requests::{ReductionTasks, SchedulerUpdateRequest},
+    in_memory_state::InMemoryState,
+    requests::{ReductionTasks, RequestPayload, SchedulerUpdateRequest},
     IndexifyState,
 };
 use tracing::{error, info, trace};
@@ -31,14 +34,20 @@ pub struct TaskCreationResult {
 
 pub struct TaskCreator {
     indexify_state: Arc<IndexifyState>,
-    pub in_memory_state: Box<InMemoryState>,
+    in_memory_state: Arc<RwLock<InMemoryState>>,
+    clock: u64,
 }
 
 impl TaskCreator {
-    pub fn new(indexify_state: Arc<IndexifyState>, in_memory_state: Box<InMemoryState>) -> Self {
+    pub fn new(
+        indexify_state: Arc<IndexifyState>,
+        in_memory_state: Arc<RwLock<InMemoryState>>,
+        clock: u64,
+    ) -> Self {
         Self {
             indexify_state,
             in_memory_state,
+            clock,
         }
     }
 }
@@ -49,20 +58,7 @@ impl TaskCreator {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
                 let result = self.handle_task_finished_inner(ev).await?;
-                result.tasks.iter().for_each(|t| {
-                    self.in_memory_state
-                        .tasks
-                        .insert(t.key(), Box::new(t.clone()));
-                    self.in_memory_state
-                        .unallocated_tasks
-                        .insert(UnallocatedTaskId::new(&t));
-                });
-                if let Some(ctx) = result.invocation_ctx.clone() {
-                    self.in_memory_state
-                        .invocation_ctx
-                        .insert(ctx.key(), Box::new(ctx));
-                }
-                return Ok(SchedulerUpdateRequest {
+                let scheduler_update = SchedulerUpdateRequest {
                     updated_tasks: result
                         .tasks
                         .into_iter()
@@ -78,24 +74,16 @@ impl TaskCreator {
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
                     ..Default::default()
-                });
+                };
+                self.in_memory_state.write().unwrap().update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                )?;
+                Ok(scheduler_update)
             }
             ChangeType::InvokeComputeGraph(ev) => {
                 let result = self.handle_invoke_compute_graph(ev.clone()).await?;
-                result.tasks.iter().for_each(|t| {
-                    self.in_memory_state
-                        .tasks
-                        .insert(t.key(), Box::new(t.clone()));
-                    self.in_memory_state
-                        .unallocated_tasks
-                        .insert(UnallocatedTaskId::new(&t));
-                });
-                if let Some(ctx) = result.invocation_ctx.clone() {
-                    self.in_memory_state
-                        .invocation_ctx
-                        .insert(ctx.key(), Box::new(ctx));
-                }
-                return Ok(SchedulerUpdateRequest {
+                let scheduler_update = SchedulerUpdateRequest {
                     updated_tasks: result
                         .tasks
                         .into_iter()
@@ -111,7 +99,12 @@ impl TaskCreator {
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
                     ..Default::default()
-                });
+                };
+                self.in_memory_state.write().unwrap().update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                )?;
+                Ok(scheduler_update)
             }
             _ => {
                 error!(
@@ -131,14 +124,14 @@ impl TaskCreator {
         &self,
         task_finished_event: &TaskOutputsIngestedEvent,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx =
-            self.in_memory_state
-                .invocation_ctx
-                .get(&GraphInvocationCtx::key_from(
-                    &task_finished_event.namespace,
-                    &task_finished_event.compute_graph,
-                    &task_finished_event.invocation_id,
-                ));
+        let in_memory_state = self.in_memory_state.read().unwrap();
+        let invocation_ctx = in_memory_state
+            .invocation_ctx
+            .get(&GraphInvocationCtx::key_from(
+                &task_finished_event.namespace,
+                &task_finished_event.compute_graph,
+                &task_finished_event.invocation_id,
+            ));
 
         let Some(invocation_ctx) = invocation_ctx else {
             trace!("no invocation ctx, stopping scheduling of child tasks");
@@ -150,7 +143,7 @@ impl TaskCreator {
             return Ok(TaskCreationResult::default());
         }
 
-        let task = self.in_memory_state.tasks.get(&Task::key_from(
+        let task = in_memory_state.tasks.get(&Task::key_from(
             &task_finished_event.namespace,
             &task_finished_event.compute_graph,
             &task_finished_event.invocation_id,
@@ -169,8 +162,7 @@ impl TaskCreator {
             return Ok(TaskCreationResult::default());
         };
 
-        let compute_graph_version = self
-            .in_memory_state
+        let compute_graph_version = in_memory_state
             .compute_graph_versions
             .get(&task.key_compute_graph_version());
         if compute_graph_version.is_none() {
@@ -192,8 +184,8 @@ impl TaskCreator {
             task.graph_version.0
         ))?;
         self.handle_task_finished(
-            invocation_ctx.deref().clone(),
-            task.clone().deref().clone(),
+            *invocation_ctx.clone(),
+            *task.clone(),
             *compute_graph_version.clone(),
         )
         .await
@@ -204,14 +196,17 @@ impl TaskCreator {
         &self,
         event: InvokeComputeGraphEvent,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx =
-            self.in_memory_state
-                .invocation_ctx
-                .get(&GraphInvocationCtx::key_from(
-                    &event.namespace,
-                    &event.compute_graph,
-                    &event.invocation_id,
-                ));
+        let invocation_ctx = self
+            .in_memory_state
+            .read()
+            .unwrap()
+            .invocation_ctx
+            .get(&GraphInvocationCtx::key_from(
+                &event.namespace,
+                &event.compute_graph,
+                &event.invocation_id,
+            ))
+            .cloned();
         if invocation_ctx.is_none() {
             trace!("no invocation ctx, stopping invocation of compute graph");
             return Ok(TaskCreationResult::default());
@@ -221,17 +216,19 @@ impl TaskCreator {
                 "invocation context not found for invocation_id {}",
                 event.invocation_id
             ))?
-            .deref()
             .clone();
 
-        let compute_graph_version =
-            self.in_memory_state
-                .compute_graph_versions
-                .get(&ComputeGraphVersion::key_from(
-                    &event.namespace,
-                    &event.compute_graph,
-                    &invocation_ctx.graph_version,
-                ));
+        let compute_graph_version = self
+            .in_memory_state
+            .read()
+            .unwrap()
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &event.namespace,
+                &event.compute_graph,
+                &invocation_ctx.graph_version,
+            ))
+            .cloned();
         if compute_graph_version.is_none() {
             error!(
                 invocation_id = event.invocation_id.to_string(),
@@ -268,7 +265,7 @@ impl TaskCreator {
             tasks: vec![task],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_ctx: Some(invocation_ctx),
+            invocation_ctx: Some(*invocation_ctx.clone()),
         })
     }
 
@@ -363,7 +360,7 @@ impl TaskCreator {
                             });
                         }
                     }
-                    let reduction_task = self.in_memory_state.next_reduction_task(
+                    let reduction_task = self.in_memory_state.read().unwrap().next_reduction_task(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
@@ -528,12 +525,13 @@ impl TaskCreator {
                     //
                     // To do so, we need to find the previous reducer task to reuse its output.
                     if successful_tasks_for_node > 0 {
-                        let prev_reducer_tasks = self.in_memory_state.get_tasks_by_fn(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &task.invocation_id,
-                            &compute_node.name(),
-                        );
+                        let prev_reducer_tasks =
+                            self.in_memory_state.read().unwrap().get_tasks_by_fn(
+                                &task.namespace,
+                                &task.compute_graph_name,
+                                &task.invocation_id,
+                                &compute_node.name(),
+                            );
                         if prev_reducer_tasks.is_empty() {
                             return Err(anyhow!(
                                 "Previous reducer task not found, should never happen: {:?}",

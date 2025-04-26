@@ -198,14 +198,14 @@ impl GraphProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         trace!("processing state change: {}", state_change);
+        let clock = self.indexify_state.in_memory_state.read().await.clock;
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
+        let mut task_creator =
+            task_creator::TaskCreator::new(self.indexify_state.clone(), indexes.clone(), clock);
+        let mut task_allocator = TaskAllocationProcessor::new(indexes.clone(), clock);
         let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
-                let mut task_creator =
-                    task_creator::TaskCreator::new(self.indexify_state.clone(), indexes);
                 let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;
-
-                let mut task_allocator = TaskAllocationProcessor::new(task_creator.in_memory_state);
                 scheduler_update.extend(task_allocator.allocate()?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
@@ -215,7 +215,6 @@ impl GraphProcessor {
             ChangeType::ExecutorUpserted(_) |
             ChangeType::ExecutorRemoved(_) |
             ChangeType::TombStoneExecutor(_) => {
-                let mut task_allocator = TaskAllocationProcessor::new(indexes);
                 let scheduler_update = task_allocator.invoke(&state_change.change_type)?;
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),

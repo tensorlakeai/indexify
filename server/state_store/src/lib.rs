@@ -289,9 +289,8 @@ impl IndexifyState {
             .in_memory_state
             .write()
             .await
-            .update_state(current_state_id, &request)
+            .update_state(current_state_id, &request.payload)
             .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
-
         // Notify the executors with state changes
         {
             let mut executor_states = self.executor_states.write().await;

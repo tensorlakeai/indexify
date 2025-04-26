@@ -41,7 +41,14 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
+use crate::http_objects::{
+    ExecutorAllocations,
+    FnExecutor,
+    Invocation,
+    InvocationStatus,
+    StateChangesResponse,
+    UnallocatedTasks,
+};
 
 mod download;
 mod internal_ingest;

@@ -25,7 +25,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error};
 
 use crate::{
-    requests::{RequestPayload, StateMachineUpdateRequest},
+    requests::RequestPayload,
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };
@@ -562,7 +562,7 @@ impl InMemoryState {
     pub fn update_state(
         &mut self,
         new_clock: u64,
-        state_machine_update_request: &StateMachineUpdateRequest,
+        state_machine_update_request: &RequestPayload,
     ) -> Result<HashSet<ExecutorId>> {
         // keep track of what clock we are at for this update state
         self.clock = new_clock;
@@ -570,7 +570,7 @@ impl InMemoryState {
         // Collect all executors that are being changed to notify them.
         let mut changed_executors = HashSet::new();
 
-        match &state_machine_update_request.payload {
+        match state_machine_update_request {
             RequestPayload::InvokeComputeGraph(req) => {
                 self.invocation_ctx
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
@@ -962,8 +962,8 @@ impl InMemoryState {
         }
     }
 
-    pub fn clone(&self) -> Box<Self> {
-        Box::new(InMemoryState {
+    pub fn clone(&self) -> Arc<std::sync::RwLock<Self>> {
+        Arc::new(std::sync::RwLock::new(InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),
@@ -979,7 +979,7 @@ impl InMemoryState {
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
-        })
+        }))
     }
 }
 

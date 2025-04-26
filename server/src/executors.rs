@@ -370,10 +370,12 @@ impl ExecutorManager {
 
     /// Get the desired state for an executor
     pub async fn get_executor_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
-        let indexes = self.indexify_state.in_memory_state.read().await.clone();
+        let in_memory_state = self.indexify_state.in_memory_state.read().await.clone();
 
         // Get current function executors state
-        let function_executors = indexes
+        let function_executors = in_memory_state
+            .read()
+            .unwrap()
             .function_executors_by_executor
             .get(executor_id)
             .iter()
@@ -383,24 +385,27 @@ impl ExecutorManager {
                 let fe_meta = *fe.clone();
                 let fe = fe_meta.function_executor.clone();
 
-                let cg_version =
-                    match indexes
-                        .compute_graph_versions
-                        .get(&ComputeGraphVersion::key_from(
-                            &fe.namespace,
-                            &fe.compute_graph_name,
-                            &fe.version,
-                        )) {
-                        Some(cg_version) => cg_version,
-                        None => {
-                            error!(
-                                executor_id = executor_id.get(),
-                                function_executor_id = fe.id.get(),
-                                "Compute graph version not found"
-                            );
-                            return None;
-                        }
-                    };
+                let cg_version = match in_memory_state
+                    .read()
+                    .unwrap()
+                    .compute_graph_versions
+                    .get(&ComputeGraphVersion::key_from(
+                        &fe.namespace,
+                        &fe.compute_graph_name,
+                        &fe.version,
+                    ))
+                    .cloned()
+                {
+                    Some(cg_version) => cg_version,
+                    None => {
+                        error!(
+                            executor_id = executor_id.get(),
+                            function_executor_id = fe.id.get(),
+                            "Compute graph version not found"
+                        );
+                        return None;
+                    }
+                };
 
                 let cg_node = match cg_version.nodes.get(&fe.compute_fn_name) {
                     Some(cg_node) => cg_node,
@@ -458,14 +463,21 @@ impl ExecutorManager {
             .collect::<Vec<_>>();
 
         // Calculate current task allocations
-        let task_allocations = indexes
+        let task_allocations = in_memory_state
+            .read()
+            .unwrap()
             .allocations_by_executor
             .get(executor_id)
             .iter()
             .flat_map(|allocations| allocations.values())
             .flatten()
             .filter_map(|allocation| {
-                let task = match indexes.tasks.get(&allocation.task_key()) {
+                let task = match in_memory_state
+                    .read()
+                    .unwrap()
+                    .tasks
+                    .get(&allocation.task_key())
+                {
                     Some(task) => *task.clone(),
                     None => {
                         error!(
@@ -533,18 +545,24 @@ impl ExecutorManager {
                     data.desired_server_clock
                 } else {
                     // Hash doesn't match, update and return the current clock
-                    data.update_function_executors_state(current_hash, indexes.clock);
-                    indexes.clock
+                    data.update_function_executors_state(
+                        current_hash,
+                        in_memory_state.read().unwrap().clock,
+                    );
+                    in_memory_state.read().unwrap().clock
                 }
             } else {
                 // No runtime data for this executor, create it and return current clock
                 let mut data = ExecutorRuntimeData::new(
                     String::new(), // No state hash yet
-                    indexes.clock,
+                    in_memory_state.read().unwrap().clock,
                 );
-                data.update_function_executors_state(current_hash, indexes.clock);
+                data.update_function_executors_state(
+                    current_hash,
+                    in_memory_state.read().unwrap().clock,
+                );
                 runtime_data.insert(executor_id.clone(), data);
-                indexes.clock
+                in_memory_state.read().unwrap().clock
             }
         };
 
