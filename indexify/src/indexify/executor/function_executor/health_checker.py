@@ -19,7 +19,9 @@ from .metrics.health_checker import (
 )
 from .server.client_configuration import HEALTH_CHECK_TIMEOUT_SEC
 
-HEALTH_CHECK_POLL_PERIOD_SEC = 10
+# Use lowest feasible value for now to detect FE crashes quickly because
+# we're only doing periodic health checks now.
+HEALTH_CHECK_POLL_PERIOD_SEC = 5
 
 
 class HealthCheckResult:

@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicU64, Arc},
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -26,16 +29,19 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::requests::{
-    DeleteInvocationRequest,
-    IngestTaskOutputsRequest,
-    InvokeComputeGraphRequest,
-    NamespaceRequest,
-    ReductionTasks,
-    SchedulerUpdateRequest,
+use crate::{
+    requests::{
+        DeleteInvocationRequest,
+        IngestTaskOutputsRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
+        ReductionTasks,
+        SchedulerUpdateRequest,
+    },
+    state_changes,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -654,10 +660,13 @@ pub(crate) fn processed_reduction_tasks(
 }
 
 pub(crate) fn handle_scheduler_update(
+    last_state_change_id: &AtomicU64,
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     request: &SchedulerUpdateRequest,
-) -> Result<()> {
+) -> Result<Vec<StateChange>> {
+    let mut state_changes = vec![];
+
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -701,6 +710,7 @@ pub(crate) fn handle_scheduler_update(
             duration_secs = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
             "updated task",
         );
+
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
             IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -731,7 +741,15 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    Ok(())
+    // Trigger the executor deregistration state change only once even if multiple
+    // executors are removed.
+    if let Some(executor_id) = request.remove_executors.first() {
+        let deregister_events =
+            state_changes::deregister_executor_event(last_state_change_id, executor_id.clone())?;
+        state_changes.extend(deregister_events);
+    }
+
+    Ok(state_changes)
 }
 
 // returns true if task the task finishing state should be emitted.
@@ -901,7 +919,7 @@ pub(crate) fn mark_state_changes_processed(
     processed_state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in processed_state_changes {
-        debug!(
+        trace!(
             change_type = %state_change.change_type,
             "marking state change as processed"
         );

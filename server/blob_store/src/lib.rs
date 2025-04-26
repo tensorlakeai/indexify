@@ -87,6 +87,7 @@ impl BlobStorage {
                 // credentials.
                 let s3_builder = AmazonS3Builder::from_env()
                     .with_url(url_str)
+                    .with_allow_http(true)
                     .with_conditional_put(S3ConditionalPut::ETagMatch)
                     .build()
                     .expect("failed to create object store");

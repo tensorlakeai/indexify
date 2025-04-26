@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt};
 
 use axum::{
     http::StatusCode,
@@ -7,11 +7,10 @@ use axum::{
 use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
-use state_store::IndexifyState;
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{config::ExecutorConfig, executor_api::blob_store_path_to_url};
+use crate::config::ExecutorConfig;
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
 pub struct IndexifyAPIError {
@@ -836,166 +835,6 @@ impl From<data_model::Task> for Task {
     }
 }
 
-// Adds all the information missing in data_model::Task to the API Task object.
-pub fn into_http_api_task(
-    task: data_model::Task,
-    indexify_state: Arc<IndexifyState>,
-    blob_store_url_scheme: String,
-    blob_store_url: String,
-) -> Task {
-    let mut api_task = Task::from(task.clone());
-
-    let compute_graph_version = indexify_state.reader().get_compute_graph_version(
-        &task.namespace,
-        &task.compute_graph_name,
-        &task.graph_version,
-    );
-    match compute_graph_version {
-        Ok(Some(compute_graph_version)) => {
-            api_task.graph_payload = Some(DataPayload {
-                path: blob_store_path_to_url(
-                    &compute_graph_version.code.path,
-                    &blob_store_url_scheme,
-                    &blob_store_url,
-                ),
-                size: compute_graph_version.code.size,
-                sha256_hash: compute_graph_version.code.sha256_hash,
-                content_type: "application/octet-stream".to_string(),
-            });
-
-            match compute_graph_version.nodes.get(&task.compute_fn_name) {
-                Some(node) => {
-                    api_task.image_uri = node.image_uri().clone();
-                    if let Some(secret_names) = node.secret_names() {
-                        api_task.secret_names = secret_names.clone();
-                    }
-                    api_task.timeout = node.timeout().into();
-                    api_task.retry_policy = node.retry_policy().into();
-                    api_task.resources = node.resources().into();
-                }
-                None => {
-                    error!("Function not found in compute graph version task_id: {}, namespace: {}, graph_name: {}, graph_version: {}, compute_fn_name: {}", task.id, task.namespace, task.compute_graph_name, task.graph_version, task.compute_fn_name);
-                }
-            }
-        }
-        Ok(None) => {
-            error!("Compute graph version not found task_id: {}, namespace: {}, graph_name: {}, graph_version: {}", task.id, task.namespace, task.compute_graph_name, task.graph_version);
-        }
-        Err(e) => {
-            error!("Failed to get compute graph version task_id: {}, namespace: {}, graph_name: {}, graph_version: {} : {}", task.id, task.namespace, task.compute_graph_name, task.graph_version, e);
-        }
-    }
-
-    let first_function_in_graph =
-        api_task.invocation_id == api_task.input_key.split("|").last().unwrap_or("");
-    if first_function_in_graph {
-        let invocation_payload = indexify_state.reader().invocation_payload(
-            &task.namespace,
-            &task.compute_graph_name,
-            &task.invocation_id,
-        );
-        match invocation_payload {
-            Ok(invocation_payload) => {
-                api_task.input_payload = Some(DataPayload {
-                    path: blob_store_path_to_url(
-                        &invocation_payload.payload.path,
-                        &blob_store_url_scheme,
-                        &blob_store_url,
-                    ),
-                    size: invocation_payload.payload.size,
-                    sha256_hash: invocation_payload.payload.sha256_hash,
-                    content_type: invocation_payload.encoding,
-                });
-            }
-            Err(e) => {
-                error!("Failed to get invocation payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} : {}", task.id, task.namespace, task.compute_graph_name, task.invocation_id, e);
-            }
-        }
-    } else {
-        let node_output = indexify_state
-            .reader()
-            .fn_output_payload_by_key(&api_task.input_key);
-        match node_output {
-            Ok(node_output) => {
-                match node_output.payload {
-                    data_model::OutputPayload::Fn(payload) => {
-                        api_task.input_payload = Some(DataPayload {
-                            path: blob_store_path_to_url(
-                                &payload.path,
-                                &blob_store_url_scheme,
-                                &blob_store_url,
-                            ),
-                            size: payload.size,
-                            sha256_hash: payload.sha256_hash,
-                            content_type: node_output.encoding,
-                        });
-                    }
-                    _ => {
-                        error!("Unexpected node output payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} input_key: {} : {:?}", task.id, task.namespace, task.compute_graph_name, task.invocation_id, api_task.input_key, node_output.payload);
-                    }
-                };
-            }
-            Err(e) => {
-                error!("Failed to get node output payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} input_key: {} : {}", task.id, task.namespace, task.compute_graph_name, task.invocation_id, api_task.input_key, e);
-            }
-        }
-    }
-
-    match api_task.reducer_output_id.clone() {
-        Some(reducer_output_id) => {
-            let reducer_output = indexify_state.reader().fn_output_payload(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                &task.compute_fn_name,
-                &reducer_output_id,
-            );
-
-            match reducer_output {
-                Ok(Some(reducer_output)) => {
-                    match reducer_output.payload {
-                        data_model::OutputPayload::Fn(payload) => {
-                            api_task.reducer_input_payload = Some(DataPayload {
-                                path: blob_store_path_to_url(
-                                    &payload.path,
-                                    &blob_store_url_scheme,
-                                    &blob_store_url,
-                                ),
-                                size: payload.size,
-                                sha256_hash: payload.sha256_hash,
-                                content_type: reducer_output.encoding,
-                            });
-                        }
-                        _ => {
-                            error!("Unexpected reducer output payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} reducer_output_id: {} : {:?}", task.id, task.namespace, task.compute_graph_name, task.invocation_id, reducer_output_id, reducer_output.payload);
-                        }
-                    };
-                }
-                Ok(None) => {
-                    error!("Failed to get reducer output payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} reducer_output_id: {} : not found", task.id, task.namespace, task.compute_graph_name, task.invocation_id, reducer_output_id);
-                }
-                Err(e) => {
-                    error!("Failed to get reducer output payload task_id: {}, namespace: {}, graph_name: {}, invocation_id: {} reducer_output_id: {} : {}", task.id, task.namespace, task.compute_graph_name, task.invocation_id, reducer_output_id, e);
-                }
-            }
-        }
-        _ => {} // The task is not a reducer.
-    }
-
-    // Executor adds task id into the payload path if the output is for non-reducer
-    // function.
-    api_task.output_payload_uri_prefix = Some(format!(
-        "{}/{}.{}.{}.{}",
-        blob_store_url,
-        task.namespace,
-        task.compute_graph_name,
-        task.compute_fn_name,
-        task.invocation_id,
-    ));
-
-    api_task
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Tasks {
     pub tasks: Vec<Task>,
@@ -1126,9 +965,16 @@ pub struct FunctionURI {
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
-    pub addr: String,
+    pub development_mode: bool,
     pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
+    pub function_executors: Vec<serde_json::Value>,
+    pub host_resources: serde_json::Value,
+    pub state: String,
+    pub tombstoned: bool,
+    pub state_hash: String,
+    pub clock: u64,
 }
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
@@ -1150,6 +996,18 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             addr: executor.addr,
             function_allowlist,
             labels: executor.labels,
+            development_mode: executor.development_mode,
+            function_executors: executor
+                .function_executors
+                .values()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                .collect(),
+            host_resources: serde_json::to_value(executor.host_resources)
+                .unwrap_or(serde_json::Value::Null),
+            state: executor.state.as_ref().to_string(),
+            tombstoned: executor.tombstoned,
+            state_hash: executor.state_hash,
+            clock: executor.clock,
         }
     }
 }
@@ -1218,19 +1076,23 @@ pub struct UnallocatedTasks {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnExecutor {
     pub count: usize,
-    pub fn_name: String,
+    pub function_executor_id: String,
+    pub fn_uri: String,
+    pub status: String,
+    pub desired_state: String,
     pub allocations: Vec<Allocation>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorAllocations {
-    pub total: usize,
+    pub count: usize,
+    pub executor_id: String,
     pub function_executors: Vec<FnExecutor>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorsAllocationsResponse {
-    pub allocations: HashMap<String, ExecutorAllocations>,
+    pub executors: Vec<ExecutorAllocations>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

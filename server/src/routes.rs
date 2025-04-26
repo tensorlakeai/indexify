@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::{ComputeGraphError, ExecutorId};
+use data_model::ComputeGraphError;
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -37,19 +37,11 @@ use state_store::{
     IndexifyState,
 };
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{
-    into_http_api_task,
-    ExecutorAllocations,
-    FnExecutor,
-    Invocation,
-    InvocationStatus,
-    StateChangesResponse,
-    UnallocatedTasks,
-};
+use crate::http_objects::{Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
 
 mod download;
 mod internal_ingest;
@@ -212,10 +204,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unprocessed_state_changes",
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/executors/{id}/tasks",
-            post(executor_tasks).with_state(route_state.clone()),
         )
         .route(
             "/internal/fn_outputs/{input_key}",
@@ -722,28 +710,8 @@ async fn list_executors(
 async fn list_allocations(
     State(state): State<RouteState>,
 ) -> Result<Json<ExecutorsAllocationsResponse>, IndexifyAPIError> {
-    let allocations = state.executor_manager.list_allocations().await;
-    Ok(Json(ExecutorsAllocationsResponse {
-        allocations: allocations
-            .into_iter()
-            .map(|(executor_id, fns)| {
-                (
-                    executor_id.get().to_string(),
-                    ExecutorAllocations {
-                        total: fns.iter().map(|(_, allocations)| allocations.len()).sum(),
-                        function_executors: fns
-                            .iter()
-                            .map(|(fn_name, allocations)| FnExecutor {
-                                count: allocations.len(),
-                                fn_name: fn_name.clone(),
-                                allocations: allocations.iter().map(|a| a.clone().into()).collect(),
-                            })
-                            .collect(),
-                    },
-                )
-            })
-            .collect(),
-    }))
+    let list_allocation_resp = state.executor_manager.api_list_allocations().await;
+    Ok(Json(list_allocation_resp))
 }
 
 #[utoipa::path(
@@ -795,43 +763,6 @@ async fn list_unallocated_tasks(
         count: unallocated_tasks.len(),
         tasks: unallocated_tasks,
     }))
-}
-
-async fn executor_tasks(
-    Path(executor_id): Path<ExecutorId>,
-    State(state): State<RouteState>,
-    Json(_payload): Json<ExecutorMetadata>,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let indexify_state = state.indexify_state.clone();
-    let blob_store_url_scheme = state.blob_storage.get_url_scheme();
-    let blob_store_url = state.blob_storage.get_url();
-
-    let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
-    let stream = stream.map(move |item| match item {
-        Ok(item) => {
-            let item: Vec<Task> = item
-                .into_iter()
-                .map(|task| {
-                    into_http_api_task(
-                        task,
-                        indexify_state.clone(),
-                        blob_store_url_scheme.clone(),
-                        blob_store_url.clone(),
-                    )
-                })
-                .collect();
-            axum::response::sse::Event::default().json_data(item)
-        }
-        Err(e) => {
-            error!("error in task stream: {:?}", e);
-            Err(axum::Error::new(e))
-        }
-    });
-    Ok(axum::response::Sse::new(stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(1))
-            .text("keep-alive-text"),
-    ))
 }
 
 /// List tasks for an invocation

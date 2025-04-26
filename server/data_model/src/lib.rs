@@ -88,6 +88,7 @@ impl Allocation {
         compute_fn: &str,
         invocation_id: &str,
     ) -> String {
+        // TODO: Investigate impact of not using the function executor id
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
         compute_graph.hash(&mut hasher);
@@ -256,6 +257,12 @@ impl Default for NodeTimeoutMS {
     }
 }
 
+impl Into<NodeTimeoutMS> for u32 {
+    fn into(self) -> NodeTimeoutMS {
+        NodeTimeoutMS(self)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeGPUConfig {
     pub count: u32,
@@ -391,10 +398,10 @@ impl Node {
         }
     }
 
-    pub fn secret_names(&self) -> Option<Vec<String>> {
+    pub fn secret_names(&self) -> Vec<String> {
         match self {
-            Node::Router(router) => router.secret_names.clone(),
-            Node::Compute(compute) => compute.secret_names.clone(),
+            Node::Router(router) => router.secret_names.clone().unwrap_or_default(),
+            Node::Compute(compute) => compute.secret_names.clone().unwrap_or_default(),
         }
     }
 
@@ -1357,7 +1364,7 @@ impl Default for HostResources {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
 pub enum ExecutorState {
     #[default]
     Unknown,
@@ -1385,7 +1392,16 @@ impl Default for FunctionExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Hash)]
+pub enum FunctionExecutorState {
+    #[default]
+    Unknown,
+    Pending,
+    Running,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
 pub enum FunctionExecutorStatus {
     #[default]
     Unknown,
@@ -1397,13 +1413,37 @@ pub enum FunctionExecutorStatus {
     Unhealthy,
     Stopping,
     Stopped,
+    Shutdown,
+}
+
+impl FunctionExecutorStatus {
+    pub fn as_state(&self) -> FunctionExecutorState {
+        self.clone().into()
+    }
+}
+
+impl Into<FunctionExecutorState> for FunctionExecutorStatus {
+    fn into(self) -> FunctionExecutorState {
+        match self {
+            FunctionExecutorStatus::Unknown => FunctionExecutorState::Unknown,
+            FunctionExecutorStatus::StartingUp => FunctionExecutorState::Pending,
+            FunctionExecutorStatus::Idle | FunctionExecutorStatus::RunningTask => {
+                FunctionExecutorState::Running
+            }
+            FunctionExecutorStatus::StartupFailedCustomerError |
+            FunctionExecutorStatus::StartupFailedPlatformError |
+            FunctionExecutorStatus::Unhealthy |
+            FunctionExecutorStatus::Stopping |
+            FunctionExecutorStatus::Stopped |
+            FunctionExecutorStatus::Shutdown => FunctionExecutorState::Terminated,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
-    pub executor_id: ExecutorId,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
@@ -1460,10 +1500,6 @@ impl FunctionExecutor {
 impl FunctionExecutorBuilder {
     pub fn build(&mut self) -> Result<FunctionExecutor> {
         let id = self.id.clone().unwrap_or(FunctionExecutorId::default());
-        let executor_id = self
-            .executor_id
-            .clone()
-            .ok_or(anyhow!("executor_id is required"))?;
         let namespace = self
             .namespace
             .clone()
@@ -1480,13 +1516,45 @@ impl FunctionExecutorBuilder {
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
         Ok(FunctionExecutor {
             id,
-            executor_id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
             status,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct FunctionExecutorServerMetadata {
+    pub executor_id: ExecutorId,
+    pub function_executor: FunctionExecutor,
+    pub last_allocation_at: Option<SystemTime>,
+    pub desired_state: FunctionExecutorState,
+}
+impl FunctionExecutorServerMetadata {
+    pub fn new(
+        executor_id: ExecutorId,
+        function_executor: FunctionExecutor,
+        desired_state: FunctionExecutorState,
+        last_allocation_at: Option<SystemTime>,
+    ) -> Self {
+        Self {
+            executor_id,
+            function_executor,
+            desired_state,
+            last_allocation_at,
+        }
+    }
+
+    pub fn fn_uri_str(&self) -> String {
+        self.function_executor.fn_uri_str()
+    }
+
+    /// Checks if this FunctionExecutor matches another FunctionExecutor.
+    pub fn matches(&self, other: &FunctionExecutor) -> bool {
+        self.function_executor.matches(other)
     }
 }
 
@@ -1505,6 +1573,7 @@ pub struct ExecutorMetadata {
     pub state: ExecutorState,
     pub tombstoned: bool,
     pub state_hash: String,
+    pub clock: u64,
 }
 
 impl ExecutorMetadataBuilder {
@@ -1538,6 +1607,7 @@ impl ExecutorMetadataBuilder {
             .clone()
             .ok_or(anyhow!("dev_mode is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
+        let clock = self.clock.unwrap_or(0);
         Ok(ExecutorMetadata {
             id,
             executor_version,
@@ -1550,6 +1620,7 @@ impl ExecutorMetadataBuilder {
             state,
             tombstoned,
             state_hash,
+            clock,
         })
     }
 }
@@ -1588,7 +1659,6 @@ pub struct TaskOutputsIngestedEvent {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
-    pub executor_id: ExecutorId,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

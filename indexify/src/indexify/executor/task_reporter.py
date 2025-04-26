@@ -323,15 +323,12 @@ class TaskReporter:
             invocation_id=output.graph_invocation_id,
             executor_id=self._executor_id,
             task_id=output.task_id,
+            reducer=output.reducer,
         )
         output_files: List[Any] = []
-        if output is None:
-            return task_result, output_files
-
         task_result.outcome = (
             TASK_OUTCOME_SUCCESS if output.success else TASK_OUTCOME_FAILURE
         )
-        task_result.reducer = output.reducer
 
         _process_function_output(
             function_output=output.function_output, output_files=output_files

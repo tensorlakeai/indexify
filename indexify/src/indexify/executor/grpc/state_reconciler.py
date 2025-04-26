@@ -137,14 +137,16 @@ class ExecutorStateReconciler:
                 )
                 continue
 
-            if self._last_server_clock is not None:
-                if self._last_server_clock >= new_state.clock:
-                    self._logger.warning(
-                        "received outdated DesiredExecutorState from Server, ignoring",
-                        current_clock=self._last_server_clock,
-                        ignored_clock=new_state.clock,
-                    )
-                    continue  # Duplicate or outdated message state sent by Server.
+            # TODO: The clock is only incremented when function executors have actionable changes and not on new allocations.
+            #       Therefore the clock cannot currently be used as an idempotency token.
+            # if self._last_server_clock is not None:
+            #     if self._last_server_clock >= new_state.clock:
+            #         self._logger.warning(
+            #             "received outdated DesiredExecutorState from Server, ignoring",
+            #             current_clock=self._last_server_clock,
+            #             ignored_clock=new_state.clock,
+            #         )
+            #         continue  # Duplicate or outdated message state sent by Server.
 
             self._last_server_clock = new_state.clock
             # Always read the latest desired state value from the stream so

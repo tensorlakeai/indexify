@@ -3,7 +3,7 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use data_model::{
     DataPayload,
@@ -12,10 +12,8 @@ use data_model::{
     ExecutorMetadataBuilder,
     FunctionExecutor,
     FunctionExecutorId,
-    FunctionExecutorStatus,
     FunctionURI,
     GraphVersion,
-    HostResources,
     NodeOutputBuilder,
     OutputPayload,
     TaskDiagnostics,
@@ -31,7 +29,10 @@ use executor_api_pb::{
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
+    FunctionExecutorResources,
+    FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
+    HostResources,
     OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
@@ -43,10 +44,10 @@ use state_store::{
     requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest},
     IndexifyState,
 };
-use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use tokio::sync::watch;
+use tokio_stream::{wrappers::WatchStream, Stream};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::executors::ExecutorManager;
 
@@ -73,6 +74,55 @@ impl TryFrom<AllowedFunction> for FunctionURI {
     }
 }
 
+impl TryFrom<data_model::HostResources> for HostResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: data_model::HostResources) -> Result<Self, Self::Error> {
+        Ok(HostResources {
+            cpu_count: Some(from.cpu_count),
+            memory_bytes: Some(from.memory_bytes),
+            disk_bytes: Some(from.disk_bytes),
+            gpu: from.gpu.map(|g| g.try_into()).transpose()?,
+        })
+    }
+}
+
+impl TryFrom<HostResources> for data_model::HostResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: HostResources) -> Result<Self, Self::Error> {
+        let cpu = from
+            .cpu_count
+            .ok_or(anyhow::anyhow!("cpu_count is required"))?;
+        let memory = from
+            .memory_bytes
+            .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
+        let disk = from
+            .disk_bytes
+            .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+        let gpu = from.gpu.map(|g| g.try_into()).transpose()?;
+        Ok(data_model::HostResources {
+            cpu_count: cpu,
+            memory_bytes: memory,
+            disk_bytes: disk,
+            gpu,
+        })
+    }
+}
+
+impl TryFrom<String> for DataPayloadEncoding {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "application/json" => Ok(DataPayloadEncoding::Utf8Json),
+            "application/octet-stream" => Ok(DataPayloadEncoding::BinaryPickle),
+            "text/plain" => Ok(DataPayloadEncoding::Utf8Text),
+            _ => Err(anyhow::anyhow!("unknown data payload encoding")),
+        }
+    }
+}
+
 impl From<ExecutorStatus> for data_model::ExecutorState {
     fn from(status: ExecutorStatus) -> Self {
         match status {
@@ -83,6 +133,26 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
             ExecutorStatus::Stopped => data_model::ExecutorState::Stopped,
             ExecutorStatus::Unknown => data_model::ExecutorState::Unknown,
         }
+    }
+}
+
+impl TryFrom<data_model::GpuResources> for executor_api_pb::GpuResources {
+    type Error = anyhow::Error;
+
+    fn try_from(gpu_resources: data_model::GpuResources) -> Result<Self, Self::Error> {
+        if gpu_resources.count == 0 {
+            return Err(anyhow::anyhow!("data_model gpu_resources.count is 0"));
+        }
+        let proto_model = match gpu_resources.model.as_str() {
+            data_model::GPU_MODEL_NVIDIA_A100_40GB => Ok(executor_api_pb::GpuModel::NvidiaA10040gb),
+            data_model::GPU_MODEL_NVIDIA_A100_80GB => Ok(executor_api_pb::GpuModel::NvidiaA10080gb),
+            data_model::GPU_MODEL_NVIDIA_H100_80GB => Ok(executor_api_pb::GpuModel::NvidiaH10080gb),
+            _ => Err(anyhow::anyhow!("unknown data_model gpu_resources.model")),
+        }?;
+        Ok(executor_api_pb::GpuResources {
+            count: Some(gpu_resources.count),
+            model: Some(proto_model.into()),
+        })
     }
 }
 
@@ -105,6 +175,74 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
         Ok(data_model::GpuResources {
             count: gpu_resources.count(),
             model: str_model.into(),
+        })
+    }
+}
+
+impl From<FunctionExecutorStatus> for data_model::FunctionExecutorStatus {
+    fn from(status: FunctionExecutorStatus) -> Self {
+        match status {
+            FunctionExecutorStatus::StartingUp => data_model::FunctionExecutorStatus::StartingUp,
+            FunctionExecutorStatus::StartupFailedCustomerError => {
+                data_model::FunctionExecutorStatus::StartupFailedCustomerError
+            }
+            FunctionExecutorStatus::StartupFailedPlatformError => {
+                data_model::FunctionExecutorStatus::StartupFailedPlatformError
+            }
+            FunctionExecutorStatus::Idle => data_model::FunctionExecutorStatus::Idle,
+            FunctionExecutorStatus::RunningTask => data_model::FunctionExecutorStatus::RunningTask,
+            FunctionExecutorStatus::Stopping => data_model::FunctionExecutorStatus::Stopping,
+            FunctionExecutorStatus::Stopped => data_model::FunctionExecutorStatus::Stopped,
+            FunctionExecutorStatus::Unhealthy => data_model::FunctionExecutorStatus::Unhealthy,
+            FunctionExecutorStatus::Shutdown => data_model::FunctionExecutorStatus::Shutdown,
+            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorStatus::Unknown,
+        }
+    }
+}
+
+impl From<data_model::NodeRetryPolicy> for executor_api_pb::TaskRetryPolicy {
+    fn from(from: data_model::NodeRetryPolicy) -> Self {
+        executor_api_pb::TaskRetryPolicy {
+            max_retries: Some(from.max_retries),
+            initial_delay_ms: Some(from.initial_delay_ms),
+            delay_multiplier: Some(from.delay_multiplier),
+            max_delay_ms: Some(from.max_delay_ms),
+        }
+    }
+}
+
+impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
+        let cpu_ms_per_sec = from
+            .cpu_ms_per_sec
+            .ok_or(anyhow::anyhow!("cpu_ms_per_sec is required"))?;
+        let memory_bytes = from
+            .memory_bytes
+            .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
+        let ephemeral_disk_bytes = from
+            .disk_bytes
+            .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+        let _gpu_count = from.gpu_count.unwrap_or(0);
+        Ok(data_model::NodeResources {
+            cpu_ms_per_sec,
+            memory_mb: (memory_bytes / 1024 / 1024) as u32,
+            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
+            gpu_configs: vec![], // TODO: add GPU mapping support
+        })
+    }
+}
+
+impl TryFrom<data_model::NodeResources> for FunctionExecutorResources {
+    type Error = anyhow::Error;
+
+    fn try_from(from: data_model::NodeResources) -> Result<Self, Self::Error> {
+        Ok(FunctionExecutorResources {
+            cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
+            memory_bytes: Some(from.memory_mb as u64 * 1024 * 1024),
+            disk_bytes: Some(from.ephemeral_disk_mb as u64 * 1024 * 1024),
+            gpu_count: Some(from.gpu_configs.len() as u32),
         })
     }
 }
@@ -151,15 +289,13 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         }
         executor_metadata.labels(labels);
         let mut function_executors = HashMap::new();
-        for function_executor in executor_state.function_executor_states {
-            let function_executor_description = function_executor
+        for function_executor_state in executor_state.function_executor_states {
+            let function_executor_description = function_executor_state
                 .description
+                .clone()
                 .ok_or(anyhow::anyhow!("description is required"))?;
-            let mut function_executor = FunctionExecutor::try_from(WithExecutorId::new(
-                executor_id.clone(),
-                function_executor_description,
-            ))?;
-            function_executor.status = FunctionExecutorStatus::try_from(function_executor.status)?;
+            let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
+            function_executor.status = function_executor_state.status().into();
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.function_executors(function_executors);
@@ -179,33 +315,27 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
                 Some(gpu_resources) => gpu_resources.try_into().ok(),
                 None => None,
             };
-            executor_metadata.host_resources(HostResources {
+            executor_metadata.host_resources(data_model::HostResources {
                 cpu_count: cpu,
                 memory_bytes: memory,
                 disk_bytes: disk,
                 gpu,
             });
+            executor_metadata.host_resources(host_resources.try_into()?);
+        }
+        if let Some(server_clock) = executor_state.server_clock {
+            executor_metadata.clock(server_clock);
         }
         Ok(executor_metadata.build()?)
     }
 }
 
-struct WithExecutorId<T> {
-    executor_id: ExecutorId,
-    inner: T,
-}
-
-impl<T> WithExecutorId<T> {
-    fn new(executor_id: ExecutorId, inner: T) -> Self {
-        Self { executor_id, inner }
-    }
-}
-
-impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
+impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
     type Error = anyhow::Error;
 
-    fn try_from(from: WithExecutorId<FunctionExecutorDescription>) -> Result<Self, Self::Error> {
-        let function_executor_description = from.inner;
+    fn try_from(
+        function_executor_description: FunctionExecutorDescription,
+    ) -> Result<Self, Self::Error> {
         let id = function_executor_description
             .id
             .map(|id| FunctionExecutorId::new(id))
@@ -226,12 +356,12 @@ impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
 
         Ok(FunctionExecutor {
             id,
-            executor_id: from.executor_id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
-            status: FunctionExecutorStatus::Unknown,
+            // is set when the parent proto message FunctionExecutorStatus is converted
+            status: data_model::FunctionExecutorStatus::Unknown,
         })
     }
 }
@@ -274,9 +404,15 @@ impl ExecutorApi for ExecutorAPIService {
             .executor_state
             .clone()
             .ok_or(Status::invalid_argument("executor_state is required"))?;
-        debug!(
-            "Got report_executor_state request from Executor with ID {}",
-            executor_state.executor_id()
+        let executor_id = executor_state
+            .executor_id
+            .clone()
+            .ok_or(Status::invalid_argument("executor_id is required"))?;
+        let executor_id = ExecutorId::new(executor_id);
+
+        trace!(
+            executor_id = executor_id.get(),
+            "Got report_executor_state request"
         );
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
@@ -291,40 +427,85 @@ impl ExecutorApi for ExecutorAPIService {
         &self,
         request: Request<GetDesiredExecutorStatesRequest>,
     ) -> Result<Response<Self::get_desired_executor_statesStream>, Status> {
-        info!(
-            "Got get_desired_executor_states request from Executor with ID {}",
-            request.get_ref().executor_id()
+        let executor_id = request
+            .get_ref()
+            .executor_id
+            .clone()
+            .ok_or(Status::invalid_argument("executor_id is required"))?;
+        let executor_id = ExecutorId::new(executor_id);
+
+        trace!(
+            executor_id = executor_id.get(),
+            "Got get_desired_executor_states request",
         );
 
-        // Based on https://github.com/hyperium/tonic/blob/72b0fd59442d71804d4104e313ef6f140ab8f6d1/examples/src/streaming/server.rs#L46
-        // creating infinite stream with fake message
-        let repeat = std::iter::repeat(DesiredExecutorState {
+        let mut state_rx = match self.executor_manager.subscribe(&executor_id).await {
+            Some(state_rx) => state_rx,
+            None => {
+                let msg = "executor not found, or not yet registered";
+                warn!(
+                    executor_id = executor_id.get(),
+                    "get_desired_executor_states: {}", msg
+                );
+                return Err(Status::not_found(msg));
+            }
+        };
+
+        let (tx, rx) = watch::channel(Result::Ok(DesiredExecutorState {
             function_executors: vec![],
             task_allocations: vec![],
-            clock: Some(3),
-        });
-        let mut stream = Box::pin(tokio_stream::iter(repeat));
-
-        // spawn and channel are required if you want handle "disconnect" functionality
-        // the `out_stream` will not be polled after client disconnect
-        let (tx, rx) = mpsc::channel(128);
+            clock: Some(0),
+        }));
+        let executor_manager = self.executor_manager.clone();
         tokio::spawn(async move {
-            while let Some(item) = stream.next().await {
-                match tx.send(Result::<_, Status>::Ok(item)).await {
-                    Ok(_) => {
-                        // item (server response) was queued to be send to
-                        // client
+            // 1. Mark the state as changed to trigger the first change notification to the
+            //    executor. This is important because between the report_executor_state and
+            //    the get_desired_executor_states requests, the executor state may received
+            //    a new desired state.
+            state_rx.mark_changed();
+            loop {
+                // 2. Wait for a state change for this executor
+                if let Err(err) = state_rx.changed().await {
+                    info!(
+                        executor_id = executor_id.get(),
+                        "get_desired_executor_states: state machine watcher closing: {}", err
+                    );
+                    break;
+                }
+
+                // 3. Get the latest state
+                let desired_state: DesiredExecutorState = match executor_manager
+                    .get_executor_state(&executor_id)
+                    .await
+                    .try_into()
+                {
+                    Ok(desired_state) => desired_state,
+                    Err(err) => {
+                        info!(
+                            executor_id = executor_id.get(),
+                            "get_desired_executor_states: failed to convert desired state, ignoring: {:?}", err
+                        );
+                        continue;
                     }
-                    Err(_item) => {
-                        // output_stream was build from rx and both are dropped
-                        break;
-                    }
+                };
+
+                debug!(
+                    executor_id = executor_id.get(),
+                    "get_desired_executor_states: got desired state: {:#?}", desired_state
+                );
+
+                // 4. Send the state to the executor
+                if let Err(err) = tx.send(Ok(desired_state)) {
+                    info!(
+                        executor_id = executor_id.get(),
+                        "get_desired_executor_states: grpc stream closing: {}", err
+                    );
+                    break;
                 }
             }
-            info!("get_desired_executor_states stream finished, client disconnected");
         });
 
-        let output_stream = ReceiverStream::new(rx);
+        let output_stream = WatchStream::from_changes(rx);
         Ok(Response::new(
             Box::pin(output_stream) as Self::get_desired_executor_statesStream
         ))
@@ -466,6 +647,7 @@ impl ExecutorApi for ExecutorAPIService {
                 .compute_fn_name(compute_fn.to_string())
                 .payload(OutputPayload::Fn(data_payload))
                 .encoding(encoding_str.to_string())
+                .reduced_state(request.get_ref().reducer.unwrap_or(false))
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
             node_outputs.push(node_output);

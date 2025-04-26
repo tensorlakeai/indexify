@@ -1,7 +1,6 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs,
-    ops::Deref,
     path::PathBuf,
     pin::Pin,
     sync::{
@@ -12,7 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
+use data_model::{ExecutorId, StateMachineMetadata};
 use futures::Stream;
 use in_memory_state::{InMemoryMetrics, InMemoryState};
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
@@ -23,7 +22,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
-use tracing::{debug, error, info, span, warn};
+use tracing::{debug, error, info, span};
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -39,37 +38,26 @@ pub mod test_state_store;
 
 #[derive(Debug)]
 pub struct ExecutorState {
-    pub new_task_channel: watch::Sender<()>,
-    pub task_ids_sent: HashSet<TaskId>,
+    pub new_state_channel: watch::Sender<()>,
 }
 
 impl ExecutorState {
     pub fn new() -> Self {
-        let (new_task_channel, _) = watch::channel(());
-        Self {
-            new_task_channel,
-            task_ids_sent: HashSet::new(),
-        }
+        let (new_state_channel, _) = watch::channel(());
+        Self { new_state_channel }
     }
 
     pub fn notify(&mut self) {
-        let _ = self.new_task_channel.send(());
-    }
-
-    pub fn added(&mut self, task_ids: &Vec<TaskId>) {
-        self.task_ids_sent.extend(task_ids.clone());
-    }
-
-    // Send notification for remove because new task can be available if
-    // were at maximum number of tasks before task completion.
-    pub fn removed(&mut self, task_id: TaskId) {
-        self.task_ids_sent.remove(&task_id);
-        let _ = self.new_task_channel.send(());
+        if let Err(err) = self.new_state_channel.send(()) {
+            error!(
+                "failed to notify executor state change, ignoring: {:?}",
+                err
+            );
+        }
     }
 
     pub fn subscribe(&mut self) -> watch::Receiver<()> {
-        self.task_ids_sent.clear();
-        self.new_task_channel.subscribe()
+        self.new_state_channel.subscribe()
     }
 }
 
@@ -79,7 +67,6 @@ impl Default for ExecutorState {
     }
 }
 
-pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
 pub type StateChangeStream =
     Pin<Box<dyn Stream<Item = Result<InvocationStateChangeEvent>> + Send + Sync>>;
 
@@ -130,10 +117,10 @@ impl IndexifyState {
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
-        let indexes = Arc::new(RwLock::new(InMemoryState::new(scanner::StateReader::new(
-            db.clone(),
-            state_store_metrics.clone(),
-        ))?));
+        let indexes = Arc::new(RwLock::new(InMemoryState::new(
+            sm_meta.last_change_idx,
+            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+        )?));
         let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
         let s = Arc::new(Self {
             db,
@@ -177,10 +164,8 @@ impl IndexifyState {
     )]
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
-        debug!("writing state machine update request",);
+        debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
-        let mut allocated_tasks_by_executor = Vec::new();
-        let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
         let new_state_changes = match &request.payload {
             RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
@@ -202,23 +187,12 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::SchedulerUpdate(request) => {
-                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
-                for allocation in &request.new_allocations {
-                    allocated_tasks_by_executor.push(allocation.executor_id.clone());
-                }
-
-                // Trigger the executor deregistration state change only once even if multiple
-                // executors are removed.
-                if let Some(executor_id) = request.remove_executors.first() {
-                    state_changes::deregister_executor_event(
-                        &self.last_state_change_id,
-                        executor_id.clone(),
-                    )?
-                } else {
-                    vec![]
-                }
-            }
+            RequestPayload::SchedulerUpdate(request) => state_machine::handle_scheduler_update(
+                &self.last_state_change_id,
+                self.db.clone(),
+                &txn,
+                request,
+            )?,
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),
@@ -226,10 +200,6 @@ impl IndexifyState {
                     task_outputs.clone(),
                 )?;
                 if ingested {
-                    tasks_finalized
-                        .entry(task_outputs.executor_id.clone())
-                        .or_default()
-                        .push(task_outputs.task.id.clone());
                     state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
                 } else {
                     vec![]
@@ -304,44 +274,44 @@ impl IndexifyState {
             &txn,
             &request.processed_state_changes,
         )?;
+
+        let current_state_id = self.last_state_change_id.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &self.db,
             &txn,
             &StateMachineMetadata {
-                last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),
+                last_change_idx: current_state_id,
                 db_version: self.db_version,
             },
         )?;
         txn.commit()?;
-        self.in_memory_state
+        let changed_executors = self
+            .in_memory_state
             .write()
             .await
-            .update_state(&request)
+            .update_state(current_state_id, &request)
             .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
-        for executor_id in allocated_tasks_by_executor {
-            self.executor_states
-                .write()
-                .await
-                .get_mut(&executor_id)
-                .map(|executor_state| {
+
+        // Notify the executors with state changes
+        {
+            let mut executor_states = self.executor_states.write().await;
+            for executor_id in changed_executors {
+                executor_states.get_mut(&executor_id).map(|executor_state| {
                     executor_state.notify();
                 });
+            }
         }
-        for (executor_id, tasks) in tasks_finalized {
-            self.executor_states
-                .write()
-                .await
-                .get_mut(&executor_id)
-                .map(|executor_state| {
-                    for task_id in tasks {
-                        executor_state.removed(task_id);
-                    }
-                });
-        }
-        self.handle_invocation_state_changes(&request).await;
+
         if new_state_changes.len() > 0 {
-            self.change_events_tx.send(()).unwrap();
+            if let Err(err) = self.change_events_tx.send(()) {
+                error!(
+                    "failed to notify of state change event, ignoring: {:?}",
+                    err
+                );
+            }
         }
+
+        self.handle_invocation_state_changes(&request).await;
         Ok(())
     }
 
@@ -356,18 +326,19 @@ impl IndexifyState {
                 let _ = self.task_event_tx.send(ev);
             }
             RequestPayload::SchedulerUpdate(sched_update) => {
-                for task in &sched_update.new_allocations {
+                for allocation in &sched_update.new_allocations {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskAssigned(
                             invocation_events::TaskAssigned {
-                                invocation_id: task.invocation_id.clone(),
-                                fn_name: task.compute_fn.clone(),
-                                task_id: task.id.to_string(),
-                                executor_id: task.executor_id.get().to_string(),
+                                invocation_id: allocation.invocation_id.clone(),
+                                fn_name: allocation.compute_fn.clone(),
+                                task_id: allocation.task_id.get().to_string(),
+                                executor_id: allocation.executor_id.get().to_string(),
                             },
                         ));
                 }
+
                 for (_, task) in &sched_update.updated_tasks {
                     let _ = self
                         .task_event_tx
@@ -403,59 +374,6 @@ impl IndexifyState {
     pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
         self.task_event_tx.subscribe()
     }
-}
-
-pub fn task_stream(state: Arc<IndexifyState>, executor_id: ExecutorId) -> TaskStream {
-    let stream = async_stream::stream! {
-        let mut rx = if let Some(rx) = state
-            .executor_states
-            .write()
-            .await
-            .get_mut(&executor_id)
-            .map(|s| s.subscribe()) {
-            rx
-        } else {
-            // Executor not found, closing stream.
-            warn!(executor_id=executor_id.get(), "executor not found, stopping task stream");
-            return;
-        };
-
-        loop {
-            // Copy the task_ids_sent before reading the tasks.
-            // The update thread modifies tasks first and then updates task_ids_sent,
-            // this thread does the opposite. This avoids sending the same task multiple times.
-            let task_ids_sent = state.executor_states.read().await.get(&executor_id).map(|s| {
-                s.task_ids_sent.clone()
-            }).unwrap_or_default();
-            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor_id);
-            if active_tasks.len() > 0 {
-                let state = state.clone();
-                let mut filtered_tasks = vec![];
-                {
-                    if let Some(executor) = state.executor_states.write().await.get_mut(&executor_id) {
-                        for task in &active_tasks{
-                            if !task_ids_sent.contains(&task.id) {
-                                filtered_tasks.push(task.deref().clone());
-                                executor.added(&vec![task.id.clone()]);
-                            }
-                        }
-                    } else {
-                        error!(executor_id=executor_id.get(), "executor removed, stopping task stream");
-                        break;
-                    }
-                }
-
-                yield Ok(filtered_tasks);
-            }
-
-            if let Err(_) = rx.changed().await {
-                info!(executor_id=executor_id.get(), "executor channel closed, stopping task stream");
-                break;
-            }
-        }
-    };
-
-    Box::pin(stream)
 }
 
 #[cfg(test)]

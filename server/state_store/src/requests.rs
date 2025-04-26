@@ -5,8 +5,8 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
-    FunctionExecutor,
     FunctionExecutorId,
+    FunctionExecutorServerMetadata,
     GraphInvocationCtx,
     InvocationPayload,
     NodeOutput,
@@ -62,7 +62,7 @@ pub struct SchedulerUpdateRequest {
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
-    pub new_function_executors: Vec<FunctionExecutor>,
+    pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: Vec<FunctionExecutorIdWithExecutionId>,
 }
 
