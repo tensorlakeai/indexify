@@ -42,8 +42,6 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
-    ExecutorAllocations,
-    FnExecutor,
     Invocation,
     InvocationStatus,
     StateChangesResponse,
