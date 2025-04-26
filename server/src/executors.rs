@@ -123,6 +123,10 @@ impl ExecutorRuntimeData {
         self.last_state_hash = hash;
         self.last_executor_clock = clock;
     }
+
+    pub fn should_update(&self, hash: String, clock: u64) -> bool {
+        self.last_state_hash != hash || self.last_executor_clock != clock
+    }
 }
 
 pub struct ExecutorManager {
@@ -228,13 +232,10 @@ impl ExecutorManager {
         //    different to prevent doing duplicate work.
         let should_update = {
             let runtime_data_read = self.runtime_data.read().await;
-            !runtime_data_read
+            runtime_data_read
                 .get(&executor.id)
-                .map(|data| {
-                    data.last_state_hash == executor.state_hash &&
-                        data.last_executor_clock == executor.clock
-                })
-                .unwrap_or(false)
+                .map(|data| data.should_update(executor.state_hash.clone(), executor.clock))
+                .unwrap_or(true)
         };
 
         if should_update {
