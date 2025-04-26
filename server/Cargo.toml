@@ -134,7 +134,7 @@ prometheus = { workspace = true }
 metrics = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-axum-tracing-opentelemetry = { version = "0.26.1", features = [
+axum-tracing-opentelemetry = { version = "0.28.0", features = [
     "tracing_level_info",
 ] }
 tower-otel-http-metrics = { workspace = true }
