@@ -1041,15 +1041,17 @@ impl TaskAllocationProcessor {
             };
 
             if is_startup_failure {
-                let in_memory_state = self.in_memory_state.read().unwrap();
-                for invocation in in_memory_state
+                let mut invocations = self
+                    .in_memory_state
+                    .read()
+                    .unwrap()
                     .get_invocations_by_compute_graph_version(
                         &fe.namespace,
                         &fe.compute_graph_name,
                         &fe.version,
                     )
-                    .iter_mut()
-                {
+                    .clone();
+                for invocation in invocations.iter_mut() {
                     invocation.completed = true;
                     invocation.outcome = GraphInvocationOutcome::Failure;
 
@@ -1059,15 +1061,18 @@ impl TaskAllocationProcessor {
                         .invocation_ctx
                         .insert(invocation.key(), invocation.clone());
                     update.updated_invocations_states.push(*invocation.clone());
-
-                    for task in in_memory_state
+                    let tasks = self
+                        .in_memory_state
+                        .read()
+                        .unwrap()
                         .get_tasks_by_invocation(
                             &invocation.namespace,
                             &invocation.compute_graph_name,
                             &invocation.invocation_id,
                         )
-                        .iter()
-                    {
+                        .clone();
+
+                    for task in tasks.iter() {
                         let mut task = *task.clone();
                         task.status = TaskStatus::Completed;
                         task.outcome = TaskOutcome::Failure;
@@ -1090,22 +1095,25 @@ impl TaskAllocationProcessor {
                 }
             } else {
                 // Process allocations for this specific function executor
-                if let Some(allocations_by_fe) = self
+                let allocations_by_fe = self
                     .in_memory_state
                     .read()
                     .unwrap()
                     .allocations_by_executor
                     .get(executor_id)
-                {
+                    .cloned();
+                if let Some(allocations_by_fe) = allocations_by_fe {
                     if let Some(allocations) = allocations_by_fe.get(&fe.id) {
                         for allocation in allocations {
-                            if let Some(task) = self
+                            let task = self
                                 .in_memory_state
                                 .read()
                                 .unwrap()
                                 .tasks
                                 .get(&allocation.task_key())
-                            {
+                                .cloned();
+
+                            if let Some(task) = task {
                                 let mut task = *task.clone();
                                 task.status = TaskStatus::Pending;
 
