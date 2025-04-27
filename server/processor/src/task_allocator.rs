@@ -391,7 +391,13 @@ impl TaskAllocationProcessor {
         // Mark FEs for termination (change desired state to Terminated)
         // but don't actually remove them - reconciliation will handle that
         for fe in &function_executors_to_mark {
-            update.new_function_executors.push(*fe.clone());
+            let updated_fe_metadata = FunctionExecutorServerMetadata::new(
+                fe.executor_id.clone(),
+                fe.function_executor.clone(),
+                FunctionExecutorState::Terminated,
+                fe.last_allocation_at,
+            );
+            update.new_function_executors.push(updated_fe_metadata);
 
             debug!(
                 "Marked function executor {} on executor {} for termination",
