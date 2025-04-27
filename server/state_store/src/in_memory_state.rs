@@ -1,9 +1,4 @@
-use std::{
-    cmp::Ordering,
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc, time::SystemTime};
 
 use anyhow::Result;
 use data_model::{
@@ -986,96 +981,61 @@ impl InMemoryState {
                 .function_executors_by_executor
                 .get(executor_id)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
 
             // Process each function executor based on allowlist and version status
-            for (_, fe_metadata) in function_executors.iter() {
+            for fe_metadata in function_executors.iter() {
                 // Skip if the FE is already marked for termination
                 if fe_metadata.desired_state == FunctionExecutorState::Terminated {
                     continue;
                 }
 
                 let fe = &fe_metadata.function_executor;
+                let Some(executor) = self.executors.get(executor_id) else {
+                    // If the executor is not found, we can remove the FE
+                    // since it's not running any more
+                    function_executors_to_remove.push(fe_metadata.clone());
+                    continue;
+                };
 
-                // Check if this FE is in the executor's allowlist
-                let allowlist_entry = executor
-                    .function_allowlist
-                    .as_ref()
-                    .and_then(|allowlist| allowlist.iter().find(|f| fe.matches_fn_uri(f)));
-
-                // IDLE TIMEOUT CHECK:
-                // Check if function executor has been idle for more than the timeout period
-                // (20min) regardless of dev mode or allowlist status
-                if let Some(last_allocation_time) = fe_metadata.last_allocation_at {
-                    let timeout = Duration::from_millis(idle_timeout_ms);
-
-                    // TODO: Add a jitter to the timeout
-
-                    if let Ok(idle_duration) =
-                        SystemTime::now().duration_since(last_allocation_time)
-                    {
-                        if idle_duration > timeout {
-                            debug!(
-                            "Removing idle timed-out function executor {} from executor {}, idle for {:?}",
-                            fe_metadata.function_executor.id.get(), executor_id.get(), idle_duration
-                        );
-                            function_executors_to_remove.push(fe_metadata.clone());
-                            continue; // Skip further checks since we're
-                                      // removing this FE
-                        }
-                    }
-                }
-
-                // VERSION CHECK:
-                // Check if the FE is using an outdated version
-                let latest_cg_version = self
+                let Some(latest_cg_version) = self
                     .compute_graphs
                     .get(&ComputeGraph::key_from(
                         &fe.namespace,
                         &fe.compute_graph_name,
                     ))
-                    .map(|cg| cg.version.clone());
-                if let Some(latest_version) = latest_cg_version {
-                    if fe.version != latest_version {
-                        // Handle the case of an allowlist explicitly specifying the older version
-                        if let Some(allowlist_entry) = allowlist_entry {
-                            if let Some(allowlist_version) = &allowlist_entry.version {
-                                if allowlist_version == &fe.version {
-                                    // Allowlist explicitly specifies this older version - keep it
-                                    // but warn
-                                    warn!(
-                                    "Function executor {} on executor {} is using outdated version {} (latest is {}), but is explicitly allowlisted with this version",
-                                    fe.id.get(), executor_id.get(), fe.version, latest_version
-                                );
-                                    continue; // Skip further checks, we're
-                                              // keeping this FE
-                                }
+                    .map(|cg| cg.version.clone())
+                else {
+                    // If the compute graph is not found, we can remove the FE
+                    // since it's not running any more
+                    function_executors_to_remove.push(fe_metadata.clone());
+                    continue;
+                };
+
+                // Check if this FE has any pending invocations with its current version
+                let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
+
+                if !has_pending_invocations {
+                    // Can remove this outdated FE since it has no active invocations,
+                    // and running on an outdated version of the allowed compute graph
+                    if let Some(allowlist) = executor.function_allowlist.as_ref() {
+                        for allowlist_entry in allowlist.iter() {
+                            if allowlist_entry.matches_function_executor(fe) &&
+                                fe.version == latest_cg_version
+                            {
+                                // This FE is allowed and up to date, so we don't need to remove it
+                                continue;
                             }
                         }
-
-                        // Check if this FE has any pending invocations with its current version
-                        let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
-
-                        if !has_pending_invocations {
-                            // Can remove this outdated FE since it has no active invocations,
-                            // regardless of dev mode or allowlist status
-                            debug!(
-                            "Removing outdated function executor {} from executor {} (version {} < latest {})",
-                            fe.id.get(), executor_id.get(), fe.version, latest_version
-                        );
-                            function_executors_to_remove.push(fe_metadata.clone());
-                        }
                     }
-                } else {
-                    // No latest version found - this could be a new function or a missing compute
-                    // graph
-                    let compute_graphs = self.compute_graphs.clone();
-                    warn!(
-                        "No latest version found for function executor {} on executor {} - all {:#?} - {}",
-                        fe_metadata.function_executor.id.get(),
-                        executor_id.get(),
-                        compute_graphs, ComputeGraph::key_from(&fe.namespace, &fe.compute_fn_name),
-                    );
+                    debug!(
+                    "Removing outdated function executor {} from executor {} (version {} < latest {})",
+                    fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                );
+                    function_executors_to_remove.push(fe_metadata.clone());
                 }
             }
         }

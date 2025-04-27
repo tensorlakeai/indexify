@@ -10,9 +10,9 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     ExecutorMetadataBuilder,
+    FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
-    FunctionURI,
     GraphVersion,
     NodeOutputBuilder,
     OutputPayload,
@@ -51,24 +51,15 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::executors::ExecutorManager;
 
-impl TryFrom<AllowedFunction> for FunctionURI {
+impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let namespace = allowed_function
-            .namespace
-            .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = allowed_function
-            .graph_name
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = allowed_function
-            .function_name
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
         let version = allowed_function.graph_version.map(|v| GraphVersion(v));
-        Ok(FunctionURI {
-            namespace,
-            compute_graph_name,
-            compute_fn_name,
+        Ok(FunctionAllowlist {
+            namespace: allowed_function.namespace,
+            compute_graph_name: allowed_function.graph_name,
+            compute_fn_name: allowed_function.function_name,
             version,
         })
     }
@@ -273,7 +264,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         }
         let mut allowed_functions = Vec::new();
         for function in executor_state.allowed_functions {
-            allowed_functions.push(FunctionURI::try_from(function)?);
+            allowed_functions.push(FunctionAllowlist::try_from(function)?);
         }
         if allowed_functions.is_empty() {
             executor_metadata.function_allowlist(None);

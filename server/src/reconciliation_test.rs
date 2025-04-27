@@ -6,8 +6,8 @@ mod tests {
     use data_model::{
         test_objects::tests::{mock_dev_executor, mock_executor_id, TEST_NAMESPACE},
         ExecutorId,
+        FunctionAllowlist,
         FunctionExecutorStatus,
-        FunctionURI,
         GraphVersion,
         TaskOutcome,
     };
@@ -101,10 +101,10 @@ mod tests {
         // Register executor with non-dev mode and specific allowlist
         let mut executor_meta = mock_dev_executor(mock_executor_id());
         executor_meta.development_mode = false;
-        executor_meta.function_allowlist = Some(vec![FunctionURI {
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_graph_name: "graph_A".to_string(),
-            compute_fn_name: "fn_a".to_string(),
+        executor_meta.function_allowlist = Some(vec![FunctionAllowlist {
+            namespace: Some(TEST_NAMESPACE.to_string()),
+            compute_graph_name: Some("graph_A".to_string()),
+            compute_fn_name: Some("fn_a".to_string()),
             version: Some(GraphVersion("1".to_string())),
         }]);
 
@@ -231,10 +231,10 @@ mod tests {
         // Register third executor with correct allowlist
         let mut executor3_meta = mock_dev_executor(ExecutorId::new("executor_3".to_string()));
         executor3_meta.development_mode = false;
-        executor3_meta.function_allowlist = Some(vec![FunctionURI {
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_graph_name: "graph_A".to_string(),
-            compute_fn_name: "fn_a".to_string(),
+        executor3_meta.function_allowlist = Some(vec![FunctionAllowlist {
+            namespace: Some(TEST_NAMESPACE.to_string()),
+            compute_graph_name: Some("graph_A".to_string()),
+            compute_fn_name: Some("fn_a".to_string()),
             version: None,
         }]);
 

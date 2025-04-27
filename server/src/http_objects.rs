@@ -948,10 +948,10 @@ pub struct TaskAnalytics {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionURI {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub compute_fn: Option<String>,
 
     // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
@@ -966,7 +966,7 @@ pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
     pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: Vec<serde_json::Value>,
@@ -982,7 +982,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
         let function_allowlist = executor.function_allowlist.map(|allowlist| {
             allowlist
                 .iter()
-                .map(|fn_uri| FunctionURI {
+                .map(|fn_uri| FunctionAllowlist {
                     namespace: fn_uri.namespace.clone(),
                     compute_graph: fn_uri.compute_graph_name.clone(),
                     compute_fn: fn_uri.compute_fn_name.clone(),

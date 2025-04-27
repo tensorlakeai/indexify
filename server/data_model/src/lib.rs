@@ -1440,6 +1440,46 @@ impl Into<FunctionExecutorState> for FunctionExecutorStatus {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph_name: Option<String>,
+    pub compute_fn_name: Option<String>,
+    pub version: Option<GraphVersion>,
+}
+
+impl FunctionAllowlist {
+    pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &function_executor.namespace) &&
+            self.compute_graph_name.as_ref().map_or(true, |cg_name| {
+                cg_name == &function_executor.compute_graph_name
+            }) &&
+            self.compute_fn_name.as_ref().map_or(true, |fn_name| {
+                fn_name == &function_executor.compute_fn_name
+            }) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &function_executor.version)
+    }
+
+    pub fn matches_task(&self, task: &Task) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &task.namespace) &&
+            self.compute_graph_name
+                .as_ref()
+                .map_or(true, |cg_name| cg_name == &task.compute_graph_name) &&
+            self.compute_fn_name
+                .as_ref()
+                .map_or(true, |fn_name| fn_name == &task.compute_fn_name) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &task.graph_version)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
@@ -1565,7 +1605,7 @@ pub struct ExecutorMetadata {
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
