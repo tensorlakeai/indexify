@@ -1021,15 +1021,19 @@ impl InMemoryState {
                 if !has_pending_invocations {
                     // Can remove this outdated FE since it has no active invocations,
                     // and running on an outdated version of the allowed compute graph
+                    let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
                             if allowlist_entry.matches_function_executor(fe) &&
                                 fe.version == latest_cg_version
                             {
                                 // This FE is allowed and up to date, so we don't need to remove it
-                                continue;
+                                found_allowlist_match = true;
                             }
                         }
+                    }
+                    if found_allowlist_match {
+                        continue;
                     }
                     debug!(
                     "Removing outdated function executor {} from executor {} (version {} < latest {})",
