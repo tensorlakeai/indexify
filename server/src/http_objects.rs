@@ -961,6 +961,57 @@ pub struct FunctionAllowlist {
     pub version: Option<GraphVersion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct GpuResources {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct HostResources {
+    pub cpu_count: u32,
+    pub memory_bytes: u64,
+    pub disk_bytes: u64,
+    // Not all Executors have GPUs.
+    pub gpu: Option<GpuResources>,
+}
+
+impl From<data_model::HostResources> for HostResources {
+    fn from(host_resources: data_model::HostResources) -> Self {
+        Self {
+            cpu_count: host_resources.cpu_count,
+            memory_bytes: host_resources.memory_bytes,
+            disk_bytes: host_resources.disk_bytes,
+            gpu: host_resources.gpu.map(|gpu| GpuResources {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FunctionExecutorMetadata {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub version: String,
+    pub status: String,
+}
+
+impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
+    fn from(executor: data_model::FunctionExecutor) -> Self {
+        Self {
+            id: executor.id.get().to_string(),
+            namespace: executor.namespace,
+            compute_graph_name: executor.compute_graph_name,
+            compute_fn_name: executor.compute_fn_name,
+            version: executor.version.to_string(),
+            status: executor.status.to_string(),
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
@@ -969,8 +1020,8 @@ pub struct ExecutorMetadata {
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
-    pub function_executors: Vec<serde_json::Value>,
-    pub host_resources: serde_json::Value,
+    pub function_executors: Vec<FunctionExecutorMetadata>,
+    pub host_resources: HostResources,
     pub state: String,
     pub tombstoned: bool,
     pub state_hash: String,
@@ -1000,10 +1051,10 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             function_executors: executor
                 .function_executors
                 .values()
-                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                .cloned()
+                .map(|v| v.into())
                 .collect(),
-            host_resources: serde_json::to_value(executor.host_resources)
-                .unwrap_or(serde_json::Value::Null),
+            host_resources: executor.host_resources.into(),
             state: executor.state.as_ref().to_string(),
             tombstoned: executor.tombstoned,
             state_hash: executor.state_hash,

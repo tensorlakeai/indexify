@@ -316,7 +316,7 @@ mod tests {
 
         executor
             .assert_state(ExecutorStateAssertions {
-                num_func_executors: 2,  // Should have fn_b, fn_c
+                num_func_executors: 3,  // Should have fn_a, fn_b, fn_c
                 num_allocated_tasks: 2, // fn_b and fn_c tasks
             })
             .await?;
@@ -448,7 +448,7 @@ mod tests {
 
         executor
             .assert_state(ExecutorStateAssertions {
-                num_func_executors: 2,
+                num_func_executors: 3,
                 num_allocated_tasks: 2,
             })
             .await?;

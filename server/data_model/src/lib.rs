@@ -17,6 +17,7 @@ use filter::LabelsFilter;
 use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strum::Display;
 use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1401,7 +1402,7 @@ pub enum FunctionExecutorState {
     Terminated,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display)]
 pub enum FunctionExecutorStatus {
     #[default]
     Unknown,

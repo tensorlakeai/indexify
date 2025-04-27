@@ -963,6 +963,23 @@ impl InMemoryState {
         }
     }
 
+    pub fn unallocated_tasks(&self) -> Vec<Box<Task>> {
+        let unallocated_task_ids = self
+            .unallocated_tasks
+            .iter()
+            .map(|task| task.task_key.clone())
+            .collect::<Vec<_>>();
+        let mut tasks = Vec::new();
+        for task_id in unallocated_task_ids {
+            if let Some(task) = self.tasks.get(&task_id) {
+                tasks.push(task.clone());
+            } else {
+                error!(task_key = task_id, "task not found for unallocated task");
+            }
+        }
+        tasks
+    }
+
     #[tracing::instrument(skip(self))]
     pub fn vacuum_function_executors(
         &self,

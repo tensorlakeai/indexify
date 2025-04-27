@@ -111,41 +111,8 @@ impl TaskAllocationProcessor {
     pub fn allocate(&mut self) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Step 1: Run vacuum phase
-        let vacuum_update = self.vacuum()?;
-        self.in_memory_state.write().unwrap().update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(vacuum_update.clone())),
-        )?;
-        update.extend(vacuum_update);
-
-        // Step 2: Fetch unallocated tasks
-        let mut tasks = Vec::new();
-        {
-            let unallocated_task_ids = self
-                .in_memory_state
-                .read()
-                .unwrap()
-                .unallocated_tasks
-                .clone();
-            for unallocated_task_id in &unallocated_task_ids {
-                if let Some(task) = self
-                    .in_memory_state
-                    .read()
-                    .unwrap()
-                    .tasks
-                    .get(&unallocated_task_id.task_key)
-                {
-                    tasks.push(task.clone());
-                } else {
-                    error!(
-                        task_key = unallocated_task_id.task_key,
-                        "task not found in indexes for unallocated task"
-                    );
-                }
-            }
-        }
-
+        // Step 1: Fetch unallocated tasks
+        let tasks = self.in_memory_state.read().unwrap().unallocated_tasks();
         debug!("found {} unallocated tasks to process", tasks.len());
 
         // Step 3: Allocate tasks
@@ -160,7 +127,28 @@ impl TaskAllocationProcessor {
 
         // Step 1: Process tasks
         for task in tasks {
-            match self.process_task(&task) {
+            let mut candidates = self.function_executor_allocation_phase(&task)?;
+            if candidates.is_empty() {
+                info!(
+                    namespace = task.namespace,
+                    compute_graph = task.compute_graph_name,
+                    compute_fn = task.compute_fn_name,
+                    invocation_id = task.invocation_id,
+                    task_id = task.id.to_string(),
+                    "no suitable candidates available for task"
+                );
+                let vacuum_update = self.vacuum()?;
+                self.in_memory_state.write().unwrap().update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate(Box::new(vacuum_update.clone())),
+                )?;
+                update.extend(vacuum_update);
+                candidates = self.function_executor_allocation_phase(&task)?;
+            }
+            if candidates.is_empty() {
+                continue;
+            }
+            match self.process_task(&task, candidates) {
                 Ok((Some(allocation), new_function_executors)) => {
                     let mut task_update = SchedulerUpdateRequest::default();
                     debug!(
@@ -239,6 +227,7 @@ impl TaskAllocationProcessor {
     fn process_task(
         &self,
         task: &Task,
+        candidates: Vec<ExecutorCandidate>,
     ) -> Result<(Option<Allocation>, Vec<FunctionExecutorServerMetadata>)> {
         let span = span!(
             tracing::Level::DEBUG,
@@ -264,24 +253,9 @@ impl TaskAllocationProcessor {
 
         debug!("attempting to allocate task {:?} ", task.id);
 
-        // Function executor allocation phase - get unified sorted candidates
-        let candidates = self.function_executor_allocation_phase(task)?;
-
         // Variables to track the results
         let mut allocation = None;
         let mut new_function_executors = Vec::new();
-
-        if candidates.is_empty() {
-            info!(
-                namespace = task.namespace,
-                compute_graph = task.compute_graph_name,
-                compute_fn = task.compute_fn_name,
-                invocation_id = task.invocation_id,
-                task_id = task.id.to_string(),
-                "no suitable candidates available for task"
-            );
-            return Ok((None, Vec::new()));
-        }
 
         // Step 1: Create all FEs that need creation
         let creation_candidates: Vec<&ExecutorCandidate> =
@@ -391,15 +365,11 @@ impl TaskAllocationProcessor {
         // Mark FEs for termination (change desired state to Terminated)
         // but don't actually remove them - reconciliation will handle that
         for fe in &function_executors_to_mark {
-            let updated_fe_metadata = FunctionExecutorServerMetadata::new(
-                fe.executor_id.clone(),
-                fe.function_executor.clone(),
-                FunctionExecutorState::Terminated,
-                fe.last_allocation_at,
-            );
-            update.new_function_executors.push(updated_fe_metadata);
+            let mut update_fe = fe.clone();
+            update_fe.desired_state = FunctionExecutorState::Terminated;
+            update.new_function_executors.push(*update_fe);
 
-            debug!(
+            info!(
                 "Marked function executor {} on executor {} for termination",
                 fe.function_executor.id.get(),
                 fe.executor_id.get()
@@ -596,7 +566,7 @@ impl TaskAllocationProcessor {
         FunctionExecutorServerMetadata::new(
             executor_id.clone(),
             function_executor,
-            FunctionExecutorState::Pending, // Start with Pending state
+            FunctionExecutorState::Running, // Start with Running state
             None,
         )
     }
