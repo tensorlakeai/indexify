@@ -14,6 +14,7 @@ use data_model::{
     ExecutorMetadata,
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
+    FunctionExecutorState,
     GraphInvocationCtx,
     GraphVersion,
     ReduceTask,
@@ -968,10 +969,10 @@ impl InMemoryState {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn identify_executors_to_remove(
+    pub fn vacuum_function_executors(
         &self,
         idle_timeout_ms: u64,
-    ) -> Result<Vec<(ExecutorId, FunctionExecutorId)>> {
+    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
         let mut function_executors_to_remove = Vec::new();
 
         // For each executor in the system
@@ -988,7 +989,12 @@ impl InMemoryState {
                 .unwrap_or_default();
 
             // Process each function executor based on allowlist and version status
-            for (fe_id, fe_metadata) in function_executors.iter() {
+            for (_, fe_metadata) in function_executors.iter() {
+                // Skip if the FE is already marked for termination
+                if fe_metadata.desired_state == FunctionExecutorState::Terminated {
+                    continue;
+                }
+
                 let fe = &fe_metadata.function_executor;
 
                 // Check if this FE is in the executor's allowlist
@@ -1011,9 +1017,9 @@ impl InMemoryState {
                         if idle_duration > timeout {
                             debug!(
                             "Removing idle timed-out function executor {} from executor {}, idle for {:?}",
-                            fe_id.get(), executor_id.get(), idle_duration
+                            fe_metadata.function_executor.id.get(), executor_id.get(), idle_duration
                         );
-                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                            function_executors_to_remove.push(fe_metadata.clone());
                             continue; // Skip further checks since we're
                                       // removing this FE
                         }
@@ -1039,7 +1045,7 @@ impl InMemoryState {
                                     // but warn
                                     warn!(
                                     "Function executor {} on executor {} is using outdated version {} (latest is {}), but is explicitly allowlisted with this version",
-                                    fe_id.get(), executor_id.get(), fe.version, latest_version
+                                    fe.id.get(), executor_id.get(), fe.version, latest_version
                                 );
                                     continue; // Skip further checks, we're
                                               // keeping this FE
@@ -1055,9 +1061,9 @@ impl InMemoryState {
                             // regardless of dev mode or allowlist status
                             debug!(
                             "Removing outdated function executor {} from executor {} (version {} < latest {})",
-                            fe_id.get(), executor_id.get(), fe.version, latest_version
+                            fe.id.get(), executor_id.get(), fe.version, latest_version
                         );
-                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                            function_executors_to_remove.push(fe_metadata.clone());
                         }
                     }
                 } else {
@@ -1066,7 +1072,7 @@ impl InMemoryState {
                     let compute_graphs = self.compute_graphs.clone();
                     warn!(
                         "No latest version found for function executor {} on executor {} - all {:#?} - {}",
-                        fe_id.get(),
+                        fe_metadata.function_executor.id.get(),
                         executor_id.get(),
                         compute_graphs, ComputeGraph::key_from(&fe.namespace, &fe.compute_fn_name),
                     );

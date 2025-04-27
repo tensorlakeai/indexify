@@ -112,7 +112,7 @@ impl TaskAllocationProcessor {
         let mut update = SchedulerUpdateRequest::default();
 
         // Step 1: Run vacuum phase
-        let vacuum_update = self.vacuum_phase()?;
+        let vacuum_update = self.vacuum()?;
         self.in_memory_state.write().unwrap().update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(vacuum_update.clone())),
@@ -376,13 +376,13 @@ impl TaskAllocationProcessor {
 
     // Vacuum phase - returns scheduler update for cleanup actions
     #[tracing::instrument(skip(self))]
-    fn vacuum_phase(&self) -> Result<SchedulerUpdateRequest> {
+    fn vacuum(&self) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         let function_executors_to_mark = self
             .in_memory_state
             .read()
             .unwrap()
-            .identify_executors_to_remove(IDLE_TIMEOUT_MS)?;
+            .vacuum_function_executors(IDLE_TIMEOUT_MS)?;
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len()
@@ -390,40 +390,15 @@ impl TaskAllocationProcessor {
 
         // Mark FEs for termination (change desired state to Terminated)
         // but don't actually remove them - reconciliation will handle that
-        for (executor_id, fe_id) in &function_executors_to_mark {
-            // Get the existing FE metadata
-            if let Some(fe_metadata) = self
-                .in_memory_state
-                .read()
-                .unwrap()
-                .function_executors_by_executor
-                .get(executor_id)
-                .and_then(|fe_map| fe_map.get(fe_id))
-            {
-                // Only update if not already terminated
-                if fe_metadata.desired_state != FunctionExecutorState::Terminated {
-                    // Create updated metadata with Terminated state
-                    let updated_fe_metadata = FunctionExecutorServerMetadata::new(
-                        executor_id.clone(),
-                        fe_metadata.function_executor.clone(),
-                        FunctionExecutorState::Terminated,
-                        fe_metadata.last_allocation_at,
-                    );
+        for fe in &function_executors_to_mark {
+            update.new_function_executors.push(*fe.clone());
 
-                    // Add to update
-                    update
-                        .new_function_executors
-                        .push(updated_fe_metadata.clone());
-
-                    debug!(
-                        "Marked function executor {} on executor {} for termination",
-                        fe_id.get(),
-                        executor_id.get()
-                    );
-                }
-            }
+            debug!(
+                "Marked function executor {} on executor {} for termination",
+                fe.function_executor.id.get(),
+                fe.executor_id.get()
+            );
         }
-
         Ok(update)
     }
 
