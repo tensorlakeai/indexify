@@ -1,6 +1,5 @@
 use std::{
     sync::{Arc, RwLock},
-    time::{Duration, SystemTime},
     vec,
 };
 
@@ -9,7 +8,6 @@ use data_model::{
     Allocation,
     AllocationBuilder,
     ChangeType,
-    ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
@@ -18,7 +16,6 @@ use data_model::{
     FunctionExecutorState,
     FunctionExecutorStatus,
     GraphInvocationOutcome,
-    GraphVersion,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -381,7 +378,11 @@ impl TaskAllocationProcessor {
     #[tracing::instrument(skip(self))]
     fn vacuum_phase(&self) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let function_executors_to_mark = self.identify_executors_to_remove()?;
+        let function_executors_to_mark = self
+            .in_memory_state
+            .read()
+            .unwrap()
+            .identify_executors_to_remove(IDLE_TIMEOUT_MS)?;
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len()
@@ -424,149 +425,6 @@ impl TaskAllocationProcessor {
         }
 
         Ok(update)
-    }
-
-    // Identify function executors that should be removed in vacuum phase
-    #[tracing::instrument(skip(self))]
-    fn identify_executors_to_remove(&self) -> Result<Vec<(ExecutorId, FunctionExecutorId)>> {
-        let mut function_executors_to_remove = Vec::new();
-
-        let executors = self.in_memory_state.read().unwrap().executors.clone();
-
-        // For each executor in the system
-        for (executor_id, executor) in &executors {
-            if executor.tombstoned {
-                continue;
-            }
-
-            // Get function executors for this executor from our in-memory state
-            let function_executors = self
-                .in_memory_state
-                .read()
-                .unwrap()
-                .function_executors_by_executor
-                .get(executor_id)
-                .cloned()
-                .unwrap_or_default();
-
-            // Process each function executor based on allowlist and version status
-            for (fe_id, fe_metadata) in function_executors.iter() {
-                let fe = &fe_metadata.function_executor;
-
-                // Check if this FE is in the executor's allowlist
-                let allowlist_entry = executor
-                    .function_allowlist
-                    .as_ref()
-                    .and_then(|allowlist| allowlist.iter().find(|f| fe.matches_fn_uri(f)));
-
-                // IDLE TIMEOUT CHECK:
-                // Check if function executor has been idle for more than the timeout period
-                // (20min) regardless of dev mode or allowlist status
-                if let Some(last_allocation_time) = fe_metadata.last_allocation_at {
-                    let timeout = Duration::from_millis(IDLE_TIMEOUT_MS);
-
-                    // TODO: Add a jitter to the timeout
-
-                    if let Ok(idle_duration) =
-                        SystemTime::now().duration_since(last_allocation_time)
-                    {
-                        if idle_duration > timeout {
-                            debug!(
-                            "Removing idle timed-out function executor {} from executor {}, idle for {:?}",
-                            fe_id.get(), executor_id.get(), idle_duration
-                        );
-                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
-                            continue; // Skip further checks since we're
-                                      // removing this FE
-                        }
-                    }
-                }
-
-                // VERSION CHECK:
-                // Check if the FE is using an outdated version
-                if let Some(latest_version) = self.get_latest_function_version(fe) {
-                    if fe.version != latest_version {
-                        // Handle the case of an allowlist explicitly specifying the older version
-                        if let Some(allowlist_entry) = allowlist_entry {
-                            if let Some(allowlist_version) = &allowlist_entry.version {
-                                if allowlist_version == &fe.version {
-                                    // Allowlist explicitly specifies this older version - keep it
-                                    // but warn
-                                    warn!(
-                                    "Function executor {} on executor {} is using outdated version {} (latest is {}), but is explicitly allowlisted with this version",
-                                    fe_id.get(), executor_id.get(), fe.version, latest_version
-                                );
-                                    continue; // Skip further checks, we're
-                                              // keeping this FE
-                                }
-                            }
-                        }
-
-                        // Check if this FE has any pending invocations with its current version
-                        let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
-
-                        if !has_pending_invocations {
-                            // Can remove this outdated FE since it has no active invocations,
-                            // regardless of dev mode or allowlist status
-                            debug!(
-                            "Removing outdated function executor {} from executor {} (version {} < latest {})",
-                            fe_id.get(), executor_id.get(), fe.version, latest_version
-                        );
-                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
-                        }
-                    }
-                } else {
-                    // No latest version found - this could be a new function or a missing compute
-                    // graph
-                    let compute_graphs =
-                        self.in_memory_state.read().unwrap().compute_graphs.clone();
-                    warn!(
-                        "No latest version found for function executor {} on executor {} - all {:#?} - {}",
-                        fe_id.get(),
-                        executor_id.get(),
-                        compute_graphs, ComputeGraph::key_from(&fe.namespace, &fe.compute_fn_name),
-                    );
-                }
-            }
-        }
-
-        Ok(function_executors_to_remove)
-    }
-
-    // Helper function to get the latest version of a function
-    // This would need access to compute graph versions
-    fn get_latest_function_version(&self, fe: &FunctionExecutor) -> Option<GraphVersion> {
-        let in_memory_state = self.in_memory_state.read().unwrap();
-        in_memory_state
-            .compute_graphs
-            .get(&ComputeGraph::key_from(
-                &fe.namespace,
-                &fe.compute_graph_name,
-            ))
-            .map(|cg| cg.version.clone())
-    }
-
-    // Helper function to check if an FE has any pending invocations with its
-    // version
-    fn has_pending_invocations(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
-        let in_memory_state = self.in_memory_state.read().unwrap();
-        // Check if there are any allocations for this FE with pending tasks
-        if let Some(allocations_by_fe) = in_memory_state
-            .allocations_by_executor
-            .get(&fe_meta.executor_id)
-        {
-            if let Some(allocations) = allocations_by_fe.get(&fe_meta.function_executor.id) {
-                for allocation in allocations {
-                    if let Some(task) = in_memory_state.tasks.get(&allocation.task_key()) {
-                        if !task.outcome.is_terminal() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        false
     }
 
     // Function executor allocation phase - returns candidates for existing and

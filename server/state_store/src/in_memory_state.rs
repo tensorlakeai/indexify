@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, collections::HashSet, sync::Arc, time::SystemTime};
+use std::{
+    cmp::Ordering,
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::Result;
 use data_model::{
@@ -22,7 +27,7 @@ use opentelemetry::{
     KeyValue,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::{
     requests::RequestPayload,
@@ -960,6 +965,133 @@ impl InMemoryState {
         for k in queued_reduction_tasks_to_remove {
             self.queued_reduction_tasks.remove(&k);
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn identify_executors_to_remove(
+        &self,
+        idle_timeout_ms: u64,
+    ) -> Result<Vec<(ExecutorId, FunctionExecutorId)>> {
+        let mut function_executors_to_remove = Vec::new();
+
+        // For each executor in the system
+        for (executor_id, executor) in &self.executors {
+            if executor.tombstoned {
+                continue;
+            }
+
+            // Get function executors for this executor from our in-memory state
+            let function_executors = self
+                .function_executors_by_executor
+                .get(executor_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Process each function executor based on allowlist and version status
+            for (fe_id, fe_metadata) in function_executors.iter() {
+                let fe = &fe_metadata.function_executor;
+
+                // Check if this FE is in the executor's allowlist
+                let allowlist_entry = executor
+                    .function_allowlist
+                    .as_ref()
+                    .and_then(|allowlist| allowlist.iter().find(|f| fe.matches_fn_uri(f)));
+
+                // IDLE TIMEOUT CHECK:
+                // Check if function executor has been idle for more than the timeout period
+                // (20min) regardless of dev mode or allowlist status
+                if let Some(last_allocation_time) = fe_metadata.last_allocation_at {
+                    let timeout = Duration::from_millis(idle_timeout_ms);
+
+                    // TODO: Add a jitter to the timeout
+
+                    if let Ok(idle_duration) =
+                        SystemTime::now().duration_since(last_allocation_time)
+                    {
+                        if idle_duration > timeout {
+                            debug!(
+                            "Removing idle timed-out function executor {} from executor {}, idle for {:?}",
+                            fe_id.get(), executor_id.get(), idle_duration
+                        );
+                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                            continue; // Skip further checks since we're
+                                      // removing this FE
+                        }
+                    }
+                }
+
+                // VERSION CHECK:
+                // Check if the FE is using an outdated version
+                let latest_cg_version = self
+                    .compute_graphs
+                    .get(&ComputeGraph::key_from(
+                        &fe.namespace,
+                        &fe.compute_graph_name,
+                    ))
+                    .map(|cg| cg.version.clone());
+                if let Some(latest_version) = latest_cg_version {
+                    if fe.version != latest_version {
+                        // Handle the case of an allowlist explicitly specifying the older version
+                        if let Some(allowlist_entry) = allowlist_entry {
+                            if let Some(allowlist_version) = &allowlist_entry.version {
+                                if allowlist_version == &fe.version {
+                                    // Allowlist explicitly specifies this older version - keep it
+                                    // but warn
+                                    warn!(
+                                    "Function executor {} on executor {} is using outdated version {} (latest is {}), but is explicitly allowlisted with this version",
+                                    fe_id.get(), executor_id.get(), fe.version, latest_version
+                                );
+                                    continue; // Skip further checks, we're
+                                              // keeping this FE
+                                }
+                            }
+                        }
+
+                        // Check if this FE has any pending invocations with its current version
+                        let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
+
+                        if !has_pending_invocations {
+                            // Can remove this outdated FE since it has no active invocations,
+                            // regardless of dev mode or allowlist status
+                            debug!(
+                            "Removing outdated function executor {} from executor {} (version {} < latest {})",
+                            fe_id.get(), executor_id.get(), fe.version, latest_version
+                        );
+                            function_executors_to_remove.push((executor_id.clone(), fe_id.clone()));
+                        }
+                    }
+                } else {
+                    // No latest version found - this could be a new function or a missing compute
+                    // graph
+                    let compute_graphs = self.compute_graphs.clone();
+                    warn!(
+                        "No latest version found for function executor {} on executor {} - all {:#?} - {}",
+                        fe_id.get(),
+                        executor_id.get(),
+                        compute_graphs, ComputeGraph::key_from(&fe.namespace, &fe.compute_fn_name),
+                    );
+                }
+            }
+        }
+
+        Ok(function_executors_to_remove)
+    }
+
+    fn has_pending_invocations(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+        // Check if there are any allocations for this FE with pending tasks
+        if let Some(allocations_by_fe) = self.allocations_by_executor.get(&fe_meta.executor_id) {
+            if let Some(allocations) = allocations_by_fe.get(&fe_meta.function_executor.id) {
+                for allocation in allocations {
+                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
+                        if !task.outcome.is_terminal() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     pub fn clone(&self) -> Arc<std::sync::RwLock<Self>> {
