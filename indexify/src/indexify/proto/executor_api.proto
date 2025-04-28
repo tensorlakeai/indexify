@@ -128,10 +128,10 @@ message ExecutorState {
     optional ExecutorFlavor flavor = 4;
     optional string version = 5;
     optional ExecutorStatus status = 6;
-    // Total resources available at the Executor.
+    // Total resources at the Executor.
     optional HostResources total_resources = 13;
-    // Free resources available at the Executor.
-    optional HostResources free_resources = 7; // Not used right now.
+    // Total resources usable by Function Executors.
+    optional HostResources total_function_executor_resources = 7;
     // Empty allowed_functions list means that any function can run on the Executor.
     repeated AllowedFunction allowed_functions = 8;
     repeated FunctionExecutorState function_executor_states = 9;

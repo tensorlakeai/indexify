@@ -77,6 +77,7 @@ class ExecutorStateReporter:
         self._logger: Any = logger.bind(module=__name__)
         self._reporting_interval_sec: int = reporting_interval_sec
         self._total_host_resources: Optional[HostResourcesProto] = None
+        self._total_function_executor_resources: Optional[HostResourcesProto] = None
 
         self._is_shutdown: bool = False
         self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
@@ -126,14 +127,24 @@ class ExecutorStateReporter:
         Raises exceptions on failure.
         """
         if self._total_host_resources is None:
-            # We need to fetch total host resources only once, because they are not changing.
-            total_resources: HostResources = (
-                await self._host_resources_provider.total_resources(self._logger)
+            # We need to fetch total resources only once, because they are not changing.
+            total_host_resources: HostResources = (
+                await self._host_resources_provider.total_host_resources(self._logger)
+            )
+            total_function_executor_resources: HostResources = (
+                await self._host_resources_provider.total_function_executor_resources(
+                    self._logger
+                )
             )
             self._logger.info(
-                "detected host resources", total_resources=total_resources
+                "detected host resources",
+                total_host_resources=total_host_resources,
+                total_function_executor_resources=total_function_executor_resources,
             )
-            self._total_host_resources = _host_resources_to_proto(total_resources)
+            self._total_host_resources = _host_resources_to_proto(total_host_resources)
+            self._total_function_executor_resources = _host_resources_to_proto(
+                total_function_executor_resources
+            )
 
         with (
             metric_state_report_errors.count_exceptions(),
@@ -147,9 +158,7 @@ class ExecutorStateReporter:
                 flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
                 version=self._version,
                 status=self._executor_status,
-                # Server requires free_resources to be set but ignores its value for now
-                # because it deduces free resources available on Executor from FE resource limits.
-                free_resources=self._total_host_resources,
+                total_function_executor_resources=self._total_function_executor_resources,
                 total_resources=self._total_host_resources,
                 allowed_functions=self._allowed_functions,
                 function_executor_states=await self._fetch_function_executor_states(),

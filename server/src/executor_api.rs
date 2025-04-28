@@ -299,7 +299,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.function_executors(function_executors);
-        if let Some(host_resources) = executor_state.free_resources {
+        if let Some(host_resources) = executor_state.total_function_executor_resources {
             let cpu = host_resources
                 .cpu_count
                 .ok_or(anyhow::anyhow!("cpu_count is required"))?;
