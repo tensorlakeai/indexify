@@ -272,7 +272,8 @@ class ExecutorStateReconciler:
 
         Doesn't block on any long running operations. Doesn't raise any exceptions.
         """
-        if function_executor_description.id not in self._function_executor_controllers:
+
+        if not self._function_executor_states.exists(function_executor_description.id):
             await self._create_function_executor(function_executor_description)
 
     async def _create_function_executor(
