@@ -267,7 +267,7 @@ class ExecutorState(_message.Message):
         "version",
         "status",
         "total_resources",
-        "free_resources",
+        "total_function_executor_resources",
         "allowed_functions",
         "function_executor_states",
         "labels",
@@ -292,7 +292,7 @@ class ExecutorState(_message.Message):
     VERSION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TOTAL_RESOURCES_FIELD_NUMBER: _ClassVar[int]
-    FREE_RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FUNCTION_EXECUTOR_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_STATES_FIELD_NUMBER: _ClassVar[int]
     LABELS_FIELD_NUMBER: _ClassVar[int]
@@ -305,7 +305,7 @@ class ExecutorState(_message.Message):
     version: str
     status: ExecutorStatus
     total_resources: HostResources
-    free_resources: HostResources
+    total_function_executor_resources: HostResources
     allowed_functions: _containers.RepeatedCompositeFieldContainer[AllowedFunction]
     function_executor_states: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorState
@@ -322,7 +322,9 @@ class ExecutorState(_message.Message):
         version: _Optional[str] = ...,
         status: _Optional[_Union[ExecutorStatus, str]] = ...,
         total_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
-        free_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
+        total_function_executor_resources: _Optional[
+            _Union[HostResources, _Mapping]
+        ] = ...,
         allowed_functions: _Optional[
             _Iterable[_Union[AllowedFunction, _Mapping]]
         ] = ...,
