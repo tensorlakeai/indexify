@@ -247,18 +247,15 @@ class FunctionExecutorDescription(_message.Message):
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status", "status_message")
+    __slots__ = ("description", "status")
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
-    STATUS_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
-    status_message: str
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
         status: _Optional[_Union[FunctionExecutorStatus, str]] = ...,
-        status_message: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):

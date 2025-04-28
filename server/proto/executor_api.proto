@@ -105,10 +105,7 @@ message FunctionExecutorDescription {
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
-    // Human readable message clarifying the status.
-    // Currently it contains error message from customer code
-    // if status is FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR.
-    optional string status_message = 3;
+    reserved 3;
 }
 
 enum ExecutorStatus {
