@@ -49,7 +49,6 @@ class FunctionExecutorState:
         # TODO: Move graph_version to immutable fields once we migrate to gRPC State Reconciler.
         self.graph_version: str = graph_version
         self.status: FunctionExecutorStatus = FunctionExecutorStatus.DESTROYED
-        self.status_message: str = ""
         self.status_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self.lock
         )
@@ -65,9 +64,7 @@ class FunctionExecutorState:
         while self.status not in allowlist:
             await self.status_change_notifier.wait()
 
-    async def set_status(
-        self, new_status: FunctionExecutorStatus, status_message: str = ""
-    ) -> None:
+    async def set_status(self, new_status: FunctionExecutorStatus) -> None:
         """Sets the status of the Function Executor.
 
         The caller must hold the lock.
@@ -84,7 +81,6 @@ class FunctionExecutorState:
             metric_function_executors_with_status.labels(status=self.status.name).dec()
             metric_function_executors_with_status.labels(status=new_status.name).inc()
             self.status = new_status
-            self.status_message = status_message
             self.status_change_notifier.notify_all()
         else:
             raise ValueError(

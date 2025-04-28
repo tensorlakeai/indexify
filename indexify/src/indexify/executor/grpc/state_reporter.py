@@ -188,7 +188,6 @@ class ExecutorStateReporter:
                 status=_to_grpc_function_executor_status(
                     function_executor_state.status, self._logger
                 ),
-                status_message=function_executor_state.status_message,
             )
             if function_executor_state.image_uri:
                 function_executor_state_proto.description.image_uri = (
