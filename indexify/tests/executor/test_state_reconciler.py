@@ -600,11 +600,6 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(
             reported_states[-1].server_clock, self.desired_states_generator.clock()
         )
-        fe_state: FunctionExecutorState = reported_states[-1].function_executor_states[
-            0
-        ]
-        # This is how Server gets customer error from failed to initialize FE.
-        self.assertEqual(fe_state.status_message, "Test Exception!")
 
         # Verify that Executor destroyed the failed to startup FE to release its resources asap.
         executor_fe_state = await self.function_executor_states.get("fe-1")
@@ -711,13 +706,6 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 1)
         self.assertLessEqual(
             reported_states[-1].server_clock, self.desired_states_generator.clock()
-        )
-        fe_state: FunctionExecutorState = reported_states[-1].function_executor_states[
-            0
-        ]
-        # This is how Server gets customer error from failed to initialize FE.
-        self.assertEqual(
-            fe_state.status_message, f"Customer code timeout of 5.000 sec expired"
         )
 
         # Verify that Executor destroyed the failed to startup FE to release its resources asap.

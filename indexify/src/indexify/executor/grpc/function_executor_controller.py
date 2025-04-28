@@ -250,7 +250,6 @@ class FunctionExecutorController:
         )
 
         next_status: FunctionExecutorStatus = FunctionExecutorStatus.IDLE
-        next_status_message: str = ""
         async with _UnlockedLockContextManager(self._function_executor_state.lock):
             try:
                 function_executor: FunctionExecutor = await _create_function_executor(
@@ -264,13 +263,20 @@ class FunctionExecutorController:
                 )
             except CustomerError as e:
                 next_status = FunctionExecutorStatus.STARTUP_FAILED_CUSTOMER_ERROR
-                next_status_message = str(e)
+                # TODO: Save stdout and stderr of customer code that ran during FE creation into BLOBs and uncomment the corresponding tests.
+                self._logger.error(
+                    "failed to create function executor due to error in customer code",
+                    exc_info=e,
+                )
             except Exception as e:
                 next_status = FunctionExecutorStatus.STARTUP_FAILED_PLATFORM_ERROR
-                self._logger.error("failed to create function executor", exc_info=e)
+                self._logger.error(
+                    "failed to create function executor due to platform error",
+                    exc_info=e,
+                )
 
         # FE state lock is acquired again at this point.
-        await self._function_executor_state.set_status(next_status, next_status_message)
+        await self._function_executor_state.set_status(next_status)
 
         if next_status == FunctionExecutorStatus.IDLE:
             # Task controllers will notice that this FE is IDLE and start running on it one by one.
