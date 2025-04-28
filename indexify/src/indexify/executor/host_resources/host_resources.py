@@ -24,27 +24,57 @@ class HostResourcesProvider:
         self,
         gpu_allocator: NvidiaGPUAllocator,
         function_executors_ephimeral_disks_path: str,
+        host_overhead_cpus: int,
+        host_overhead_memory_gb: int,
+        host_overhead_function_executors_ephimeral_disks_gb: int,
     ):
         """Creates a HostResourcesProvider.
 
         Args:
             gpu_allocator: The GPU allocator to use for GPU information.
             function_executors_ephimeral_disks_path: The path to file system used as ephimeral disk space by Function Executors.
+            host_overhead_cpus: The number of CPUs reserved for use by host (can't be used by Function Executors).
+            host_overhead_memory_gb: The amount of memory reserved for use by host (can't be used by Function Executors).
+            host_overhead_function_executors_ephimeral_disks_gb: The amount of ephimeral disk space reserved for use by host (can't be used by Function Executors).
         """
         self._gpu_allocator: NvidiaGPUAllocator = gpu_allocator
         self._function_executors_ephimeral_disks_path: str = (
             function_executors_ephimeral_disks_path
         )
+        self._host_overhead_cpus: int = host_overhead_cpus
+        self._host_overhead_memory_gb: int = host_overhead_memory_gb
+        self._host_overhead_function_executors_ephimeral_disks_gb: int = (
+            host_overhead_function_executors_ephimeral_disks_gb
+        )
 
-    async def total_resources(self, logger: Any) -> HostResources:
+    async def total_host_resources(self, logger: Any) -> HostResources:
         """Returns all hardware resources that exist at the host.
 
         Raises Exception on error.
         """
         # Run psutil library calls in a separate thread to not block the event loop.
-        return await asyncio.to_thread(self._total_resources, logger=logger)
+        return await asyncio.to_thread(self._total_host_resources, logger=logger)
 
-    def _total_resources(self, logger: Any) -> HostResources:
+    async def total_function_executor_resources(self, logger: Any) -> HostResources:
+        """Returns all hardware resources on the host that are usable by Function Executors.
+
+        Raises Exception on error.
+        """
+        total_resources: HostResources = await self.total_host_resources(logger=logger)
+        return HostResources(
+            cpu_count=max(0, total_resources.cpu_count - self._host_overhead_cpus),
+            memory_mb=max(
+                0, total_resources.memory_mb - self._host_overhead_memory_gb * 1024
+            ),
+            disk_mb=max(
+                0,
+                total_resources.disk_mb
+                - self._host_overhead_function_executors_ephimeral_disks_gb * 1024,
+            ),
+            gpus=total_resources.gpus,
+        )
+
+    def _total_host_resources(self, logger: Any) -> HostResources:
         logger = logger.bind(module=__name__)
 
         # If users disable Hyper-Threading in OS then we'd only see physical cores here.
