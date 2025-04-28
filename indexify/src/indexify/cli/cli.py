@@ -203,8 +203,11 @@ def executor(
     host_resources_provider: HostResourcesProvider = HostResourcesProvider(
         gpu_allocator=NvidiaGPUAllocator(logger),
         # Assuming a simple setup in OSS where Executor container has a single file system
-        # used by all Function Executors.
+        # used by all Function Executors and all the container resources are available to all Function Executors.
         function_executors_ephimeral_disks_path="/",
+        host_overhead_cpus=0,
+        host_overhead_memory_gb=0,
+        host_overhead_function_executors_ephimeral_disks_gb=0,
     )
 
     prometheus_client.Info("cli", "CLI information").info(
