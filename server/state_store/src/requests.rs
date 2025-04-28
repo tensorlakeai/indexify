@@ -64,6 +64,7 @@ pub struct SchedulerUpdateRequest {
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: Vec<FunctionExecutorIdWithExecutionId>,
+    pub updated_executors: HashMap<ExecutorId, ExecutorMetadata>,
 }
 
 impl SchedulerUpdateRequest {
@@ -87,6 +88,7 @@ impl SchedulerUpdateRequest {
             .extend(other.new_function_executors);
         self.remove_function_executors
             .extend(other.remove_function_executors);
+        self.updated_executors.extend(other.updated_executors)
     }
 }
 

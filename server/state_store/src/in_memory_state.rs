@@ -1,6 +1,6 @@
-use std::{cmp::Ordering, collections::HashSet, sync::Arc, time::SystemTime};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
     ComputeGraph,
@@ -10,6 +10,7 @@ use data_model::{
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
+    FunctionURI,
     GraphInvocationCtx,
     GraphVersion,
     ReduceTask,
@@ -88,6 +89,9 @@ pub struct InMemoryState {
         ExecutorId,
         im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
+
+    pub function_executors_by_fn_uri:
+        im::HashMap<FunctionURI, im::HashSet<Box<FunctionExecutorServerMetadata>>>,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
@@ -483,6 +487,7 @@ impl InMemoryState {
             allocations_by_executor,
             // function executors by executor are not known at startup
             function_executors_by_executor: im::HashMap::new(),
+            function_executors_by_fn_uri: im::HashMap::new(),
             // metrics
             task_pending_latency,
             task_running_latency,
@@ -771,24 +776,7 @@ impl InMemoryState {
                     }
                 }
 
-                for mut fe_meta in req.new_function_executors.clone() {
-                    let has_allocations = self
-                        .allocations_by_executor
-                        .get(&fe_meta.executor_id)
-                        .map(|allocation_map| {
-                            allocation_map
-                                .get(&fe_meta.function_executor.id)
-                                .map(|allocations| !allocations.is_empty())
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false);
-
-                    fe_meta.last_allocation_at = if has_allocations {
-                        Some(SystemTime::now())
-                    } else {
-                        None
-                    };
-
+                for fe_meta in req.new_function_executors.clone() {
                     self.function_executors_by_executor
                         .entry(fe_meta.executor_id.clone())
                         .or_default()
@@ -796,6 +784,12 @@ impl InMemoryState {
                             fe_meta.function_executor.id.clone(),
                             Box::new(fe_meta.clone()),
                         );
+
+                    let fn_uri = FunctionURI::from(&fe_meta);
+                    self.function_executors_by_fn_uri
+                        .entry(fn_uri)
+                        .or_default()
+                        .insert(Box::new(fe_meta.clone()));
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
@@ -832,15 +826,6 @@ impl InMemoryState {
                             .or_default()
                             .push_back(Box::new(allocation.clone()));
 
-                        // Update the function executor's last allocation time
-                        self.function_executors_by_executor
-                            .get_mut(&allocation.executor_id)
-                            .map(|fe_map| {
-                                if let Some(fe) = fe_map.get_mut(&allocation.function_executor_id) {
-                                    fe.last_allocation_at = Some(SystemTime::now());
-                                }
-                            });
-
                         // Record metrics
                         self.task_pending_latency.record(
                             get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
@@ -868,9 +853,17 @@ impl InMemoryState {
                         .and_then(|allocation_map| {
                             allocation_map.remove(&function_executor.function_executor_id)
                         });
-                    self.function_executors_by_executor
+                    let fe = self
+                        .function_executors_by_executor
                         .get_mut(&function_executor.executor_id)
                         .and_then(|fe_map| fe_map.remove(&function_executor.function_executor_id));
+
+                    if let Some(fe) = fe {
+                        let fn_uri = FunctionURI::from(fe.clone());
+                        self.function_executors_by_fn_uri
+                            .get_mut(&fn_uri)
+                            .and_then(|fe_set| fe_set.remove(&fe));
+                    }
 
                     // Executor has a removed function executor
                     changed_executors.insert(function_executor.executor_id.clone());
@@ -883,6 +876,12 @@ impl InMemoryState {
 
                     // Executor is removed
                     changed_executors.insert(executor_id.clone());
+                }
+
+                for (executor_id, executor) in &req.updated_executors {
+                    self.executors
+                        .entry(executor_id.clone())
+                        .and_modify(|e| *e = Box::new(executor.clone()));
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
@@ -899,6 +898,58 @@ impl InMemoryState {
         }
 
         Ok(changed_executors)
+    }
+
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorMetadata>>> {
+        let compute_graph = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.graph_version,
+            ))
+            .ok_or(anyhow!("Compute graph version not found"))?;
+        let compute_fn = compute_graph
+            .nodes
+            .get(&task.compute_fn_name)
+            .ok_or(anyhow!("Compute function not found"))?;
+        let mut candidates = Vec::new();
+        for (_, executor) in &self.executors {
+            if executor.tombstoned || !executor.is_task_allowed(task) {
+                continue;
+            }
+            if executor.host_resources.can_handle(&compute_fn.resources()) {
+                let mut candidate = executor.clone();
+                candidate.host_resources.consume(&compute_fn.resources())?;
+                candidates.push(candidate);
+            }
+        }
+        Ok(candidates)
+    }
+
+    pub fn candidate_function_executors(
+        &self,
+        task: &Task,
+        capacity_threshold: usize,
+    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+        let mut candidates = Vec::new();
+        let fn_uri = FunctionURI::from(task);
+        let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
+        if let Some(function_executors) = function_executors {
+            for function_executor in function_executors.iter() {
+                // FIXME - Create a reverse index of fe_id -> # active allocations
+                let allocation_count = self
+                    .allocations_by_executor
+                    .get(&function_executor.executor_id)
+                    .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
+                    .map(|allocs| allocs.len())
+                    .unwrap_or(0);
+                if allocation_count < capacity_threshold {
+                    candidates.push(function_executor.clone());
+                }
+            }
+        }
+        Ok(candidates)
     }
 
     pub fn next_reduction_task(
@@ -981,10 +1032,7 @@ impl InMemoryState {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn vacuum_function_executors(
-        &self,
-        idle_timeout_ms: u64,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    pub fn vacuum_function_executors(&self) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
         let mut function_executors_to_remove = Vec::new();
 
         // For each executor in the system
@@ -1094,6 +1142,7 @@ impl InMemoryState {
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             function_executors_by_executor: self.function_executors_by_executor.clone(),
+            function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),

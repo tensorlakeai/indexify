@@ -244,6 +244,23 @@ impl ExecutorManager {
                 state_hash = executor.state_hash,
                 "Executor state hash changed, registering executor"
             );
+            let existing_executor = self
+                .indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .executors
+                .get(&executor.id)
+                .cloned();
+            let executor = match existing_executor {
+                None => executor,
+                Some(existing_executor) => {
+                    let mut existing_executor = existing_executor.clone();
+                    existing_executor.update(executor);
+                    *existing_executor
+                }
+            };
+
             if let Err(e) = self.upsert_executor(executor.clone()).await {
                 error!(
                     executor_id = executor.id.get(),
