@@ -99,7 +99,7 @@ class TaskOutput:
             function_name=function_name,
             graph_version=graph_version,
             graph_invocation_id=graph_invocation_id,
-            stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
+            stderr=f"Function or router exceeded its configured timeout of {timeout_sec:.3f} sec.",
             is_internal_error=False,
             output_payload_uri_prefix=output_payload_uri_prefix,
         )
