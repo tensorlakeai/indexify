@@ -71,6 +71,10 @@ class FunctionExecutorStatesContainer:
             metric_function_executor_states_count.set(len(self._states))
             return state
 
+    def exists(self, id: str) -> bool:
+        """Check if the state with the given ID exists."""
+        return id in self._states
+
     async def shutdown(self):
         # Function Executors are outside the Executor process
         # so they need to get cleaned up explicitly and reliably.
