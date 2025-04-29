@@ -133,7 +133,8 @@ def executor(
     ] = [],
 ):
     if dev:
-        configure_development_mode_logging()
+        compact_tracebacks: bool = os.getenv("INDEXIFY_COMPACT_TRACEBACKS", "1") == "1"
+        configure_development_mode_logging(compact_tracebacks=compact_tracebacks)
     else:
         configure_production_mode_logging()
         if function_uris is None:
