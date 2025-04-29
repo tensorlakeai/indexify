@@ -193,8 +193,8 @@ pub struct NodeGPUConfig {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeResources {
     pub cpus: f64,
-    pub memory_mb: u32,
-    pub ephemeral_disk_mb: u32,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<NodeGPUConfig>,
 }
@@ -217,13 +217,13 @@ impl NodeResources {
                 "Memory must be greater than 128 MB",
             ));
         }
-        if self.memory_mb > executor_config.max_memory_gb_per_function * 1024 {
+        if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Memory must be less than or equal to {} GB",
                 executor_config.max_memory_gb_per_function
             )));
         }
-        if self.ephemeral_disk_mb > executor_config.max_disk_gb_per_function * 1024 {
+        if self.ephemeral_disk_mb > (executor_config.max_disk_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Ephemeral disk must be less than or equal to {} GB",
                 executor_config.max_disk_gb_per_function

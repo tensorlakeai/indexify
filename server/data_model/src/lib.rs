@@ -275,8 +275,8 @@ pub struct NodeResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
     pub cpu_ms_per_sec: u32,
-    pub memory_mb: u32,
-    pub ephemeral_disk_mb: u32,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
     // The list is ordered from most to least preferred GPU configuration.
     pub gpu_configs: Vec<NodeGPUConfig>,
 }

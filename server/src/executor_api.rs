@@ -218,8 +218,8 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let _gpu_count = from.gpu_count.unwrap_or(0);
         Ok(data_model::NodeResources {
             cpu_ms_per_sec,
-            memory_mb: (memory_bytes / 1024 / 1024) as u32,
-            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
+            memory_mb: (memory_bytes / 1024 / 1024) as u64,
+            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u64,
             gpu_configs: vec![], // TODO: add GPU mapping support
         })
     }
