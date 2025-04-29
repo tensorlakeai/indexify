@@ -7,12 +7,14 @@ use data_model::{
     ComputeGraphVersion,
     ExecutorId,
     ExecutorMetadata,
+    FunctionExecutor,
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionURI,
     GraphInvocationCtx,
     GraphVersion,
+    NodeResources,
     ReduceTask,
     Task,
     TaskStatus,
@@ -864,9 +866,6 @@ impl InMemoryState {
                             .get_mut(&fn_uri)
                             .and_then(|fe_set| fe_set.remove(&fe));
                     }
-
-                    // Executor has a removed function executor
-                    changed_executors.insert(function_executor.executor_id.clone());
                 }
 
                 for executor_id in &req.remove_executors {
@@ -981,6 +980,21 @@ impl InMemoryState {
         }
     }
 
+    pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<NodeResources> {
+        let cg_version = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &fe.namespace,
+                &fe.compute_graph_name,
+                &fe.version,
+            ))
+            .cloned()?;
+        cg_version
+            .nodes
+            .get(&fe.compute_fn_name)
+            .map(|node| node.resources())
+    }
+
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
         // Remove invocation ctx
         self.invocation_ctx.remove(&GraphInvocationCtx::key_from(
@@ -1032,7 +1046,9 @@ impl InMemoryState {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn vacuum_function_executors(&self) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    pub fn vacuum_function_executors_candidates(
+        &self,
+    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
         let mut function_executors_to_remove = Vec::new();
 
         // For each executor in the system

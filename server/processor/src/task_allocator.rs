@@ -105,7 +105,7 @@ impl TaskAllocationProcessor {
             .in_memory_state
             .read()
             .unwrap()
-            .vacuum_function_executors()?;
+            .vacuum_function_executors_candidates()?;
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len()
@@ -159,7 +159,7 @@ impl TaskAllocationProcessor {
             compute_graph = task.compute_graph_name,
             compute_fn = task.compute_fn_name,
             version = task.graph_version.to_string(),
-            "found {} candidates for task",
+            "found {} candidates for creating function executor",
             candidates.len()
         );
 
@@ -208,7 +208,7 @@ impl TaskAllocationProcessor {
             .in_memory_state
             .read()
             .unwrap()
-            .candidate_function_executors(task, 1)?;
+            .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
         if function_executors.is_empty() {
             info!(
                 invocation_id = task.invocation_id,
@@ -639,6 +639,36 @@ impl TaskAllocationProcessor {
             .iter()
             .map(|fe| FunctionExecutorIdWithExecutionId::new(fe.id.clone(), executor_id.clone()))
             .collect();
+
+        for fe in function_executors_to_remove {
+            if let Some(mut executor) = self
+                .in_memory_state
+                .read()
+                .unwrap()
+                .executors
+                .get(executor_id)
+                .cloned()
+            {
+                let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
+                if let Some(fe_resources) = fe_resources {
+                    if let Err(err) = executor.host_resources.free(&fe_resources) {
+                        error!(
+                            "failed to free resources for function executor {} in executor {}: {}",
+                            fe.id.get(),
+                            executor_id.get(),
+                            err
+                        );
+                    }
+                    update
+                        .updated_executors
+                        .insert(executor_id.clone(), *executor.clone());
+                    self.in_memory_state.write().unwrap().update_state(
+                        self.clock,
+                        &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                    )?;
+                }
+            }
+        }
 
         // Remove the function executors from the indexes
         self.in_memory_state
