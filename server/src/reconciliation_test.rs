@@ -305,7 +305,12 @@ mod tests {
 
         // Remove fn_a from function executors
         {
-            let mut fes: Vec<data_model::FunctionExecutor> = executor.get_executor_server_state().await?.function_executors.into_values().collect();
+            let mut fes: Vec<data_model::FunctionExecutor> = executor
+                .get_executor_server_state()
+                .await?
+                .function_executors
+                .into_values()
+                .collect();
             for fe in fes.iter_mut() {
                 if fe.compute_fn_name == "fn_a" {
                     fe.status = FunctionExecutorStatus::Shutdown;
@@ -327,13 +332,16 @@ mod tests {
 
         // The FE for fn_a should be removed
         let executor_server_state = executor.get_executor_server_state().await?;
-        assert!(executor_server_state.function_executors.iter().all(|(_id, fe)| {
-            if fe.compute_fn_name == "fn_a" {
-                false
-            } else {
-                true
-            }
-        }));
+        assert!(executor_server_state
+            .function_executors
+            .iter()
+            .all(|(_id, fe)| {
+                if fe.compute_fn_name == "fn_a" {
+                    false
+                } else {
+                    true
+                }
+            }));
 
         Ok(())
     }

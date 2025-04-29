@@ -1692,7 +1692,8 @@ impl Eq for FunctionExecutorServerMetadata {}
 
 impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.executor_id == other.executor_id && self.function_executor.id == other.function_executor.id
+        self.executor_id == other.executor_id &&
+            self.function_executor.id == other.function_executor.id
     }
 }
 

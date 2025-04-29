@@ -323,32 +323,32 @@ impl TaskAllocationProcessor {
         // Note: We should never remove a FE that is in Pending state in our indexes if
         // not present in executor's list, since it may still be creating.
         let function_executors_to_remove = function_executors_in_indexes
-        .iter()
-        .filter_map(|(indexed_fe_id, indexed_fe)| {
-            // Case 1: If our indexed FE is marked as Terminated, remove it
-            if indexed_fe.desired_state == FunctionExecutorState::Terminated {
-                debug!(
-                    "Removing function executor {} that was marked for termination",
-                    indexed_fe_id.get()
-                );
-                return Some(indexed_fe.function_executor.clone());
-            }
-
-            // Case 2: Check if it exists in executor's list
-            if let Some(executor_fe) = executor.function_executors.get(indexed_fe_id) {
-                // It exists in executor's list, check if its state is Terminated
-                if executor_fe.status.as_state() == FunctionExecutorState::Terminated {
+            .iter()
+            .filter_map(|(indexed_fe_id, indexed_fe)| {
+                // Case 1: If our indexed FE is marked as Terminated, remove it
+                if indexed_fe.desired_state == FunctionExecutorState::Terminated {
                     debug!(
-                        "Removing function executor {} that is in Terminated state in executor",
+                        "Removing function executor {} that was marked for termination",
                         indexed_fe_id.get()
                     );
                     return Some(indexed_fe.function_executor.clone());
                 }
-            }
-            // Otherwise keep it
-            None
-        })
-        .collect_vec();
+
+                // Case 2: Check if it exists in executor's list
+                if let Some(executor_fe) = executor.function_executors.get(indexed_fe_id) {
+                    // It exists in executor's list, check if its state is Terminated
+                    if executor_fe.status.as_state() == FunctionExecutorState::Terminated {
+                        debug!(
+                            "Removing function executor {} that is in Terminated state in executor",
+                            indexed_fe_id.get()
+                        );
+                        return Some(indexed_fe.function_executor.clone());
+                    }
+                }
+                // Otherwise keep it
+                None
+            })
+            .collect_vec();
         if !function_executors_to_remove.is_empty() {
             debug!(
                 "Executor {} has {} function executors to be removed",
@@ -420,11 +420,17 @@ impl TaskAllocationProcessor {
 
                 // Add to update
                 update.new_function_executors.push(fe_metadata.clone());
-                let node_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe_metadata.function_executor);
+                let node_resources = self
+                    .in_memory_state
+                    .read()
+                    .unwrap()
+                    .get_fe_resources(&fe_metadata.function_executor);
                 if let Some(node_resources) = node_resources {
                     let mut executor = executor.clone();
                     executor.host_resources.consume(&node_resources)?;
-                    update.updated_executors.insert(executor.id.clone(), executor);
+                    update
+                        .updated_executors
+                        .insert(executor.id.clone(), executor);
                 }
             }
         }
