@@ -379,7 +379,7 @@ impl IndexifyState {
 mod tests {
     use data_model::{
         test_objects::tests::{
-            mock_dev_executor,
+            mock_executor,
             mock_executor_id,
             mock_graph_a,
             mock_invocation_payload,
@@ -510,7 +510,7 @@ mod tests {
         let state_change_2 = state_changes::register_executor(
             &indexify_state.last_state_change_id,
             &UpsertExecutorRequest {
-                executor: mock_dev_executor(mock_executor_id()),
+                executor: mock_executor(mock_executor_id()),
             },
         )
         .unwrap();

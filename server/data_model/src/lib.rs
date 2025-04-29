@@ -1710,7 +1710,6 @@ pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
-    pub development_mode: bool,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
@@ -1768,16 +1767,11 @@ impl ExecutorMetadataBuilder {
             .state_hash
             .clone()
             .ok_or(anyhow!("state_hash is required"))?;
-        let development_mode = self
-            .development_mode
-            .clone()
-            .ok_or(anyhow!("dev_mode is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
         let clock = self.clock.unwrap_or(0);
         Ok(ExecutorMetadata {
             id,
             executor_version,
-            development_mode,
             function_allowlist,
             addr,
             labels,

@@ -836,7 +836,6 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -872,7 +871,6 @@ mod tests {
         let executor1 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-1".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -887,7 +885,6 @@ mod tests {
         let executor2 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-2".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -902,7 +899,6 @@ mod tests {
         let executor3 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-3".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),

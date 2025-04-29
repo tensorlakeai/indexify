@@ -4,7 +4,7 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{mock_dev_executor, mock_executor_id, TEST_NAMESPACE},
+        test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
         ExecutorId,
         FunctionAllowlist,
         FunctionExecutorStatus,
@@ -38,7 +38,7 @@ mod tests {
 
         // Register executor in dev mode - task should be allocated
         let executor = test_srv
-            .create_executor(mock_dev_executor(mock_executor_id()))
+            .create_executor(mock_executor(mock_executor_id()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -99,8 +99,7 @@ mod tests {
             .await?;
 
         // Register executor with non-dev mode and specific allowlist
-        let mut executor_meta = mock_dev_executor(mock_executor_id());
-        executor_meta.development_mode = false;
+        let mut executor_meta = mock_executor(mock_executor_id());
         executor_meta.function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some(TEST_NAMESPACE.to_string()),
             compute_graph_name: Some("graph_A".to_string()),
@@ -167,31 +166,14 @@ mod tests {
         test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
-        // Register first executor in non-dev mode with no allowlist
-        let mut executor1_meta = mock_dev_executor(ExecutorId::new("executor_1".to_string()));
-        executor1_meta.development_mode = false;
+        // Register first executor with no allowlist
+        let mut executor1_meta = mock_executor(ExecutorId::new("executor_1".to_string()));
         executor1_meta.function_allowlist = None;
 
         let executor1 = test_srv.create_executor(executor1_meta).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Task should remain unallocated
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 1,
-                allocated: 0,
-                unallocated: 1,
-                completed_success: 0,
-            })
-            .await?;
-
-        // Register second executor in dev mode
-        let executor2 = test_srv
-            .create_executor(mock_dev_executor(ExecutorId::new("executor_2".to_string())))
-            .await?;
-        test_srv.process_all_state_changes().await?;
-
-        // Task should now be allocated to the dev mode executor
+        // Task should be allocated to the first executor
         test_srv
             .assert_task_states(TaskStateAssertions {
                 total: 1,
@@ -201,10 +183,37 @@ mod tests {
             })
             .await?;
 
+        // Register second executor
+        let executor2 = test_srv
+            .create_executor(mock_executor(ExecutorId::new("executor_2".to_string())))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
         executor1
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 1,
+                num_allocated_tasks: 1,
+            })
+            .await?;
+
+        executor2
             .assert_state(ExecutorStateAssertions {
                 num_func_executors: 0,
                 num_allocated_tasks: 0,
+            })
+            .await?;
+
+        // When the first executor is deregistered, task should be allocated to the
+        // second executor
+        executor1.deregister().await?;
+        test_srv.process_all_state_changes().await?;
+
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 1,
+                unallocated: 0,
+                completed_success: 0,
             })
             .await?;
 
@@ -215,46 +224,17 @@ mod tests {
             })
             .await?;
 
-        // When the dev mode executor is deregistered, task should be unallocated again
+        // Deregister second executor
         executor2.deregister().await?;
         test_srv.process_all_state_changes().await?;
 
+        // Task should be unallocated
         test_srv
             .assert_task_states(TaskStateAssertions {
                 total: 1,
                 allocated: 0,
                 unallocated: 1,
                 completed_success: 0,
-            })
-            .await?;
-
-        // Register third executor with correct allowlist
-        let mut executor3_meta = mock_dev_executor(ExecutorId::new("executor_3".to_string()));
-        executor3_meta.development_mode = false;
-        executor3_meta.function_allowlist = Some(vec![FunctionAllowlist {
-            namespace: Some(TEST_NAMESPACE.to_string()),
-            compute_graph_name: Some("graph_A".to_string()),
-            compute_fn_name: Some("fn_a".to_string()),
-            version: None,
-        }]);
-
-        let executor3 = test_srv.create_executor(executor3_meta).await?;
-        test_srv.process_all_state_changes().await?;
-
-        // Task should now be allocated to executor with allowlist
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 1,
-                allocated: 1,
-                unallocated: 0,
-                completed_success: 0,
-            })
-            .await?;
-
-        executor3
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
             })
             .await?;
 
@@ -272,7 +252,7 @@ mod tests {
 
         // Register executor in dev mode
         let executor = test_srv
-            .create_executor(mock_dev_executor(mock_executor_id()))
+            .create_executor(mock_executor(mock_executor_id()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -420,7 +400,7 @@ mod tests {
 
         // Register executor
         let executor = test_srv
-            .create_executor(mock_dev_executor(mock_executor_id()))
+            .create_executor(mock_executor(mock_executor_id()))
             .await?;
         test_srv.process_all_state_changes().await?;
 

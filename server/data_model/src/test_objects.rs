@@ -308,11 +308,10 @@ pub mod tests {
         ExecutorId::new(TEST_EXECUTOR_ID.to_string())
     }
 
-    pub fn mock_dev_executor(id: ExecutorId) -> ExecutorMetadata {
+    pub fn mock_executor(id: ExecutorId) -> ExecutorMetadata {
         ExecutorMetadata {
             id,
             executor_version: "1.0.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),

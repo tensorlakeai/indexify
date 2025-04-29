@@ -250,11 +250,6 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             .ok_or(anyhow::anyhow!("executor_id is required"))?;
         executor_metadata.id(executor_id.clone());
         executor_metadata.state(executor_state.status().into());
-        executor_metadata.development_mode(
-            executor_state
-                .development_mode
-                .ok_or(anyhow::anyhow!("development_mode is required"))?,
-        );
         if let Some(state_hash) = executor_state.state_hash.clone() {
             executor_metadata.state_hash(state_hash);
         }

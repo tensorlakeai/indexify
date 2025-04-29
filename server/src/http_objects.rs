@@ -1016,7 +1016,6 @@ impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
-    pub development_mode: bool,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
@@ -1047,7 +1046,6 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             addr: executor.addr,
             function_allowlist,
             labels: executor.labels,
-            development_mode: executor.development_mode,
             function_executors: executor
                 .function_executors
                 .values()
