@@ -936,6 +936,9 @@ impl InMemoryState {
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         if let Some(function_executors) = function_executors {
             for function_executor in function_executors.iter() {
+                if function_executor.desired_state == FunctionExecutorState::Terminated {
+                    continue;
+                }
                 // FIXME - Create a reverse index of fe_id -> # active allocations
                 let allocation_count = self
                     .allocations_by_executor

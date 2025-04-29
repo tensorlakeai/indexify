@@ -305,15 +305,12 @@ mod tests {
 
         // Remove fn_a from function executors
         {
-            let fes = executor
-                .get_executor_server_state()
-                .await?
-                .function_executors
-                .into_values()
-                // Remove fn_a from the list
-                .filter(|fe| fe.compute_fn_name != "fn_a")
-                .collect();
-
+            let mut fes: Vec<data_model::FunctionExecutor> = executor.get_executor_server_state().await?.function_executors.into_values().collect();
+            for fe in fes.iter_mut() {
+                if fe.compute_fn_name == "fn_a" {
+                    fe.status = FunctionExecutorStatus::Shutdown;
+                }
+            }
             executor.update_function_executors(fes).await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -328,63 +325,15 @@ mod tests {
             })
             .await?;
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 2,  // fn_b and fn_c
-                num_allocated_tasks: 2, // fn_b and fn_c tasks
-            })
-            .await?;
-
-        executor.mark_function_executors_as_idle().await?;
-
-        // Save the current function executor IDs
-        let prev_fe_ids = executor
-            .get_executor_server_state()
-            .await?
-            .function_executors
-            .into_values()
-            .map(|fe| fe.id)
-            .collect::<HashSet<_>>();
-
-        // Remove all function executors
-        {
-            executor.update_function_executors(vec![]).await?;
-            test_srv.process_all_state_changes().await?;
-        }
-
-        // Verify deleted function executors are replaced
-        let new_fe_ids = executor
-            .get_executor_server_state()
-            .await?
-            .function_executors
-            .into_values()
-            .map(|fe| fe.id)
-            .collect::<HashSet<_>>();
-
-        // None of the old IDs should be present in the new IDs
-        let surviving_fes = prev_fe_ids.intersection(&new_fe_ids).collect::<Vec<_>>();
-        assert!(
-            surviving_fes.is_empty(),
-            "Removed function executors should have been replaced: {:?}",
-            surviving_fes
-        );
-
-        // All tasks should be unallocated
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 3,
-                allocated: 2,
-                unallocated: 0,
-                completed_success: 1,
-            })
-            .await?;
-
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 2,
-                num_allocated_tasks: 2,
-            })
-            .await?;
+        // The FE for fn_a should be removed
+        let executor_server_state = executor.get_executor_server_state().await?;
+        assert!(executor_server_state.function_executors.iter().all(|(_id, fe)| {
+            if fe.compute_fn_name == "fn_a" {
+                false
+            } else {
+                true
+            }
+        }));
 
         Ok(())
     }

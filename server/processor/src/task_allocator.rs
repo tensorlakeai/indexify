@@ -335,9 +335,7 @@ impl TaskAllocationProcessor {
             }
 
             // Case 2: Check if it exists in executor's list
-            let executor_fe = executor.function_executors.get(indexed_fe_id);
-
-            if let Some(executor_fe) = executor_fe {
+            if let Some(executor_fe) = executor.function_executors.get(indexed_fe_id) {
                 // It exists in executor's list, check if its state is Terminated
                 if executor_fe.status.as_state() == FunctionExecutorState::Terminated {
                     debug!(
@@ -346,29 +344,9 @@ impl TaskAllocationProcessor {
                     );
                     return Some(indexed_fe.function_executor.clone());
                 }
-                // Otherwise keep it
-                None
-            } else {
-                // Not in executor's list
-                // Special case: If it's in Pending state in our indexes, keep it
-                if indexed_fe.desired_state == FunctionExecutorState::Pending {
-                    debug!(
-                        "Keeping pending function executor {} not yet in executor's list",
-                        indexed_fe_id.get()
-                    );
-                    None
-                } else if indexed_fe.desired_state == FunctionExecutorState::Running {
-                    // If it's in Running state in our indexes but not in executor's list, remove it
-                    debug!(
-                        "Removing function executor {} that is Running in our indexes but not in executor's list",
-                        indexed_fe_id.get()
-                    );
-                    Some(indexed_fe.function_executor.clone())
-                } else {
-                    // For any other state, keep it for now
-                    None
-                }
             }
+            // Otherwise keep it
+            None
         })
         .collect_vec();
         if !function_executors_to_remove.is_empty() {
@@ -377,10 +355,13 @@ impl TaskAllocationProcessor {
                 executor.id.get(),
                 function_executors_to_remove.len()
             );
-
             update.extend(
                 self.remove_function_executors(&executor.id, &function_executors_to_remove)?,
             );
+            self.in_memory_state.write().unwrap().update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            )?;
         }
 
         // Consider both Running and Pending function executors from the executor as
@@ -421,18 +402,6 @@ impl TaskAllocationProcessor {
                     update
                         .new_function_executors
                         .push(updated_fe_metadata.clone());
-
-                    // Update in-memory state
-                    self.in_memory_state
-                        .write()
-                        .unwrap()
-                        .function_executors_by_executor
-                        .entry(executor.id.clone())
-                        .or_default()
-                        .entry(fe_id.clone())
-                        .and_modify(|existing| {
-                            **existing = updated_fe_metadata;
-                        });
                 }
             } else {
                 // This FE exists in the executor but not in our indexes - add it
@@ -451,18 +420,19 @@ impl TaskAllocationProcessor {
 
                 // Add to update
                 update.new_function_executors.push(fe_metadata.clone());
-
-                // Add to in-memory state
-                self.in_memory_state
-                    .write()
-                    .unwrap()
-                    .function_executors_by_executor
-                    .entry(executor.id.clone())
-                    .or_default()
-                    .entry(fe_id.clone())
-                    .or_insert_with(|| Box::new(fe_metadata));
+                let node_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe_metadata.function_executor);
+                if let Some(node_resources) = node_resources {
+                    let mut executor = executor.clone();
+                    executor.host_resources.consume(&node_resources)?;
+                    update.updated_executors.insert(executor.id.clone(), executor);
+                }
             }
         }
+
+        self.in_memory_state.write().unwrap().update_state(
+            self.clock,
+            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+        )?;
 
         Ok(update)
     }

@@ -1581,7 +1581,7 @@ impl FunctionAllowlist {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
@@ -1590,6 +1590,20 @@ pub struct FunctionExecutor {
     pub compute_fn_name: String,
     pub version: GraphVersion,
     pub status: FunctionExecutorStatus,
+}
+
+impl PartialEq for FunctionExecutor {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for FunctionExecutor {}
+
+impl Hash for FunctionExecutor {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 impl FunctionExecutor {
@@ -1666,12 +1680,20 @@ impl FunctionExecutorBuilder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executor: FunctionExecutor,
     pub desired_state: FunctionExecutorState,
+}
+
+impl Eq for FunctionExecutorServerMetadata {}
+
+impl PartialEq for FunctionExecutorServerMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.executor_id == other.executor_id && self.function_executor.id == other.function_executor.id
+    }
 }
 
 impl Hash for FunctionExecutorServerMetadata {
@@ -1704,7 +1726,7 @@ impl FunctionExecutorServerMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
