@@ -641,14 +641,14 @@ impl TaskAllocationProcessor {
             .collect();
 
         for fe in function_executors_to_remove {
-            if let Some(mut executor) = self
+            let executor = self
                 .in_memory_state
                 .read()
                 .unwrap()
                 .executors
                 .get(executor_id)
-                .cloned()
-            {
+                .cloned();
+            if let Some(mut executor) = executor {
                 let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
                 if let Some(fe_resources) = fe_resources {
                     if let Err(err) = executor.host_resources.free(&fe_resources) {
