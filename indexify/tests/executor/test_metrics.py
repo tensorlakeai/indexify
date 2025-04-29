@@ -401,7 +401,7 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("function_executors_with_status", {"status": "UNHEALTHY"}, 0.0),
             SampleSpec("function_executors_with_status", {"status": "DESTROYING"}, 0.0),
             SampleSpec("function_executors_with_status", {"status": "DESTROYED"}, 0.0),
-            SampleSpec("function_executors_with_status", {"status": "SHUTDOWN"}, 0.0),
+            # SampleSpec("function_executors_with_status", {"status": "SHUTDOWN"} is either 0 or 1 - depends if there was an FE for the graph before the test run or not.
             # Executor
             SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
