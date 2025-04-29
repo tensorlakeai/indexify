@@ -99,7 +99,7 @@ jobs:
         with:
           run: |
             chmod u+x ./indexify-server
-            RUST_LOG=debug ./indexify-server &
+            RUST_LOG=info ./indexify-server &
             echo $! > /tmp/indexify-server.pid &
 
           wait-on: |
