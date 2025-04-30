@@ -13,10 +13,8 @@ from .subprocess_function_executor_server import SubprocessFunctionExecutorServe
 class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     def __init__(
         self,
-        development_mode: bool,
         server_ports: range,
     ):
-        self._development_mode: bool = development_mode
         self._free_ports: List[int] = list(reversed(server_ports))
 
     async def create(
@@ -38,8 +36,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 "--address",
                 _server_address(port),
             ]
-            if self._development_mode:
-                args.append("--dev")
             # Run the process with our stdout, stderr. We want to see process logs and exceptions in our process output.
             # This is useful for dubugging. Customer function stdout and stderr is captured and returned in the response
             # so we won't see it in our process outputs. This is the right behavior as customer function stdout and stderr

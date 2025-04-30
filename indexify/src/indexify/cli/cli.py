@@ -83,8 +83,8 @@ def build_image(
 def executor(
     server_addr: str = "localhost:8900",
     grpc_server_addr: str = "localhost:8901",
-    dev: Annotated[
-        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
+    verbose_logs: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Run the executor in verbose mode")
     ] = False,
     function_uris: Annotated[
         Optional[List[str]],
@@ -142,15 +142,11 @@ def executor(
         ),
     ] = False,
 ):
-    if dev:
+    if verbose_logs:
         compact_tracebacks: bool = os.getenv("INDEXIFY_COMPACT_TRACEBACKS", "1") == "1"
         configure_development_mode_logging(compact_tracebacks=compact_tracebacks)
     else:
         configure_production_mode_logging()
-        if function_uris is None:
-            raise typer.BadParameter(
-                "At least one function must be specified when not running in development mode"
-            )
 
     kv_labels: Dict[str, str] = {}
     for label in labels:
@@ -172,7 +168,7 @@ def executor(
         executor_cache=executor_cache,
         ports=ports,
         functions=function_uris,
-        dev_mode=dev,
+        verbose_logs=verbose_logs,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
@@ -219,7 +215,6 @@ def executor(
 
     Executor(
         id=executor_id,
-        development_mode=dev,
         flavor=ExecutorFlavor.OSS,
         version=executor_version,
         labels=kv_labels,
@@ -227,7 +222,6 @@ def executor(
         code_path=executor_cache,
         function_allowlist=_parse_function_uris(function_uris),
         function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
-            development_mode=dev,
             server_ports=range(ports[0], ports[1]),
         ),
         server_addr=server_addr,

@@ -57,7 +57,6 @@ class Executor:
     def __init__(
         self,
         id: str,
-        development_mode: bool,
         flavor: ExecutorFlavor,
         version: str,
         labels: Dict[str, str],
@@ -116,7 +115,6 @@ class Executor:
             flavor=flavor,
             version=version,
             labels=labels,
-            development_mode=development_mode,
             function_allowlist=self._function_allowlist,
             function_executor_states=self._function_executor_states,
             channel_manager=self._channel_manager,
@@ -173,7 +171,6 @@ class Executor:
 
         executor_info: Dict[str, str] = {
             "id": id,
-            "dev_mode": str(development_mode),
             "flavor": flavor.name,
             "version": version,
             "code_path": str(code_path),
