@@ -84,9 +84,9 @@ class TestServerTaskDistribution(unittest.TestCase):
             for _, invocations_count in invocations_per_pid.items():
                 # Allow +-25 invocations difference between the executors.
                 # FIXME: Figure the right assertions
-                #self.assertGreater(invocations_count, 75)
-                #self.assertLess(invocations_count, 125)
-                self.assertLess(invocations_count, 199 )
+                # self.assertGreater(invocations_count, 75)
+                # self.assertLess(invocations_count, 125)
+                self.assertLess(invocations_count, 199)
 
     def test_server_redistributes_invocations_when_new_executor_joins(self):
         print(
@@ -141,8 +141,8 @@ class TestServerTaskDistribution(unittest.TestCase):
 
             for _, invocations_count in invocations_per_pid.items():
                 # At least 25% to 75% of all tasks should go to each executor after the new executor joins.
-                #self.assertGreater(invocations_count, 50)
-                #self.assertLess(invocations_count, 150)
+                # self.assertGreater(invocations_count, 50)
+                # self.assertLess(invocations_count, 150)
                 self.assertGreater(invocations_count, 1)
 
     def test_all_tasks_succeed_when_executor_exits(self):
