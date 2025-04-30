@@ -366,17 +366,20 @@ impl TaskAllocationProcessor {
 
         // Consider both Running and Pending function executors from the executor as
         // valid
-        let valid_function_executors = executor
-            .function_executors
-            .iter()
-            .filter(|(_, fe)| {
-                let state = fe.status.as_state();
-                state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending
-            })
-            .collect::<HashMap<_, _>>();
+
+        let mut active_function_executors = HashMap::new();
+        let mut stale_function_executors = HashMap::new();
+        for (fe_id, fe) in executor.function_executors.iter() {
+            let state = fe.status.as_state();
+            if state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending {
+                active_function_executors.insert(fe_id.clone(), fe.clone());
+            } else {
+                stale_function_executors.insert(fe_id.clone(), fe.clone());
+            }
+        }
 
         // Step 2: Update existing FEs and add new ones
-        for (fe_id, fe) in valid_function_executors.into_iter() {
+        for (fe_id, fe) in active_function_executors.into_iter() {
             // Check if this FE already exists in our indexes
             if let Some(indexed_fe) = function_executors_in_indexes.get(&fe_id) {
                 // FE exists in our indexes - check if we need to update its state
@@ -433,6 +436,15 @@ impl TaskAllocationProcessor {
                         .insert(executor.id.clone(), executor);
                 }
             }
+        }
+
+        for (fe_id, _fe) in stale_function_executors.into_iter() {
+            update
+                .remove_function_executors
+                .push(FunctionExecutorIdWithExecutionId::new(
+                    fe_id.clone(),
+                    executor.id.clone(),
+                ));
         }
 
         self.in_memory_state.write().unwrap().update_state(

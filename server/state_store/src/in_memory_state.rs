@@ -866,6 +866,7 @@ impl InMemoryState {
                             .get_mut(&fn_uri)
                             .and_then(|fe_set| fe_set.remove(&fe));
                     }
+                    changed_executors.insert(function_executor.executor_id.clone());
                 }
 
                 for executor_id in &req.remove_executors {
