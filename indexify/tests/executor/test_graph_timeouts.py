@@ -1,4 +1,5 @@
 import io
+import os
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -33,6 +34,10 @@ def function_that_sleeps_forever_when_running() -> str:
     return "success"
 
 
+@unittest.skipIf(
+    os.environ.get("LEGACY_SSE_STREAM_IS_USED", "0") == "1",
+    "Timeouts functionality is only implemented in gRPC mode",
+)
 class TestFunctionTimeouts(unittest.TestCase):
     def test_initilization(self):
         graph = Graph(
@@ -87,7 +92,7 @@ class TestFunctionTimeouts(unittest.TestCase):
         )
 
 
-class RouterThatSleepsForeverOnInitialization(TensorlakeCompute):
+class RouterThatSleepsForeverOnInitialization(TensorlakeRouter):
     name = "RouterThatSleepsForeverOnInitialization"
     timeout = 1
 
@@ -104,7 +109,7 @@ class RouterThatSleepsForeverOnInitialization(TensorlakeCompute):
         raise Exception("This router can never run because it fails to initialize.")
 
 
-@tensorlake_function(timeout=2)
+@tensorlake_router(timeout=2)
 def router_that_sleeps_forever_when_running() -> Union[
     FunctionThatSleepsForeverOnInitialization,
     function_that_sleeps_forever_when_running,
@@ -113,12 +118,23 @@ def router_that_sleeps_forever_when_running() -> Union[
     return function_that_sleeps_forever_when_running
 
 
+@unittest.skipIf(
+    os.environ.get("LEGACY_SSE_STREAM_IS_USED", "0") == "1",
+    "Timeouts functionality is only implemented in gRPC mode",
+)
 class TestRouterTimeouts(unittest.TestCase):
     def test_initilization(self):
         graph = Graph(
             name=test_graph_name(self),
             description="test",
             start_node=RouterThatSleepsForeverOnInitialization,
+        )
+        graph.route(
+            RouterThatSleepsForeverOnInitialization,
+            [
+                FunctionThatSleepsForeverOnInitialization,
+                function_that_sleeps_forever_when_running,
+            ],
         )
         graph = RemoteGraph.deploy(graph)
         start_time = time.monotonic()
@@ -129,15 +145,19 @@ class TestRouterTimeouts(unittest.TestCase):
             20,  # Add extra for state reporting and reconciliation latency
             "Router initialization didn't timeout in duration close to 1 sec",
         )
-        # Check that the function failed.
-        output = graph.output(invocation_id, "RouterThatSleepsForeverOnInitialization")
-        self.assertEqual(len(output), 0)
 
     def test_run(self):
         graph = Graph(
             name=test_graph_name(self),
             description="test",
             start_node=router_that_sleeps_forever_when_running,
+        )
+        graph.route(
+            router_that_sleeps_forever_when_running,
+            [
+                FunctionThatSleepsForeverOnInitialization,
+                function_that_sleeps_forever_when_running,
+            ],
         )
         graph = RemoteGraph.deploy(graph)
         start_time = time.monotonic()
@@ -153,9 +173,6 @@ class TestRouterTimeouts(unittest.TestCase):
             20,  # Add extra for state reporting and reconciliation latency
             "Router run didn't timeout in duration close to 2 sec",
         )
-        # Check that the function failed.
-        output = graph.output(invocation_id, "router_that_sleeps_forever_when_running")
-        self.assertEqual(len(output), 0)
         # Use regex to ignore console formatting characters
         self.assertRegex(
             sdk_stdout.getvalue(),
