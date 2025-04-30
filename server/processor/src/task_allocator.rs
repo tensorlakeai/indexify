@@ -438,14 +438,10 @@ impl TaskAllocationProcessor {
             }
         }
 
-        for (fe_id, _fe) in stale_function_executors.into_iter() {
-            update
-                .remove_function_executors
-                .push(FunctionExecutorIdWithExecutionId::new(
-                    fe_id.clone(),
-                    executor.id.clone(),
-                ));
-        }
+        update.extend(self.remove_function_executors(
+            &executor.id,
+            &stale_function_executors.values().cloned().collect_vec(),
+        )?);
 
         self.in_memory_state.write().unwrap().update_state(
             self.clock,
@@ -459,7 +455,7 @@ impl TaskAllocationProcessor {
     fn remove_function_executors(
         &self,
         executor_id: &ExecutorId,
-        function_executors_to_remove: &[FunctionExecutor],
+        function_executors_to_remove: &Vec<FunctionExecutor>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
