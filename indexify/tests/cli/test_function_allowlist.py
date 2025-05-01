@@ -196,6 +196,7 @@ class TestFunctionAllowlist(unittest.TestCase):
             for _ in range(total_invokes):
                 invocation_ids.append(graph.run(block_until_done=False))
 
+            print("Waiting for all invocations to finish...")
             for invocation_id in invocation_ids:
                 # Check outputs for each function
                 for func_name in [

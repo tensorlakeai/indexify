@@ -131,6 +131,16 @@ def executor(
             "Specified as <key>=<value>",
         ),
     ] = [],
+    enable_grpc_state_reconciler: Annotated[
+        bool,
+        typer.Option(
+            "--enable-grpc-state-reconciler",
+            help=(
+                "(exprimental) Enable gRPC state reconciler that will reconcile the state of the Function Executors and Task Allocations\n"
+                "with the desired state provided by Server. Required --grpc-server-addr to be set."
+            ),
+        ),
+    ] = False,
 ):
     if dev:
         compact_tracebacks: bool = os.getenv("INDEXIFY_COMPACT_TRACEBACKS", "1") == "1"
@@ -165,7 +175,7 @@ def executor(
         dev_mode=dev,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=True,
+        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -225,7 +235,7 @@ def executor(
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=True,
+        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
         blob_store=blob_store,
         host_resources_provider=host_resources_provider,
     ).run()
