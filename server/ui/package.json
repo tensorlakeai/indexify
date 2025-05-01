@@ -33,7 +33,6 @@
     "react-dom": "^18.2.0",
     "react-pdf": "^9.2.1",
     "react-router-dom": "^6.26.2",
-    "react-scripts": "5.0.1",
     "react-toastify": "^10.0.5",
     "react-virtuoso": "^4.10.4",
     "serve": "^14.2.3",
@@ -69,6 +68,7 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "cross-env": "^7.0.3",
-    "eslint": "^8.56.0"
+    "eslint": "^8.56.0",
+    "react-scripts": "5.0.1"
   }
 }
