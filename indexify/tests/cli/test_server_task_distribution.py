@@ -69,6 +69,7 @@ class TestServerTaskDistribution(unittest.TestCase):
                 invocation_id = graph.run(block_until_done=False, sleep_secs=0)
                 invocation_ids.append(invocation_id)
 
+            print("Waiting for all invocations to finish...")
             for invocation_id in invocation_ids:
                 output = wait_function_output(graph, invocation_id, "get_executor_pid")
                 self.assertEqual(len(output), 1)
@@ -124,6 +125,7 @@ class TestServerTaskDistribution(unittest.TestCase):
             print(f"Started Executor A with PID: {executor_a.pid}")
             wait_executor_startup(7001)
 
+            print("Waiting for all invocations to finish...")
             for invocation_id in invocation_ids:
                 output = wait_function_output(graph, invocation_id, "get_executor_pid")
                 self.assertEqual(len(output), 1)
@@ -178,6 +180,7 @@ class TestServerTaskDistribution(unittest.TestCase):
                 invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
                 invocation_ids.append(invocation_id)
 
+        print("Waiting for all invocations to finish...")
         for invocation_id in invocation_ids:
             output = wait_function_output(graph, invocation_id, "success_func")
             self.assertEqual(len(output), 1)
