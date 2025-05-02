@@ -47,7 +47,7 @@ The example below is a workflow API that accepts some text, embeds the file, and
 ```python
 from pydantic import BaseModel
 from tensorlake import tensorlake_function, Graph, Image, TensorlakeCompute
-from typing import List, Union
+from typing import List
 
 # Define Input and Outputs of various functions in your workflow
 class Text(BaseModel):
@@ -68,7 +68,6 @@ class ChunkEmbedding(BaseModel):
 embedding_image = (
     Image()
     .name("text_embedding_image")
-    .run("pip install langchain")
     .run("pip install sentence_transformer")
     .run("pip install langchain-text-splitters")
     .run("pip install chromadb")
@@ -122,7 +121,7 @@ class EmbeddingWriter(TensorlakeCompute):
         import chromadb
 
         self._chroma = chromadb.PersistentClient("./chromadb_tensorlake")
-        self._collection = collection = self._chroma.create_collection(
+        self._collection = self._chroma.create_collection(
             name="my_collection", get_or_create=True
         )
 
@@ -170,7 +169,7 @@ But first, we will show how to do this locally on a single machine.
 Download a server release [from here](https://github.com/tensorlakeai/indexify/releases). Open a terminal and start the server.
 
 ```bash
-./indexify-server -dev
+./indexify-server --dev
 ```
 
 ## Start the Executors 
