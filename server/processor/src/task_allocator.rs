@@ -460,15 +460,19 @@ impl TaskAllocationProcessor {
         function_executors_to_remove: &Vec<FunctionExecutor>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-
         if function_executors_to_remove.is_empty() {
             return Ok(update);
         }
+        let function_executor_ids = function_executors_to_remove
+            .iter()
+            .map(|fe| fe.id.clone())
+            .collect::<Vec<_>>();
 
-        debug!(
-            "Removing {} function executors from executor {}",
-            function_executors_to_remove.len(),
-            executor_id.get()
+        info!(
+            num_function_executors=function_executors_to_remove.len(),
+            function_executors=function_executor_ids.iter().map(|id| id.get()).collect::<Vec<_>>().join(", "),
+            executor_id =executor_id.get(),
+            "Removing function executors from executor",
         );
 
         // Handle allocations for FEs to be removed and update tasks
@@ -487,9 +491,10 @@ impl TaskAllocationProcessor {
                 .collect()
         };
 
-        debug!(
-            "Found {} allocations to remove for function executors being removed",
-            allocations_to_remove.len()
+        info!(
+            num_allocations=allocations_to_remove.len(),
+            executor_id = executor_id.get(),
+            "removing allocations from dead executor",
         );
 
         for allocation in &allocations_to_remove {
@@ -559,14 +564,20 @@ impl TaskAllocationProcessor {
             .collect();
 
         for fe in function_executors_to_remove {
-            let executor = self
+            let Some(mut executor) = self
                 .in_memory_state
                 .read()
                 .unwrap()
                 .executors
                 .get(executor_id)
-                .cloned();
-            if let Some(mut executor) = executor {
+                .cloned() else {
+                    error!(
+                        "executor {} not found while removing function executor {}",
+                        executor_id.get(),
+                        fe.id.get()
+                    );
+                    continue;
+                };
                 // FIXME - We are getting FE resources from the compute graph version at the
                 // moment Compute Graphs could be delted before FEs are deleted.
                 // If we can't find CG version, we won't be able to free
@@ -588,8 +599,7 @@ impl TaskAllocationProcessor {
                     self.in_memory_state.write().unwrap().update_state(
                         self.clock,
                         &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
-                    )?;
-                }
+                )?;    
             }
         }
         Ok(update)
