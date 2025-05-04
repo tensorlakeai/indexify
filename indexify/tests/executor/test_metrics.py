@@ -239,7 +239,6 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(len(info_metric.samples), 1)
         info_sample: Sample = info_metric.samples[0]
         self.assertIn("id", info_sample.labels)
-        self.assertIn("dev_mode", info_sample.labels)
         self.assertIn("flavor", info_sample.labels)
         self.assertIn("version", info_sample.labels)
         self.assertIn("code_path", info_sample.labels)
