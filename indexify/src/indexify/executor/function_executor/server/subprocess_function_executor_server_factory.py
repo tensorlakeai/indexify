@@ -2,7 +2,7 @@ import asyncio
 import os
 import signal
 import socket
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from .function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -11,9 +11,9 @@ from .function_executor_server_factory import (
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
 
-def get_free_tcp_port():
+def get_free_tcp_port(iface_name="localhost") -> int:
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind(("", 0))
+    tcp.bind((iface_name, 0))
     _, port = tcp.getsockname()
     tcp.close()
     return port
