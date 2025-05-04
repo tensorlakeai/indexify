@@ -30,6 +30,7 @@ def success_func(sleep_secs: float) -> str:
 
 class TestServerTaskDistribution(unittest.TestCase):
     def test_server_distributes_invocations_fairly_between_two_executors(self):
+        print("running test_server_distributes_invocations_fairly_between_two_executors")
         print(
             "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
@@ -42,9 +43,6 @@ class TestServerTaskDistribution(unittest.TestCase):
             [
                 "--function",
                 function_uri("default", graph_name, "get_executor_pid", version),
-                "--ports",
-                "60000",
-                "61000",
                 "--monitoring-server-port",
                 "7001",
             ],
@@ -89,6 +87,7 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertLess(invocations_count, 199)
 
     def test_server_redistributes_invocations_when_new_executor_joins(self):
+        print("running test test_server_redistributes_invocations_when_new_executor_joins")
         print(
             "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
@@ -115,9 +114,6 @@ class TestServerTaskDistribution(unittest.TestCase):
             [
                 "--function",
                 function_uri("default", graph_name, "get_executor_pid", version),
-                "--ports",
-                "60000",
-                "61001",
                 "--monitoring-server-port",
                 "7001",
             ],
@@ -146,6 +142,7 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertGreater(invocations_count, 1)
 
     def test_all_tasks_succeed_when_executor_exits(self):
+        print("running test test_all_tasks_succeed_when_executor_exits")
         print(
             "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
@@ -157,9 +154,6 @@ class TestServerTaskDistribution(unittest.TestCase):
             [
                 "--function",
                 function_uri("default", graph_name, "success_func", version),
-                "--ports",
-                "60000",
-                "61001",
                 "--monitoring-server-port",
                 "7001",
             ],

@@ -103,11 +103,6 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
-    # Registred ports range ends at 49151.
-    ports: Tuple[int, int] = typer.Option(
-        (50000, 51000),
-        help="Range of localhost TCP ports to be used by Function Executors",
-    ),
     monitoring_server_host: Annotated[
         str,
         typer.Option(
@@ -166,7 +161,6 @@ def executor(
         executor_version=executor_version,
         labels=kv_labels,
         executor_cache=executor_cache,
-        ports=ports,
         functions=function_uris,
         verbose_logs=verbose_logs,
         monitoring_server_host=monitoring_server_host,
@@ -179,17 +173,6 @@ def executor(
         shutil.rmtree(executor_cache)
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
-    start_port: int = ports[0]
-    end_port: int = ports[1]
-    if start_port >= end_port:
-        console.print(
-            Text(
-                f"start port {start_port} should be less than {end_port}", style="red"
-            ),
-        )
-        exit(1)
-
-    # Enable all available blob stores in OSS because we don't know which one is going to be used.
     blob_store: BLOBStore = BLOBStore(
         # Local FS mode is used in tests and in cases when user wants to store data on NFS.
         local=LocalFSBLOBStore(),
@@ -221,9 +204,7 @@ def executor(
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,
         function_allowlist=_parse_function_uris(function_uris),
-        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
-            server_ports=range(ports[0], ports[1]),
-        ),
+        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(),
         server_addr=server_addr,
         grpc_server_addr=grpc_server_addr,
         config_path=config_path,

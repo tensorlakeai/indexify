@@ -1,6 +1,7 @@
 import asyncio
 import os
 import signal
+import socket
 from typing import Any, List, Optional
 
 from .function_executor_server_factory import (
@@ -9,14 +10,14 @@ from .function_executor_server_factory import (
 )
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
+def get_free_tcp_port():
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(('', 0))
+    _, port = tcp.getsockname()
+    tcp.close()
+    return port
 
 class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
-    def __init__(
-        self,
-        server_ports: range,
-    ):
-        self._free_ports: List[int] = list(reversed(server_ports))
-
     async def create(
         self, config: FunctionExecutorServerConfiguration, logger: Any
     ) -> SubprocessFunctionExecutorServer:
@@ -30,7 +31,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
             )
 
         try:
-            port = self._allocate_port()
+            port = get_free_tcp_port()
+            logger.info("allocated function executor port", port=port)
             args = [
                 f"--executor-id={config.executor_id}",  # use = as executor_id can start with -
                 "--address",
@@ -52,8 +54,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 address=_server_address(port),
             )
         except Exception as e:
-            if port is not None:
-                self._release_port(port)
             logger.error(
                 "failed starting a new Function Executor process at port {port}",
                 exc_info=e,
@@ -87,22 +87,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 "failed to cleanup Function Executor process",
                 exc_info=e,
             )
-        finally:
-            self._release_port(port)
-
-    def _allocate_port(self) -> int:
-        # No asyncio.Lock is required here because this operation never awaits
-        # and it is always called from the same thread where the event loop is running.
-        return self._free_ports.pop()
-
-    def _release_port(self, port: int) -> None:
-        # No asyncio.Lock is required here because this operation never awaits
-        # and it is always called from the same thread where the event loop is running.
-        #
-        # Prefer port reuse to repro as many possible issues deterministically as possible.
-        self._free_ports.append(port)
-
-
 def _server_address(port: int) -> str:
     return f"localhost:{port}"
 

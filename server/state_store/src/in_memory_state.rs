@@ -968,7 +968,6 @@ impl InMemoryState {
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("Compute function not found"))?;
         let mut candidates = Vec::new();
-        println!("candidate_executors: {:?}", self.executor_states);
         for (_, executor_state) in &self.executor_states {
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(

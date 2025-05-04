@@ -115,9 +115,6 @@ class TestFunctionAllowlist(unittest.TestCase):
                 "args": [
                     "--function",
                     function_uri("default", graph_name, "function_a", version),
-                    "--ports",
-                    "60000",
-                    "60001",
                     "--monitoring-server-port",
                     "7001",
                 ],
@@ -128,9 +125,6 @@ class TestFunctionAllowlist(unittest.TestCase):
                 "args": [
                     "--function",
                     function_uri("default", graph_name, "function_b", version),
-                    "--ports",
-                    "60001",
-                    "60002",
                     "--monitoring-server-port",
                     "7002",
                 ],
@@ -141,9 +135,6 @@ class TestFunctionAllowlist(unittest.TestCase):
                 "args": [
                     "--function",
                     function_uri("default", graph_name, "function_c"),
-                    "--ports",
-                    "60003",
-                    "60004",
                     "--monitoring-server-port",
                     "7003",
                 ],
