@@ -620,6 +620,18 @@ impl TaskAllocationProcessor {
             update.extend(self.remove_function_executors(executor_id, &function_executors)?);
         }
 
+        self.in_memory_state.write().unwrap().update_state(
+            self.clock,
+            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+        )?;
+
+        let allocation_update = self.allocate()?;
+        update.extend(allocation_update);
+        self.in_memory_state.write().unwrap().update_state(
+            self.clock,
+            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+        )?;
+
         return Ok(update);
     }
 }

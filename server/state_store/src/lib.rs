@@ -187,12 +187,10 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::SchedulerUpdate(request) => state_machine::handle_scheduler_update(
-                &self.last_state_change_id,
-                self.db.clone(),
-                &txn,
-                request,
-            )?,
+            RequestPayload::SchedulerUpdate(request) => {
+                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
+                vec![]
+            }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),

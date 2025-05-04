@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{atomic::AtomicU64, Arc},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -32,16 +29,13 @@ use strum::AsRefStr;
 use tracing::{error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::{
-    requests::{
-        DeleteInvocationRequest,
-        IngestTaskOutputsRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
-        ReductionTasks,
-        SchedulerUpdateRequest,
-    },
-    state_changes,
+use crate::requests::{
+    DeleteInvocationRequest,
+    IngestTaskOutputsRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    SchedulerUpdateRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -660,13 +654,10 @@ pub(crate) fn processed_reduction_tasks(
 }
 
 pub(crate) fn handle_scheduler_update(
-    last_state_change_id: &AtomicU64,
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     request: &SchedulerUpdateRequest,
-) -> Result<Vec<StateChange>> {
-    let mut state_changes = vec![];
-
+) -> Result<()> {
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -743,15 +734,7 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    // Trigger the executor deregistration state change only once even if multiple
-    // executors are removed.
-    if let Some(executor_id) = request.remove_executors.first() {
-        let deregister_events =
-            state_changes::deregister_executor_event(last_state_change_id, executor_id.clone())?;
-        state_changes.extend(deregister_events);
-    }
-
-    Ok(state_changes)
+    Ok(())
 }
 
 // returns true if task the task finishing state should be emitted.
