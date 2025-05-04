@@ -184,6 +184,7 @@ class TestServerTaskDistribution(unittest.TestCase):
 
         print("Waiting for all invocations to finish...")
         for invocation_id in invocation_ids:
+            print(f"Waiting for invocation {invocation_id} to finish...")
             output = wait_function_output(graph, invocation_id, "success_func")
             self.assertEqual(len(output), 1)
             self.assertEqual(output[0], "success")
