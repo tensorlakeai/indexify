@@ -14,6 +14,8 @@ use data_model::{
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionExecutorStatus,
+    GraphInvocationCtx,
+    GraphInvocationOutcome,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -524,6 +526,27 @@ impl TaskAllocationProcessor {
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
             }
+            let invocation_ctx_key = GraphInvocationCtx::key_from(
+                &allocation.namespace,
+                &allocation.compute_graph,
+                &allocation.invocation_id,
+            );
+
+            if let Some(invocation_ctx) = self
+                .in_memory_state
+                .read()
+                .unwrap()
+                .invocation_ctx
+                .get(&invocation_ctx_key)
+                .cloned()
+            {
+                if is_startup_failure {
+                    let mut invocation_ctx = invocation_ctx.clone();
+                    invocation_ctx.completed = true;
+                    invocation_ctx.outcome = GraphInvocationOutcome::Failure;
+                    update.updated_invocations_states.push(*invocation_ctx);
+                }
+            }
         }
 
         // Add allocations to remove list
@@ -544,6 +567,11 @@ impl TaskAllocationProcessor {
                 .get(executor_id)
                 .cloned();
             if let Some(mut executor) = executor {
+                // FIXME - We are getting FE resources from the compute graph version at the
+                // moment Compute Graphs could be delted before FEs are deleted.
+                // If we can't find CG version, we won't be able to free
+                // resources. So we need to move the resouces allocated to the FEs
+                // to the FE objects.
                 let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
                 if let Some(fe_resources) = fe_resources {
                     if let Err(err) = executor.host_resources.free(&fe_resources) {
