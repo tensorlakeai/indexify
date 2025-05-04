@@ -916,16 +916,17 @@ impl InMemoryState {
                 for (executor_id, host_resources) in &req.updated_executor_resources {
                     if let Some(executor) = self.executor_states.get_mut(executor_id) {
                         executor.free_resources = host_resources.clone();
-                    } else {
-                        self.executor_states.insert(
-                            executor_id.clone(),
-                            Box::new(ExecutorServerMetadata {
-                                executor_id: executor_id.clone(),
-                                function_executors: im::HashMap::new(),
-                                free_resources: host_resources.clone(),
-                            }),
-                        );
                     }
+                    // } else {
+                    //     self.executor_states.insert(
+                    //         executor_id.clone(),
+                    //         Box::new(ExecutorServerMetadata {
+                    //             executor_id: executor_id.clone(),
+                    //             function_executors: im::HashMap::new(),
+                    //             free_resources: host_resources.clone(),
+                    //         }),
+                    //     );
+                    // }
                 }
             }
             RequestPayload::UpsertExecutor(req) => {

@@ -113,7 +113,7 @@ def function_executor_id() -> str:
 def wait_function_output(graph: RemoteGraph, invocation_id: str, func_name: str) -> Any:
     while True:
         try:
-            print(f"Waiting for output of function '{func_name}' with invocation ID '{invocation_id}'")
+            print(f"Waiting for output of graph: {graph._name} function '{func_name}' with invocation ID '{invocation_id}'")
             return graph.output(invocation_id, func_name)
         except GraphStillProcessing:
             time.sleep(1)
