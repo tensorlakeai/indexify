@@ -3,6 +3,8 @@ import unittest
 
 import httpx
 from testing import ExecutorProcessContextManager, wait_executor_startup
+
+
 class TestStartupProbe(unittest.TestCase):
     def test_success(self):
         with ExecutorProcessContextManager(
@@ -21,6 +23,7 @@ class TestStartupProbe(unittest.TestCase):
     def test_failure(self):
         # There's currently no way to reliably slow down Executor startup so this test is empty for now.
         pass
+
 
 if __name__ == "__main__":
     unittest.main()

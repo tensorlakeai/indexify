@@ -10,12 +10,14 @@ from .function_executor_server_factory import (
 )
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
+
 def get_free_tcp_port():
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind(('', 0))
+    tcp.bind(("", 0))
     _, port = tcp.getsockname()
     tcp.close()
     return port
+
 
 class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     async def create(
@@ -87,6 +89,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 "failed to cleanup Function Executor process",
                 exc_info=e,
             )
+
+
 def _server_address(port: int) -> str:
     return f"localhost:{port}"
 
