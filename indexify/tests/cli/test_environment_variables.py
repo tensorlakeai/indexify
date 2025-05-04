@@ -28,9 +28,6 @@ class TestEnvironmentVariables(unittest.TestCase):
     def test_executor_env_variables_are_passed_to_functions(self):
         with ExecutorProcessContextManager(
             [
-                "--ports",
-                "60000",
-                "60001",
                 "--monitoring-server-port",
                 "7001",
             ],
