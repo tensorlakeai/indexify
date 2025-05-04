@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    Allocation,
     AllocationBuilder,
     ChangeType,
     ExecutorId,
@@ -15,7 +14,6 @@ use data_model::{
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionExecutorStatus,
-    GraphInvocationOutcome,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -192,9 +190,11 @@ impl TaskAllocationProcessor {
             FunctionExecutorState::Running, // Start with Running state
         );
         update.new_function_executors.push(fe_server_metadata);
+
+        // Consume resources from executor
         update
-            .updated_executors
-            .insert(executor_id.clone(), *candidate.clone());
+            .updated_executor_resources
+            .insert(executor_id.clone(), candidate.host_resources.clone());
         self.in_memory_state.write().unwrap().update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
@@ -310,9 +310,9 @@ impl TaskAllocationProcessor {
             .in_memory_state
             .read()
             .unwrap()
-            .function_executors_by_executor
+            .executor_states
             .get(&executor.id)
-            .cloned()
+            .map(|executor_state| executor_state.function_executors.clone())
             .unwrap_or_default();
         // Step 1: Identify and remove FEs that should be removed
         // Cases when we should remove:
@@ -432,8 +432,8 @@ impl TaskAllocationProcessor {
                     let mut executor = executor.clone();
                     executor.host_resources.consume(&node_resources)?;
                     update
-                        .updated_executors
-                        .insert(executor.id.clone(), executor);
+                        .updated_executor_resources
+                        .insert(executor.id.clone(), executor.host_resources);
                 }
             }
         }
@@ -470,20 +470,19 @@ impl TaskAllocationProcessor {
         );
 
         // Handle allocations for FEs to be removed and update tasks
-        let allocations_to_remove: Vec<Allocation> = if let Some(allocations_by_fe) = self
+        let mut allocations_to_remove = Vec::new();
+        if let Some(allocations_by_fe) = self
             .in_memory_state
             .read()
             .unwrap()
             .allocations_by_executor
             .get(executor_id)
         {
-            function_executors_to_remove
+            allocations_to_remove = function_executors_to_remove
                 .iter()
                 .filter_map(|fe| allocations_by_fe.get(&fe.id))
                 .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
                 .collect()
-        } else {
-            vec![]
         };
 
         debug!(
@@ -491,17 +490,22 @@ impl TaskAllocationProcessor {
             allocations_to_remove.len()
         );
 
-        // Process each function executor being removed
-        for fe in function_executors_to_remove {
-            // Get the function executor metadata to check its status
+        for allocation in &allocations_to_remove {
+            let task = self
+                .in_memory_state
+                .read()
+                .unwrap()
+                .tasks
+                .get(&allocation.task_key())
+                .cloned();
+
             let fe_status = self
                 .in_memory_state
                 .read()
                 .unwrap()
                 .executors
                 .get(executor_id)
-                .map(|em| em.function_executors.clone())
-                .map(|fe_map| fe_map.get(&fe.id).cloned())
+                .map(|em| em.function_executors.get(&allocation.function_executor_id))
                 .flatten()
                 .map(|fe| fe.status.clone())
                 .unwrap_or(FunctionExecutorStatus::Unknown);
@@ -511,112 +515,19 @@ impl TaskAllocationProcessor {
                 FunctionExecutorStatus::StartupFailedPlatformError => true,
                 _ => false,
             };
-
-            if is_startup_failure {
-                let mut invocations = self
-                    .in_memory_state
-                    .read()
-                    .unwrap()
-                    .get_invocations_by_compute_graph_version(
-                        &fe.namespace,
-                        &fe.compute_graph_name,
-                        &fe.version,
-                    )
-                    .clone();
-                for invocation in invocations.iter_mut() {
-                    invocation.completed = true;
-                    invocation.outcome = GraphInvocationOutcome::Failure;
-
-                    self.in_memory_state
-                        .write()
-                        .unwrap()
-                        .invocation_ctx
-                        .insert(invocation.key(), invocation.clone());
-                    update.updated_invocations_states.push(*invocation.clone());
-                    let tasks = self
-                        .in_memory_state
-                        .read()
-                        .unwrap()
-                        .get_tasks_by_invocation(
-                            &invocation.namespace,
-                            &invocation.compute_graph_name,
-                            &invocation.invocation_id,
-                        )
-                        .clone();
-
-                    for task in tasks.iter() {
-                        let mut task = *task.clone();
-                        task.status = TaskStatus::Completed;
-                        task.outcome = TaskOutcome::Failure;
-
-                        debug!(
-                            "Marking task {} as failed due to function executor failing to start: {:?}",
-                            task.id, fe_status,
-                        );
-
-                        // Update task in memory
-                        self.in_memory_state
-                            .write()
-                            .unwrap()
-                            .tasks
-                            .insert(task.key(), Box::new(task.clone()));
-
-                        // Add to update
-                        update.updated_tasks.insert(task.id.clone(), task);
-                    }
+            if let Some(mut task) = task {
+                if is_startup_failure {
+                    task.status = TaskStatus::Completed;
+                    task.outcome = TaskOutcome::Failure;
+                } else {
+                    task.status = TaskStatus::Pending;
                 }
-            } else {
-                // Process allocations for this specific function executor
-                let allocations_by_fe = self
-                    .in_memory_state
-                    .read()
-                    .unwrap()
-                    .allocations_by_executor
-                    .get(executor_id)
-                    .cloned();
-                if let Some(allocations_by_fe) = allocations_by_fe {
-                    if let Some(allocations) = allocations_by_fe.get(&fe.id) {
-                        for allocation in allocations {
-                            let task = self
-                                .in_memory_state
-                                .read()
-                                .unwrap()
-                                .tasks
-                                .get(&allocation.task_key())
-                                .cloned();
-
-                            if let Some(task) = task {
-                                let mut task = *task.clone();
-                                task.status = TaskStatus::Pending;
-
-                                debug!(
-                                    "Marking task {} as pending due to function executor removal: {:?}",
-                                    task.id, fe_status,
-                                );
-
-                                // Update task in memory
-                                self.in_memory_state
-                                    .write()
-                                    .unwrap()
-                                    .tasks
-                                    .insert(task.key(), Box::new(task.clone()));
-
-                                // Add to update
-                                update.updated_tasks.insert(task.id.clone(), task);
-                            } else {
-                                error!(
-                                    "Task of allocation not found in indexes: {}",
-                                    allocation.task_key(),
-                                );
-                            }
-                        }
-                    }
-                }
+                update.updated_tasks.insert(task.id.clone(), *task.clone());
             }
         }
 
         // Add allocations to remove list
-        update.remove_allocations = allocations_to_remove;
+        update.remove_allocations = allocations_to_remove.clone();
 
         // Add function executors to remove list
         update.remove_function_executors = function_executors_to_remove
@@ -644,8 +555,8 @@ impl TaskAllocationProcessor {
                         );
                     }
                     update
-                        .updated_executors
-                        .insert(executor_id.clone(), *executor.clone());
+                        .updated_executor_resources
+                        .insert(executor_id.clone(), executor.host_resources.clone());
                     self.in_memory_state.write().unwrap().update_state(
                         self.clock,
                         &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
@@ -653,43 +564,6 @@ impl TaskAllocationProcessor {
                 }
             }
         }
-
-        // Remove the function executors from the indexes
-        self.in_memory_state
-            .write()
-            .unwrap()
-            .function_executors_by_executor
-            .entry(executor_id.clone())
-            .and_modify(|fe_mapping| {
-                fe_mapping.retain(|fe_id, _fe| {
-                    !function_executors_to_remove
-                        .iter()
-                        .any(|fe_remove| fe_remove.id == *fe_id)
-                });
-            });
-
-        // Now that we've removed the function executors and updated tasks,
-        // we need to immediately attempt to allocate only tasks that were marked as
-        // pending
-        if !update.updated_tasks.is_empty() {
-            let tasks_to_allocate = update
-                .updated_tasks
-                .iter()
-                .filter(|(_, t)| t.status == TaskStatus::Pending)
-                .map(|(_, t)| Box::new(t.clone()))
-                .collect_vec();
-
-            if !tasks_to_allocate.is_empty() {
-                debug!(
-                "Attempting to reallocate {} tasks that were unallocated due to function executor removal",
-                tasks_to_allocate.len()
-            );
-
-                let allocation_update = self.allocate_tasks(tasks_to_allocate)?;
-                update.extend(allocation_update);
-            }
-        }
-
         Ok(update)
     }
 
@@ -705,10 +579,11 @@ impl TaskAllocationProcessor {
             .in_memory_state
             .read()
             .unwrap()
-            .function_executors_by_executor
+            .executor_states
             .get(executor_id)
             .map(|fes| {
-                fes.values()
+                fes.function_executors
+                    .values()
                     .map(|fe| fe.function_executor.clone())
                     .collect::<Vec<_>>()
             });

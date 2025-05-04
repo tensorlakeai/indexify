@@ -8,6 +8,7 @@ use data_model::{
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
     GraphInvocationCtx,
+    HostResources,
     InvocationPayload,
     NodeOutput,
     ReduceTask,
@@ -64,7 +65,7 @@ pub struct SchedulerUpdateRequest {
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: Vec<FunctionExecutorIdWithExecutionId>,
-    pub updated_executors: HashMap<ExecutorId, ExecutorMetadata>,
+    pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
 }
 
 impl SchedulerUpdateRequest {
@@ -88,7 +89,8 @@ impl SchedulerUpdateRequest {
             .extend(other.new_function_executors);
         self.remove_function_executors
             .extend(other.remove_function_executors);
-        self.updated_executors.extend(other.updated_executors)
+        self.updated_executor_resources
+            .extend(other.updated_executor_resources)
     }
 }
 

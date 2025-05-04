@@ -1296,8 +1296,8 @@ pub struct FunctionURI {
     pub version: GraphVersion,
 }
 
-impl From<&FunctionExecutorServerMetadata> for FunctionURI {
-    fn from(fe_meta: &FunctionExecutorServerMetadata) -> Self {
+impl From<FunctionExecutorServerMetadata> for FunctionURI {
+    fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
             compute_graph_name: fe_meta.function_executor.compute_graph_name.clone(),
@@ -1309,7 +1309,7 @@ impl From<&FunctionExecutorServerMetadata> for FunctionURI {
 
 impl From<Box<FunctionExecutorServerMetadata>> for FunctionURI {
     fn from(fe_meta: Box<FunctionExecutorServerMetadata>) -> Self {
-        FunctionURI::from(&*fe_meta)
+        FunctionURI::from(*fe_meta)
     }
 }
 
@@ -1677,6 +1677,28 @@ impl FunctionExecutorBuilder {
             version,
             status,
         })
+    }
+}
+
+#[derive(Debug, Clone, Builder)]
+#[builder(build_fn(skip))]
+pub struct ExecutorServerMetadata {
+    pub executor_id: ExecutorId,
+    pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    pub free_resources: HostResources,
+}
+
+impl Eq for ExecutorServerMetadata {}
+
+impl PartialEq for ExecutorServerMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.executor_id == other.executor_id
+    }
+}
+
+impl Hash for ExecutorServerMetadata {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.executor_id.hash(state);
     }
 }
 
