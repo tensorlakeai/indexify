@@ -469,9 +469,13 @@ impl TaskAllocationProcessor {
             .collect::<Vec<_>>();
 
         info!(
-            num_function_executors=function_executors_to_remove.len(),
-            function_executors=function_executor_ids.iter().map(|id| id.get()).collect::<Vec<_>>().join(", "),
-            executor_id =executor_id.get(),
+            num_function_executors = function_executors_to_remove.len(),
+            function_executors = function_executor_ids
+                .iter()
+                .map(|id| id.get())
+                .collect::<Vec<_>>()
+                .join(", "),
+            executor_id = executor_id.get(),
             "Removing function executors from executor",
         );
 
@@ -492,7 +496,7 @@ impl TaskAllocationProcessor {
         };
 
         info!(
-            num_allocations=allocations_to_remove.len(),
+            num_allocations = allocations_to_remove.len(),
             executor_id = executor_id.get(),
             "removing allocations from dead executor",
         );
@@ -570,36 +574,37 @@ impl TaskAllocationProcessor {
                 .unwrap()
                 .executors
                 .get(executor_id)
-                .cloned() else {
+                .cloned()
+            else {
+                error!(
+                    "executor {} not found while removing function executor {}",
+                    executor_id.get(),
+                    fe.id.get()
+                );
+                continue;
+            };
+            // FIXME - We are getting FE resources from the compute graph version at the
+            // moment Compute Graphs could be delted before FEs are deleted.
+            // If we can't find CG version, we won't be able to free
+            // resources. So we need to move the resouces allocated to the FEs
+            // to the FE objects.
+            let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
+            if let Some(fe_resources) = fe_resources {
+                if let Err(err) = executor.host_resources.free(&fe_resources) {
                     error!(
-                        "executor {} not found while removing function executor {}",
+                        "failed to free resources for function executor {} in executor {}: {}",
+                        fe.id.get(),
                         executor_id.get(),
-                        fe.id.get()
+                        err
                     );
-                    continue;
-                };
-                // FIXME - We are getting FE resources from the compute graph version at the
-                // moment Compute Graphs could be delted before FEs are deleted.
-                // If we can't find CG version, we won't be able to free
-                // resources. So we need to move the resouces allocated to the FEs
-                // to the FE objects.
-                let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
-                if let Some(fe_resources) = fe_resources {
-                    if let Err(err) = executor.host_resources.free(&fe_resources) {
-                        error!(
-                            "failed to free resources for function executor {} in executor {}: {}",
-                            fe.id.get(),
-                            executor_id.get(),
-                            err
-                        );
-                    }
-                    update
-                        .updated_executor_resources
-                        .insert(executor_id.clone(), executor.host_resources.clone());
-                    self.in_memory_state.write().unwrap().update_state(
-                        self.clock,
-                        &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
-                )?;    
+                }
+                update
+                    .updated_executor_resources
+                    .insert(executor_id.clone(), executor.host_resources.clone());
+                self.in_memory_state.write().unwrap().update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                )?;
             }
         }
         Ok(update)
