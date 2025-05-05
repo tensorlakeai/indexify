@@ -55,7 +55,6 @@ class ExecutorStateReporter:
         flavor: ExecutorFlavor,
         version: str,
         labels: Dict[str, str],
-        development_mode: bool,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_states: FunctionExecutorStatesContainer,
         channel_manager: ChannelManager,
@@ -67,7 +66,6 @@ class ExecutorStateReporter:
         self._flavor: ExecutorFlavor = flavor
         self._version: str = version
         self._labels: Dict[str, str] = labels.copy()
-        self._development_mode: bool = development_mode
         self._hostname: str = gethostname()
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
@@ -153,7 +151,6 @@ class ExecutorStateReporter:
             metric_state_report_rpcs.inc()
             state = ExecutorState(
                 executor_id=self._executor_id,
-                development_mode=self._development_mode,
                 hostname=self._hostname,
                 flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
                 version=self._version,

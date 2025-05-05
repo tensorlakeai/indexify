@@ -9,10 +9,6 @@ class TestStartupProbe(unittest.TestCase):
     def test_success(self):
         with ExecutorProcessContextManager(
             [
-                "--dev",
-                "--ports",
-                "60000",
-                "60001",
                 "--monitoring-server-port",
                 "7001",
             ]

@@ -5,7 +5,7 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{
-            mock_dev_executor,
+            mock_executor,
             mock_executor_id,
             mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
@@ -104,7 +104,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_dev_executor(mock_executor_id()))
+                .create_executor(mock_executor(mock_executor_id()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -251,7 +251,7 @@ mod tests {
         // register executor
         {
             let executor = test_srv
-                .create_executor(mock_dev_executor(mock_executor_id()))
+                .create_executor(mock_executor(mock_executor_id()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -350,7 +350,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_dev_executor(mock_executor_id()))
+                .create_executor(mock_executor(mock_executor_id()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -501,7 +501,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_dev_executor(mock_executor_id()))
+                .create_executor(mock_executor(mock_executor_id()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -579,7 +579,7 @@ mod tests {
         // register executor1, task assigned to it
         let executor1 = {
             let executor1 = test_srv
-                .create_executor(mock_dev_executor(ExecutorId::new("executor_1".to_string())))
+                .create_executor(mock_executor(ExecutorId::new("executor_1".to_string())))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -602,7 +602,7 @@ mod tests {
         // register executor2, no tasks assigned to it
         let executor2 = {
             let executor2 = test_srv
-                .create_executor(mock_dev_executor(ExecutorId::new("executor_2".to_string())))
+                .create_executor(mock_executor(ExecutorId::new("executor_2".to_string())))
                 .await?;
 
             test_srv.process_all_state_changes().await?;

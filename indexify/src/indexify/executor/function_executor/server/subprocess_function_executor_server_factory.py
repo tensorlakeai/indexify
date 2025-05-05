@@ -1,7 +1,8 @@
 import asyncio
 import os
 import signal
-from typing import Any, List, Optional
+import socket
+from typing import Any, Optional
 
 from .function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -10,15 +11,15 @@ from .function_executor_server_factory import (
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
 
-class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
-    def __init__(
-        self,
-        development_mode: bool,
-        server_ports: range,
-    ):
-        self._development_mode: bool = development_mode
-        self._free_ports: List[int] = list(reversed(server_ports))
+def get_free_tcp_port(iface_name="localhost") -> int:
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind((iface_name, 0))
+    _, port = tcp.getsockname()
+    tcp.close()
+    return port
 
+
+class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     async def create(
         self, config: FunctionExecutorServerConfiguration, logger: Any
     ) -> SubprocessFunctionExecutorServer:
@@ -32,14 +33,13 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
             )
 
         try:
-            port = self._allocate_port()
+            port = get_free_tcp_port()
+            logger.info("allocated function executor port", port=port)
             args = [
                 f"--executor-id={config.executor_id}",  # use = as executor_id can start with -
                 "--address",
                 _server_address(port),
             ]
-            if self._development_mode:
-                args.append("--dev")
             # Run the process with our stdout, stderr. We want to see process logs and exceptions in our process output.
             # This is useful for dubugging. Customer function stdout and stderr is captured and returned in the response
             # so we won't see it in our process outputs. This is the right behavior as customer function stdout and stderr
@@ -56,8 +56,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 address=_server_address(port),
             )
         except Exception as e:
-            if port is not None:
-                self._release_port(port)
             logger.error(
                 "failed starting a new Function Executor process at port {port}",
                 exc_info=e,
@@ -91,20 +89,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 "failed to cleanup Function Executor process",
                 exc_info=e,
             )
-        finally:
-            self._release_port(port)
-
-    def _allocate_port(self) -> int:
-        # No asyncio.Lock is required here because this operation never awaits
-        # and it is always called from the same thread where the event loop is running.
-        return self._free_ports.pop()
-
-    def _release_port(self, port: int) -> None:
-        # No asyncio.Lock is required here because this operation never awaits
-        # and it is always called from the same thread where the event loop is running.
-        #
-        # Prefer port reuse to repro as many possible issues deterministically as possible.
-        self._free_ports.append(port)
 
 
 def _server_address(port: int) -> str:

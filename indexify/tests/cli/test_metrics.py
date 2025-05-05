@@ -48,10 +48,6 @@ class TestMetrics(unittest.TestCase):
     def test_executor_info(self):
         with ExecutorProcessContextManager(
             [
-                "--dev",
-                "--ports",
-                "60000",
-                "60001",
                 "--monitoring-server-port",
                 "7001",
             ]

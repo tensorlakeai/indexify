@@ -337,6 +337,8 @@ impl TestExecutor<'_> {
         // Get executor from in-memory state - this is the base executor without
         // complete function executors
         let base_executor = indexes
+            .read()
+            .unwrap()
             .executors
             .get(&self.executor_id)
             .cloned()

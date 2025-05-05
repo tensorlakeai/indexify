@@ -10,9 +10,9 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     ExecutorMetadataBuilder,
+    FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
-    FunctionURI,
     GraphVersion,
     NodeOutputBuilder,
     OutputPayload,
@@ -51,24 +51,15 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::executors::ExecutorManager;
 
-impl TryFrom<AllowedFunction> for FunctionURI {
+impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let namespace = allowed_function
-            .namespace
-            .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = allowed_function
-            .graph_name
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = allowed_function
-            .function_name
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
         let version = allowed_function.graph_version.map(|v| GraphVersion(v));
-        Ok(FunctionURI {
-            namespace,
-            compute_graph_name,
-            compute_fn_name,
+        Ok(FunctionAllowlist {
+            namespace: allowed_function.namespace,
+            compute_graph_name: allowed_function.graph_name,
+            compute_fn_name: allowed_function.function_name,
             version,
         })
     }
@@ -227,8 +218,8 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let _gpu_count = from.gpu_count.unwrap_or(0);
         Ok(data_model::NodeResources {
             cpu_ms_per_sec,
-            memory_mb: (memory_bytes / 1024 / 1024) as u32,
-            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
+            memory_mb: (memory_bytes / 1024 / 1024) as u64,
+            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u64,
             gpu_configs: vec![], // TODO: add GPU mapping support
         })
     }
@@ -259,11 +250,6 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             .ok_or(anyhow::anyhow!("executor_id is required"))?;
         executor_metadata.id(executor_id.clone());
         executor_metadata.state(executor_state.status().into());
-        executor_metadata.development_mode(
-            executor_state
-                .development_mode
-                .ok_or(anyhow::anyhow!("development_mode is required"))?,
-        );
         if let Some(state_hash) = executor_state.state_hash.clone() {
             executor_metadata.state_hash(state_hash);
         }
@@ -273,7 +259,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         }
         let mut allowed_functions = Vec::new();
         for function in executor_state.allowed_functions {
-            allowed_functions.push(FunctionURI::try_from(function)?);
+            allowed_functions.push(FunctionAllowlist::try_from(function)?);
         }
         if allowed_functions.is_empty() {
             executor_metadata.function_allowlist(None);

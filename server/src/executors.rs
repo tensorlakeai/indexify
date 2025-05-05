@@ -8,15 +8,11 @@ use std::{
 };
 
 use anyhow::Result;
-use data_model::{
-    ComputeGraphVersion,
-    ExecutorId,
-    ExecutorMetadata,
-    FunctionExecutorServerMetadata,
-};
+use data_model::{ExecutorId, ExecutorMetadata};
 use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
 use state_store::{
+    in_memory_state::DesiredStateFunctionExecutor,
     requests::{
         DeregisterExecutorRequest,
         RequestPayload,
@@ -29,7 +25,7 @@ use tokio::{
     sync::{watch, Mutex, RwLock},
     time::Instant,
 };
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use crate::{
     executor_api::{
@@ -41,7 +37,6 @@ use crate::{
             FunctionExecutorDescription,
             Task,
             TaskAllocation,
-            TaskRetryPolicy,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -53,6 +48,15 @@ pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
 /// Timeout duration before deregistering executors that haven't re-registered
 /// at service startup
 pub const STARTUP_EXECUTOR_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A struct containing only the computed fields needed for desired state
+#[derive(Debug, Clone)]
+pub struct ComputedTask {
+    pub reducer_input_payload: Option<DataPayload>,
+    pub output_payload_uri_prefix: String,
+    pub input_payload: DataPayload,
+    pub timeout_ms: u32,
+}
 
 /// Wrapper for `tokio::time::Instant` that reverses the ordering for deadline.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -74,16 +78,6 @@ impl PartialOrd for ReverseInstant {
 /// This is used whenever there are no executors.
 fn far_future() -> Instant {
     Instant::now() + Duration::from_secs(24 * 60 * 60)
-}
-
-/// A struct containing only the computed fields needed for desired state
-#[derive(Debug, Clone)]
-pub struct ComputedTask {
-    pub reducer_input_payload: Option<DataPayload>,
-    pub output_payload_uri_prefix: String,
-    pub input_payload: DataPayload,
-    pub timeout_ms: u32,
-    pub retry_policy: TaskRetryPolicy,
 }
 
 /// ExecutorRuntimeData stores runtime state for an executor that is not
@@ -122,6 +116,10 @@ impl ExecutorRuntimeData {
     pub fn update_state(&mut self, hash: String, clock: u64) {
         self.last_state_hash = hash;
         self.last_executor_clock = clock;
+    }
+
+    pub fn should_update(&self, hash: String, clock: u64) -> bool {
+        self.last_state_hash != hash || self.last_executor_clock != clock
     }
 }
 
@@ -228,21 +226,36 @@ impl ExecutorManager {
         //    different to prevent doing duplicate work.
         let should_update = {
             let runtime_data_read = self.runtime_data.read().await;
-            !runtime_data_read
+            runtime_data_read
                 .get(&executor.id)
-                .map(|data| {
-                    data.last_state_hash == executor.state_hash &&
-                        data.last_executor_clock == executor.clock
-                })
-                .unwrap_or(false)
+                .map(|data| data.should_update(executor.state_hash.clone(), executor.clock))
+                .unwrap_or(true)
         };
 
         if should_update {
-            trace!(
+            info!(
                 executor_id = executor.id.get(),
                 state_hash = executor.state_hash,
+                clock = executor.clock,
                 "Executor state hash changed, registering executor"
             );
+            let existing_executor = self
+                .indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .executors
+                .get(&executor.id)
+                .cloned();
+            let executor = match existing_executor {
+                None => executor,
+                Some(existing_executor) => {
+                    let mut existing_executor = existing_executor.clone();
+                    existing_executor.update(executor);
+                    *existing_executor
+                }
+            };
+
             if let Err(e) = self.upsert_executor(executor.clone()).await {
                 error!(
                     executor_id = executor.id.get(),
@@ -369,191 +382,94 @@ impl ExecutorManager {
 
     /// Get the desired state for an executor
     pub async fn get_executor_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
-        let indexes = self.indexify_state.in_memory_state.read().await.clone();
+        let desired_executor_state = self
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .clone()
+            .read()
+            .unwrap()
+            .desired_state(executor_id);
+        let current_fe_hash =
+            compute_function_executors_hash(&desired_executor_state.function_executors);
+        let mut function_executors_pb = vec![];
+        let mut task_allocations = vec![];
+        for desired_state_fe in desired_executor_state.function_executors.iter() {
+            let code_payload_pb = DataPayload {
+                path: Some(desired_state_fe.code_payload.path.clone()),
+                uri: Some(blob_store_path_to_url(
+                    &desired_state_fe.code_payload.path,
+                    &self.blob_store_url_scheme,
+                    &self.blob_store_url,
+                )),
+                size: Some(desired_state_fe.code_payload.size),
+                sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
+                encoding: Some(DataPayloadEncoding::BinaryPickle.into()),
+                encoding_version: None,
+            };
+            let fe = &desired_state_fe.function_executor.function_executor;
+            let fe_description_pb = FunctionExecutorDescription {
+                id: Some(fe.id.get().to_string()),
+                namespace: Some(fe.namespace.clone()),
+                graph_name: Some(fe.compute_graph_name.clone()),
+                graph_version: Some(fe.version.to_string()),
+                function_name: Some(fe.compute_fn_name.clone()),
+                image_uri: Some(desired_state_fe.image_uri.clone()),
+                secret_names: desired_state_fe.secret_names.clone(),
+                resource_limits: None, // deprecated
+                customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms.clone()),
+                graph: Some(code_payload_pb),
+                resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
+            };
+            function_executors_pb.push(fe_description_pb);
+        }
 
-        // Get current function executors state
-        let function_executors = indexes
-            .function_executors_by_executor
-            .get(executor_id)
-            .iter()
-            .flat_map(|fe| fe.values())
-            .filter(|fe| fe.desired_state != data_model::FunctionExecutorState::Terminated)
-            .filter_map(|fe| {
-                let fe_meta = *fe.clone();
-                let fe = fe_meta.function_executor.clone();
-
-                let cg_version =
-                    match indexes
-                        .compute_graph_versions
-                        .get(&ComputeGraphVersion::key_from(
-                            &fe.namespace,
-                            &fe.compute_graph_name,
-                            &fe.version,
-                        )) {
-                        Some(cg_version) => cg_version,
-                        None => {
-                            error!(
-                                executor_id = executor_id.get(),
-                                function_executor_id = fe.id.get(),
-                                "Compute graph version not found"
-                            );
-                            return None;
-                        }
-                    };
-
-                let cg_node = match cg_version.nodes.get(&fe.compute_fn_name) {
-                    Some(cg_node) => cg_node,
-                    None => {
-                        error!(
-                            executor_id = executor_id.get(),
-                            function_executor_id = fe.id.get(),
-                            "Compute graph node not found"
-                        );
-                        return None;
-                    }
-                };
-
-                let resources = match cg_node.resources().try_into() {
-                    Ok(fe_resources) => fe_resources,
-                    Err(e) => {
-                        error!(
-                            executor_id = executor_id.get(),
-                            function_executor_id = fe.id.get(),
-                            "Failed to convert resources: {:?}",
-                            e
-                        );
-                        return None;
-                    }
-                };
-
-                Some((
-                    FunctionExecutorDescription {
-                        id: Some(fe.id.get().to_string()),
-                        namespace: Some(fe.namespace.clone()),
-                        graph_name: Some(fe.compute_graph_name.clone()),
-                        graph_version: Some(fe.version.0),
-                        function_name: Some(fe.compute_fn_name.clone()),
-                        image_uri: cg_node.image_uri(),
-                        secret_names: cg_node.secret_names(),
-                        resource_limits: None, // deprecated
-                        customer_code_timeout_ms: Some(cg_node.timeout().0),
-                        graph: Some(DataPayload {
-                            path: Some(cg_version.code.path.clone()),
-                            uri: Some(blob_store_path_to_url(
-                                &cg_version.code.path,
-                                &self.blob_store_url_scheme,
-                                &self.blob_store_url,
-                            )),
-                            size: Some(cg_version.code.size),
-                            sha256_hash: Some(cg_version.code.sha256_hash.clone()),
-                            encoding: Some(DataPayloadEncoding::BinaryPickle.into()),
-                            encoding_version: None,
-                        }),
-                        resources: Some(resources),
-                    },
-                    fe_meta,
-                ))
-            })
-            .collect::<Vec<_>>();
-
-        // Calculate current task allocations
-        let task_allocations = indexes
-            .allocations_by_executor
-            .get(executor_id)
-            .iter()
-            .flat_map(|allocations| allocations.values())
-            .flatten()
-            .filter_map(|allocation| {
-                let task = match indexes.tasks.get(&allocation.task_key()) {
-                    Some(task) => *task.clone(),
-                    None => {
-                        error!(
-                            executor_id = executor_id.get(),
-                            task_id = allocation.task_id.get(),
-                            task_key = allocation.task_key(),
-                            "Task not found in indexes"
-                        );
-                        return None;
-                    }
-                };
-
-                let computed_task = match self.extract_computed_fields(&task) {
+        for (fe_id, tasks) in desired_executor_state.task_allocations.iter() {
+            for task in tasks.iter() {
+                let computed_task = match self.extract_computed_fields(&task.task) {
                     Ok(computed_task) => computed_task,
                     Err(e) => {
                         error!(
                             executor_id = executor_id.get(),
-                            task_id = allocation.task_id.get(),
-                            task_key = allocation.task_key(),
+                            task_id = task.task.id.get(),
                             "Failed to extract computed fields: {:?}",
                             e
                         );
-                        return None;
+                        continue;
                     }
                 };
-
-                Some(TaskAllocation {
-                    function_executor_id: Some(allocation.function_executor_id.get().to_string()),
+                let task_allocation_pb = TaskAllocation {
+                    function_executor_id: Some(fe_id.get().to_string()),
                     task: Some(Task {
-                        id: Some(task.id.get().to_string()),
-                        namespace: Some(task.namespace.clone()),
-                        graph_name: Some(task.compute_graph_name.clone()),
-                        graph_version: Some(task.graph_version.0),
-                        function_name: Some(task.compute_fn_name.clone()),
-                        graph_invocation_id: Some(task.invocation_id.clone()),
-                        input_key: Some(task.input_node_output_key.clone()),
-                        reducer_output_key: task.reducer_output_id.clone(),
+                        id: Some(task.task.id.get().to_string()),
+                        namespace: Some(task.task.namespace.clone()),
+                        graph_name: Some(task.task.compute_graph_name.clone()),
+                        graph_version: Some(task.task.graph_version.to_string()),
+                        function_name: Some(task.task.compute_fn_name.clone()),
+                        graph_invocation_id: Some(task.task.invocation_id.clone()),
+                        input_key: Some(task.task.input_node_output_key.clone()),
                         timeout_ms: Some(computed_task.timeout_ms),
+                        reducer_output_key: task.task.reducer_output_id.clone(),
                         input: Some(computed_task.input_payload),
                         reducer_input: computed_task.reducer_input_payload,
                         output_payload_uri_prefix: Some(computed_task.output_payload_uri_prefix),
-                        retry_policy: Some(computed_task.retry_policy),
+                        retry_policy: Some(task.retry_policy.clone().into()),
                     }),
-                })
-            })
-            .collect::<Vec<_>>();
-
-        // We return a new clock value whenever the function executors state changes.
-
-        // Compute the current hash of function executors' desired states
-        let current_hash = compute_function_executors_hash(
-            &function_executors
-                .iter()
-                .map(|(_, fe_meta)| fe_meta)
-                .collect::<Vec<_>>(),
-        );
-
-        // Determine what clock value to use
-        let clock = {
-            let mut runtime_data = self.runtime_data.write().await;
-
-            if let Some(data) = runtime_data.get_mut(executor_id) {
-                if data.function_executors_hash == current_hash {
-                    // Hash matches, return the stored clock
-                    data.desired_server_clock
-                } else {
-                    // Hash doesn't match, update and return the current clock
-                    data.update_function_executors_state(current_hash, indexes.clock);
-                    indexes.clock
-                }
-            } else {
-                // No runtime data for this executor, create it and return current clock
-                let mut data = ExecutorRuntimeData::new(
-                    String::new(), // No state hash yet
-                    indexes.clock,
-                );
-                data.update_function_executors_state(current_hash, indexes.clock);
-                runtime_data.insert(executor_id.clone(), data);
-                indexes.clock
+                };
+                task_allocations.push(task_allocation_pb);
             }
-        };
+        }
+
+        if let Some(runtime_data) = self.runtime_data.write().await.get_mut(&executor_id) {
+            runtime_data
+                .update_function_executors_state(current_fe_hash, desired_executor_state.clock);
+        }
 
         DesiredExecutorState {
-            function_executors: function_executors
-                .iter()
-                .map(|(fd, _)| fd.clone())
-                .collect(),
+            function_executors: function_executors_pb,
             task_allocations,
-            clock: Some(clock),
+            clock: Some(desired_executor_state.clock),
         }
     }
 
@@ -670,7 +586,6 @@ impl ExecutorManager {
             output_payload_uri_prefix,
             input_payload,
             timeout_ms: node.timeout().0,
-            retry_policy: node.retry_policy().into(),
         })
     }
 
@@ -700,7 +615,7 @@ impl ExecutorManager {
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
         let state = self.indexify_state.in_memory_state.read().await;
         let allocations_by_executor = &state.allocations_by_executor;
-        let function_executors_by_executor = &state.function_executors_by_executor;
+        let function_executors_by_executor = &state.executor_states;
 
         let executors = function_executors_by_executor
             .iter()
@@ -709,7 +624,7 @@ impl ExecutorManager {
                 let mut function_executors: Vec<FnExecutor> = vec![];
 
                 // Process each function executor
-                for (_, fe_meta) in function_executor_metas {
+                for (_, fe_meta) in function_executor_metas.function_executors.iter() {
                     // Get the function URI string
                     let fn_uri = fe_meta.fn_uri_str();
 
@@ -757,23 +672,28 @@ impl ExecutorManager {
 
 /// Helper function to compute a hash of function executors' desired states
 fn compute_function_executors_hash(
-    function_executors: &[&FunctionExecutorServerMetadata],
+    function_executors: &Vec<Box<DesiredStateFunctionExecutor>>,
 ) -> String {
     let mut hasher = DefaultHasher::new();
 
     // Sort function executors by ID to ensure consistent hashing
-    let mut sorted_executors = function_executors.to_vec();
+    let mut sorted_executors = function_executors.into_iter().collect::<Vec<_>>();
     sorted_executors.sort_by(|a, b| {
         a.function_executor
+            .function_executor
             .id
             .get()
-            .cmp(b.function_executor.id.get())
+            .cmp(b.function_executor.function_executor.id.get())
     });
 
     // Hash each function executor's ID and desired state
     for fe in sorted_executors {
-        fe.function_executor.id.get().hash(&mut hasher);
-        fe.desired_state.hash(&mut hasher);
+        fe.function_executor
+            .function_executor
+            .id
+            .get()
+            .hash(&mut hasher);
+        fe.function_executor.desired_state.hash(&mut hasher);
     }
 
     format!("{:x}", hasher.finish())
@@ -800,7 +720,6 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -836,7 +755,6 @@ mod tests {
         let executor1 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-1".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -851,7 +769,6 @@ mod tests {
         let executor2 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-2".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -866,7 +783,6 @@ mod tests {
         let executor3 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-3".to_string()),
             executor_version: "1.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),

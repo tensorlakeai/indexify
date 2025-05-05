@@ -25,10 +25,6 @@ class TestHealthProbe(unittest.TestCase):
         # Run a new Executor to not interfere with other tests that might turn the default Executor health checks into failing.
         with ExecutorProcessContextManager(
             [
-                "--dev",
-                "--ports",
-                "60000",
-                "60001",
                 "--monitoring-server-port",
                 "7001",
             ]

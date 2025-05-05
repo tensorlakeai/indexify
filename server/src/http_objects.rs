@@ -193,8 +193,8 @@ pub struct NodeGPUConfig {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeResources {
     pub cpus: f64,
-    pub memory_mb: u32,
-    pub ephemeral_disk_mb: u32,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<NodeGPUConfig>,
 }
@@ -217,13 +217,13 @@ impl NodeResources {
                 "Memory must be greater than 128 MB",
             ));
         }
-        if self.memory_mb > executor_config.max_memory_gb_per_function * 1024 {
+        if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Memory must be less than or equal to {} GB",
                 executor_config.max_memory_gb_per_function
             )));
         }
-        if self.ephemeral_disk_mb > executor_config.max_disk_gb_per_function * 1024 {
+        if self.ephemeral_disk_mb > (executor_config.max_disk_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Ephemeral disk must be less than or equal to {} GB",
                 executor_config.max_disk_gb_per_function
@@ -948,10 +948,10 @@ pub struct TaskAnalytics {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionURI {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub compute_fn: Option<String>,
 
     // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
@@ -961,16 +961,66 @@ pub struct FunctionURI {
     pub version: Option<GraphVersion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct GpuResources {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct HostResources {
+    pub cpu_count: u32,
+    pub memory_bytes: u64,
+    pub disk_bytes: u64,
+    // Not all Executors have GPUs.
+    pub gpu: Option<GpuResources>,
+}
+
+impl From<data_model::HostResources> for HostResources {
+    fn from(host_resources: data_model::HostResources) -> Self {
+        Self {
+            cpu_count: host_resources.cpu_count,
+            memory_bytes: host_resources.memory_bytes,
+            disk_bytes: host_resources.disk_bytes,
+            gpu: host_resources.gpu.map(|gpu| GpuResources {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FunctionExecutorMetadata {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub version: String,
+    pub status: String,
+}
+
+impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
+    fn from(executor: data_model::FunctionExecutor) -> Self {
+        Self {
+            id: executor.id.get().to_string(),
+            namespace: executor.namespace,
+            compute_graph_name: executor.compute_graph_name,
+            compute_fn_name: executor.compute_fn_name,
+            version: executor.version.to_string(),
+            status: executor.status.to_string(),
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
-    pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
-    pub function_executors: Vec<serde_json::Value>,
-    pub host_resources: serde_json::Value,
+    pub function_executors: Vec<FunctionExecutorMetadata>,
+    pub host_resources: HostResources,
     pub state: String,
     pub tombstoned: bool,
     pub state_hash: String,
@@ -982,7 +1032,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
         let function_allowlist = executor.function_allowlist.map(|allowlist| {
             allowlist
                 .iter()
-                .map(|fn_uri| FunctionURI {
+                .map(|fn_uri| FunctionAllowlist {
                     namespace: fn_uri.namespace.clone(),
                     compute_graph: fn_uri.compute_graph_name.clone(),
                     compute_fn: fn_uri.compute_fn_name.clone(),
@@ -996,14 +1046,13 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             addr: executor.addr,
             function_allowlist,
             labels: executor.labels,
-            development_mode: executor.development_mode,
             function_executors: executor
                 .function_executors
                 .values()
-                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                .cloned()
+                .map(|v| v.into())
                 .collect(),
-            host_resources: serde_json::to_value(executor.host_resources)
-                .unwrap_or(serde_json::Value::Null),
+            host_resources: executor.host_resources.into(),
             state: executor.state.as_ref().to_string(),
             tombstoned: executor.tombstoned,
             state_hash: executor.state_hash,
