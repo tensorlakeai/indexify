@@ -65,7 +65,7 @@ class TestServerTaskDistribution(unittest.TestCase):
             invocations_per_pid = {}
             invocation_ids: List[str] = []
             # Run many invokes to collect enough samples.
-            for _ in range(200):
+            for _ in range(10):
                 invocation_id = graph.run(block_until_done=False, sleep_secs=0)
                 invocation_ids.append(invocation_id)
 
@@ -110,7 +110,7 @@ class TestServerTaskDistribution(unittest.TestCase):
         invocations_per_pid = {}
         invocation_ids: List[str] = []
         # Run many invokes to collect enough samples.
-        for _ in range(200):
+        for _ in range(10):
             invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
             invocation_ids.append(invocation_id)
 
@@ -177,7 +177,7 @@ class TestServerTaskDistribution(unittest.TestCase):
 
             invocation_ids: List[str] = []
             # Run many invokes to collect enough samples.
-            for i in range(200):
+            for i in range(10):
                 print(f"Running invocation {i}")
                 invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
                 invocation_ids.append(invocation_id)

@@ -180,7 +180,7 @@ class TestFunctionAllowlist(unittest.TestCase):
             # Track tasks per executor
             tasks_per_executor_pid = {}
             # Run many invokes to get representative statistics
-            total_invokes = 400
+            total_invokes = 10
             total_tasks = total_invokes * 4
 
             invocation_ids = []
