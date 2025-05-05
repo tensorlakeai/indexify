@@ -223,11 +223,11 @@ class TestFunctionAllowlist(unittest.TestCase):
             print(f"Tasks distribution: {tasks_per_executor_name}")
 
             # Assert that all executors were used
-            #self.assertEqual(
+            # self.assertEqual(
             #    len(tasks_per_executor_pid),
             #    4,
             #    f"Not all executors were used: {tasks_per_executor_name}",
-            #)
+            # )
 
             # For each function, calculate the expected distribution
             # All executors should run a uniform amount of functions.
