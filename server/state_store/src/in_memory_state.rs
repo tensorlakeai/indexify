@@ -1272,7 +1272,18 @@ impl InMemoryState {
                 .clone();
             let mut desired_state_tasks = std::vec::Vec::new();
             for allocation in allocations.iter() {
-                let task = self.tasks.get(&allocation.task_key()).unwrap();
+                let Some(task) = self.tasks.get(&allocation.task_key()) else {
+                    error!(
+                        task_key = allocation.task_key(),
+                        task_id = allocation.task_id.get(),
+                        namespace = allocation.namespace,
+                        compute_graph = allocation.compute_graph,
+                        compute_fn = allocation.compute_fn,
+                        invocation_id = allocation.invocation_id,
+                        "task not found for allocation, shouldn't happen"
+                    );
+                    continue;
+                };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
                     timeout_ms: cg_node.timeout().0,
