@@ -284,8 +284,8 @@ pub struct NodeResources {
 impl Default for NodeResources {
     fn default() -> Self {
         NodeResources {
-            cpu_ms_per_sec: 125,
-            memory_mb: 128,
+            cpu_ms_per_sec: 1000,        // 1 full CPU core
+            memory_mb: 1024,             // 1 GB
             ephemeral_disk_mb: 1 * 1024, // 1 GB
             gpu_configs: vec![],         // No GPUs by default
         }

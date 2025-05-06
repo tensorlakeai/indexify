@@ -201,9 +201,9 @@ pub struct NodeResources {
 
 impl NodeResources {
     fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        if self.cpus < 0.1 {
+        if self.cpus < 1.0 {
             return Err(IndexifyAPIError::bad_request(
-                "CPU shares must be greater than 0.1",
+                "CPU shares must be greater or equal to 1.0",
             ));
         }
         if self.cpus > executor_config.max_cpus_per_function as f64 {
@@ -212,9 +212,9 @@ impl NodeResources {
                 executor_config.max_cpus_per_function
             )));
         }
-        if self.memory_mb < 128 {
+        if self.memory_mb < 1024 {
             return Err(IndexifyAPIError::bad_request(
-                "Memory must be greater than 128 MB",
+                "Memory must be greater than or equal to 1 GB",
             ));
         }
         if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
