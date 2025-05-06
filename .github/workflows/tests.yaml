@@ -177,5 +177,6 @@ jobs:
         run: |
           if pgrep -f indexify; then
             echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
             exit 1
           fi
