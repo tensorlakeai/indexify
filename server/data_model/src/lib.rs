@@ -336,6 +336,21 @@ pub struct DynamicEdgeRouter {
     pub retry_policy: NodeRetryPolicy,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
+pub struct CacheKey(String);
+
+impl CacheKey {
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for CacheKey {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ComputeFn {
     pub name: String,
@@ -355,6 +370,7 @@ pub struct ComputeFn {
     pub resources: NodeResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
+    pub cache_key: Option<CacheKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -442,6 +458,10 @@ impl Node {
             Node::Router(router) => router.name.clone(),
             Node::Compute(compute) => compute.name.clone(),
         };
+        let cache_key = match self {
+            Node::Router(_) => None,
+            Node::Compute(compute) => compute.cache_key.as_ref().and_then(|v| Some(v.clone())),
+        };
         let task = TaskBuilder::default()
             .namespace(namespace.to_string())
             .compute_fn_name(name)
@@ -450,6 +470,7 @@ impl Node {
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version.clone())
+            .cache_key(cache_key)
             .build()?;
         Ok(task)
     }
@@ -1105,6 +1126,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub cache_key: Option<CacheKey>,
 }
 
 impl Task {
@@ -1235,6 +1257,7 @@ impl TaskBuilder {
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
         let creation_time_ns = duration.as_nanos();
         let id = uuid::Uuid::new_v4().to_string();
+        let cache_key = self.cache_key.clone().flatten();
         let task = Task {
             id: TaskId(id),
             compute_graph_name: cg_name,
@@ -1250,6 +1273,7 @@ impl TaskBuilder {
             reducer_output_id,
             graph_version,
             creation_time_ns,
+            cache_key,
         };
         Ok(task)
     }
@@ -1835,6 +1859,7 @@ pub struct InvokeComputeGraphEvent {
     pub invocation_id: String,
     pub namespace: String,
     pub compute_graph: String,
+    pub invocation_data_sha256_hash: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

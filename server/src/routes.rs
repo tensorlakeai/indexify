@@ -61,6 +61,7 @@ use crate::{
     executors::ExecutorManager,
     http_objects::{
         Allocation,
+        CacheKey,
         ComputeFn,
         ComputeGraph,
         ComputeGraphsList,
@@ -116,6 +117,7 @@ use crate::{
                 ComputeGraph,
                 Node,
                 DynamicRouter,
+		CacheKey,
                 ComputeFn,
                 ListParams,
                 ComputeGraphCreateType,

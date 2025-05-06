@@ -10,6 +10,7 @@ pub enum InvocationStateChangeEvent {
     TaskCreated(TaskCreated),
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
+    TaskMatchedCache(TaskMatchedCache),
     InvocationFinished(InvocationFinishedEvent),
 }
 
@@ -37,6 +38,10 @@ impl InvocationStateChangeEvent {
             InvocationStateChangeEvent::TaskCompleted(TaskCompleted { invocation_id, .. }) => {
                 invocation_id.clone()
             }
+            InvocationStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
+                invocation_id,
+                ..
+            }) => invocation_id.clone(),
         }
     }
 }
@@ -73,6 +78,13 @@ pub struct TaskCompleted {
     pub fn_name: String,
     pub task_id: String,
     pub outcome: TaskOutcome,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TaskMatchedCache {
+    pub invocation_id: String,
+    pub fn_name: String,
+    pub task_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
