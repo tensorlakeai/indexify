@@ -270,6 +270,8 @@ pub struct NodeResources {
     pub memory_mb: u32,
     pub ephemeral_disk_mb: u32,
     // The list is ordered from most to least preferred GPU configuration.
+    // Use serde default to support migration from gpu field to gpu_configs.
+    #[serde(default)]
     pub gpu_configs: Vec<NodeGPUConfig>,
 }
 
