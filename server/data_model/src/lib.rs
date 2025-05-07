@@ -1859,7 +1859,6 @@ pub struct InvokeComputeGraphEvent {
     pub invocation_id: String,
     pub namespace: String,
     pub compute_graph: String,
-    pub invocation_data_sha256_hash: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

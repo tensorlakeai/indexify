@@ -41,7 +41,6 @@ pub fn invoke_compute_graph(
             namespace: request.namespace.clone(),
             invocation_id: request.invocation_payload.id.clone(),
             compute_graph: request.compute_graph_name.clone(),
-            invocation_data_sha256_hash: request.invocation_payload.payload.sha256_hash.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.invocation_payload.id.clone())
