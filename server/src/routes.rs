@@ -8,8 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{sse::Event, Html, IntoResponse},
     routing::{delete, get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use axum_tracing_opentelemetry::{
     self,
@@ -27,12 +26,8 @@ use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
     requests::{
-        CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
-        DeleteInvocationRequest,
-        NamespaceRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
+        CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, DeleteInvocationRequest,
+        NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
     },
     IndexifyState,
 };
@@ -48,9 +43,7 @@ mod internal_ingest;
 mod invoke;
 mod logs;
 use download::{
-    download_fn_output_by_key,
-    download_fn_output_payload,
-    download_invocation_payload,
+    download_fn_output_by_key, download_fn_output_payload, download_invocation_payload,
 };
 use internal_ingest::{ingest_files_from_executor, ingest_fn_outputs};
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
@@ -60,28 +53,10 @@ use crate::{
     config::ServerConfig,
     executors::ExecutorManager,
     http_objects::{
-        Allocation,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphsList,
-        CreateNamespace,
-        CursorDirection,
-        DynamicRouter,
-        ExecutorMetadata,
-        ExecutorsAllocationsResponse,
-        FnOutputs,
-        GraphInvocations,
-        GraphVersion,
-        ImageInformation,
-        IndexifyAPIError,
-        ListParams,
-        Namespace,
-        NamespaceList,
-        Node,
-        RuntimeInformation,
-        Task,
-        TaskOutcome,
-        Tasks,
+        Allocation, ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, CursorDirection,
+        DynamicRouter, ExecutorMetadata, ExecutorsAllocationsResponse, FnOutputs, GraphInvocations,
+        GraphVersion, ImageInformation, IndexifyAPIError, ListParams, Namespace, NamespaceList,
+        Node, RuntimeInformation, Task, TaskOutcome, Tasks,
     },
 };
 
@@ -139,7 +114,7 @@ use crate::{
         )
     )]
 
-struct ApiDoc;
+pub struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
