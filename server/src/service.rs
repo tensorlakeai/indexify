@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::init_provider;
-use processor::{gc::Gc, graph_processor::GraphProcessor};
+use processor::{gc::Gc, graph_processor::GraphProcessor, task_cache};
 use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
@@ -40,6 +40,7 @@ pub struct Service {
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub metrics_registry: Arc<Registry>,
+    pub task_cache: Arc<task_cache::TaskCache>,
     pub graph_processor: Arc<GraphProcessor>,
 }
 
@@ -75,7 +76,11 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let graph_processor = Arc::new(GraphProcessor::new(indexify_state.clone()));
+        let task_cache = Arc::new(task_cache::TaskCache::new(indexify_state.clone()));
+        let graph_processor = Arc::new(GraphProcessor::new(
+            indexify_state.clone(),
+            task_cache.clone(),
+        ));
         Ok(Self {
             config,
             shutdown_tx,
@@ -86,6 +91,7 @@ impl Service {
             kvs,
             gc_executor,
             metrics_registry,
+            task_cache,
             graph_processor,
         })
     }

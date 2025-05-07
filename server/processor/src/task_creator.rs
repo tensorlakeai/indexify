@@ -554,7 +554,6 @@ impl TaskCreator {
                         }
                         let prev_reducer_output = prev_reducer_outputs.first().unwrap();
 
-                        let output = outputs.first().unwrap();
                         let new_task = compute_node.create_task(
                             &task.namespace,
                             &task.compute_graph_name,

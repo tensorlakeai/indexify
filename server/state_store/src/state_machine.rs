@@ -1,4 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{self, AtomicU64},
+        Arc,
+    },
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -12,7 +18,10 @@ use data_model::{
     NodeOutput,
     OutputPayload,
     StateChange,
+    StateChangeBuilder,
+    StateChangeId,
     Task,
+    TaskOutputsIngestedEvent,
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
@@ -26,10 +35,11 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
+    CachedTaskOutput,
     DeleteInvocationRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
@@ -657,7 +667,8 @@ pub(crate) fn handle_scheduler_update(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     request: &SchedulerUpdateRequest,
-) -> Result<()> {
+    last_state_change_id: &AtomicU64,
+) -> Result<Vec<StateChange>> {
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -712,6 +723,65 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
+    let mut state_changes = vec![];
+
+    for (_, CachedTaskOutput { task, node_outputs }) in &request.cached_task_outputs {
+        info!(
+            namespace = task.namespace,
+            graph = task.compute_graph_name,
+            invocation_id = task.invocation_id,
+            function_name = task.compute_fn_name,
+            task_id = task.id.to_string(),
+            status = task.status.to_string(),
+            outcome = task.outcome.to_string(),
+            duration_secs = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+            "cached task outputs",
+        );
+        for output in node_outputs {
+            let serialized_output = JsonEncoder::encode(&output)?;
+            // Create an output key
+            let output_key = output.key(&task.invocation_id);
+            txn.put_cf(
+                &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+                &output_key,
+                serialized_output,
+            )?;
+
+            // Create a key to store the pointer to the node output to the task
+            // NS_TASK_ID_<OutputID> -> Output Key
+            let task_output_key = &task.key_output(&output.id);
+            let node_output_id = JsonEncoder::encode(&output_key)?;
+            txn.put_cf(
+                &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+                task_output_key,
+                node_output_id,
+            )?;
+        }
+
+        let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+        let event = StateChangeBuilder::default()
+            .namespace(Some(task.namespace.clone()))
+            .compute_graph(Some(task.compute_graph_name.clone()))
+            .invocation(Some(task.invocation_id.clone()))
+            .change_type(data_model::ChangeType::TaskOutputsIngested(
+                TaskOutputsIngestedEvent {
+                    namespace: task.namespace.clone(),
+                    compute_graph: task.compute_graph_name.clone(),
+                    compute_fn: task.compute_fn_name.clone(),
+                    invocation_id: task.invocation_id.clone(),
+                    task_id: task.id.clone(),
+                },
+            ))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(task.id.clone().to_string())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()?;
+
+        debug!(cache_event = ?event);
+        state_changes.push(event);
+    }
+
     processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
 
     for invocation_ctx in &request.updated_invocations_states {
@@ -734,7 +804,7 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    Ok(())
+    Ok(state_changes)
 }
 
 // returns true if task the task finishing state should be emitted.

@@ -187,10 +187,12 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::SchedulerUpdate(request) => {
-                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
-                vec![]
-            }
+            RequestPayload::SchedulerUpdate(request) => state_machine::handle_scheduler_update(
+                self.db.clone(),
+                &txn,
+                request,
+                &self.last_state_change_id,
+            )?,
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),
@@ -337,15 +339,27 @@ impl IndexifyState {
                 }
 
                 for (_, task) in &sched_update.updated_tasks {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::TaskCreated(
-                            invocation_events::TaskCreated {
-                                invocation_id: task.invocation_id.clone(),
-                                fn_name: task.compute_fn_name.clone(),
-                                task_id: task.id.to_string(),
-                            },
-                        ));
+                    if sched_update.cached_task_outputs.contains_key(&task.id) {
+                        let _ =
+                            self.task_event_tx
+                                .send(InvocationStateChangeEvent::TaskMatchedCache(
+                                    invocation_events::TaskMatchedCache {
+                                        invocation_id: task.invocation_id.clone(),
+                                        fn_name: task.compute_fn_name.clone(),
+                                        task_id: task.id.to_string(),
+                                    },
+                                ));
+                    } else {
+                        let _ = self
+                            .task_event_tx
+                            .send(InvocationStateChangeEvent::TaskCreated(
+                                invocation_events::TaskCreated {
+                                    invocation_id: task.invocation_id.clone(),
+                                    fn_name: task.compute_fn_name.clone(),
+                                    task_id: task.id.to_string(),
+                                },
+                            ));
+                    }
                 }
 
                 for invocation_ctx in &sched_update.updated_invocations_states {

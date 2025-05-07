@@ -366,6 +366,33 @@ fn default_encoder() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct CacheKey(String);
+
+impl CacheKey {
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<CacheKey> for data_model::CacheKey {
+    fn from(val: CacheKey) -> Self {
+        data_model::CacheKey::from(val.get())
+    }
+}
+
+impl From<&str> for CacheKey {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl From<data_model::CacheKey> for CacheKey {
+    fn from(val: data_model::CacheKey) -> Self {
+        CacheKey::from(val.get())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
@@ -384,6 +411,8 @@ pub struct ComputeFn {
     pub resources: NodeResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
+    #[serde(rename = "cache_key")]
+    pub cache_key: Option<CacheKey>,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -401,6 +430,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             timeout: val.timeout.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
+            cache_key: val.cache_key.and_then(|v| Some(v.into())),
         }
     }
 }
@@ -419,6 +449,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             timeout: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
+            cache_key: c.cache_key.and_then(|v| Some(v.into())),
         }
     }
 }
