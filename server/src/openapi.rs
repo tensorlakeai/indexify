@@ -1,32 +1,69 @@
 use crate::routes;
-use serde_json::{Map, Value}; // modified import
+use serde_json::{Map, Value};
 use std::fs;
+use std::path::Path;
+use tracing::{error, info};
 use utoipa::OpenApi;
 
-pub fn remove_internal_routes(api_json: &str) -> String {
+pub fn transform_openapi_paths(api_json: &str) -> String {
     // Parse the JSON into a serde_json::Value
     let mut json_value: Value = serde_json::from_str(api_json).expect("Invalid JSON format");
 
     // If there is a "paths" object, remove any route with "/internal"
+    // and replace namespace paths with workflow paths
     if let Some(paths) = json_value.get_mut("paths").and_then(|v| v.as_object_mut()) {
-        paths.retain(|k, _| !k.contains("/internal"));
+        // First create a new map to avoid borrowing issues
+        let mut new_paths = Map::new();
+
+        for (path, value) in paths.iter() {
+            // Skip internal routes
+            if path.contains("/internal") {
+                continue;
+            }
+
+            // Replace namespace with workflows in the path
+            let new_path = path
+                .replace("/namespaces/{namespace}", "/workflows")
+                .replace("/namespaces", "/workflows");
+
+            new_paths.insert(new_path, value.clone());
+        }
+
+        // Replace the old paths with the new ones
+        *paths = new_paths;
     }
 
     // Serialize the modified JSON back to a string
     serde_json::to_string(&json_value).expect("Failed to serialize JSON")
 }
 
+// TODO: it should write to server/target/debug/openapi.json
 pub fn generate_openapi(public_docs: bool) {
     let api_docs = routes::ApiDoc::openapi().to_json().unwrap();
-    // Replacing namespace to workflows
-    let openapi = api_docs
-        .replace("/namespaces/{namespace}", "/workflows")
-        .replace("/namespaces", "/workflows"); // chained replacement
 
-    // Remove any route that contains "/internal"
-    let openapi_clean = remove_internal_routes(&openapi);
+    // Transform the API paths
+    let openapi_clean = transform_openapi_paths(&api_docs);
 
-    fs::write("./openapi.json", &openapi_clean).unwrap();
+    // Use CARGO_MANIFEST_DIR to get the project root directory
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let target_dir = Path::new(&manifest_dir).join("target").join("debug");
+
+    if !target_dir.exists() {
+        match fs::create_dir_all(&target_dir) {
+            Ok(_) => info!("Created directory: {:?}", target_dir),
+            Err(e) => {
+                error!("Failed to create directory {:?}: {}", target_dir, e);
+                return;
+            }
+        }
+    }
+
+    // Write the OpenAPI file with error handling
+    let filepath = target_dir.join("openapi.json");
+    match fs::write(&filepath, &openapi_clean) {
+        Ok(_) => info!("Successfully wrote OpenAPI file to {:?}", filepath),
+        Err(e) => error!("Failed to write OpenAPI file to {:?}: {}", filepath, e),
+    }
 
     if public_docs {
         let mut json_value: Value =
@@ -131,6 +168,13 @@ pub fn generate_openapi(public_docs: bool) {
 
         let updated_json =
             serde_json::to_string(&Value::Object(new_root)).expect("Failed to serialize JSON");
-        fs::write("./openapi.json", updated_json).unwrap();
+
+        match fs::write(&filepath, updated_json) {
+            Ok(_) => info!("Successfully wrote public OpenAPI file to {:?}", filepath),
+            Err(e) => error!(
+                "Failed to write public OpenAPI file to {:?}: {}",
+                filepath, e
+            ),
+        }
     }
 }
