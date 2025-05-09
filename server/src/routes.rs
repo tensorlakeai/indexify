@@ -141,7 +141,7 @@ use crate::{
         )
     )]
 
-struct ApiDoc;
+pub struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {

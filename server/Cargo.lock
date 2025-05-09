@@ -1554,6 +1554,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "state_store",
  "strum",
@@ -3892,6 +3893,7 @@ dependencies = [
  "indexmap 2.9.0",
  "serde",
  "serde_json",
+ "serde_yaml",
  "utoipa-gen",
 ]
 
