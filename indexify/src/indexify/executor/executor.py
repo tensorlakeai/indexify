@@ -57,6 +57,7 @@ class Executor:
     def __init__(
         self,
         id: str,
+        development_mode: bool,
         flavor: ExecutorFlavor,
         version: str,
         labels: Dict[str, str],
@@ -112,6 +113,7 @@ class Executor:
         )
         self._state_reporter = ExecutorStateReporter(
             executor_id=id,
+            development_mode=development_mode,
             flavor=flavor,
             version=version,
             labels=labels,

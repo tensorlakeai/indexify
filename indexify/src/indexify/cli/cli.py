@@ -85,8 +85,8 @@ def executor(
     ctx: typer.Context,
     server_addr: str = "localhost:8900",
     grpc_server_addr: str = "localhost:8901",
-    verbose_logs: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Run the executor in verbose mode")
+    dev: Annotated[
+        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
     function_uris: Annotated[
         Optional[List[str]],
@@ -139,7 +139,7 @@ def executor(
         ),
     ] = False,
 ):
-    if verbose_logs:
+    if dev:
         compact_tracebacks: bool = os.getenv("INDEXIFY_COMPACT_TRACEBACKS", "1") == "1"
         configure_development_mode_logging(compact_tracebacks=compact_tracebacks)
     else:
@@ -164,7 +164,7 @@ def executor(
         labels=kv_labels,
         executor_cache=executor_cache,
         functions=function_uris,
-        verbose_logs=verbose_logs,
+        dev_mode=dev,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
@@ -205,6 +205,7 @@ def executor(
 
     Executor(
         id=executor_id,
+        development_mode=dev,
         flavor=ExecutorFlavor.OSS,
         version=executor_version,
         labels=kv_labels,
