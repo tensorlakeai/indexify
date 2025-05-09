@@ -1,5 +1,6 @@
-use serde_yaml::{Mapping, Value};
 use std::fs;
+
+use serde_yaml::{Mapping, Value};
 
 pub fn generate_cloud_openapi(api_docs_yaml: String) {
     let openapi = api_docs_yaml.replace("/namespaces/{namespace}", "/workflows");
