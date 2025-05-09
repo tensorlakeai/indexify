@@ -36,6 +36,11 @@ function RedirectToComputeGraphs() {
   return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />;
 }
 
+function RootRedirect() {
+  const { namespace = 'default' } = useParams<{ namespace: string }>();
+  return <Navigate to={`/${namespace}/compute-graphs`} replace />;
+}
+
 async function rootLoader({ params }: LoaderFunctionArgs) {
   try {
     const serviceUrl = getIndexifyServiceURL();
@@ -61,7 +66,7 @@ const router = createBrowserRouter(
       children: [
         {
           index: true,
-          element: <Navigate to="/default/compute-graphs" replace />,
+          element: <RootRedirect />,
           errorElement: <ErrorPage />
         },
         {
