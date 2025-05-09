@@ -1,9 +1,9 @@
-import { type ReactElement } from 'react';
-import { ThemeProvider } from '@mui/material/styles';
-import { 
-  Box, 
-  CssBaseline, 
-  Toolbar, 
+import { type ReactElement } from 'react'
+import { ThemeProvider } from '@mui/material/styles'
+import {
+  Box,
+  CssBaseline,
+  Toolbar,
   Typography,
   Drawer,
   List,
@@ -14,67 +14,66 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  SelectChangeEvent
-} from '@mui/material';
+  SelectChangeEvent,
+} from '@mui/material'
 import {
   LoaderFunctionArgs,
   Outlet,
   redirect,
   useLocation,
   Link,
-  useParams
-} from 'react-router-dom';
-import { Cpu, Setting4 } from 'iconsax-react';
-import { getIndexifyServiceURL } from '../utils/helpers';
-import theme from '../theme';
+  useParams,
+} from 'react-router-dom'
+import { Cpu, Setting4 } from 'iconsax-react'
+import { getIndexifyServiceURL } from '../utils/helpers'
+import theme from '../theme'
 
-import Footer from '../components/Footer';
-import VersionDisplay from '../components/VersionDisplay';
-import { useNavigate, useLoaderData } from 'react-router-dom';
+import Footer from '../components/Footer'
+import VersionDisplay from '../components/VersionDisplay'
+import { useLoaderData } from 'react-router-dom'
 
-const DRAWER_WIDTH = 240;
-const SERVICE_URL = getIndexifyServiceURL();
+const DRAWER_WIDTH = 240
+const SERVICE_URL = getIndexifyServiceURL()
 
 interface NavItem {
-  path: string;
-  icon: ReactElement;
-  label: string;
+  path: string
+  icon: ReactElement
+  label: string
 }
 
 interface RootLoaderData {
-  namespaces: { name: string; created_at: number }[];
-  namespace: string;
+  namespaces: { name: string; created_at: number }[]
+  namespace: string
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace || 'default';
-  return redirect(`/${namespace}/compute-graphs`);
+  const namespace = params.namespace || 'default'
+  return redirect(`/${namespace}/compute-graphs`)
 }
 
 function Dashboard() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { namespace = 'default' } = useParams<{ namespace: string }>();
-  const { namespaces } = useLoaderData() as RootLoaderData;
+  const location = useLocation()
+  const { namespace = 'default' } = useParams<{ namespace: string }>()
+  const { namespaces } = useLoaderData() as RootLoaderData
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
-    const newNamespace = event.target.value;
-    const newPath = location.pathname.replace(/^\/[^/]+/, `/${newNamespace}`);
-    navigate(newPath);
-  };
+    const newNamespace = event.target.value
+    const newPath = location.pathname.replace(/^\/[^/]+/, `/${newNamespace}`)
+    window.location.href = window.location.origin + '/ui' + newPath
+  }
 
   const navItems: NavItem[] = [
     {
       path: `${namespace}/compute-graphs`,
       icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
-      label: 'Compute Graphs'
+      label: 'Compute Graphs',
     },
     {
       path: '/executors',
       icon: <Setting4 size="20" className="drawer-logo" variant="Outline" />,
-      label: 'Executors'
-    }
-  ];
+      label: 'Executors',
+    },
+  ]
 
   return (
     <ThemeProvider theme={theme}>
@@ -84,16 +83,18 @@ function Dashboard() {
           flexDirection: 'column',
           height: '100vh',
           backgroundColor: (theme) =>
-            theme.palette.mode === 'light' ? '#F7F9FC' : theme.palette.grey[900],
+            theme.palette.mode === 'light'
+              ? '#F7F9FC'
+              : theme.palette.grey[900],
         }}
       >
         <CssBaseline />
-        <VersionDisplay 
-          owner="tensorlakeai" 
-          repo="indexify" 
-          variant="announcement" 
-          serviceUrl={SERVICE_URL} 
-          drawerWidth={DRAWER_WIDTH} 
+        <VersionDisplay
+          owner="tensorlakeai"
+          repo="indexify"
+          variant="announcement"
+          serviceUrl={SERVICE_URL}
+          drawerWidth={DRAWER_WIDTH}
         />
 
         <Box sx={{ display: 'flex', flex: 1 }}>
@@ -109,11 +110,7 @@ function Dashboard() {
             }}
           >
             <Toolbar>
-              <Box 
-                display="flex" 
-                alignItems="center" 
-                gap={2}
-              >
+              <Box display="flex" alignItems="center" gap={2}>
                 <img src="/ui/logo.svg" alt="logo" />
                 <Link to="/ui" style={{ textDecoration: 'none' }}>
                   <Typography
@@ -161,9 +158,10 @@ function Dashboard() {
                     to={path}
                     component={Link}
                     selected={location.pathname.startsWith(path)}
-                    className={location.pathname.startsWith(path) 
-                      ? "selected-navbar-items navbar-items" 
-                      : "navbar-items"
+                    className={
+                      location.pathname.startsWith(path)
+                        ? 'selected-navbar-items navbar-items'
+                        : 'navbar-items'
                     }
                   >
                     {icon}
@@ -173,12 +171,12 @@ function Dashboard() {
               </List>
 
               <Box sx={{ mt: 'auto', pb: 1 }}>
-                <VersionDisplay 
-                  owner="tensorlakeai" 
-                  repo="indexify" 
-                  variant="sidebar" 
-                  serviceUrl={SERVICE_URL} 
-                  drawerWidth={DRAWER_WIDTH} 
+                <VersionDisplay
+                  owner="tensorlakeai"
+                  repo="indexify"
+                  variant="sidebar"
+                  serviceUrl={SERVICE_URL}
+                  drawerWidth={DRAWER_WIDTH}
                 />
               </Box>
             </Box>
@@ -204,7 +202,7 @@ function Dashboard() {
         </Box>
       </Box>
     </ThemeProvider>
-  );
+  )
 }
 
-export default Dashboard;
+export default Dashboard
