@@ -47,7 +47,8 @@ interface RootLoaderData {
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  return redirect('/default/compute-graphs');
+  const namespace = params.namespace || 'default';
+  return redirect(`/${namespace}/compute-graphs`);
 }
 
 function Dashboard() {
