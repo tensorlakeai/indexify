@@ -21,7 +21,8 @@ import {
   Outlet,
   redirect,
   useLocation,
-  Link
+  Link,
+  useParams
 } from 'react-router-dom';
 import { Cpu, Setting4 } from 'iconsax-react';
 import { getIndexifyServiceURL } from '../utils/helpers';
@@ -52,7 +53,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 function Dashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { namespaces, namespace } = useLoaderData() as RootLoaderData;
+  const { namespace = 'default' } = useParams<{ namespace: string }>();
+  const { namespaces } = useLoaderData() as RootLoaderData;
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
     const newNamespace = event.target.value;
@@ -62,7 +64,7 @@ function Dashboard() {
 
   const navItems: NavItem[] = [
     {
-      path: '/default/compute-graphs',
+      path: `${namespace}/compute-graphs`,
       icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
       label: 'Compute Graphs'
     },
