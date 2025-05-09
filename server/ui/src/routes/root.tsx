@@ -47,14 +47,15 @@ interface RootLoaderData {
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace || 'default'
-  return redirect(`/${namespace}/compute-graphs`)
+  const namespace = params.namespace || 'default';
+  return redirect(`/${namespace}/compute-graphs`);
 }
 
 function Dashboard() {
-  const location = useLocation()
-  const { namespace = 'default' } = useParams<{ namespace: string }>()
-  const { namespaces } = useLoaderData() as RootLoaderData
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { namespace = 'default' } = useParams<{ namespace: string }>();
+  const { namespaces } = useLoaderData() as RootLoaderData;
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
     const newNamespace = event.target.value
