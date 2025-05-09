@@ -78,9 +78,11 @@ def build_image(
 
 
 @app.command(
-    help="Runs Executor that connects to the Indexify server and starts running its tasks"
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help="Runs Executor that connects to the Indexify server and starts running its tasks",
 )
 def executor(
+    ctx: typer.Context,
     server_addr: str = "localhost:8900",
     grpc_server_addr: str = "localhost:8901",
     verbose_logs: Annotated[
@@ -167,6 +169,11 @@ def executor(
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     )
+    if ctx.args:
+        logger.warning(
+            "Unknown arguments passed to the executor",
+            unknown_args=ctx.args,
+        )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
     if os.path.exists(executor_cache):
