@@ -16,6 +16,7 @@ use tracing_subscriber::{
     layer::SubscriberExt,
     Layer,
 };
+use utoipa::OpenApi;
 
 mod config;
 mod executor_api;
@@ -23,9 +24,11 @@ mod executors;
 mod gc_test;
 mod http_objects;
 mod integration_test;
+mod openapi;
 mod reconciliation_test;
 mod routes;
 mod service;
+
 #[cfg(test)]
 mod testing;
 
@@ -34,6 +37,12 @@ mod testing;
 struct Cli {
     #[arg(short, long, help = "Development mode")]
     dev: bool,
+    #[arg(
+        short,
+        long,
+        help = "Enable OpenAPI Spec for Tensorlake Cloud consumption"
+    )]
+    gen_cloud_openapi: bool,
     #[arg(short, long, value_name = "config file", help = "Path to config file")]
     config: Option<PathBuf>,
 }
@@ -104,6 +113,16 @@ async fn main() {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
     };
+
+    if cli.gen_cloud_openapi {
+        let api_docs_yaml = routes::ApiDoc::openapi().to_yaml().unwrap_or_else(|err| {
+            eprintln!("Failed to generate OpenAPI spec: {}", err);
+            std::process::exit(1);
+        });
+
+        openapi::generate_cloud_openapi(api_docs_yaml);
+        std::process::exit(0);
+    }
 
     // Override config with cli arguments.
     if cli.dev {
