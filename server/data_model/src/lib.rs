@@ -1384,11 +1384,15 @@ pub const GPU_MODEL_NVIDIA_H100_80GB: &str = "H100";
 pub const GPU_MODEL_NVIDIA_A100_40GB: &str = "A100-40GB";
 pub const GPU_MODEL_NVIDIA_A100_80GB: &str = "A100-80GB";
 pub const GPU_MODEL_NVIDIA_TESLA_T4: &str = "T4";
-pub const ALL_GPU_MODELS: [&str; 4] = [
+pub const GPU_MODEL_NVIDIA_A6000: &str = "A6000";
+pub const GPU_MODEL_NVIDIA_A10: &str = "A10";
+pub const ALL_GPU_MODELS: [&str; 6] = [
     GPU_MODEL_NVIDIA_H100_80GB,
     GPU_MODEL_NVIDIA_A100_40GB,
     GPU_MODEL_NVIDIA_A100_80GB,
     GPU_MODEL_NVIDIA_TESLA_T4,
+    GPU_MODEL_NVIDIA_A6000,
+    GPU_MODEL_NVIDIA_A10,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1421,6 +1425,8 @@ impl HostResources {
             self.memory_bytes >= memory_bytes &&
             self.disk_bytes >= disk_bytes &&
             self.gpu.as_ref().map_or(true, |gpu| {
+                // TODO: Match functions to GPU models according to prioritized order in
+                // gpu_configs.
                 requested_resources
                     .gpu_configs
                     .iter()
