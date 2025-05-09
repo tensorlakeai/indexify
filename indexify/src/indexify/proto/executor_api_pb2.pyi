@@ -25,6 +25,8 @@ class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GPU_MODEL_NVIDIA_A100_80GB: _ClassVar[GPUModel]
     GPU_MODEL_NVIDIA_H100_80GB: _ClassVar[GPUModel]
     GPU_MODEL_NVIDIA_TESLA_T4: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A6000: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A10: _ClassVar[GPUModel]
 
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -80,6 +82,8 @@ GPU_MODEL_NVIDIA_A100_40GB: GPUModel
 GPU_MODEL_NVIDIA_A100_80GB: GPUModel
 GPU_MODEL_NVIDIA_H100_80GB: GPUModel
 GPU_MODEL_NVIDIA_TESLA_T4: GPUModel
+GPU_MODEL_NVIDIA_A6000: GPUModel
+GPU_MODEL_NVIDIA_A10: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus

@@ -33,6 +33,8 @@ enum GPUModel {
     GPU_MODEL_NVIDIA_A100_80GB = 2;
     GPU_MODEL_NVIDIA_H100_80GB = 3;
     GPU_MODEL_NVIDIA_TESLA_T4 = 4;
+    GPU_MODEL_NVIDIA_A6000 = 5;
+    GPU_MODEL_NVIDIA_A10 = 6;
 }
 
 // Free GPUs available at the Executor.
