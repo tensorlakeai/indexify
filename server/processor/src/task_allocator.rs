@@ -1,4 +1,5 @@
 use std::{
+    ops::DerefMut,
     sync::{Arc, RwLock},
     vec,
 };
@@ -37,21 +38,47 @@ use tracing::{debug, error, info, warn};
 // - function timeout configuration
 const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
-pub struct TaskAllocationProcessor {
-    in_memory_state: Arc<RwLock<InMemoryState>>,
+struct TaskAllocationProcessor<'a> {
+    in_memory_state: &'a mut InMemoryState,
     clock: u64,
 }
 
-impl TaskAllocationProcessor {
-    pub fn new(in_memory_state: Arc<RwLock<InMemoryState>>, clock: u64) -> Self {
-        Self {
-            in_memory_state,
-            clock,
-        }
-    }
+#[tracing::instrument(skip(in_memory_state, clock, change))]
+pub fn invoke(
+    in_memory_state: Arc<RwLock<InMemoryState>>,
+    clock: u64,
+    change: &ChangeType,
+) -> Result<SchedulerUpdateRequest> {
+    let mut in_memory_state = in_memory_state.write().unwrap();
 
+    let mut task_allocator = TaskAllocationProcessor {
+        in_memory_state: &mut in_memory_state.deref_mut(),
+        clock,
+    };
+
+    task_allocator.invoke(change)
+}
+
+/// Allocate attempts to allocate unallocated tasks to function executors.
+/// It first runs a vacuum phase to clean up any stale function executors.
+#[tracing::instrument(skip(in_memory_state, clock))]
+pub fn allocate(
+    in_memory_state: Arc<RwLock<InMemoryState>>,
+    clock: u64,
+) -> Result<SchedulerUpdateRequest> {
+    let mut in_memory_state = in_memory_state.write().unwrap();
+
+    let mut task_allocator = TaskAllocationProcessor {
+        in_memory_state: &mut in_memory_state.deref_mut(),
+        clock,
+    };
+
+    task_allocator.allocate()
+}
+
+impl<'a> TaskAllocationProcessor<'a> {
     #[tracing::instrument(skip(self, change))]
-    pub fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
+    fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::ExecutorUpserted(ev) => {
                 let mut update = self.reconcile_executor_state(&ev.executor_id)?;
@@ -73,11 +100,11 @@ impl TaskAllocationProcessor {
     /// Allocate attempts to allocate unallocated tasks to function executors.
     /// It first runs a vacuum phase to clean up any stale function executors.
     #[tracing::instrument(skip(self))]
-    pub fn allocate(&mut self) -> Result<SchedulerUpdateRequest> {
+    fn allocate(&mut self) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Step 1: Fetch unallocated tasks
-        let tasks = self.in_memory_state.read().unwrap().unallocated_tasks();
+        let tasks = self.in_memory_state.unallocated_tasks();
         debug!("found {} unallocated tasks to process", tasks.len());
 
         // Step 3: Allocate tasks
@@ -87,7 +114,7 @@ impl TaskAllocationProcessor {
     }
 
     #[tracing::instrument(skip(self, tasks))]
-    pub fn allocate_tasks(&self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
+    fn allocate_tasks(&mut self, tasks: Vec<Box<Task>>) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Step 1: Process tasks
@@ -103,8 +130,6 @@ impl TaskAllocationProcessor {
         let mut update = SchedulerUpdateRequest::default();
         let function_executors_to_mark = self
             .in_memory_state
-            .read()
-            .unwrap()
             .vacuum_function_executors_candidates()?;
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
@@ -127,13 +152,9 @@ impl TaskAllocationProcessor {
         Ok(update)
     }
 
-    fn create_function_executor(&self, task: &Task) -> Result<SchedulerUpdateRequest> {
+    fn create_function_executor(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let mut candidates = self
-            .in_memory_state
-            .read()
-            .unwrap()
-            .candidate_executors(task)?;
+        let mut candidates = self.in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
             info!(
                 invocation_id = task.invocation_id,
@@ -144,15 +165,11 @@ impl TaskAllocationProcessor {
             );
             let vacuum_update = self.vacuum()?;
             update.extend(vacuum_update);
-            self.in_memory_state.write().unwrap().update_state(
+            self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
             )?;
-            candidates = self
-                .in_memory_state
-                .read()
-                .unwrap()
-                .candidate_executors(task)?;
+            candidates = self.in_memory_state.candidate_executors(task)?;
         }
         info!(
             invocation_id = task.invocation_id,
@@ -197,19 +214,17 @@ impl TaskAllocationProcessor {
         update
             .updated_executor_resources
             .insert(executor_id.clone(), candidate.host_resources.clone());
-        self.in_memory_state.write().unwrap().update_state(
+        self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
         )?;
         Ok(update)
     }
 
-    fn create_allocation(&self, task: &Task) -> Result<SchedulerUpdateRequest> {
+    fn create_allocation(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         let mut function_executors = self
             .in_memory_state
-            .read()
-            .unwrap()
             .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
         if function_executors.is_empty() {
             info!(
@@ -221,14 +236,12 @@ impl TaskAllocationProcessor {
             );
             let fe_update = self.create_function_executor(task)?;
             update.extend(fe_update);
-            self.in_memory_state.write().unwrap().update_state(
+            self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
             )?;
             function_executors = self
                 .in_memory_state
-                .read()
-                .unwrap()
                 .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
         }
         info!(
@@ -268,7 +281,7 @@ impl TaskAllocationProcessor {
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
         update.new_allocations.push(allocation);
-        self.in_memory_state.write().unwrap().update_state(
+        self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
         )?;
@@ -283,8 +296,6 @@ impl TaskAllocationProcessor {
         let mut update = SchedulerUpdateRequest::default();
         let executor = self
             .in_memory_state
-            .read()
-            .unwrap()
             .executors
             .get(&executor_id)
             .ok_or(anyhow!("executor not found"))?
@@ -303,15 +314,13 @@ impl TaskAllocationProcessor {
 
     #[tracing::instrument(skip(self, executor))]
     fn reconcile_function_executors(
-        &self,
+        &mut self,
         executor: &ExecutorMetadata,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         // Get the function executors from the indexes
         let function_executors_in_indexes = self
             .in_memory_state
-            .read()
-            .unwrap()
             .executor_states
             .get(&executor.id)
             .map(|executor_state| executor_state.function_executors.clone())
@@ -360,7 +369,7 @@ impl TaskAllocationProcessor {
             update.extend(
                 self.remove_function_executors(&executor.id, &function_executors_to_remove)?,
             );
-            self.in_memory_state.write().unwrap().update_state(
+            self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
             )?;
@@ -427,8 +436,6 @@ impl TaskAllocationProcessor {
                 update.new_function_executors.push(fe_metadata.clone());
                 let node_resources = self
                     .in_memory_state
-                    .read()
-                    .unwrap()
                     .get_fe_resources(&fe_metadata.function_executor);
                 if let Some(node_resources) = node_resources {
                     let mut executor = executor.clone();
@@ -445,7 +452,7 @@ impl TaskAllocationProcessor {
             &stale_function_executors.values().cloned().collect_vec(),
         )?);
 
-        self.in_memory_state.write().unwrap().update_state(
+        self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
         )?;
@@ -455,7 +462,7 @@ impl TaskAllocationProcessor {
 
     #[tracing::instrument(skip(self, executor_id))]
     fn remove_function_executors(
-        &self,
+        &mut self,
         executor_id: &ExecutorId,
         function_executors_to_remove: &Vec<FunctionExecutor>,
     ) -> Result<SchedulerUpdateRequest> {
@@ -483,8 +490,6 @@ impl TaskAllocationProcessor {
         let mut allocations_to_remove = Vec::new();
         if let Some(allocations_by_fe) = self
             .in_memory_state
-            .read()
-            .unwrap()
             .allocations_by_executor
             .get(executor_id)
         {
@@ -504,16 +509,12 @@ impl TaskAllocationProcessor {
         for allocation in &allocations_to_remove {
             let task = self
                 .in_memory_state
-                .read()
-                .unwrap()
                 .tasks
                 .get(&allocation.task_key())
                 .cloned();
 
             let fe_status = self
                 .in_memory_state
-                .read()
-                .unwrap()
                 .executors
                 .get(executor_id)
                 .map(|em| em.function_executors.get(&allocation.function_executor_id))
@@ -543,8 +544,6 @@ impl TaskAllocationProcessor {
 
             if let Some(invocation_ctx) = self
                 .in_memory_state
-                .read()
-                .unwrap()
                 .invocation_ctx
                 .get(&invocation_ctx_key)
                 .cloned()
@@ -568,13 +567,7 @@ impl TaskAllocationProcessor {
             .collect();
 
         for fe in function_executors_to_remove {
-            let Some(mut executor) = self
-                .in_memory_state
-                .read()
-                .unwrap()
-                .executors
-                .get(executor_id)
-                .cloned()
+            let Some(mut executor) = self.in_memory_state.executors.get(executor_id).cloned()
             else {
                 error!(
                     "executor {} not found while removing function executor {}",
@@ -588,7 +581,7 @@ impl TaskAllocationProcessor {
             // If we can't find CG version, we won't be able to free
             // resources. So we need to move the resouces allocated to the FEs
             // to the FE objects.
-            let fe_resources = self.in_memory_state.read().unwrap().get_fe_resources(&fe);
+            let fe_resources = self.in_memory_state.get_fe_resources(&fe);
             if let Some(fe_resources) = fe_resources {
                 if let Err(err) = executor.host_resources.free(&fe_resources) {
                     error!(
@@ -601,7 +594,7 @@ impl TaskAllocationProcessor {
                 update
                     .updated_executor_resources
                     .insert(executor_id.clone(), executor.host_resources.clone());
-                self.in_memory_state.write().unwrap().update_state(
+                self.in_memory_state.update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
                 )?;
@@ -620,8 +613,6 @@ impl TaskAllocationProcessor {
         // Get all function executors to remove
         let function_executors_to_remove = self
             .in_memory_state
-            .read()
-            .unwrap()
             .executor_states
             .get(executor_id)
             .map(|fes| {
@@ -635,14 +626,14 @@ impl TaskAllocationProcessor {
             update.extend(self.remove_function_executors(executor_id, &function_executors)?);
         }
 
-        self.in_memory_state.write().unwrap().update_state(
+        self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
         )?;
 
         let allocation_update = self.allocate()?;
         update.extend(allocation_update);
-        self.in_memory_state.write().unwrap().update_state(
+        self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
         )?;

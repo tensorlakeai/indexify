@@ -17,7 +17,7 @@ use state_store::{
 use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
-use crate::{task_allocator::TaskAllocationProcessor, task_cache, task_creator};
+use crate::{task_allocator, task_cache, task_creator};
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
@@ -205,7 +205,6 @@ impl GraphProcessor {
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut task_creator =
             task_creator::TaskCreator::new(self.indexify_state.clone(), indexes.clone(), clock);
-        let mut task_allocator = TaskAllocationProcessor::new(indexes.clone(), clock);
         if let ChangeType::TaskOutputsIngested(req) = &state_change.change_type {
             self.task_cache.handle_task_outputs(req, indexes.clone());
         }
@@ -215,7 +214,7 @@ impl GraphProcessor {
 
                 scheduler_update.extend(self.task_cache.try_allocate(indexes.clone()));
 
-                scheduler_update.extend(task_allocator.allocate()?);
+                scheduler_update.extend(task_allocator::allocate(indexes, clock)?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],
@@ -224,7 +223,8 @@ impl GraphProcessor {
             ChangeType::ExecutorUpserted(_) |
             ChangeType::ExecutorRemoved(_) |
             ChangeType::TombStoneExecutor(_) => {
-                let scheduler_update = task_allocator.invoke(&state_change.change_type)?;
+                let scheduler_update =
+                    task_allocator::invoke(indexes, clock, &state_change.change_type)?;
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],
