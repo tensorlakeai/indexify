@@ -55,7 +55,6 @@ pub struct ComputedTask {
     pub reducer_input_payload: Option<DataPayload>,
     pub output_payload_uri_prefix: String,
     pub input_payload: DataPayload,
-    pub timeout_ms: u32,
 }
 
 /// Wrapper for `tokio::time::Instant` that reverses the ordering for deadline.
@@ -449,7 +448,7 @@ impl ExecutorManager {
                         function_name: Some(task.task.compute_fn_name.clone()),
                         graph_invocation_id: Some(task.task.invocation_id.clone()),
                         input_key: Some(task.task.input_node_output_key.clone()),
-                        timeout_ms: Some(computed_task.timeout_ms),
+                        timeout_ms: Some(task.timeout_ms),
                         reducer_output_key: task.task.reducer_output_id.clone(),
                         input: Some(computed_task.input_payload),
                         reducer_input: computed_task.reducer_input_payload,
@@ -475,22 +474,6 @@ impl ExecutorManager {
 
     /// Extracts only the computed fields from a data_model::Task
     pub fn extract_computed_fields(&self, task: &data_model::Task) -> anyhow::Result<ComputedTask> {
-        // Extract graph payload
-        let compute_graph_version = self
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
-            )?
-            .ok_or_else(|| anyhow::anyhow!("Compute graph version not found"))?;
-
-        let node = compute_graph_version
-            .nodes
-            .get(&task.compute_fn_name)
-            .ok_or_else(|| anyhow::anyhow!("Compute graph node not found"))?;
-
         // Extract input payload
         let input_payload = if task.invocation_id ==
             task.input_node_output_key.split("|").last().unwrap_or("")
@@ -585,7 +568,6 @@ impl ExecutorManager {
             reducer_input_payload,
             output_payload_uri_prefix,
             input_payload,
-            timeout_ms: node.timeout().0,
         })
     }
 
