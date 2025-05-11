@@ -20,6 +20,7 @@ from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
+from ..io import ExecutorIO
 from .channel_manager import ChannelManager
 from .function_executor_controller import (
     FunctionExecutorController,
@@ -49,6 +50,7 @@ class ExecutorStateReconciler:
         config_path: Optional[str],
         downloader: Downloader,
         task_output_uploader: TaskOutputUploader,
+        executor_io: ExecutorIO,
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
@@ -62,6 +64,7 @@ class ExecutorStateReconciler:
         self._config_path: Optional[str] = config_path
         self._downloader: Downloader = downloader
         self._task_output_uploader: TaskOutputUploader = task_output_uploader
+        self._executor_io: ExecutorIO = executor_io
         self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
         self._reconciliation_loop_task: Optional[asyncio.Task] = None
@@ -371,9 +374,10 @@ class ExecutorStateReconciler:
                 task=task_allocation.task,
                 downloader=self._downloader,
                 task_output_uploader=self._task_output_uploader,
+                state_reporter=self._state_reporter,
+                executor_io=self._executor_io,
                 function_executor_id=task_allocation.function_executor_id,
                 function_executor_state=function_executor_state,
-                state_reporter=self._state_reporter,
                 logger=self._logger,
             )
         except Exception as e:

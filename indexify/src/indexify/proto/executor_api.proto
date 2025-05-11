@@ -131,6 +131,7 @@ message ExecutorState {
 // A message sent by Executor to report its up to date state to Server.
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
+    repeated TaskResult task_results = 2;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of Executor state.
@@ -166,6 +167,7 @@ message Task {
 message TaskAllocation {
     optional string function_executor_id = 1;
     optional Task task = 2;
+    optional string allocation_id = 3;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -215,6 +217,8 @@ message TaskOutcome {
     // Standard output and error streams of the function.
     optional DataPayload stdout = 11;
     optional DataPayload stderr = 12;
+    // The allocation id of the allocation that ran the task.
+    optional string allocation_id = 13;
 }
 
 message ReportTaskOutcomeRequest {
@@ -224,6 +228,31 @@ message ReportTaskOutcomeRequest {
 
 message ReportTaskOutcomeResponse {
 }
+
+message TaskResult {
+    optional string task_id = 1;
+    optional string namespace = 2;
+    optional string graph_name = 3;
+    optional string function_name = 4;
+    optional string graph_invocation_id = 6;
+    optional TaskOutcome outcome = 7;
+    optional string invocation_id = 8; // deprecated. TODO: remove when graph_invocation_id is used everywhere
+    optional string executor_id = 9;
+    optional bool reducer = 10;
+
+    // Edges that the function wants the invocation to be routed to.
+    // Previously called router_edges.
+    repeated string next_functions = 11;
+    // Outputs of the function.
+    repeated DataPayload fn_outputs = 12;
+    // Standard output and error streams of the function.
+    optional DataPayload stdout = 14;
+    optional DataPayload stderr = 15;
+
+    // The allocation id of the allocation that ran the task.
+    optional string allocation_id = 16;
+}
+
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.

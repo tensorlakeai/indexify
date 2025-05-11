@@ -395,10 +395,180 @@ impl ExecutorApi for ExecutorAPIService {
         );
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let mut task_ingestion_requests = Vec::new();
+        for task_result in &request.get_ref().task_results {
+            self.api_metrics
+                .fn_outputs
+                .add(task_result.fn_outputs.len() as u64, &[]);
+            let task_id = task_result
+                .task_id
+                .clone()
+                .ok_or(Status::invalid_argument("task_id is required"))?;
+
+            let task_outcome = executor_api_pb::TaskOutcomeCode::try_from(
+                task_result
+                    .outcome
+                    .as_ref()
+                    .map(|outcome| outcome.outcome_code)
+                    .flatten()
+                    .unwrap_or(0),
+            )
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+            let executor_id = task_result
+                .executor_id
+                .clone()
+                .ok_or(Status::invalid_argument("executor_id is required"))?;
+            let namespace = task_result
+                .namespace
+                .clone()
+                .ok_or(Status::invalid_argument("namespace is required"))?;
+            let compute_graph = task_result
+                .graph_name
+                .clone()
+                .ok_or(Status::invalid_argument("compute_graph is required"))?;
+            let compute_fn = task_result
+                .function_name
+                .clone()
+                .ok_or(Status::invalid_argument("compute_fn is required"))?;
+            let invocation_id = task_result
+                .graph_invocation_id
+                .clone()
+                .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
+            let Ok(Some(mut task)) = self.indexify_state.reader().get_task(
+                &namespace,
+                &compute_graph,
+                &invocation_id,
+                &compute_fn,
+                &task_id,
+            ) else {
+                warn!("Task not found for task_id: {}", task_id);
+                continue;
+            };
+            match task_outcome {
+                executor_api_pb::TaskOutcomeCode::Success => {
+                    task.outcome = TaskOutcome::Success;
+                }
+                executor_api_pb::TaskOutcomeCode::Failure => {
+                    task.outcome = TaskOutcome::Failure;
+                }
+                executor_api_pb::TaskOutcomeCode::Unknown => {
+                    task.outcome = TaskOutcome::Unknown;
+                }
+            }
+            task.output_status = TaskOutputsIngestionStatus::Ingested;
+            task.status = TaskStatus::Completed;
+            let allocation_id = task_result
+                .allocation_id
+                .clone()
+                .ok_or(Status::invalid_argument("allocation_id is required"))?;
+
+            let mut node_outputs = Vec::new();
+            for output in task_result.fn_outputs.clone() {
+                let path = output
+                    .uri
+                    .ok_or(Status::invalid_argument("path or uri is required"))?;
+
+                let path = blob_store_url_to_path(
+                    &path,
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                );
+                let size = output
+                    .size
+                    .ok_or(Status::invalid_argument("size is required"))?;
+                let sha256_hash = output
+                    .sha256_hash
+                    .ok_or(Status::invalid_argument("sha256_hash is required"))?;
+                let data_payload = DataPayload {
+                    path,
+                    size,
+                    sha256_hash,
+                };
+                let encoding_str = match output.encoding {
+                    Some(value) => {
+                        let output_encoding = DataPayloadEncoding::try_from(value)
+                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                        match output_encoding {
+                            DataPayloadEncoding::Utf8Json => Ok("application/json"),
+                            DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
+                            DataPayloadEncoding::Utf8Text => Ok("text/plain"),
+                            DataPayloadEncoding::Unknown => {
+                                Err(Status::invalid_argument("unknown data payload encoding"))
+                            }
+                        }
+                    }
+                    None => Err(Status::invalid_argument(
+                        "data payload encoding is required",
+                    )),
+                }?;
+
+                let node_output = NodeOutputBuilder::default()
+                    .namespace(namespace.to_string())
+                    .compute_graph_name(compute_graph.to_string())
+                    .invocation_id(invocation_id.to_string())
+                    .compute_fn_name(compute_fn.to_string())
+                    .payload(OutputPayload::Fn(data_payload))
+                    .encoding(encoding_str.to_string())
+                    .reduced_state(task_result.reducer.unwrap_or(false))
+                    .build()
+                    .map_err(|e| Status::internal(e.to_string()))?;
+                node_outputs.push(node_output);
+            }
+
+            if task_result.next_functions.len() > 0 {
+                let node_output = NodeOutputBuilder::default()
+                    .namespace(namespace.to_string())
+                    .compute_graph_name(compute_graph.to_string())
+                    .invocation_id(invocation_id.to_string())
+                    .compute_fn_name(compute_fn.to_string())
+                    .payload(OutputPayload::Router(data_model::RouterOutput {
+                        edges: task_result.next_functions.clone(),
+                    }))
+                    .build()
+                    .map_err(|e| Status::internal(e.to_string()))?;
+                node_outputs.push(node_output);
+            }
+            let task_diagnostic = TaskDiagnostics {
+                stdout: prepare_data_payload(
+                    task_result.stdout.clone(),
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                ),
+                stderr: prepare_data_payload(
+                    task_result.stderr.clone(),
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                ),
+            };
+            task.diagnostics = Some(task_diagnostic.clone());
+            let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
+                namespace: namespace.to_string(),
+                compute_graph: compute_graph.to_string(),
+                compute_fn: compute_fn.to_string(),
+                invocation_id: invocation_id.to_string(),
+                task: task.clone(),
+                node_outputs,
+                executor_id: ExecutorId::new(executor_id.clone()),
+                allocation_id: allocation_id.to_string(),
+            });
+            task_ingestion_requests.push(request);
+        }
         self.executor_manager
             .heartbeat(executor_metadata)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        // TODO: Make this batched and merge this with heartbeat writes to state machine
+        for request in task_ingestion_requests {
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: request,
+                    processed_state_changes: vec![],
+                })
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+        }
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 
@@ -640,6 +810,14 @@ impl ExecutorApi for ExecutorAPIService {
             ),
         };
         task.diagnostics = Some(task_diagnostic.clone());
+        let allocation_id = request
+            .get_ref()
+            .task_outcome
+            .as_ref()
+            .map(|outcome| outcome.allocation_id.as_ref())
+            .flatten()
+            .ok_or(Status::invalid_argument("allocation_id is required"))?
+            .clone();
         let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
@@ -648,6 +826,7 @@ impl ExecutorApi for ExecutorAPIService {
             task: task.clone(),
             node_outputs,
             executor_id: ExecutorId::new(executor_id.clone()),
+            allocation_id: allocation_id.to_string(),
         });
 
         let sm_req = StateMachineUpdateRequest {

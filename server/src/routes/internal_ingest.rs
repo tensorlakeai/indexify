@@ -6,20 +6,10 @@ use axum::{
     response::Json,
 };
 use blob_store::{BlobStorage, PutResult};
-use data_model::{
-    DataPayload,
-    ExecutorId,
-    NodeOutput,
-    NodeOutputBuilder,
-    OutputPayload,
-    TaskDiagnostics,
-    TaskOutputsIngestionStatus,
-    TaskStatus,
-};
+use data_model::DataPayload;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use state_store::requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use utoipa::ToSchema;
 
 use super::RouteState;
@@ -196,197 +186,6 @@ pub struct InvokeWithFile {
     /// File to upload
     file: Option<String>,
 }
-/// Upload data to a compute graph
-#[utoipa::path(
-    post,
-    path = "internal/ingest_files",
-    request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "upload successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
-pub async fn ingest_files_from_executor(
-    State(state): State<RouteState>,
-    mut files: Multipart,
-) -> Result<(), IndexifyAPIError> {
-    let mut output_objects: Vec<PutResult> = vec![];
-    let mut output_encoding: Vec<String> = vec![];
-    let mut stdout_msg: Option<PutResult> = None;
-    let mut stderr_msg: Option<PutResult> = None;
-    let mut task_result: Option<TaskResult> = None;
-
-    // Write data object to blob store.
-    let mut node_output_sequence: usize = 0;
-    let diagnostics_keys = ["stdout", "stderr"];
-    while let Some(mut field) = files.next_field().await.unwrap() {
-        if let Some(name) = field.name() {
-            let name_ref = name.to_string();
-            if name_ref == "node_outputs" {
-                let task_result = task_result.as_ref().ok_or_else(|| {
-                    IndexifyAPIError::bad_request("task_result is required before node_outputs")
-                })?;
-                let mut file_name = format!(
-                    "{}.{}.{}.{}",
-                    task_result.namespace,
-                    task_result.compute_graph,
-                    task_result.compute_fn,
-                    task_result.invocation_id,
-                );
-                if task_result.reducer {
-                    file_name.push_str(&format!(".{}", node_output_sequence));
-                } else {
-                    file_name.push_str(&format!(
-                        ".{}.{}",
-                        task_result.task_id, node_output_sequence
-                    ));
-                };
-                // If there is no content_type, set it as octet-stream.
-                output_encoding.push(
-                    field
-                        .content_type()
-                        .unwrap_or("application/octet-stream")
-                        .to_string(),
-                );
-                let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
-                node_output_sequence += 1;
-                output_objects.push(res.clone());
-            } else if diagnostics_keys.iter().any(|e| name_ref.contains(e)) {
-                let task_result = task_result.as_ref().ok_or_else(|| {
-                    IndexifyAPIError::bad_request("task_result is required before diagnostics")
-                })?;
-                let file_name = format!(
-                    "{}.{}.{}.{}.{}.{}",
-                    task_result.namespace,
-                    task_result.compute_graph,
-                    task_result.compute_fn,
-                    task_result.invocation_id,
-                    task_result.task_id,
-                    name,
-                );
-                let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
-                match name_ref.as_str() {
-                    "stdout" => stdout_msg = Some(res),
-                    "stderr" => stderr_msg = Some(res),
-                    _ => {
-                        error!("unknown field name {}", name_ref);
-                    }
-                }
-            } else if name == "task_result" {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                task_result.replace(serde_json::from_str::<TaskResult>(&text)?);
-            }
-        }
-    }
-
-    state
-        .metrics
-        .fn_outputs
-        .add(output_objects.len() as u64, &[]);
-    state.metrics.fn_output_bytes.add(
-        output_objects.iter().map(|e| e.size_bytes).sum::<u64>(),
-        &[],
-    );
-
-    // Save metadata in rocksdb for the objects in the blob store.
-    let task_result =
-        task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
-    let mut node_outputs: Vec<NodeOutput> = vec![];
-
-    for (index, put_result) in output_objects.iter().enumerate() {
-        let data_payload = data_model::DataPayload {
-            path: put_result.clone().url,
-            size: put_result.clone().size_bytes,
-            sha256_hash: put_result.clone().sha256_hash,
-        };
-        let node_output = NodeOutputBuilder::default()
-            .namespace(task_result.namespace.to_string())
-            .compute_graph_name(task_result.compute_graph.to_string())
-            .invocation_id(task_result.invocation_id.to_string())
-            .compute_fn_name(task_result.compute_fn.to_string())
-            .payload(OutputPayload::Fn(data_payload))
-            .encoding(output_encoding[index].to_string())
-            .build()
-            .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-            })?;
-        node_outputs.push(node_output);
-    }
-
-    let stdout_payload = prepare_data_payload(stdout_msg);
-    let stderr_payload = prepare_data_payload(stderr_msg);
-
-    let task_diagnostic = TaskDiagnostics {
-        stdout: stdout_payload,
-        stderr: stderr_payload,
-    };
-
-    if let Some(router_output) = task_result.router_output {
-        let node_output = NodeOutputBuilder::default()
-            .namespace(task_result.namespace.to_string())
-            .compute_graph_name(task_result.compute_graph.to_string())
-            .invocation_id(task_result.invocation_id.to_string())
-            .compute_fn_name(task_result.compute_fn.to_string())
-            .payload(OutputPayload::Router(data_model::RouterOutput {
-                edges: router_output.edges.clone(),
-            }))
-            .build()
-            .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-            })?;
-        node_outputs.push(node_output);
-    }
-
-    let task = state
-        .indexify_state
-        .reader()
-        .get_task(
-            &task_result.namespace,
-            &task_result.compute_graph,
-            &task_result.invocation_id,
-            &task_result.compute_fn,
-            &task_result.task_id,
-        )
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get task: {}", e)))?;
-    if task.is_none() {
-        warn!(
-            "task not found in state store, task_id = {}",
-            task_result.task_id
-        );
-        return Ok(());
-    }
-    let mut task = task.ok_or(IndexifyAPIError::internal_error(anyhow!("task not found")))?;
-    task.outcome = task_result.outcome.clone().into();
-    task.diagnostics = Some(task_diagnostic.clone());
-    task.output_status = TaskOutputsIngestionStatus::Ingested;
-    task.status = TaskStatus::Completed;
-
-    let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
-        namespace: task_result.namespace.to_string(),
-        compute_graph: task_result.compute_graph.to_string(),
-        compute_fn: task_result.compute_fn.to_string(),
-        invocation_id: task_result.invocation_id.to_string(),
-        task: task.clone(),
-        node_outputs,
-        executor_id: ExecutorId::new(task_result.executor_id.clone()),
-    });
-
-    let sm_req = StateMachineUpdateRequest {
-        payload: request,
-        processed_state_changes: vec![],
-    };
-
-    state.indexify_state.write(sm_req).await.map_err(|e| {
-        IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-    })?;
-
-    Ok(())
-}
 
 async fn write_to_disk<'a>(
     blob_storage: Arc<BlobStorage>,
@@ -403,13 +202,5 @@ async fn write_to_disk<'a>(
     blob_storage.put(file_name, stream).await.map_err(|e| {
         error!("failed to write to blob store: {:?}", e);
         IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
-    })
-}
-
-fn prepare_data_payload(msg: Option<PutResult>) -> Option<DataPayload> {
-    msg.map(|msg| DataPayload {
-        path: msg.url,
-        size: msg.size_bytes,
-        sha256_hash: msg.sha256_hash,
     })
 }

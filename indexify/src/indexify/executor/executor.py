@@ -27,6 +27,7 @@ from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
 from .grpc.task_output_uploader import TaskOutputUploader
 from .host_resources.host_resources import HostResourcesProvider
+from .io import ExecutorIO
 from .metrics.executor import (
     metric_executor_info,
     metric_executor_state,
@@ -97,6 +98,13 @@ class Executor:
         self._state_reporter.update_executor_status(
             ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
         )
+        self._executor_io = ExecutorIO(
+            base_url=self._base_url,
+            executor_id=id,
+            config_path=config_path,
+            channel_manager=self._channel_manager,
+            blob_store=blob_store,
+        )
         self._state_reconciler = ExecutorStateReconciler(
             executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
@@ -111,9 +119,17 @@ class Executor:
                 executor_id=id,
                 blob_store=blob_store,
             ),
+            executor_io=self._executor_io,
             channel_manager=self._channel_manager,
             state_reporter=self._state_reporter,
             logger=self._logger,
+        )
+        self._executor_io = ExecutorIO(
+            base_url=self._base_url,
+            executor_id=id,
+            config_path=config_path,
+            channel_manager=self._channel_manager,
+            blob_store=blob_store,
         )
 
         executor_info: Dict[str, str] = {

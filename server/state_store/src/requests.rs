@@ -111,6 +111,7 @@ pub struct IngestTaskOutputsRequest {
     pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
     pub executor_id: ExecutorId,
+    pub allocation_id: String,
 }
 
 #[derive(Debug, Clone)]

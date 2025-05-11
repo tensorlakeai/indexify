@@ -305,11 +305,15 @@ class ExecutorState(_message.Message):
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state",)
+    __slots__ = ("executor_state", "task_results")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
+    TASK_RESULTS_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
+    task_results: _containers.RepeatedCompositeFieldContainer[TaskResult]
     def __init__(
-        self, executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...
+        self,
+        executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
+        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -386,15 +390,18 @@ class Task(_message.Message):
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
-    __slots__ = ("function_executor_id", "task")
+    __slots__ = ("function_executor_id", "task", "allocation_id")
     FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     function_executor_id: str
     task: Task
+    allocation_id: str
     def __init__(
         self,
         function_executor_id: _Optional[str] = ...,
         task: _Optional[_Union[Task, _Mapping]] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...
 
 class GetDesiredExecutorStatesRequest(_message.Message):
@@ -436,6 +443,7 @@ class TaskOutcome(_message.Message):
         "function_outputs",
         "stdout",
         "stderr",
+        "allocation_id",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -449,6 +457,7 @@ class TaskOutcome(_message.Message):
     FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
@@ -461,6 +470,7 @@ class TaskOutcome(_message.Message):
     function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
+    allocation_id: str
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -475,6 +485,7 @@ class TaskOutcome(_message.Message):
         function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...
 
 class ReportTaskOutcomeRequest(_message.Message):
@@ -492,3 +503,66 @@ class ReportTaskOutcomeRequest(_message.Message):
 class ReportTaskOutcomeResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
+
+class TaskResult(_message.Message):
+    __slots__ = (
+        "task_id",
+        "namespace",
+        "graph_name",
+        "function_name",
+        "graph_invocation_id",
+        "outcome",
+        "invocation_id",
+        "executor_id",
+        "reducer",
+        "next_functions",
+        "fn_outputs",
+        "stdout",
+        "stderr",
+        "allocation_id",
+    )
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    REDUCER_FIELD_NUMBER: _ClassVar[int]
+    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    FN_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
+    STDOUT_FIELD_NUMBER: _ClassVar[int]
+    STDERR_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    task_id: str
+    namespace: str
+    graph_name: str
+    function_name: str
+    graph_invocation_id: str
+    outcome: TaskOutcome
+    invocation_id: str
+    executor_id: str
+    reducer: bool
+    next_functions: _containers.RepeatedScalarFieldContainer[str]
+    fn_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    stdout: DataPayload
+    stderr: DataPayload
+    allocation_id: str
+    def __init__(
+        self,
+        task_id: _Optional[str] = ...,
+        namespace: _Optional[str] = ...,
+        graph_name: _Optional[str] = ...,
+        function_name: _Optional[str] = ...,
+        graph_invocation_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[TaskOutcome, _Mapping]] = ...,
+        invocation_id: _Optional[str] = ...,
+        executor_id: _Optional[str] = ...,
+        reducer: bool = ...,
+        next_functions: _Optional[_Iterable[str]] = ...,
+        fn_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        allocation_id: _Optional[str] = ...,
+    ) -> None: ...

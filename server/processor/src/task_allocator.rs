@@ -17,6 +17,7 @@ use data_model::{
     GraphInvocationCtx,
     GraphInvocationOutcome,
     Task,
+    TaskAttempt,
     TaskOutcome,
     TaskStatus,
 };
@@ -264,6 +265,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .task_id(task.id.clone())
             .executor_id(candidate.executor_id.clone())
             .function_executor_id(fe_id.clone())
+            .attempt_number(task.attempts.len() as u32)
             .build()?;
 
         info!(
@@ -276,6 +278,11 @@ impl<'a> TaskAllocationProcessor<'a> {
         );
         let mut updated_task = task.clone();
         updated_task.status = TaskStatus::Running;
+        updated_task.attempts.push(TaskAttempt {
+            allocation_id: allocation.id.clone(),
+            executor_id: candidate.executor_id.clone(),
+            function_executor_id: fe_id.clone(),
+        });
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
@@ -523,11 +530,27 @@ impl<'a> TaskAllocationProcessor<'a> {
                 _ => false,
             };
             if let Some(mut task) = task {
-                if is_fe_failure {
+                if allocation.attempt_number <= 2 {
+                    task.status = TaskStatus::Pending;
+                } else {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
-                } else {
-                    task.status = TaskStatus::Pending;
+                    let invocation_ctx_key = GraphInvocationCtx::key_from(
+                        &allocation.namespace,
+                        &allocation.compute_graph,
+                        &allocation.invocation_id,
+                    );
+                    if let Some(invocation_ctx) = self
+                        .in_memory_state
+                        .invocation_ctx
+                        .get(&invocation_ctx_key)
+                        .cloned()
+                    {
+                        let mut invocation_ctx = invocation_ctx.clone();
+                        invocation_ctx.completed = true;
+                        invocation_ctx.outcome = GraphInvocationOutcome::Failure;
+                        update.updated_invocations_states.push(*invocation_ctx);
+                    }
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
             }

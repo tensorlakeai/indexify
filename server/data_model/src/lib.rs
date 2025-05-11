@@ -78,6 +78,7 @@ pub struct Allocation {
     pub compute_fn: String,
     pub invocation_id: String,
     pub created_at: u128,
+    pub attempt_number: u32,
 }
 
 impl Allocation {
@@ -201,6 +202,7 @@ impl AllocationBuilder {
             compute_fn,
             invocation_id,
             created_at,
+            attempt_number: 0,
         })
     }
 }
@@ -1106,6 +1108,20 @@ impl Display for TaskStatus {
     }
 }
 
+// pub enum FunctionExecutorStatus {
+//     Unknown,
+//     Pending,
+//     Running,
+//     Terminated,
+// }
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
+pub struct TaskAttempt {
+    pub allocation_id: String,
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
@@ -1127,6 +1143,7 @@ pub struct Task {
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
+    pub attempts: Vec<TaskAttempt>,
 }
 
 impl Task {
@@ -1274,6 +1291,7 @@ impl TaskBuilder {
             graph_version,
             creation_time_ns,
             cache_key,
+            attempts: Vec::new(),
         };
         Ok(task)
     }

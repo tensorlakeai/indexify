@@ -42,6 +42,7 @@ pub struct DesiredStateTask {
     pub task: Box<Task>,
     pub timeout_ms: u32,
     pub retry_policy: NodeRetryPolicy,
+    pub allocation_id: String,
 }
 
 pub struct DesiredStateFunctionExecutor {
@@ -627,14 +628,6 @@ impl InMemoryState {
 
                 // Remove the allocation
                 {
-                    let allocation_id = Allocation::id(
-                        &req.executor_id,
-                        &req.task.id,
-                        &req.namespace,
-                        &req.compute_graph,
-                        &req.compute_fn,
-                        &req.invocation_id,
-                    );
                     self.allocations_by_executor
                         .entry(req.executor_id.clone())
                         .and_modify(|allocation_map| {
@@ -642,7 +635,7 @@ impl InMemoryState {
                             //       we should measure the overhead.
                             allocation_map.iter_mut().for_each(|(_, allocations)| {
                                 if let Some(index) =
-                                    allocations.iter().position(|a| a.id == allocation_id)
+                                    allocations.iter().position(|a| a.id == req.allocation_id)
                                 {
                                     let allocation = &allocations[index];
                                     // Record metrics
@@ -1284,6 +1277,7 @@ impl InMemoryState {
                 };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
+                    allocation_id: allocation.id.clone(),
                     timeout_ms: cg_node.timeout().0,
                     retry_policy: cg_node.retry_policy(),
                 };

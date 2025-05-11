@@ -25,6 +25,7 @@ from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpcs,
 )
 from ..function_executor.task_output import TaskMetrics, TaskOutput
+from ..io import ExecutorIO
 from .metrics.task_controller import (
     METRIC_TASKS_COMPLETED_FAILURE_REASON_ALL,
     METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
@@ -97,9 +98,11 @@ class TaskController:
         task: Task,
         downloader: Downloader,
         task_output_uploader: TaskOutputUploader,
+        state_reporter: Optional[ExecutorStateReporter],
+        executor_io: ExecutorIO,
         function_executor_id: str,
+        allocation_id: str,
         function_executor_state: FunctionExecutorState,
-        state_reporter: ExecutorStateReporter,
         logger: Any,
     ):
         """Creates a new TaskController instance.
@@ -124,6 +127,9 @@ class TaskController:
         self._task_runner: asyncio.Task = asyncio.create_task(
             self._run(), name="task controller task runner"
         )
+        self._state_reporter: Optional[ExecutorStateReporter] = state_reporter
+        self._executor_io: ExecutorIO = executor_io
+        self._allocation_id: str = allocation_id
 
     def function_executor_id(self) -> str:
         return self._function_executor_id
@@ -378,7 +384,7 @@ class TaskController:
                     raise
 
         return _task_output_from_function_executor_response(
-            task=self._task, response=response
+            task=self._task, response=response, allocation_id=self._allocation_id
         )
 
     async def _upload_task_output(self, output: TaskOutput) -> None:
@@ -390,8 +396,20 @@ class TaskController:
         while True:
             logger = self._logger.bind(retries=upload_retries)
             try:
-                await self._task_output_uploader.upload(output=output, logger=logger)
+                if self._state_reporter:
+                    task_result = await self._executor_io.upload_task_outputs(
+                        output=output, logger=logger
+                    )
+                    await self._state_reporter.report_task_outcome(
+                        task_result=task_result
+                    )
+                else:
+                    # Legacy
+                    await self._task_output_uploader.upload(
+                        output=output, logger=logger
+                    )
                 break
+
             except Exception as e:
                 logger.error(
                     "failed to upload task output",
@@ -448,7 +466,7 @@ class TaskController:
 
 
 def _task_output_from_function_executor_response(
-    task: Task, response: RunTaskResponse
+    task: Task, response: RunTaskResponse, allocation_id: str
 ) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
@@ -479,6 +497,7 @@ def _task_output_from_function_executor_response(
             if response.success
             else TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
         ),
+        allocation_id=allocation_id,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,

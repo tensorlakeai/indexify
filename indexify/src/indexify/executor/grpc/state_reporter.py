@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import platform
 import sys
+import time
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +27,7 @@ from indexify.proto.executor_api_pb2 import (
     TaskFailureReason,
     TaskOutcome,
     TaskOutcomeCode,
+    TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -99,6 +101,7 @@ class ExecutorStateReporter:
             0  # Server expects initial value to be 0 until it is set by Server.
         )
         self._completed_task_outputs: List[TaskOutput] = []
+        self._last_state_reported_at: Optional[int] = None
 
     def update_executor_status(self, value: ExecutorStatus) -> None:
         self._executor_status = value
@@ -168,6 +171,7 @@ class ExecutorStateReporter:
                     # from this channel health monitoring.
                     await self._report_state(stub)
                     self._state_reported_event.set()
+
                 except Exception as e:
                     self._logger.error(
                         f"failed to report state to the server, retrying in {self._reporting_interval_sec} sec.",
@@ -175,7 +179,11 @@ class ExecutorStateReporter:
                     )
                     break  # exit the inner loop to recreate the channel if needed
 
-    async def _report_state(self, stub: ExecutorAPIStub):
+    async def report_task_outcome(self, task_result: TaskResult):
+        stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+        await self.report_state(stub, [task_result])
+
+    async def _report_state(self, stub: ExecutorAPIStub, task_results: [TaskResult]):
         """Reports the current state to the server represented by the supplied stub.
 
         Raises an exception on failure.
@@ -222,9 +230,12 @@ class ExecutorStateReporter:
             state.server_clock = self._last_server_clock
 
             await stub.report_executor_state(
-                ReportExecutorStateRequest(executor_state=state),
+                ReportExecutorStateRequest(
+                    executor_state=state, task_results=task_results
+                ),
                 timeout=_REPORT_RPC_TIMEOUT_SEC,
             )
+            self._last_state_reported_at = int(time.time())
 
     async def _fetch_function_executor_states(self) -> List[FunctionExecutorStateProto]:
         states = []
