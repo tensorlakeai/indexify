@@ -9,11 +9,11 @@ from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOut
 from tensorlake.utils.http_client import get_httpx_client
 
 from indexify.proto.executor_api_pb2 import DataPayload as DataPayloadProto
+from indexify.proto.executor_api_pb2 import TaskResult as TaskResultProto
 from indexify.proto.executor_api_pb2 import (
     DataPayloadEncoding,
     OutputEncoding,
     TaskOutcome,
-    TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -157,7 +157,7 @@ class ExecutorIO:
                 encoding_version=0,
             )
 
-        task_result = TaskResult(
+        task_result = TaskResultProto(
             task_id=output.task_id,
             namespace=output.namespace,
             graph_name=output.graph_name,
