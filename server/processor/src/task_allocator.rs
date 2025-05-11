@@ -15,10 +15,7 @@ use data_model::{
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionExecutorStatus,
-    GraphInvocationCtx,
-    GraphInvocationOutcome,
     Task,
-    TaskOutcome,
     TaskStatus,
 };
 use im::HashMap;
@@ -513,47 +510,9 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .get(&allocation.task_key())
                 .cloned();
 
-            let fe_status = self
-                .in_memory_state
-                .executors
-                .get(executor_id)
-                .map(|em| em.function_executors.get(&allocation.function_executor_id))
-                .flatten()
-                .map(|fe| fe.status.clone())
-                .unwrap_or(FunctionExecutorStatus::Unknown);
-
-            let is_startup_failure = match fe_status {
-                FunctionExecutorStatus::StartupFailedCustomerError |
-                FunctionExecutorStatus::StartupFailedPlatformError => true,
-                _ => false,
-            };
             if let Some(mut task) = task {
-                if is_startup_failure {
-                    task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
-                } else {
-                    task.status = TaskStatus::Pending;
-                }
+                task.status = TaskStatus::Pending;
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
-            }
-            let invocation_ctx_key = GraphInvocationCtx::key_from(
-                &allocation.namespace,
-                &allocation.compute_graph,
-                &allocation.invocation_id,
-            );
-
-            if let Some(invocation_ctx) = self
-                .in_memory_state
-                .invocation_ctx
-                .get(&invocation_ctx_key)
-                .cloned()
-            {
-                if is_startup_failure {
-                    let mut invocation_ctx = invocation_ctx.clone();
-                    invocation_ctx.completed = true;
-                    invocation_ctx.outcome = GraphInvocationOutcome::Failure;
-                    update.updated_invocations_states.push(*invocation_ctx);
-                }
             }
         }
 

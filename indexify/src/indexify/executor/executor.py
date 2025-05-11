@@ -25,6 +25,7 @@ from .grpc.channel_manager import ChannelManager
 from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
 from .host_resources.host_resources import HostResourcesProvider
+from .io import ExecutorIO
 from .metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
@@ -133,6 +134,13 @@ class Executor:
             channel_manager=self._channel_manager,
             blob_store=blob_store,
         )
+        self._executor_io = ExecutorIO(
+            base_url=self._base_url,
+            executor_id=id,
+            config_path=config_path,
+            channel_manager=self._channel_manager,
+            blob_store=blob_store,
+        )
 
         # HTTP mode task runner
         self._task_runner: Optional[TaskRunner] = None
@@ -149,6 +157,7 @@ class Executor:
                 config_path=config_path,
                 downloader=self._downloader,
                 task_reporter=self._task_reporter,
+                executor_io=self._executor_io,
                 channel_manager=self._channel_manager,
                 state_reporter=self._state_reporter,
                 logger=self._logger,
