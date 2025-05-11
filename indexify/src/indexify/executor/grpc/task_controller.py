@@ -51,6 +51,8 @@ from ..metrics.task_runner import (
 )
 from ..task_reporter import TaskReporter
 from .metrics.task_controller import metric_task_cancellations
+from .state_reporter import ExecutorStateReporter
+from ..io import ExecutorIO
 
 _TASK_OUTCOME_REPORT_BACKOFF_SEC = 5.0
 
@@ -95,6 +97,8 @@ class TaskController:
         task: Task,
         downloader: Downloader,
         task_reporter: TaskReporter,
+        state_reporter: Optional[ExecutorStateReporter],
+        executor_io: ExecutorIO,
         function_executor_id: str,
         function_executor_state: FunctionExecutorState,
         logger: Any,
@@ -120,6 +124,8 @@ class TaskController:
         self._task_runner: asyncio.Task = asyncio.create_task(
             self._run(), name="task controller task runner"
         )
+        self._state_reporter: Optional[ExecutorStateReporter] = state_reporter
+        self._executor_io: ExecutorIO = executor_io
 
     def function_executor_id(self) -> str:
         return self._function_executor_id
@@ -364,8 +370,16 @@ class TaskController:
         while True:
             logger = self._logger.bind(retries=reporting_retries)
             try:
-                await self._task_reporter.report(output=output, logger=logger)
-                break
+                if self._state_reporter:
+                    task_result = await self._executor_io.upload_task_outputs(
+                        output=output, logger=logger
+                    )
+                    await self._state_reporter.report_task_outcome(
+                        task_result=task_result
+                    )
+                else:
+                    # Legacy
+                    await self._task_reporter.report(output=output, logger=logger)
             except Exception as e:
                 logger.error(
                     "failed to report task",

@@ -49,6 +49,7 @@ from .monitoring.startup_probe_handler import StartupProbeHandler
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
+from .io import ExecutorIO
 
 metric_executor_state.state("starting")
 
@@ -133,6 +134,13 @@ class Executor:
             channel_manager=self._channel_manager,
             blob_store=blob_store,
         )
+        self._executor_io = ExecutorIO(
+            base_url=self._base_url,
+            executor_id=id,
+            config_path=config_path,
+            channel_manager=self._channel_manager,
+            blob_store=blob_store,
+        )
 
         # HTTP mode task runner
         self._task_runner: Optional[TaskRunner] = None
@@ -149,6 +157,7 @@ class Executor:
                 config_path=config_path,
                 downloader=self._downloader,
                 task_reporter=self._task_reporter,
+                executor_io=self._executor_io,
                 channel_manager=self._channel_manager,
                 state_reporter=self._state_reporter,
                 logger=self._logger,

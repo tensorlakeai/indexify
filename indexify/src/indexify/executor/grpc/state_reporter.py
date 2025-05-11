@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import time
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +12,7 @@ from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
+    TaskResult,
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorState as FunctionExecutorStateProto,
@@ -33,6 +35,7 @@ from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
+from ..function_executor.task_output import TaskOutput
 from ..host_resources.host_resources import HostResources, HostResourcesProvider
 from ..host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from ..runtime_probes import RuntimeProbes
@@ -88,6 +91,7 @@ class ExecutorStateReporter:
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
+        self._last_state_reported_at: Optional[int] = None
 
     def update_executor_status(self, value: ExecutorStatus):
         self._executor_status = value
@@ -109,8 +113,17 @@ class ExecutorStateReporter:
                     # (same as TCP keep-alive). Channel Manager returns the same healthy channel
                     # for all RPCs that we do from Executor to Server. So all the RPCs benefit
                     # from this channel health monitoring.
-                    await self.report_state(stub)
-                    await asyncio.sleep(self._reporting_interval_sec)
+                    await self.report_state(stub, [])
+                    now = time.time()
+                    sleep_time = self._reporting_interval_sec
+                    if self._last_state_reported_at is not None:
+                        time_since_last_report = now - self._last_state_reported_at
+                        if time_since_last_report < self._reporting_interval_sec:
+                            sleep_time = (
+                                self._reporting_interval_sec - time_since_last_report
+                            )
+                    self._last_state_reported_at = now
+                    await asyncio.sleep(sleep_time)
                 except Exception as e:
                     self._logger.error(
                         f"failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
@@ -121,7 +134,11 @@ class ExecutorStateReporter:
 
         self._logger.info("state reporter shutdown")
 
-    async def report_state(self, stub: ExecutorAPIStub):
+    async def report_task_outcome(self, task_result: TaskResult):
+        stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+        await self.report_state(stub, [task_result])
+
+    async def report_state(self, stub: ExecutorAPIStub, task_results: List[TaskResult]):
         """Reports the current state to the server represented by the supplied stub.
 
         Raises exceptions on failure.
@@ -169,9 +186,12 @@ class ExecutorStateReporter:
             state.server_clock = self._last_server_clock
 
             await stub.report_executor_state(
-                ReportExecutorStateRequest(executor_state=state),
+                ReportExecutorStateRequest(
+                    executor_state=state, task_results=task_results
+                ),
                 timeout=_REPORT_RPC_TIMEOUT_SEC,
             )
+            self._last_state_reported_at = int(time.time())
 
     async def shutdown(self):
         """Shuts down the state reporter.

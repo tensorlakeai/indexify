@@ -34,6 +34,7 @@ from .metrics.state_reconciler import (
 )
 from .state_reporter import ExecutorStateReporter
 from .task_controller import TaskController, task_logger, validate_task
+from ..io import ExecutorIO
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 _RECONCILIATION_RETRIES = 3
@@ -49,6 +50,7 @@ class ExecutorStateReconciler:
         config_path: Optional[str],
         downloader: Downloader,
         task_reporter: TaskReporter,
+        executor_io: ExecutorIO,
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
@@ -62,6 +64,7 @@ class ExecutorStateReconciler:
         self._config_path: Optional[str] = config_path
         self._downloader: Downloader = downloader
         self._task_reporter: TaskReporter = task_reporter
+        self._executor_io: ExecutorIO = executor_io
         self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
         self._reconciliation_loop_task: Optional[asyncio.Task] = None
@@ -99,7 +102,7 @@ class ExecutorStateReconciler:
                 stub = ExecutorAPIStub(await self._channel_manager.get_channel())
                 # Report state once before starting the stream so Server
                 # doesn't use stale state it knew about this Executor in the past.
-                await self._state_reporter.report_state(stub)
+                await self._state_reporter.report_state(stub, task_results=[])
 
                 desired_states_stream: AsyncGenerator[DesiredExecutorState, None] = (
                     stub.get_desired_executor_states(
@@ -370,6 +373,8 @@ class ExecutorStateReconciler:
                 task=task_allocation.task,
                 downloader=self._downloader,
                 task_reporter=self._task_reporter,
+                state_reporter=self._state_reporter,
+                executor_io=self._executor_io,
                 function_executor_id=task_allocation.function_executor_id,
                 function_executor_state=function_executor_state,
                 logger=self._logger,
