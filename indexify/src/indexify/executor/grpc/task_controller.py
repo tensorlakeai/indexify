@@ -24,6 +24,7 @@ from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpcs,
 )
 from ..function_executor.task_output import TaskMetrics, TaskOutput
+from ..io import ExecutorIO
 
 # TODO: combine these metrics into a single python file once gRPC migration is over and old code is removed.
 from ..metrics.executor import (
@@ -52,7 +53,6 @@ from ..metrics.task_runner import (
 from ..task_reporter import TaskReporter
 from .metrics.task_controller import metric_task_cancellations
 from .state_reporter import ExecutorStateReporter
-from ..io import ExecutorIO
 
 _TASK_OUTCOME_REPORT_BACKOFF_SEC = 5.0
 

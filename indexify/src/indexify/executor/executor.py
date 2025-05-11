@@ -25,6 +25,7 @@ from .grpc.channel_manager import ChannelManager
 from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
 from .host_resources.host_resources import HostResourcesProvider
+from .io import ExecutorIO
 from .metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
@@ -49,7 +50,6 @@ from .monitoring.startup_probe_handler import StartupProbeHandler
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
-from .io import ExecutorIO
 
 metric_executor_state.state("starting")
 

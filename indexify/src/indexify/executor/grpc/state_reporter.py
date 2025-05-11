@@ -12,7 +12,6 @@ from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
-    TaskResult,
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorState as FunctionExecutorStateProto,
@@ -25,6 +24,7 @@ from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
+    TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 

@@ -20,6 +20,7 @@ from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
+from ..io import ExecutorIO
 from ..task_reporter import TaskReporter
 from .channel_manager import ChannelManager
 from .function_executor_controller import (
@@ -34,7 +35,6 @@ from .metrics.state_reconciler import (
 )
 from .state_reporter import ExecutorStateReporter
 from .task_controller import TaskController, task_logger, validate_task
-from ..io import ExecutorIO
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 _RECONCILIATION_RETRIES = 3
