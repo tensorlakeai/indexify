@@ -1,13 +1,12 @@
 import asyncio
 import hashlib
+import platform
+import sys
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
 from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
-)
-from indexify.proto.executor_api_pb2 import ExecutorFlavor as ExecutorFlavorProto
-from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
@@ -26,8 +25,7 @@ from indexify.proto.executor_api_pb2 import (
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
-from ..api_objects import FunctionURI
-from ..executor_flavor import ExecutorFlavor
+from ..function_allowlist import FunctionURI
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
@@ -35,7 +33,6 @@ from ..function_executor.function_executor_states_container import (
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..host_resources.host_resources import HostResources, HostResourcesProvider
 from ..host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
-from ..runtime_probes import RuntimeProbes
 from .channel_manager import ChannelManager
 from .metrics.state_reporter import (
     metric_state_report_errors,
@@ -52,11 +49,9 @@ class ExecutorStateReporter:
     def __init__(
         self,
         executor_id: str,
-        development_mode: bool,
-        flavor: ExecutorFlavor,
         version: str,
         labels: Dict[str, str],
-        function_allowlist: Optional[List[FunctionURI]],
+        function_allowlist: List[FunctionURI],
         function_executor_states: FunctionExecutorStatesContainer,
         channel_manager: ChannelManager,
         host_resources_provider: HostResourcesProvider,
@@ -64,10 +59,9 @@ class ExecutorStateReporter:
         reporting_interval_sec: int = _REPORTING_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
-        self._development_mode: bool = development_mode
-        self._flavor: ExecutorFlavor = flavor
         self._version: str = version
         self._labels: Dict[str, str] = labels.copy()
+        self._labels.update(_executor_labels())
         self._hostname: str = gethostname()
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
@@ -84,7 +78,6 @@ class ExecutorStateReporter:
         self._allowed_functions: List[AllowedFunction] = _to_grpc_allowed_functions(
             function_allowlist
         )
-        self._labels.update(_label_values_to_strings(RuntimeProbes().probe().labels))
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
@@ -153,9 +146,7 @@ class ExecutorStateReporter:
             metric_state_report_rpcs.inc()
             state = ExecutorState(
                 executor_id=self._executor_id,
-                development_mode=self._development_mode,
                 hostname=self._hostname,
-                flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
                 version=self._version,
                 status=self._executor_status,
                 total_function_executor_resources=self._total_function_executor_resources,
@@ -207,10 +198,7 @@ class ExecutorStateReporter:
         return states
 
 
-def _to_grpc_allowed_functions(function_allowlist: Optional[List[FunctionURI]]):
-    if function_allowlist is None:
-        return []
-
+def _to_grpc_allowed_functions(function_allowlist: List[FunctionURI]):
     allowed_functions: List[AllowedFunction] = []
     for function_uri in function_allowlist:
         function_uri: FunctionURI
@@ -250,29 +238,6 @@ def _to_grpc_function_executor_status(
         logger.error("unexpected Function Executor status", status=status)
 
     return result
-
-
-_FLAVOR_MAPPING = {
-    ExecutorFlavor.OSS: ExecutorFlavorProto.EXECUTOR_FLAVOR_OSS,
-    ExecutorFlavor.PLATFORM: ExecutorFlavorProto.EXECUTOR_FLAVOR_PLATFORM,
-}
-
-
-def _to_grpc_executor_flavor(
-    flavor: ExecutorFlavor, logger: Any
-) -> ExecutorFlavorProto:
-    result: ExecutorFlavorProto = _FLAVOR_MAPPING.get(
-        flavor, ExecutorFlavorProto.EXECUTOR_FLAVOR_UNKNOWN
-    )
-
-    if result == ExecutorFlavorProto.EXECUTOR_FLAVOR_UNKNOWN:
-        logger.error("unexpected Executor flavor", flavor=flavor)
-
-    return result
-
-
-def _label_values_to_strings(labels: Dict[str, Any]) -> Dict[str, str]:
-    return {k: str(v) for k, v in labels.items()}
 
 
 def _state_hash(state: ExecutorState) -> str:
@@ -315,3 +280,13 @@ def _gpu_model_to_proto(gpu_model: NVIDIA_GPU_MODEL) -> GPUModelProto:
         return GPUModelProto.GPU_MODEL_NVIDIA_A10
     else:
         return GPUModelProto.GPU_MODEL_UNKNOWN
+
+
+def _executor_labels() -> Dict[str, str]:
+    """Returns standard executor labels always added to user supplied labels."""
+    return {
+        "os": platform.system(),
+        "architecture": platform.machine(),
+        "python_major_version": str(sys.version_info.major),
+        "python_minor_version": str(sys.version_info.minor),
+    }

@@ -396,7 +396,6 @@ impl ExecutorManager {
         let mut task_allocations = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
             let code_payload_pb = DataPayload {
-                path: Some(desired_state_fe.code_payload.path.clone()),
                 uri: Some(blob_store_path_to_url(
                     &desired_state_fe.code_payload.path,
                     &self.blob_store_url_scheme,
@@ -416,7 +415,6 @@ impl ExecutorManager {
                 function_name: Some(fe.compute_fn_name.clone()),
                 image_uri: Some(desired_state_fe.image_uri.clone()),
                 secret_names: desired_state_fe.secret_names.clone(),
-                resource_limits: None, // deprecated
                 customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms.clone()),
                 graph: Some(code_payload_pb),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
@@ -447,9 +445,7 @@ impl ExecutorManager {
                         graph_version: Some(task.task.graph_version.to_string()),
                         function_name: Some(task.task.compute_fn_name.clone()),
                         graph_invocation_id: Some(task.task.invocation_id.clone()),
-                        input_key: Some(task.task.input_node_output_key.clone()),
                         timeout_ms: Some(task.timeout_ms),
-                        reducer_output_key: task.task.reducer_output_id.clone(),
                         input: Some(computed_task.input_payload),
                         reducer_input: computed_task.reducer_input_payload,
                         output_payload_uri_prefix: Some(computed_task.output_payload_uri_prefix),
@@ -486,7 +482,6 @@ impl ExecutorManager {
             )?;
 
             DataPayload {
-                path: Some(invocation_payload.payload.path.clone()),
                 uri: Some(blob_store_path_to_url(
                     &invocation_payload.payload.path,
                     &self.blob_store_url_scheme,
@@ -506,7 +501,6 @@ impl ExecutorManager {
 
             match node_output.payload {
                 data_model::OutputPayload::Fn(payload) => DataPayload {
-                    path: Some(payload.path.clone()),
                     uri: Some(blob_store_path_to_url(
                         &payload.path,
                         &self.blob_store_url_scheme,
@@ -535,7 +529,6 @@ impl ExecutorManager {
                 match reducer_output {
                     Some(output) => match output.payload {
                         data_model::OutputPayload::Fn(payload) => Some(DataPayload {
-                            path: Some(payload.path.clone()),
                             uri: Some(blob_store_path_to_url(
                                 &payload.path,
                                 &self.blob_store_url_scheme,
