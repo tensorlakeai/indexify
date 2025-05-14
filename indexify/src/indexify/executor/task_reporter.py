@@ -1,30 +1,16 @@
-import asyncio
 import hashlib
 import time
-from typing import Any, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
-import nanoid
-from httpx import Timeout
-from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
-from tensorlake.utils.http_client import get_httpx_client
-
-from indexify.proto.executor_api_pb2 import DataPayload as DataPayloadProto
 from indexify.proto.executor_api_pb2 import (
+    DataPayload,
     DataPayloadEncoding,
-    OutputEncoding,
     ReportTaskOutcomeRequest,
     TaskOutcome,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
-from .api_objects import (
-    TASK_OUTCOME_FAILURE,
-    TASK_OUTCOME_SUCCESS,
-    DataPayload,
-    IngestFnOutputsResponse,
-    RouterOutput,
-    TaskResult,
-)
 from .blob_store.blob_store import BLOBStore
 from .function_executor.task_output import TaskOutput
 from .grpc.channel_manager import ChannelManager
@@ -32,23 +18,17 @@ from .metrics.task_reporter import (
     metric_report_task_outcome_errors,
     metric_report_task_outcome_latency,
     metric_report_task_outcome_rpcs,
-    metric_server_ingest_files_errors,
-    metric_server_ingest_files_latency,
-    metric_server_ingest_files_requests,
     metric_task_output_blob_store_upload_errors,
     metric_task_output_blob_store_upload_latency,
     metric_task_output_blob_store_uploads,
 )
 
 
-# https://github.com/psf/requests/issues/1081#issuecomment-428504128
-class ForceMultipartDict(dict):
-    def __bool__(self):
-        return True
-
-
-FORCE_MULTIPART = ForceMultipartDict()
-UTF_8_CONTENT_TYPE = "application/octet-stream"
+@dataclass
+class UploadedTaskOutput:
+    data_payloads: List[DataPayload]
+    stdout: Optional[DataPayload]
+    stderr: Optional[DataPayload]
 
 
 class TaskOutputSummary:
@@ -66,21 +46,12 @@ class TaskOutputSummary:
 class TaskReporter:
     def __init__(
         self,
-        base_url: str,
         executor_id: str,
         channel_manager: ChannelManager,
         blob_store: BLOBStore,
-        config_path: Optional[str] = None,
     ):
-        self._base_url = base_url
         self._executor_id = executor_id
         self._is_shutdown = False
-        # Use thread-safe sync client due to issues with async client.
-        # Async client attempts to use connections it already closed.
-        # See e.g. https://github.com/encode/httpx/issues/2337.
-        # Creating a new async client for each request fixes this but it
-        # results in not reusing established TCP connections to server.
-        self._client = get_httpx_client(config_path, make_async=False)
         self._channel_manager = channel_manager
         self._blob_store = blob_store
 
@@ -123,42 +94,20 @@ class TaskReporter:
             stderr_bytes=output_summary.stderr_total_bytes,
         )
 
-        if output.output_payload_uri_prefix is None:
-            ingested_files = await self._ingest_files_at_server(output, logger)
-        else:
-            ingested_files = await self._ingest_files_at_blob_store(output, logger)
+        start_time = time.time()
+        with (
+            metric_task_output_blob_store_upload_latency.time(),
+            metric_task_output_blob_store_upload_errors.count_exceptions(),
+        ):
+            metric_task_output_blob_store_uploads.inc()
+            uploaded_task_output: UploadedTaskOutput = (
+                await self._upload_output_to_blob_store(output, logger)
+            )
 
-        fn_outputs = []
-        for data_payload in ingested_files.data_payloads:
-            fn_outputs.append(
-                DataPayloadProto(
-                    path=data_payload.path,  # TODO: stop using this deprecated field once Server side migration is done.
-                    uri=data_payload.path,
-                    size=data_payload.size,
-                    sha256_hash=data_payload.sha256_hash,
-                    encoding=_to_grpc_data_payload_encoding(output),
-                    encoding_version=0,
-                )
-            )
-        stdout, stderr = None, None
-        if ingested_files.stdout is not None:
-            stdout = DataPayloadProto(
-                path=ingested_files.stdout.path,  # TODO: stop using this deprecated field once Server side migration is done.
-                uri=ingested_files.stdout.path,
-                size=ingested_files.stdout.size,
-                sha256_hash=ingested_files.stdout.sha256_hash,
-                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
-                encoding_version=0,
-            )
-        if ingested_files.stderr is not None:
-            stderr = DataPayloadProto(
-                path=ingested_files.stderr.path,  # TODO: stop using this deprecated field once Server side migration is done.
-                uri=ingested_files.stderr.path,
-                size=ingested_files.stderr.size,
-                sha256_hash=ingested_files.stderr.sha256_hash,
-                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
-                encoding_version=0,
-            )
+        logger.info(
+            "files uploaded to blob store",
+            duration=time.time() - start_time,
+        )
 
         request = ReportTaskOutcomeRequest(
             task_id=output.task_id,
@@ -167,15 +116,12 @@ class TaskReporter:
             function_name=output.function_name,
             graph_invocation_id=output.graph_invocation_id,
             outcome=_to_grpc_task_outcome(output),
-            invocation_id=output.graph_invocation_id,
             executor_id=self._executor_id,
             reducer=output.reducer,
             next_functions=(output.router_output.edges if output.router_output else []),
-            fn_outputs=fn_outputs,
-            stdout=stdout,
-            stderr=stderr,
-            output_encoding=_to_grpc_output_encoding(output),
-            output_encoding_version=0,
+            fn_outputs=uploaded_task_output.data_payloads,
+            stdout=uploaded_task_output.stdout,
+            stderr=uploaded_task_output.stderr,
         )
         try:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
@@ -189,75 +135,9 @@ class TaskReporter:
             logger.error("failed to report task outcome", error=e)
             raise e
 
-    async def _ingest_files_at_server(
-        self, output: TaskOutput, logger: Any
-    ) -> IngestFnOutputsResponse:
-        logger.warning("uploading task output files to server (deprecated mode)")
-
-        task_result, output_files = self._process_task_output(output)
-        task_result_data = task_result.model_dump_json(exclude_none=True)
-
-        kwargs = {
-            "data": {"task_result": task_result_data},
-            # Use httpx default timeout of 5s for all timeout types.
-            # For read timeouts, use 5 minutes to allow for large file uploads.
-            "timeout": Timeout(
-                5.0,
-                read=5.0 * 60,
-            ),
-            "files": output_files if len(output_files) > 0 else FORCE_MULTIPART,
-        }
-
-        start_time = time.time()
-        with metric_server_ingest_files_latency.time():
-            metric_server_ingest_files_requests.inc()
-            # Run in a separate thread to not block the main event loop.
-            response = await asyncio.to_thread(
-                self._client.post,
-                url=f"{self._base_url}/internal/ingest_fn_outputs",
-                **kwargs,
-            )
-        end_time = time.time()
-        logger.info(
-            "files uploaded to server",
-            response_time=end_time - start_time,
-            response_code=response.status_code,
-        )
-
-        try:
-            response.raise_for_status()
-        except Exception as e:
-            metric_server_ingest_files_errors.inc()
-            # Caller catches and logs the exception.
-            raise Exception(
-                "failed to upload files. "
-                f"Response code: {response.status_code}. "
-                f"Response text: '{response.text}'."
-            ) from e
-
-        ingested_files_response = response.json()
-        return IngestFnOutputsResponse.model_validate(ingested_files_response)
-
-    async def _ingest_files_at_blob_store(
-        self, output: TaskOutput, logger: Any
-    ) -> IngestFnOutputsResponse:
-        start_time = time.time()
-        with (
-            metric_task_output_blob_store_upload_latency.time(),
-            metric_task_output_blob_store_upload_errors.count_exceptions(),
-        ):
-            metric_task_output_blob_store_uploads.inc()
-            response = await self._upload_output_to_blob_store(output, logger)
-
-        logger.info(
-            "files uploaded to blob store",
-            duration=time.time() - start_time,
-        )
-        return response
-
     async def _upload_output_to_blob_store(
         self, output: TaskOutput, logger: Any
-    ) -> IngestFnOutputsResponse:
+    ) -> UploadedTaskOutput:
         data_payloads: List[DataPayload] = []
         stdout: Optional[DataPayload] = None
         stderr: Optional[DataPayload] = None
@@ -267,9 +147,11 @@ class TaskReporter:
             stdout_bytes: bytes = output.stdout.encode()
             await self._blob_store.put(stdout_url, stdout_bytes, logger)
             stdout = DataPayload(
-                path=stdout_url,
+                uri=stdout_url,
                 size=len(stdout_bytes),
                 sha256_hash=_compute_hash(stdout_bytes),
+                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
+                encoding_version=0,
             )
 
         if output.stderr is not None:
@@ -277,9 +159,11 @@ class TaskReporter:
             stderr_bytes: bytes = output.stderr.encode()
             await self._blob_store.put(stderr_url, stderr_bytes, logger)
             stderr = DataPayload(
-                path=stderr_url,
+                uri=stderr_url,
                 size=len(stderr_bytes),
                 sha256_hash=_compute_hash(stderr_bytes),
+                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
+                encoding_version=0,
             )
 
         if output.function_output is not None:
@@ -302,102 +186,19 @@ class TaskReporter:
                 await self._blob_store.put(output_url, output_bytes, logger)
                 data_payloads.append(
                     DataPayload(
-                        path=output_url,
+                        uri=output_url,
                         size=len(output_bytes),
                         sha256_hash=_compute_hash(output_bytes),
+                        encoding=_to_grpc_data_payload_encoding(output),
+                        encoding_version=0,
                     )
                 )
 
-        return IngestFnOutputsResponse(
+        return UploadedTaskOutput(
             data_payloads=data_payloads,
             stdout=stdout,
             stderr=stderr,
         )
-
-    def _process_task_output(self, output: TaskOutput) -> Tuple[TaskResult, List[Any]]:
-        task_result = TaskResult(
-            outcome="failure",
-            namespace=output.namespace,
-            compute_graph=output.graph_name,
-            compute_fn=output.function_name,
-            invocation_id=output.graph_invocation_id,
-            executor_id=self._executor_id,
-            task_id=output.task_id,
-            reducer=output.reducer,
-        )
-        output_files: List[Any] = []
-        task_result.outcome = (
-            TASK_OUTCOME_SUCCESS if output.success else TASK_OUTCOME_FAILURE
-        )
-
-        _process_function_output(
-            function_output=output.function_output, output_files=output_files
-        )
-        _process_router_output(
-            router_output=output.router_output, task_result=task_result
-        )
-        _process_stdout(stdout=output.stdout, output_files=output_files)
-        _process_stderr(stderr=output.stderr, output_files=output_files)
-
-        return task_result, output_files
-
-
-def _process_function_output(
-    function_output: Optional[FunctionOutput], output_files: List[Any]
-) -> None:
-    if function_output is None:
-        return
-
-    for output in function_output.outputs or []:
-        payload = output.bytes if output.HasField("bytes") else output.string
-        output_files.append(
-            (
-                "node_outputs",
-                (nanoid.generate(), payload, output.content_type),
-            )
-        )
-
-
-def _process_router_output(
-    router_output: Optional[RouterOutput],
-    task_result: TaskResult,
-) -> None:
-    if router_output is None:
-        return
-
-    task_result.router_output = RouterOutput(edges=router_output.edges)
-
-
-def _process_stdout(stdout: Optional[str], output_files: List[Any]) -> None:
-    if stdout is None:
-        return
-
-    output_files.append(
-        (
-            "stdout",
-            (
-                nanoid.generate(),
-                stdout.encode(),
-                UTF_8_CONTENT_TYPE,
-            ),
-        )
-    )
-
-
-def _process_stderr(stderr: Optional[str], output_files: List[Any]) -> None:
-    if stderr is None:
-        return
-
-    output_files.append(
-        (
-            "stderr",
-            (
-                nanoid.generate(),
-                stderr.encode(),
-                UTF_8_CONTENT_TYPE,
-            ),
-        )
-    )
 
 
 def _task_output_summary(output: TaskOutput) -> TaskOutputSummary:
@@ -437,13 +238,6 @@ def _to_grpc_task_outcome(task_output: TaskOutput) -> TaskOutcome:
         return TaskOutcome.TASK_OUTCOME_SUCCESS
     else:
         return TaskOutcome.TASK_OUTCOME_FAILURE
-
-
-def _to_grpc_output_encoding(task_output: TaskOutput) -> OutputEncoding:
-    if task_output.output_encoding == "json":
-        return OutputEncoding.OUTPUT_ENCODING_JSON
-    else:
-        return OutputEncoding.OUTPUT_ENCODING_PICKLE
 
 
 def _to_grpc_data_payload_encoding(task_output: TaskOutput) -> DataPayloadEncoding:

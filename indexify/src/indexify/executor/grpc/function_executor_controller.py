@@ -9,7 +9,6 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
-    FunctionExecutorResources,
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
@@ -39,17 +38,16 @@ def validate_function_executor_description(
     validator.required_field("graph_name")
     validator.required_field("graph_version")
     validator.required_field("function_name")
-    # TODO: Make graph required after we migrate to direct S3 downloads.
     # image_uri is optional.
     # secret_names can be empty.
-    # resource_limits is optional.
-    # TODO: Make resources required after we migrate Server to them.
-    # validator.required_field("resources")
-    # validator = MessageValidator(function_executor_description.resources)
-    # validator.required_field("cpu_ms_per_sec")
-    # validator.required_field("memory_bytes")
-    # validator.required_field("disk_bytes")
-    # validator.required_field("gpu_count")
+    validator.required_field("customer_code_timeout_ms")
+    validator.required_field("graph")
+    validator.required_field("resources")
+    validator = MessageValidator(function_executor_description.resources)
+    validator.required_field("cpu_ms_per_sec")
+    validator.required_field("memory_bytes")
+    validator.required_field("disk_bytes")
+    validator.required_field("gpu_count")
 
 
 def function_executor_logger(
@@ -335,12 +333,8 @@ async def _create_function_executor(
         namespace=function_executor_description.namespace,
         graph_name=function_executor_description.graph_name,
         graph_version=function_executor_description.graph_version,
+        data_payload=function_executor_description.graph,
         logger=logger,
-        data_payload=(
-            function_executor_description.graph
-            if function_executor_description.HasField("graph")
-            else None
-        ),
     )
 
     config: FunctionExecutorServerConfiguration = FunctionExecutorServerConfiguration(
@@ -352,19 +346,13 @@ async def _create_function_executor(
         function_name=function_executor_description.function_name,
         image_uri=None,
         secret_names=list(function_executor_description.secret_names),
-        cpu_ms_per_sec=None,
-        memory_bytes=None,
-        disk_bytes=None,
-        gpu_count=0,
+        cpu_ms_per_sec=function_executor_description.resources.cpu_ms_per_sec,
+        memory_bytes=function_executor_description.resources.memory_bytes,
+        disk_bytes=function_executor_description.resources.disk_bytes,
+        gpu_count=function_executor_description.resources.gpu_count,
     )
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri
-    if function_executor_description.HasField("resources"):
-        resources: FunctionExecutorResources = function_executor_description.resources
-        config.cpu_ms_per_sec = resources.cpu_ms_per_sec
-        config.memory_bytes = resources.memory_bytes
-        config.disk_bytes = resources.disk_bytes
-        config.gpu_count = resources.gpu_count
 
     initialize_request: InitializeRequest = InitializeRequest(
         namespace=function_executor_description.namespace,

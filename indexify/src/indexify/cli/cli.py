@@ -12,7 +12,7 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 from socket import gethostname
-from typing import Annotated, Dict, List, Optional, Tuple
+from typing import Annotated, Dict, List, Optional
 
 import nanoid
 import prometheus_client
@@ -23,12 +23,10 @@ from rich.text import Text
 from rich.theme import Theme
 from tensorlake.functions_sdk.image import Image
 
-from indexify.executor.api_objects import FunctionURI
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.blob_store.local_fs_blob_store import LocalFSBLOBStore
 from indexify.executor.blob_store.s3_blob_store import S3BLOBStore
 from indexify.executor.executor import Executor
-from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
 )
@@ -85,20 +83,23 @@ def executor(
     ctx: typer.Context,
     server_addr: str = "localhost:8900",
     grpc_server_addr: str = "localhost:8901",
-    dev: Annotated[
-        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Verbose logging")
+    ] = False,
+    very_verbose: Annotated[
+        bool, typer.Option("--very-verbose", "-vv", help="Very verbose logging")
     ] = False,
     function_uris: Annotated[
-        Optional[List[str]],
+        List[str],
         typer.Option(
             "--function",
             "-f",
-            help="Function that the executor will run "
+            help="Functions that the executor will run "
             "specified as <namespace>:<workflow>:<function>:<version>"
             "version is optional, not specifying it will make the server send any version"
-            "of the function",
+            "of the function. Any number of --function arguments can be passed.",
         ),
-    ] = None,
+    ] = [],
     config_path: Optional[str] = typer.Option(
         None, help="Path to the TLS configuration file"
     ),
@@ -128,20 +129,9 @@ def executor(
             "Specified as <key>=<value>",
         ),
     ] = [],
-    enable_grpc_state_reconciler: Annotated[
-        bool,
-        typer.Option(
-            "--enable-grpc-state-reconciler",
-            help=(
-                "(exprimental) Enable gRPC state reconciler that will reconcile the state of the Function Executors and Task Allocations\n"
-                "with the desired state provided by Server. Required --grpc-server-addr to be set."
-            ),
-        ),
-    ] = False,
 ):
-    if dev:
-        compact_tracebacks: bool = os.getenv("INDEXIFY_COMPACT_TRACEBACKS", "1") == "1"
-        configure_development_mode_logging(compact_tracebacks=compact_tracebacks)
+    if verbose or very_verbose:
+        configure_development_mode_logging(compact_tracebacks=not very_verbose)
     else:
         configure_production_mode_logging()
 
@@ -164,15 +154,19 @@ def executor(
         labels=kv_labels,
         executor_cache=executor_cache,
         functions=function_uris,
-        dev_mode=dev,
+        verbose=verbose,
+        very_verbose=very_verbose,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     )
     if ctx.args:
         logger.warning(
             "Unknown arguments passed to the executor",
             unknown_args=ctx.args,
+        )
+    if len(function_uris) == 0:
+        logger.warning(
+            "No --function arguments were passed. Executor will run all functions. This scenario is only supported for testing purposes.",
         )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -205,52 +199,22 @@ def executor(
 
     Executor(
         id=executor_id,
-        development_mode=dev,
-        flavor=ExecutorFlavor.OSS,
         version=executor_version,
         labels=kv_labels,
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,
-        function_allowlist=_parse_function_uris(function_uris),
-        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(),
+        function_uris=function_uris,
+        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
+            verbose_logs=verbose or very_verbose
+        ),
         server_addr=server_addr,
         grpc_server_addr=grpc_server_addr,
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
         blob_store=blob_store,
         host_resources_provider=host_resources_provider,
     ).run()
-
-
-def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[FunctionURI]]:
-    if uri_strs is None:
-        return None
-
-    uris: List[FunctionURI] = []
-    for uri_str in uri_strs:
-        tokens = uri_str.split(":")
-        # FIXME bring this back when we have a dynamic scheduler
-        # if len(tokens) != 4:
-        if len(tokens) < 3 and len(tokens) > 4:
-            raise typer.BadParameter(
-                "Function should be specified as <namespace>:<workflow>:<function>:<version> or"
-                "<namespace>:<workflow>:<function>"
-            )
-        try:
-            version = tokens[3]
-        except IndexError:
-            version = None
-        uris.append(
-            FunctionURI(
-                namespace=tokens[0],
-                compute_graph=tokens[1],
-                compute_fn=tokens[2],
-                version=version,
-            )
-        )
-    return uris
 
 
 def _create_image(image: Image, python_sdk_path):

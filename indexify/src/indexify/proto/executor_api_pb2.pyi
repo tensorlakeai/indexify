@@ -66,13 +66,6 @@ class TaskOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TASK_OUTCOME_SUCCESS: _ClassVar[TaskOutcome]
     TASK_OUTCOME_FAILURE: _ClassVar[TaskOutcome]
 
-class OutputEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    OUTPUT_ENCODING_UNKNOWN: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_JSON: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_PICKLE: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_BINARY: _ClassVar[OutputEncoding]
-
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
@@ -106,20 +99,14 @@ EXECUTOR_FLAVOR_PLATFORM: ExecutorFlavor
 TASK_OUTCOME_UNKNOWN: TaskOutcome
 TASK_OUTCOME_SUCCESS: TaskOutcome
 TASK_OUTCOME_FAILURE: TaskOutcome
-OUTPUT_ENCODING_UNKNOWN: OutputEncoding
-OUTPUT_ENCODING_JSON: OutputEncoding
-OUTPUT_ENCODING_PICKLE: OutputEncoding
-OUTPUT_ENCODING_BINARY: OutputEncoding
 
 class DataPayload(_message.Message):
-    __slots__ = ("path", "size", "sha256_hash", "uri", "encoding", "encoding_version")
-    PATH_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")
     SIZE_FIELD_NUMBER: _ClassVar[int]
     SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
     URI_FIELD_NUMBER: _ClassVar[int]
     ENCODING_FIELD_NUMBER: _ClassVar[int]
     ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
-    path: str
     size: int
     sha256_hash: str
     uri: str
@@ -127,7 +114,6 @@ class DataPayload(_message.Message):
     encoding_version: int
     def __init__(
         self,
-        path: _Optional[str] = ...,
         size: _Optional[int] = ...,
         sha256_hash: _Optional[str] = ...,
         uri: _Optional[str] = ...,
@@ -208,7 +194,6 @@ class FunctionExecutorDescription(_message.Message):
         "function_name",
         "image_uri",
         "secret_names",
-        "resource_limits",
         "customer_code_timeout_ms",
         "graph",
         "resources",
@@ -220,7 +205,6 @@ class FunctionExecutorDescription(_message.Message):
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
-    RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
@@ -231,7 +215,6 @@ class FunctionExecutorDescription(_message.Message):
     function_name: str
     image_uri: str
     secret_names: _containers.RepeatedScalarFieldContainer[str]
-    resource_limits: HostResources
     customer_code_timeout_ms: int
     graph: DataPayload
     resources: FunctionExecutorResources
@@ -244,7 +227,6 @@ class FunctionExecutorDescription(_message.Message):
         function_name: _Optional[str] = ...,
         image_uri: _Optional[str] = ...,
         secret_names: _Optional[_Iterable[str]] = ...,
-        resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
@@ -265,9 +247,7 @@ class FunctionExecutorState(_message.Message):
 class ExecutorState(_message.Message):
     __slots__ = (
         "executor_id",
-        "development_mode",
         "hostname",
-        "flavor",
         "version",
         "status",
         "total_resources",
@@ -290,9 +270,7 @@ class ExecutorState(_message.Message):
         ) -> None: ...
 
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
-    DEVELOPMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     HOSTNAME_FIELD_NUMBER: _ClassVar[int]
-    FLAVOR_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TOTAL_RESOURCES_FIELD_NUMBER: _ClassVar[int]
@@ -303,9 +281,7 @@ class ExecutorState(_message.Message):
     STATE_HASH_FIELD_NUMBER: _ClassVar[int]
     SERVER_CLOCK_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
-    development_mode: bool
     hostname: str
-    flavor: ExecutorFlavor
     version: str
     status: ExecutorStatus
     total_resources: HostResources
@@ -320,9 +296,7 @@ class ExecutorState(_message.Message):
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
-        development_mode: bool = ...,
         hostname: _Optional[str] = ...,
-        flavor: _Optional[_Union[ExecutorFlavor, str]] = ...,
         version: _Optional[str] = ...,
         status: _Optional[_Union[ExecutorStatus, str]] = ...,
         total_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
@@ -378,8 +352,6 @@ class Task(_message.Message):
         "graph_version",
         "function_name",
         "graph_invocation_id",
-        "input_key",
-        "reducer_output_key",
         "timeout_ms",
         "input",
         "reducer_input",
@@ -392,8 +364,6 @@ class Task(_message.Message):
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
-    REDUCER_OUTPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     INPUT_FIELD_NUMBER: _ClassVar[int]
     REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
@@ -405,8 +375,6 @@ class Task(_message.Message):
     graph_version: str
     function_name: str
     graph_invocation_id: str
-    input_key: str
-    reducer_output_key: str
     timeout_ms: int
     input: DataPayload
     reducer_input: DataPayload
@@ -420,8 +388,6 @@ class Task(_message.Message):
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
-        input_key: _Optional[str] = ...,
-        reducer_output_key: _Optional[str] = ...,
         timeout_ms: _Optional[int] = ...,
         input: _Optional[_Union[DataPayload, _Mapping]] = ...,
         reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
@@ -474,15 +440,12 @@ class ReportTaskOutcomeRequest(_message.Message):
         "function_name",
         "graph_invocation_id",
         "outcome",
-        "invocation_id",
         "executor_id",
         "reducer",
         "next_functions",
         "fn_outputs",
         "stdout",
         "stderr",
-        "output_encoding",
-        "output_encoding_version",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -490,30 +453,24 @@ class ReportTaskOutcomeRequest(_message.Message):
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_FIELD_NUMBER: _ClassVar[int]
-    INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     REDUCER_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FN_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_ENCODING_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
     function_name: str
     graph_invocation_id: str
     outcome: TaskOutcome
-    invocation_id: str
     executor_id: str
     reducer: bool
     next_functions: _containers.RepeatedScalarFieldContainer[str]
     fn_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
-    output_encoding: OutputEncoding
-    output_encoding_version: int
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -522,15 +479,12 @@ class ReportTaskOutcomeRequest(_message.Message):
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
         outcome: _Optional[_Union[TaskOutcome, str]] = ...,
-        invocation_id: _Optional[str] = ...,
         executor_id: _Optional[str] = ...,
         reducer: bool = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
         fn_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        output_encoding: _Optional[_Union[OutputEncoding, str]] = ...,
-        output_encoding_version: _Optional[int] = ...,
     ) -> None: ...
 
 class ReportTaskOutcomeResponse(_message.Message):

@@ -15,7 +15,6 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from ..downloader import serialized_object_from_http_response
 from .metrics.invocation_state_client import (
     metric_request_read_errors,
     metric_server_get_state_request_errors,
@@ -257,3 +256,19 @@ class InvocationStateClient:
             )
         else:
             raise ValueError("unknown request type")
+
+
+def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
+    # We're hardcoding the content type currently used by Python SDK. It might change in the future.
+    # There's no other way for now to determine if the response is a bytes or string.
+    if response.headers["content-type"] in [
+        "application/octet-stream",
+        "application/pickle",
+    ]:
+        return SerializedObject(
+            bytes=response.content, content_type=response.headers["content-type"]
+        )
+    else:
+        return SerializedObject(
+            string=response.text, content_type=response.headers["content-type"]
+        )

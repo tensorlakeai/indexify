@@ -24,22 +24,17 @@ from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpcs,
 )
 from ..function_executor.task_output import TaskMetrics, TaskOutput
-
-# TODO: combine these metrics into a single python file once gRPC migration is over and old code is removed.
-from ..metrics.executor import (
+from ..task_reporter import TaskReporter
+from .metrics.task_controller import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM,
     METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS,
+    metric_task_cancellations,
     metric_task_completion_latency,
     metric_task_outcome_report_latency,
     metric_task_outcome_report_retries,
     metric_task_outcome_reports,
-    metric_tasks_completed,
-    metric_tasks_fetched,
-    metric_tasks_reporting_outcome,
-)
-from ..metrics.task_runner import (
     metric_task_policy_latency,
     metric_task_policy_runs,
     metric_task_run_latency,
@@ -47,10 +42,11 @@ from ..metrics.task_runner import (
     metric_task_runs,
     metric_tasks_blocked_by_policy,
     metric_tasks_blocked_by_policy_per_function_name,
+    metric_tasks_completed,
+    metric_tasks_fetched,
+    metric_tasks_reporting_outcome,
     metric_tasks_running,
 )
-from ..task_reporter import TaskReporter
-from .metrics.task_controller import metric_task_cancellations
 
 _TASK_OUTCOME_REPORT_BACKOFF_SEC = 5.0
 
@@ -67,10 +63,10 @@ def validate_task(task: Task) -> None:
     validator.required_field("graph_version")
     validator.required_field("function_name")
     validator.required_field("graph_invocation_id")
-    if not (task.HasField("input_key") or task.HasField("input")):
-        raise ValueError(
-            "Task must have either input_key or input field set. " f"Got task: {task}"
-        )
+    validator.required_field("timeout_ms")
+    validator.required_field("input")
+    validator.required_field("output_payload_uri_prefix")
+    validator.required_field("retry_policy")
 
 
 def task_logger(task: Task, logger: Any) -> Any:
@@ -184,32 +180,13 @@ class TaskController:
         Raises an Exception if the inputs failed to download.
         """
         self._input = await self._downloader.download_input(
-            namespace=self._task.namespace,
-            graph_name=self._task.graph_name,
-            graph_invocation_id=self._task.graph_invocation_id,
-            input_key=self._task.input_key,
-            data_payload=self._task.input if self._task.HasField("input") else None,
+            data_payload=self._task.input,
             logger=self._logger,
         )
 
-        if self._task.HasField("reducer_output_key") or self._task.HasField(
-            "reducer_input"
-        ):
+        if self._task.HasField("reducer_input"):
             self._init_value = await self._downloader.download_init_value(
-                namespace=self._task.namespace,
-                graph_name=self._task.graph_name,
-                function_name=self._task.function_name,
-                graph_invocation_id=self._task.graph_invocation_id,
-                reducer_output_key=(
-                    self._task.reducer_output_key
-                    if self._task.HasField("reducer_output_key")
-                    else None
-                ),
-                data_payload=(
-                    self._task.reducer_input
-                    if self._task.HasField("reducer_input")
-                    else None
-                ),
+                data_payload=self._task.reducer_input,
                 logger=self._logger,
             )
 
@@ -323,11 +300,7 @@ class TaskController:
             self._function_executor_state.function_executor.channel()
         )
 
-        timeout_sec: Optional[float] = None
-        if self._task.HasField("timeout_ms"):
-            # TODO: Add integration tests with function timeout when end-to-end implementation is done.
-            timeout_sec = self._task.timeout_ms / 1000.0
-
+        timeout_sec = self._task.timeout_ms / 1000.0
         async with _RunningTaskContextManager(
             task=self._task,
             function_executor=self._function_executor_state.function_executor,
@@ -397,11 +370,7 @@ class TaskController:
             function_name=self._task.function_name,
             graph_version=self._task.graph_version,
             graph_invocation_id=self._task.graph_invocation_id,
-            output_payload_uri_prefix=(
-                self._task.output_payload_uri_prefix
-                if self._task.HasField("output_payload_uri_prefix")
-                else None
-            ),
+            output_payload_uri_prefix=self._task.output_payload_uri_prefix,
         )
 
     def _function_timeout_output(self, timeout_sec: float) -> TaskOutput:
@@ -413,11 +382,7 @@ class TaskController:
             graph_version=self._task.graph_version,
             graph_invocation_id=self._task.graph_invocation_id,
             timeout_sec=timeout_sec,
-            output_payload_uri_prefix=(
-                self._task.output_payload_uri_prefix
-                if self._task.HasField("output_payload_uri_prefix")
-                else None
-            ),
+            output_payload_uri_prefix=self._task.output_payload_uri_prefix,
         )
 
 
@@ -448,11 +413,7 @@ def _task_output_from_function_executor_response(
         reducer=response.is_reducer,
         success=response.success,
         metrics=metrics,
-        output_payload_uri_prefix=(
-            task.output_payload_uri_prefix
-            if task.HasField("output_payload_uri_prefix")
-            else None
-        ),
+        output_payload_uri_prefix=task.output_payload_uri_prefix,
     )
 
     if response.HasField("function_output"):

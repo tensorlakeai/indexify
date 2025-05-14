@@ -12,14 +12,17 @@ from .subprocess_function_executor_server import SubprocessFunctionExecutorServe
 
 
 def get_free_tcp_port(iface_name="localhost") -> int:
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.bind((iface_name, 0))
-    _, port = tcp.getsockname()
-    tcp.close()
-    return port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((iface_name, 0))
+        _, port = sock.getsockname()
+        return port
 
 
 class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
+    def __init__(self, verbose_logs: bool) -> None:
+        super().__init__()
+        self._verbose_logs = verbose_logs
+
     async def create(
         self, config: FunctionExecutorServerConfiguration, logger: Any
     ) -> SubprocessFunctionExecutorServer:
@@ -40,6 +43,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 "--address",
                 _server_address(port),
             ]
+            if self._verbose_logs:
+                args.append("--dev")
             # Run the process with our stdout, stderr. We want to see process logs and exceptions in our process output.
             # This is useful for dubugging. Customer function stdout and stderr is captured and returned in the response
             # so we won't see it in our process outputs. This is the right behavior as customer function stdout and stderr

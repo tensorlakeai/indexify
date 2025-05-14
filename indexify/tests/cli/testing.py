@@ -43,7 +43,6 @@ class ExecutorProcessContextManager:
     ):
         self._args = ["indexify-cli", "executor"]
         self._args.extend(args)
-        self._args.extend(["--enable-grpc-state-reconciler"])
         self._with_dedicated_executor_cache = with_dedicated_executor_cache
         self._keep_std_outputs = keep_std_outputs
         self._extra_env = extra_env

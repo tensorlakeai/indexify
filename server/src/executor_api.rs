@@ -33,7 +33,6 @@ use executor_api_pb::{
     FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
     HostResources,
-    OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
     ReportTaskOutcomeRequest,
@@ -577,13 +576,12 @@ impl ExecutorApi for ExecutorAPIService {
 
         let mut node_outputs = Vec::new();
         for output in request.get_ref().fn_outputs.clone() {
-            let path = output
-                .path
-                .or(output.uri)
-                .ok_or(Status::invalid_argument("path or uri is required"))?;
+            let url = output
+                .uri
+                .ok_or(Status::invalid_argument("uri is required"))?;
 
             let path = blob_store_url_to_path(
-                &path,
+                &url,
                 &self.blob_storage.get_url_scheme(),
                 &self.blob_storage.get_url(),
             );
@@ -611,24 +609,9 @@ impl ExecutorApi for ExecutorAPIService {
                         }
                     }
                 }
-                // Fallback to the deprecated request encoding if not set
-                None => match request.get_ref().output_encoding {
-                    Some(value) => {
-                        let output_encoding = OutputEncoding::try_from(value)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                        match output_encoding {
-                            OutputEncoding::Json => Ok("application/json"),
-                            OutputEncoding::Pickle => Ok("application/octet-stream"),
-                            OutputEncoding::Binary => Ok("application/octet-stream"),
-                            OutputEncoding::Unknown => {
-                                Err(Status::invalid_argument("unknown request output encoding"))
-                            }
-                        }
-                    }
-                    None => Err(Status::invalid_argument(
-                        "data payload encoding or request output encoding is required",
-                    )),
-                },
+                None => Err(Status::invalid_argument(
+                    "data payload encoding is required",
+                )),
             }?;
 
             let node_output = NodeOutputBuilder::default()
@@ -702,7 +685,7 @@ fn prepare_data_payload(
         return None;
     }
     let msg = msg.unwrap();
-    if msg.uri.is_none() && msg.path.is_none() {
+    if msg.uri.is_none() {
         return None;
     }
     if msg.size.as_ref().is_none() {
@@ -712,10 +695,8 @@ fn prepare_data_payload(
         return None;
     }
 
-    // Fallback to deprecated path if uri is not set.
-    let path = msg.uri.or(msg.path).unwrap();
     Some(data_model::DataPayload {
-        path: blob_store_url_to_path(&path, blob_store_url_scheme, blob_store_url),
+        path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
         size: msg.size.unwrap(),
         sha256_hash: msg.sha256_hash.unwrap(),
     })
