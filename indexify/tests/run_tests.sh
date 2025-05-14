@@ -39,7 +39,9 @@ indexify_test_files=$(find . -name 'test_*.py')
 # Tensorlke SDK tests verify user visible functionality end-to-end.
 tensorlake_sdk_test_files=$(find ../../tensorlake/tests/tensorlake -name 'test_*.py')
 
+export LEGACY_SSE_STREAM_IS_USED="1"
 run_test_suite "$indexify_test_files" "Indexify"
+unset LEGACY_SSE_STREAM_IS_USED
 run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"
 
 if [ $tests_exit_code -eq 0 ]; then
