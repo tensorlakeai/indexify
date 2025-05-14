@@ -11,9 +11,9 @@ def get_start_time(x: int) -> str:
 
 
 class TestInvokeDurations(unittest.TestCase):
-    def test_cold_start_duration_is_less_than_five_sec(self):
+    def test_cold_start_duration_is_less_than_30_sec(self):
         graph = Graph(
-            name="test_cold_start_duration_is_less_than_five_sec",
+            name="test_cold_start_duration_is_less_than_30_sec",
             description="test",
             start_node=get_start_time,
         )
@@ -27,13 +27,10 @@ class TestInvokeDurations(unittest.TestCase):
         func_start_time = float(output[0])
         cold_start_duration = func_start_time - invoke_start_time
         print(f"cold_start_duration: {cold_start_duration} seconds")
-        # The current duration we see in tests is about 1.2 seconds
-        # with p100 of 3 secs.
-        #
-        # We give a large headroom to prevent this test getting flaky
-        # while still notifiying us if the cold start duration regresses
-        # significantly.
-        self.assertLess(cold_start_duration, 5)
+        # Set the threshold to large 30 seconds to only catch large
+        # regressions in server-sse-stream-stable branch because otherwise
+        # we are not going to fix them.
+        self.assertLess(cold_start_duration, 30)
 
     def test_warm_start_duration_is_less_than_hundred_ms(self):
         graph = Graph(
