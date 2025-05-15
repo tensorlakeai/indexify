@@ -15,7 +15,6 @@ enum DataPayloadEncoding {
 }
 
 message DataPayload {
-    reserved 1;
     optional uint64 size = 2;
     optional string sha256_hash = 3;
     // URI of the data.
@@ -41,7 +40,6 @@ enum GPUModel {
 message GPUResources {
     optional uint32 count = 1;
     optional GPUModel model = 2;
-    reserved 3;
 }
 
 // Resources that we're currently tracking and limiting on Executor.
@@ -64,17 +62,12 @@ message AllowedFunction {
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    FUNCTION_EXECUTOR_STATUS_STARTING_UP = 1;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR = 2;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR = 3;
-    FUNCTION_EXECUTOR_STATUS_IDLE = 4;
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 5;
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 6;
-    FUNCTION_EXECUTOR_STATUS_STOPPING = 7;
-    // FE is stopped but can be started up.
-    FUNCTION_EXECUTOR_STATUS_STOPPED = 8;
-    // FE is stopped forever, all resources are freed.
-    FUNCTION_EXECUTOR_STATUS_SHUTDOWN = 9;
+    // Function Executor is being created.
+    FUNCTION_EXECUTOR_STATUS_PENDING = 1;
+    // Function Executor is running and ready to accept tasks.
+    FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
+    // Function Executor is terminated, all resources are freed.
+    FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
 // Immutable information that identifies and describes a Function Executor.

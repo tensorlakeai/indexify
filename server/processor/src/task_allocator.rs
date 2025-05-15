@@ -14,7 +14,6 @@ use data_model::{
     FunctionExecutorBuilder,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
-    FunctionExecutorStatus,
     GraphInvocationCtx,
     GraphInvocationOutcome,
     Task,
@@ -190,7 +189,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .compute_graph_name(task.compute_graph_name.clone())
             .compute_fn_name(task.compute_fn_name.clone())
             .version(task.graph_version.clone())
-            .status(FunctionExecutorStatus::Unknown)
+            .state(FunctionExecutorState::Unknown)
             .build()?;
 
         info!(
@@ -348,7 +347,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 // Case 2: Check if it exists in executor's list
                 if let Some(executor_fe) = executor.function_executors.get(indexed_fe_id) {
                     // It exists in executor's list, check if its state is Terminated
-                    if executor_fe.status.as_state() == FunctionExecutorState::Terminated {
+                    if executor_fe.state == FunctionExecutorState::Terminated {
                         debug!(
                             "Removing function executor {} that is in Terminated state in executor",
                             indexed_fe_id.get()
@@ -381,7 +380,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut active_function_executors = HashMap::new();
         let mut stale_function_executors = HashMap::new();
         for (fe_id, fe) in executor.function_executors.iter() {
-            let state = fe.status.as_state();
+            let state = fe.state;
             if state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending {
                 active_function_executors.insert(fe_id.clone(), fe.clone());
             } else {
@@ -394,7 +393,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             // Check if this FE already exists in our indexes
             if let Some(indexed_fe) = function_executors_in_indexes.get(&fe_id) {
                 // FE exists in our indexes - check if we need to update its state
-                let executor_state = fe.status.as_state();
+                let executor_state = fe.state;
 
                 if indexed_fe.desired_state != executor_state {
                     // Update state to match executor's state
@@ -426,11 +425,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                 );
 
                 // Create a new FunctionExecutorMetadata
-                let fe_metadata = FunctionExecutorServerMetadata::new(
-                    executor.id.clone(),
-                    fe.clone(),
-                    fe.status.as_state(),
-                );
+                let fe_metadata =
+                    FunctionExecutorServerMetadata::new(executor.id.clone(), fe.clone(), fe.state);
 
                 // Add to update
                 update.new_function_executors.push(fe_metadata.clone());
@@ -513,22 +509,21 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .get(&allocation.task_key())
                 .cloned();
 
-            let fe_status = self
+            let fe_state = self
                 .in_memory_state
                 .executors
                 .get(executor_id)
                 .map(|em| em.function_executors.get(&allocation.function_executor_id))
                 .flatten()
-                .map(|fe| fe.status.clone())
-                .unwrap_or(FunctionExecutorStatus::Unknown);
+                .map(|fe| fe.state.clone())
+                .unwrap_or(FunctionExecutorState::Unknown);
 
-            let is_startup_failure = match fe_status {
-                FunctionExecutorStatus::StartupFailedCustomerError |
-                FunctionExecutorStatus::StartupFailedPlatformError => true,
+            let is_fe_failure = match fe_state {
+                FunctionExecutorState::Terminated => true,
                 _ => false,
             };
             if let Some(mut task) = task {
-                if is_startup_failure {
+                if is_fe_failure {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
                 } else {
@@ -548,7 +543,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .get(&invocation_ctx_key)
                 .cloned()
             {
-                if is_startup_failure {
+                if is_fe_failure {
                     let mut invocation_ctx = invocation_ctx.clone();
                     invocation_ctx.completed = true;
                     invocation_ctx.outcome = GraphInvocationOutcome::Failure;

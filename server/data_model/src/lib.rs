@@ -1407,11 +1407,12 @@ pub struct HostResources {
 impl Default for HostResources {
     fn default() -> Self {
         // There are no sensible defaults for these values.
-        // Use values that won't be seen in real life as defaults.
+        // If the defaults are ever used then it means that the Executor is not
+        // schedulable.
         Self {
-            cpu_count: 8,
-            memory_bytes: 16 * 1024 * 1024 * 1024,
-            disk_bytes: 100 * 1024 * 1024 * 1024,
+            cpu_count: 0,
+            memory_bytes: 0,
+            disk_bytes: 0,
             gpu: None,
         }
     }
@@ -1520,7 +1521,17 @@ impl Default for FunctionExecutorId {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Default,
+    strum::AsRefStr,
+    Display,
+    Eq,
+    Hash,
 )]
 pub enum FunctionExecutorState {
     #[default]
@@ -1528,47 +1539,6 @@ pub enum FunctionExecutorState {
     Pending,
     Running,
     Terminated,
-}
-
-#[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
-)]
-pub enum FunctionExecutorStatus {
-    #[default]
-    Unknown,
-    StartingUp,
-    StartupFailedCustomerError,
-    StartupFailedPlatformError,
-    Idle,
-    RunningTask,
-    Unhealthy,
-    Stopping,
-    Stopped,
-    Shutdown,
-}
-
-impl FunctionExecutorStatus {
-    pub fn as_state(&self) -> FunctionExecutorState {
-        self.clone().into()
-    }
-}
-
-impl Into<FunctionExecutorState> for FunctionExecutorStatus {
-    fn into(self) -> FunctionExecutorState {
-        match self {
-            FunctionExecutorStatus::Unknown => FunctionExecutorState::Unknown,
-            FunctionExecutorStatus::StartingUp => FunctionExecutorState::Pending,
-            FunctionExecutorStatus::Idle | FunctionExecutorStatus::RunningTask => {
-                FunctionExecutorState::Running
-            }
-            FunctionExecutorStatus::StartupFailedCustomerError |
-            FunctionExecutorStatus::StartupFailedPlatformError |
-            FunctionExecutorStatus::Unhealthy |
-            FunctionExecutorStatus::Stopping |
-            FunctionExecutorStatus::Stopped |
-            FunctionExecutorStatus::Shutdown => FunctionExecutorState::Terminated,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1619,7 +1589,7 @@ pub struct FunctionExecutor {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: GraphVersion,
-    pub status: FunctionExecutorStatus,
+    pub state: FunctionExecutorState,
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1698,14 +1668,14 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
-            status,
+            state,
         })
     }
 }

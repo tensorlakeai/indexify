@@ -1226,9 +1226,7 @@ impl InMemoryState {
             .map(|executor_state| executor_state.function_executors.clone())
             .unwrap_or_default()
             .values()
-            .filter(|fe_meta| {
-                fe_meta.function_executor.status.as_state() != FunctionExecutorState::Terminated
-            })
+            .filter(|fe_meta| fe_meta.function_executor.state != FunctionExecutorState::Terminated)
             .map(|fe_meta| fe_meta.clone())
             .collect::<Vec<_>>();
 

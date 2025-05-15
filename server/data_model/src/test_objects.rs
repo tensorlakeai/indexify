@@ -315,7 +315,13 @@ pub mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
-            host_resources: Default::default(),
+            // Executor must have resources to be schedulable.
+            host_resources: crate::HostResources {
+                cpu_count: 8,
+                memory_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bytes: 100 * 1024 * 1024 * 1024,
+                gpu: None,
+            },
             state: Default::default(),
             function_executors: Default::default(),
             tombstoned: false,

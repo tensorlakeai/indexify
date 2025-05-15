@@ -8,7 +8,7 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutor,
-    FunctionExecutorStatus,
+    FunctionExecutorState,
     Task,
     TaskDiagnostics,
     TaskOutcome,
@@ -303,14 +303,14 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn mark_function_executors_as_idle(&self) -> Result<()> {
+    pub async fn mark_function_executors_as_running(&self) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
             .function_executors
             .into_values()
             .map(|mut fe| {
-                fe.status = FunctionExecutorStatus::Idle;
+                fe.state = FunctionExecutorState::Running;
                 fe
             })
             .collect();
