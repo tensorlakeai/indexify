@@ -12,7 +12,7 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from indexify.proto.executor_api_pb2 import Task
+from indexify.proto.executor_api_pb2 import Task, TaskFailureReason, TaskOutcomeCode
 
 from ..downloader import Downloader
 from ..function_executor.function_executor import FunctionExecutor
@@ -24,17 +24,20 @@ from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpcs,
 )
 from ..function_executor.task_output import TaskMetrics, TaskOutput
-from ..task_reporter import TaskReporter
 from .metrics.task_controller import (
-    METRIC_TASKS_COMPLETED_OUTCOME_ALL,
-    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
-    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM,
-    METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS,
+    METRIC_TASKS_COMPLETED_FAILURE_REASON_ALL,
+    METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
+    METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
+    METRIC_TASKS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
+    METRIC_TASKS_COMPLETED_FAILURE_REASON_NONE,
+    METRIC_TASKS_COMPLETED_OUTCOME_CODE_ALL,
+    METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+    METRIC_TASKS_COMPLETED_OUTCOME_CODE_SUCCESS,
     metric_task_cancellations,
     metric_task_completion_latency,
-    metric_task_outcome_report_latency,
-    metric_task_outcome_report_retries,
-    metric_task_outcome_reports,
+    metric_task_output_upload_latency,
+    metric_task_output_upload_retries,
+    metric_task_output_uploads,
     metric_task_policy_latency,
     metric_task_policy_runs,
     metric_task_run_latency,
@@ -44,11 +47,13 @@ from .metrics.task_controller import (
     metric_tasks_blocked_by_policy_per_function_name,
     metric_tasks_completed,
     metric_tasks_fetched,
-    metric_tasks_reporting_outcome,
     metric_tasks_running,
+    metric_tasks_uploading_outputs,
 )
+from .state_reporter import ExecutorStateReporter
+from .task_output_uploader import TaskOutputUploader
 
-_TASK_OUTCOME_REPORT_BACKOFF_SEC = 5.0
+_TASK_OUTPUT_UPLOAD_BACKOFF_SEC = 5.0
 
 
 def validate_task(task: Task) -> None:
@@ -90,9 +95,10 @@ class TaskController:
         self,
         task: Task,
         downloader: Downloader,
-        task_reporter: TaskReporter,
+        task_output_uploader: TaskOutputUploader,
         function_executor_id: str,
         function_executor_state: FunctionExecutorState,
+        state_reporter: ExecutorStateReporter,
         logger: Any,
     ):
         """Creates a new TaskController instance.
@@ -101,9 +107,10 @@ class TaskController:
         """
         self._task: Task = task
         self._downloader: Downloader = downloader
-        self._task_reporter: TaskReporter = task_reporter
+        self._task_output_uploader: TaskOutputUploader = task_output_uploader
         self._function_executor_id: str = function_executor_id
         self._function_executor_state: FunctionExecutorState = function_executor_state
+        self._state_reporter: ExecutorStateReporter = state_reporter
         self._logger: Any = task_logger(task, logger).bind(
             function_executor_id=function_executor_id,
             module=__name__,
@@ -150,7 +157,12 @@ class TaskController:
         try:
             await self._download_inputs()
             output = await self._run_task_when_function_executor_is_available()
-            self._logger.info("task execution finished", success=output.success)
+            self._logger.info(
+                "task execution finished",
+                success=output.outcome_code
+                == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS,
+                outcome_code=TaskOutcomeCode.Name(output.outcome_code),
+            )
             _log_function_metrics(output, self._logger)
         except Exception as e:
             metric_task_run_platform_errors.inc(),
@@ -168,11 +180,21 @@ class TaskController:
         # This is required to simplify the protocol so Server doesn't need to care about task states
         # and cancel each tasks carefully to not get its outcome as failed.
         with (
-            metric_tasks_reporting_outcome.track_inprogress(),
-            metric_task_outcome_report_latency.time(),
+            metric_tasks_uploading_outputs.track_inprogress(),
+            metric_task_output_upload_latency.time(),
         ):
-            metric_task_outcome_reports.inc()
-            await self._report_task_outcome(output)
+            metric_task_output_uploads.inc()
+            await self._upload_task_output(output)
+
+        _report_task_completion_metrics(
+            task_outcome_code=output.outcome_code,
+            task_failure_reason=output.failure_reason,
+            logger=self._logger,
+        )
+
+        self._state_reporter.add_completed_task_output(output)
+        # Report the outcome to the Server asap to reduce latency.
+        self._state_reporter.schedule_state_report()
 
     async def _download_inputs(self) -> None:
         """Downloads the task inputs and init value.
@@ -230,6 +252,7 @@ class TaskController:
                 "task is blocked by policy: waiting for idle function executor"
             )
             async with self._function_executor_state.lock:
+                # TODO: Handle TaskOutcome.TASK_OUTCOME_FAILURE_FUNCTION_EXECUTOR_TERMINATED.
                 await self._function_executor_state.wait_status(
                     allowlist=[FunctionExecutorStatus.IDLE]
                 )
@@ -328,39 +351,25 @@ class TaskController:
             task=self._task, response=response
         )
 
-    async def _report_task_outcome(self, output: TaskOutput) -> None:
-        """Reports the task with the given output to the server.
+    async def _upload_task_output(self, output: TaskOutput) -> None:
+        """Uploads the task output to blob store.
 
         Doesn't raise any Exceptions. Runs till the reporting is successful."""
-        reporting_retries: int = 0
+        upload_retries: int = 0
 
         while True:
-            logger = self._logger.bind(retries=reporting_retries)
+            logger = self._logger.bind(retries=upload_retries)
             try:
-                await self._task_reporter.report(output=output, logger=logger)
+                await self._task_output_uploader.upload(output=output, logger=logger)
                 break
             except Exception as e:
                 logger.error(
-                    "failed to report task",
+                    "failed to upload task output",
                     exc_info=e,
                 )
-                reporting_retries += 1
-                metric_task_outcome_report_retries.inc()
-                await asyncio.sleep(_TASK_OUTCOME_REPORT_BACKOFF_SEC)
-
-        metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ALL).inc()
-        if output.is_internal_error:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM
-            ).inc()
-        elif output.success:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS
-            ).inc()
-        else:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
-            ).inc()
+                upload_retries += 1
+                metric_task_output_upload_retries.inc()
+                await asyncio.sleep(_TASK_OUTPUT_UPLOAD_BACKOFF_SEC)
 
     def _internal_error_output(self) -> TaskOutput:
         return TaskOutput.internal_error(
@@ -408,10 +417,19 @@ def _task_output_from_function_executor_response(
         function_name=task.function_name,
         graph_version=task.graph_version,
         graph_invocation_id=task.graph_invocation_id,
+        outcome_code=(
+            TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS
+            if response.success
+            else TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
+        ),
+        failure_reason=(
+            None
+            if response.success
+            else TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+        ),
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,
-        success=response.success,
         metrics=metrics,
         output_payload_uri_prefix=task.output_payload_uri_prefix,
     )
@@ -443,6 +461,49 @@ def _log_function_metrics(output: TaskOutput, logger: Any):
         )
     for timer_name, timer_value in output.metrics.timers.items():
         logger.info("function_metric", timer_name=timer_name, timer_value=timer_value)
+
+
+def _report_task_completion_metrics(
+    task_outcome_code: TaskOutcomeCode,
+    task_failure_reason: TaskFailureReason,  # None on success
+    logger: Any,
+) -> None:
+    metric_tasks_completed.labels(
+        outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_ALL,
+        failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_ALL,
+    ).inc()
+    if task_outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS:
+        metric_tasks_completed.labels(
+            outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_SUCCESS,
+            failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_NONE,
+        ).inc()
+    elif task_outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
+        if task_failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR:
+            metric_tasks_completed.labels(
+                outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+                failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
+            ).inc()
+        elif (
+            task_failure_reason
+            == TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
+        ):
+            metric_tasks_completed.labels(
+                outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+                failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
+            ).inc()
+        elif task_failure_reason in [
+            TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
+            TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
+        ]:
+            metric_tasks_completed.labels(
+                outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+                failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
+            ).inc()
+        else:
+            logger.warning(
+                "unknown task failure reason, not reporting task_completed metric",
+                failure_reason=TaskFailureReason.Name(task_failure_reason),
+            )
 
 
 class _RunningTaskContextManager:

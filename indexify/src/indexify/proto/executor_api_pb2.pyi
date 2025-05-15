@@ -44,17 +44,19 @@ class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_STATUS_STOPPING: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_STOPPED: _ClassVar[ExecutorStatus]
 
-class ExecutorFlavor(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class TaskOutcomeCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    EXECUTOR_FLAVOR_UNKNOWN: _ClassVar[ExecutorFlavor]
-    EXECUTOR_FLAVOR_OSS: _ClassVar[ExecutorFlavor]
-    EXECUTOR_FLAVOR_PLATFORM: _ClassVar[ExecutorFlavor]
+    TASK_OUTCOME_CODE_UNKNOWN: _ClassVar[TaskOutcomeCode]
+    TASK_OUTCOME_CODE_SUCCESS: _ClassVar[TaskOutcomeCode]
+    TASK_OUTCOME_CODE_FAILURE: _ClassVar[TaskOutcomeCode]
 
-class TaskOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    TASK_OUTCOME_UNKNOWN: _ClassVar[TaskOutcome]
-    TASK_OUTCOME_SUCCESS: _ClassVar[TaskOutcome]
-    TASK_OUTCOME_FAILURE: _ClassVar[TaskOutcome]
+    TASK_FAILURE_REASON_UNKNOWN: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -77,12 +79,14 @@ EXECUTOR_STATUS_RUNNING: ExecutorStatus
 EXECUTOR_STATUS_DRAINED: ExecutorStatus
 EXECUTOR_STATUS_STOPPING: ExecutorStatus
 EXECUTOR_STATUS_STOPPED: ExecutorStatus
-EXECUTOR_FLAVOR_UNKNOWN: ExecutorFlavor
-EXECUTOR_FLAVOR_OSS: ExecutorFlavor
-EXECUTOR_FLAVOR_PLATFORM: ExecutorFlavor
-TASK_OUTCOME_UNKNOWN: TaskOutcome
-TASK_OUTCOME_SUCCESS: TaskOutcome
-TASK_OUTCOME_FAILURE: TaskOutcome
+TASK_OUTCOME_CODE_UNKNOWN: TaskOutcomeCode
+TASK_OUTCOME_CODE_SUCCESS: TaskOutcomeCode
+TASK_OUTCOME_CODE_FAILURE: TaskOutcomeCode
+TASK_FAILURE_REASON_UNKNOWN: TaskFailureReason
+TASK_FAILURE_REASON_INTERNAL_ERROR: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")
@@ -416,18 +420,18 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
-class ReportTaskOutcomeRequest(_message.Message):
+class TaskOutcome(_message.Message):
     __slots__ = (
         "task_id",
         "namespace",
         "graph_name",
         "function_name",
         "graph_invocation_id",
-        "outcome",
-        "executor_id",
         "reducer",
+        "outcome_code",
+        "failure_reason",
         "next_functions",
-        "fn_outputs",
+        "function_outputs",
         "stdout",
         "stderr",
     )
@@ -436,11 +440,11 @@ class ReportTaskOutcomeRequest(_message.Message):
     GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    OUTCOME_FIELD_NUMBER: _ClassVar[int]
-    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     REDUCER_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
-    FN_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
     task_id: str
@@ -448,11 +452,11 @@ class ReportTaskOutcomeRequest(_message.Message):
     graph_name: str
     function_name: str
     graph_invocation_id: str
-    outcome: TaskOutcome
-    executor_id: str
     reducer: bool
+    outcome_code: TaskOutcomeCode
+    failure_reason: TaskFailureReason
     next_functions: _containers.RepeatedScalarFieldContainer[str]
-    fn_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
     def __init__(
@@ -462,13 +466,25 @@ class ReportTaskOutcomeRequest(_message.Message):
         graph_name: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
-        outcome: _Optional[_Union[TaskOutcome, str]] = ...,
-        executor_id: _Optional[str] = ...,
         reducer: bool = ...,
+        outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
+        failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
-        fn_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
+    ) -> None: ...
+
+class ReportTaskOutcomeRequest(_message.Message):
+    __slots__ = ("executor_id", "task_outcome")
+    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    TASK_OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    executor_id: str
+    task_outcome: TaskOutcome
+    def __init__(
+        self,
+        executor_id: _Optional[str] = ...,
+        task_outcome: _Optional[_Union[TaskOutcome, _Mapping]] = ...,
     ) -> None: ...
 
 class ReportTaskOutcomeResponse(_message.Message):

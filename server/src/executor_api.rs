@@ -494,42 +494,39 @@ impl ExecutorApi for ExecutorAPIService {
         &self,
         request: Request<ReportTaskOutcomeRequest>,
     ) -> Result<Response<ReportTaskOutcomeResponse>, Status> {
-        self.api_metrics
-            .fn_outputs
-            .add(request.get_ref().fn_outputs.len() as u64, &[]);
-
-        let task_id = request
-            .get_ref()
-            .task_id
-            .clone()
-            .ok_or(Status::invalid_argument("task_id is required"))?;
-
-        let task_outcome =
-            executor_api_pb::TaskOutcome::try_from(request.get_ref().outcome.unwrap_or(0))
-                .map_err(|e| Status::invalid_argument(e.to_string()))?;
-
         let executor_id = request
             .get_ref()
             .executor_id
             .clone()
             .ok_or(Status::invalid_argument("executor_id is required"))?;
-        let namespace = request
+        let task_outcome = request
             .get_ref()
+            .task_outcome
+            .clone()
+            .ok_or(Status::invalid_argument("task_outcome is required"))?;
+        self.api_metrics
+            .fn_outputs
+            .add(task_outcome.function_outputs.len() as u64, &[]);
+        let task_id = task_outcome
+            .task_id
+            .clone()
+            .ok_or(Status::invalid_argument("task_id is required"))?;
+        let outcome_code =
+            executor_api_pb::TaskOutcomeCode::try_from(task_outcome.outcome_code.unwrap_or(0))
+                .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let namespace = task_outcome
             .namespace
             .clone()
             .ok_or(Status::invalid_argument("namespace is required"))?;
-        let compute_graph = request
-            .get_ref()
+        let compute_graph = task_outcome
             .graph_name
             .clone()
             .ok_or(Status::invalid_argument("compute_graph is required"))?;
-        let compute_fn = request
-            .get_ref()
+        let compute_fn = task_outcome
             .function_name
             .clone()
             .ok_or(Status::invalid_argument("compute_fn is required"))?;
-        let invocation_id = request
-            .get_ref()
+        let invocation_id = task_outcome
             .graph_invocation_id
             .clone()
             .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
@@ -549,14 +546,15 @@ impl ExecutorApi for ExecutorAPIService {
             return Ok(Response::new(ReportTaskOutcomeResponse {}));
         }
         let mut task = task.unwrap();
-        match task_outcome {
-            executor_api_pb::TaskOutcome::Success => {
+        match outcome_code {
+            executor_api_pb::TaskOutcomeCode::Success => {
                 task.outcome = TaskOutcome::Success;
             }
-            executor_api_pb::TaskOutcome::Failure => {
+            executor_api_pb::TaskOutcomeCode::Failure => {
+                // TODO: Handle all the failure reasons.
                 task.outcome = TaskOutcome::Failure;
             }
-            executor_api_pb::TaskOutcome::Unknown => {
+            executor_api_pb::TaskOutcomeCode::Unknown => {
                 task.outcome = TaskOutcome::Unknown;
             }
         }
@@ -564,7 +562,7 @@ impl ExecutorApi for ExecutorAPIService {
         task.status = TaskStatus::Completed;
 
         let mut node_outputs = Vec::new();
-        for output in request.get_ref().fn_outputs.clone() {
+        for output in task_outcome.function_outputs.clone() {
             let url = output
                 .uri
                 .ok_or(Status::invalid_argument("uri is required"))?;
@@ -610,20 +608,20 @@ impl ExecutorApi for ExecutorAPIService {
                 .compute_fn_name(compute_fn.to_string())
                 .payload(OutputPayload::Fn(data_payload))
                 .encoding(encoding_str.to_string())
-                .reduced_state(request.get_ref().reducer.unwrap_or(false))
+                .reduced_state(task_outcome.reducer.unwrap_or(false))
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
             node_outputs.push(node_output);
         }
 
-        if request.get_ref().next_functions.len() > 0 {
+        if task_outcome.next_functions.len() > 0 {
             let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
                 .compute_graph_name(compute_graph.to_string())
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payload(OutputPayload::Router(data_model::RouterOutput {
-                    edges: request.get_ref().next_functions.clone(),
+                    edges: task_outcome.next_functions.clone(),
                 }))
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
@@ -631,12 +629,12 @@ impl ExecutorApi for ExecutorAPIService {
         }
         let task_diagnostic = TaskDiagnostics {
             stdout: prepare_data_payload(
-                request.get_ref().stdout.clone(),
+                task_outcome.stdout.clone(),
                 &self.blob_storage.get_url_scheme(),
                 &self.blob_storage.get_url(),
             ),
             stderr: prepare_data_payload(
-                request.get_ref().stderr.clone(),
+                task_outcome.stderr.clone(),
                 &self.blob_storage.get_url_scheme(),
                 &self.blob_storage.get_url(),
             ),

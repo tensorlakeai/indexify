@@ -25,6 +25,7 @@ from .function_executor.server.function_executor_server_factory import (
 from .grpc.channel_manager import ChannelManager
 from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
+from .grpc.task_output_uploader import TaskOutputUploader
 from .host_resources.host_resources import HostResourcesProvider
 from .metrics.executor import (
     metric_executor_info,
@@ -35,7 +36,6 @@ from .monitoring.health_checker.health_checker import HealthChecker
 from .monitoring.prometheus_metrics_handler import PrometheusMetricsHandler
 from .monitoring.server import MonitoringServer
 from .monitoring.startup_probe_handler import StartupProbeHandler
-from .task_reporter import TaskReporter
 
 metric_executor_state.state("starting")
 
@@ -97,11 +97,6 @@ class Executor:
         self._state_reporter.update_executor_status(
             ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
         )
-        self._task_reporter = TaskReporter(
-            executor_id=id,
-            channel_manager=self._channel_manager,
-            blob_store=blob_store,
-        )
         self._state_reconciler = ExecutorStateReconciler(
             executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
@@ -112,7 +107,10 @@ class Executor:
                 code_path=code_path,
                 blob_store=blob_store,
             ),
-            task_reporter=self._task_reporter,
+            task_output_uploader=TaskOutputUploader(
+                executor_id=id,
+                blob_store=blob_store,
+            ),
             channel_manager=self._channel_manager,
             state_reporter=self._state_reporter,
             logger=self._logger,
@@ -152,7 +150,7 @@ class Executor:
             ExecutorStatus.EXECUTOR_STATUS_RUNNING
         )
         asyncio.get_event_loop().create_task(
-            self._state_reporter.run(), name="state reporter runner"
+            self._state_reporter.start(), name="state reporter startup"
         )
 
         metric_executor_state.state("running")
@@ -177,7 +175,6 @@ class Executor:
         suppress_logging()
 
         await self._monitoring_server.shutdown()
-        await self._task_reporter.shutdown()
         await self._state_reporter.shutdown()
         await self._state_reconciler.shutdown()
         await self._channel_manager.destroy()

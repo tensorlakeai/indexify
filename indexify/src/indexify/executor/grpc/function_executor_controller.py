@@ -23,6 +23,7 @@ from ..function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
     FunctionExecutorServerFactory,
 )
+from .state_reporter import ExecutorStateReporter
 
 
 def validate_function_executor_description(
@@ -93,6 +94,7 @@ class FunctionExecutorController:
         function_executor_description: FunctionExecutorDescription,
         function_executor_server_factory: FunctionExecutorServerFactory,
         downloader: Downloader,
+        state_reporter: ExecutorStateReporter,
         base_url: str,
         config_path: str,
         logger: Any,
@@ -111,6 +113,7 @@ class FunctionExecutorController:
             function_executor_server_factory
         )
         self._downloader: Downloader = downloader
+        self._state_reporter: ExecutorStateReporter = state_reporter
         self._base_url: str = base_url
         self._config_path: str = config_path
         self._logger: Any = function_executor_logger(
@@ -216,6 +219,9 @@ class FunctionExecutorController:
             await self._function_executor_state.set_status(
                 FunctionExecutorStatus.DESTROYING
             )
+            # Notify Server asap that this FE can't run any tasks. This reduces latency.
+            self._state_reporter.schedule_state_report()
+
             if self._function_executor_state.function_executor is not None:
                 async with _UnlockedLockContextManager(
                     self._function_executor_state.lock
@@ -275,6 +281,8 @@ class FunctionExecutorController:
 
         # FE state lock is acquired again at this point.
         await self._function_executor_state.set_status(next_status)
+        # Notify Server asap that this FE is ready to run tasks. This reduces latency.
+        self._state_reporter.schedule_state_report()
 
         if next_status == FunctionExecutorStatus.IDLE:
             # Task controllers will notice that this FE is IDLE and start running on it one by one.
@@ -305,6 +313,8 @@ class FunctionExecutorController:
                 self._function_executor_state.function_executor
             )
             self._function_executor_state.function_executor = None
+            # Notify Server asap that this FE is ready to run tasks. This reduces latency.
+            self._state_reporter.schedule_state_report()
 
         self._logger.error(
             "Function Executor health check failed, destroying Function Executor",

@@ -1,6 +1,6 @@
 import prometheus_client
 
-from ..monitoring.metrics import latency_metric_for_fast_operation
+from ...monitoring.metrics import latency_metric_for_fast_operation
 
 # This file contains all metrics used by TaskReporter.
 
@@ -18,19 +18,5 @@ metric_task_output_blob_store_upload_errors: prometheus_client.Counter = (
 metric_task_output_blob_store_upload_latency: prometheus_client.Histogram = (
     latency_metric_for_fast_operation(
         "task_output_blob_store_upload", "Upload task output to blob store"
-    )
-)
-
-metric_report_task_outcome_rpcs = prometheus_client.Counter(
-    "report_task_outcome_rpcs",
-    "Number of report task outcome RPCs to Server",
-)
-metric_report_task_outcome_errors = prometheus_client.Counter(
-    "report_task_outcome_rpc_errors",
-    "Number of report task outcome RPC errors",
-)
-metric_report_task_outcome_latency: prometheus_client.Histogram = (
-    latency_metric_for_fast_operation(
-        "report_task_outcome_rpc", "Report task outcome RPC to Server"
     )
 )

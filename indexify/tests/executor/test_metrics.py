@@ -376,11 +376,33 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("executor_state", {"executor_state": "shutting_down"}, 0.0),
             # Task lifecycle steps
             SampleSpec("tasks_fetched_total", {}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "all"}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "success"}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "error_platform"}, 0.0),
             SampleSpec(
-                "tasks_completed_total", {"outcome": "error_customer_code"}, 0.0
+                "tasks_completed_total",
+                {"outcome_code": "all", "failure_reason": "all"},
+                1.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "success", "failure_reason": "none"},
+                1.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "failure", "failure_reason": "function_error"},
+                0.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "failure", "failure_reason": "internal_error"},
+                0.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {
+                    "outcome_code": "failure",
+                    "failure_reason": "function_executor_terminated",
+                },
+                0.0,
             ),
             SampleSpec("task_completion_latency_seconds_count", {}, 1.0),
             # Task output blob store upload metrics
