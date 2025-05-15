@@ -15,18 +15,46 @@ metric_tasks_fetched: prometheus_client.Counter = prometheus_client.Counter(
     "tasks_fetched", "Number of tasks that were fetched from Server"
 )
 metric_tasks_completed: prometheus_client.Counter = prometheus_client.Counter(
-    "tasks_completed", "Number of tasks that were completed", ["outcome"]
+    "tasks_completed",
+    "Number of tasks that were completed",
+    ["outcome_code", "failure_reason"],
 )
-METRIC_TASKS_COMPLETED_OUTCOME_ALL = "all"
-METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS = "success"
-METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE = "error_customer_code"
-METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM = "error_platform"
-metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ALL)
-metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS)
+METRIC_TASKS_COMPLETED_OUTCOME_CODE_ALL = "all"
+METRIC_TASKS_COMPLETED_OUTCOME_CODE_SUCCESS = "success"
+METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE = "failure"
+
+METRIC_TASKS_COMPLETED_FAILURE_REASON_ALL = "all"
+# Used when the task is successfull.
+METRIC_TASKS_COMPLETED_FAILURE_REASON_NONE = "none"
+# Includes all function errors including timeouts to reduce cardinality.
+METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR = "function_error"
+# Includes all internal errors to reduce cardinality.
+METRIC_TASKS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR = "internal_error"
+METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = (
+    "function_executor_terminated"
+)
+# Valid combinations of the labels:
 metric_tasks_completed.labels(
-    outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
+    outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_ALL,
+    failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_ALL,
 )
-metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM)
+metric_tasks_completed.labels(
+    outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_SUCCESS,
+    failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_NONE,
+)
+metric_tasks_completed.labels(
+    outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+    failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
+)
+metric_tasks_completed.labels(
+    outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+    failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
+)
+metric_tasks_completed.labels(
+    outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,
+    failure_reason=METRIC_TASKS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
+)
+
 metric_task_completion_latency: prometheus_client.Histogram = (
     latency_metric_for_customer_controlled_operation(
         "task_completion",
@@ -34,21 +62,21 @@ metric_task_completion_latency: prometheus_client.Histogram = (
     )
 )
 
-# Task outcome reporting metrics.
-metric_task_outcome_reports: prometheus_client.Counter = prometheus_client.Counter(
-    "task_outcome_reports",
-    "Number of task outcome reports",
+# Task output upload metrics.
+metric_task_output_uploads: prometheus_client.Counter = prometheus_client.Counter(
+    "task_output_uploads",
+    "Number of task output uploads",
 )
-metric_tasks_reporting_outcome: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_reporting_outcome",
-    "Number of tasks currently reporting their outcomes",
+metric_tasks_uploading_outputs: prometheus_client.Gauge = prometheus_client.Gauge(
+    "tasks_uploading_output",
+    "Number of tasks currently uploading their outputs",
 )
-metric_task_outcome_report_latency: prometheus_client.Histogram = (
-    latency_metric_for_fast_operation("task_outcome_report", "task outcome report")
+metric_task_output_upload_latency: prometheus_client.Histogram = (
+    latency_metric_for_fast_operation("task_output_upload", "task output upload")
 )
-metric_task_outcome_report_retries: prometheus_client.Counter = (
+metric_task_output_upload_retries: prometheus_client.Counter = (
     prometheus_client.Counter(
-        "tasks_outcome_report_retries", "Number of task outcome report retries"
+        "tasks_output_upload_retries", "Number of task output upload retries"
     )
 )
 

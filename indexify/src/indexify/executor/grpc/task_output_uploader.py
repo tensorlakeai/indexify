@@ -1,34 +1,19 @@
 import hashlib
 import time
-from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
     DataPayloadEncoding,
-    ReportTaskOutcomeRequest,
-    TaskOutcome,
 )
-from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
-from .blob_store.blob_store import BLOBStore
-from .function_executor.task_output import TaskOutput
-from .grpc.channel_manager import ChannelManager
-from .metrics.task_reporter import (
-    metric_report_task_outcome_errors,
-    metric_report_task_outcome_latency,
-    metric_report_task_outcome_rpcs,
+from ..blob_store.blob_store import BLOBStore
+from ..function_executor.task_output import TaskOutput
+from .metrics.task_output_uploader import (
     metric_task_output_blob_store_upload_errors,
     metric_task_output_blob_store_upload_latency,
     metric_task_output_blob_store_uploads,
 )
-
-
-@dataclass
-class UploadedTaskOutput:
-    data_payloads: List[DataPayload]
-    stdout: Optional[DataPayload]
-    stderr: Optional[DataPayload]
 
 
 class TaskOutputSummary:
@@ -43,46 +28,23 @@ class TaskOutputSummary:
         self.total_bytes: int = 0
 
 
-class TaskReporter:
+class TaskOutputUploader:
     def __init__(
         self,
         executor_id: str,
-        channel_manager: ChannelManager,
         blob_store: BLOBStore,
     ):
         self._executor_id = executor_id
         self._is_shutdown = False
-        self._channel_manager = channel_manager
         self._blob_store = blob_store
 
-    async def shutdown(self) -> None:
-        """Shuts down the task reporter.
-
-        Task reporter stops reporting all task outcomes to the Server.
-        There are many task failures due to Executor shutdown. We give wrong
-        signals to Server if we report such failures.
-        """
-        self._is_shutdown = True
-
-    async def report(self, output: TaskOutput, logger: Any) -> None:
-        """Reports result of the supplied task."""
+    async def upload(self, output: TaskOutput, logger: Any) -> None:
+        """Uploads the supplied task output to blob store."""
         logger = logger.bind(module=__name__)
-
-        if self._is_shutdown:
-            logger.warning(
-                "task reporter got shutdown, skipping task outcome reporting"
-            )
-            return
-
-        # TODO: If the files are uploaded successfully,
-        # we should record that so that if we fail to report
-        # the task outcome, we don't retry the upload.
-        # This will save us some time and resources.
-        # It's good to do this once we delete all the legacy code paths.
 
         output_summary: TaskOutputSummary = _task_output_summary(output)
         logger.info(
-            "reporting task outcome",
+            "uploading task output to blob store",
             total_bytes=output_summary.total_bytes,
             total_files=output_summary.output_count
             + output_summary.stdout_count
@@ -100,75 +62,47 @@ class TaskReporter:
             metric_task_output_blob_store_upload_errors.count_exceptions(),
         ):
             metric_task_output_blob_store_uploads.inc()
-            uploaded_task_output: UploadedTaskOutput = (
-                await self._upload_output_to_blob_store(output, logger)
-            )
+            await self._upload_to_blob_store(output, logger)
 
         logger.info(
             "files uploaded to blob store",
             duration=time.time() - start_time,
         )
 
-        request = ReportTaskOutcomeRequest(
-            task_id=output.task_id,
-            namespace=output.namespace,
-            graph_name=output.graph_name,
-            function_name=output.function_name,
-            graph_invocation_id=output.graph_invocation_id,
-            outcome=_to_grpc_task_outcome(output),
-            executor_id=self._executor_id,
-            reducer=output.reducer,
-            next_functions=(output.router_output.edges if output.router_output else []),
-            fn_outputs=uploaded_task_output.data_payloads,
-            stdout=uploaded_task_output.stdout,
-            stderr=uploaded_task_output.stderr,
-        )
-        try:
-            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
-            with (
-                metric_report_task_outcome_latency.time(),
-                metric_report_task_outcome_errors.count_exceptions(),
-            ):
-                metric_report_task_outcome_rpcs.inc()
-                await stub.report_task_outcome(request, timeout=5.0)
-        except Exception as e:
-            logger.error("failed to report task outcome", error=e)
-            raise e
-
-    async def _upload_output_to_blob_store(
-        self, output: TaskOutput, logger: Any
-    ) -> UploadedTaskOutput:
-        data_payloads: List[DataPayload] = []
-        stdout: Optional[DataPayload] = None
-        stderr: Optional[DataPayload] = None
-
+    async def _upload_to_blob_store(self, output: TaskOutput, logger: Any) -> None:
         if output.stdout is not None:
             stdout_url = f"{output.output_payload_uri_prefix}.{output.task_id}.stdout"
             stdout_bytes: bytes = output.stdout.encode()
             await self._blob_store.put(stdout_url, stdout_bytes, logger)
-            stdout = DataPayload(
+            output.uploaded_stdout = DataPayload(
                 uri=stdout_url,
                 size=len(stdout_bytes),
                 sha256_hash=_compute_hash(stdout_bytes),
                 encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
                 encoding_version=0,
             )
+            # stdout is uploaded, free the memory used for it.
+            output.stdout = None
 
         if output.stderr is not None:
             stderr_url = f"{output.output_payload_uri_prefix}.{output.task_id}.stderr"
             stderr_bytes: bytes = output.stderr.encode()
             await self._blob_store.put(stderr_url, stderr_bytes, logger)
-            stderr = DataPayload(
+            output.uploaded_stderr = DataPayload(
                 uri=stderr_url,
                 size=len(stderr_bytes),
                 sha256_hash=_compute_hash(stderr_bytes),
                 encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
                 encoding_version=0,
             )
+            # stderr is uploaded, free the memory used for it.
+            output.stderr = None
 
         if output.function_output is not None:
+            # We can't use the default empty list output.uploaded_data_payloads because it's a singleton.
+            uploaded_data_payloads = []
             for func_output_item in output.function_output.outputs:
-                node_output_sequence = len(data_payloads)
+                node_output_sequence = len(uploaded_data_payloads)
                 if output.reducer:
                     # Reducer tasks have to write their results into the same blob.
                     output_url = (
@@ -184,7 +118,7 @@ class TaskReporter:
                     else func_output_item.string.encode()
                 )
                 await self._blob_store.put(output_url, output_bytes, logger)
-                data_payloads.append(
+                uploaded_data_payloads.append(
                     DataPayload(
                         uri=output_url,
                         size=len(output_bytes),
@@ -194,11 +128,9 @@ class TaskReporter:
                     )
                 )
 
-        return UploadedTaskOutput(
-            data_payloads=data_payloads,
-            stdout=stdout,
-            stderr=stderr,
-        )
+            output.uploaded_data_payloads = uploaded_data_payloads
+            # The output is uploaded, free the memory used for it.
+            output.function_output = None
 
 
 def _task_output_summary(output: TaskOutput) -> TaskOutputSummary:
@@ -231,13 +163,6 @@ def _task_output_summary(output: TaskOutput) -> TaskOutputSummary:
         + summary.stderr_total_bytes
     )
     return summary
-
-
-def _to_grpc_task_outcome(task_output: TaskOutput) -> TaskOutcome:
-    if task_output.success:
-        return TaskOutcome.TASK_OUTCOME_SUCCESS
-    else:
-        return TaskOutcome.TASK_OUTCOME_FAILURE
 
 
 def _to_grpc_data_payload_encoding(task_output: TaskOutput) -> DataPayloadEncoding:

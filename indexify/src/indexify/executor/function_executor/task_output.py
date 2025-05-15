@@ -1,8 +1,14 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     RouterOutput,
+)
+
+from indexify.proto.executor_api_pb2 import (
+    DataPayload,
+    TaskFailureReason,
+    TaskOutcomeCode,
 )
 
 
@@ -25,16 +31,20 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
-        output_payload_uri_prefix: Optional[str],
+        output_payload_uri_prefix: str,
+        outcome_code: TaskOutcomeCode,
+        # Optional[TaskFailureReason] is not supported in python 3.9
+        failure_reason: TaskFailureReason = None,
         output_encoding: Optional[str] = None,
         function_output: Optional[FunctionOutput] = None,
         router_output: Optional[RouterOutput] = None,
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
-        success: bool = False,
-        is_internal_error: bool = False,
         metrics: Optional[TaskMetrics] = None,
+        uploaded_data_payloads: List[DataPayload] = [],
+        uploaded_stdout: Optional[DataPayload] = None,
+        uploaded_stderr: Optional[DataPayload] = None,
     ):
         self.task_id = task_id
         self.namespace = namespace
@@ -47,11 +57,14 @@ class TaskOutput:
         self.stdout = stdout
         self.stderr = stderr
         self.reducer = reducer
-        self.success = success
-        self.is_internal_error = is_internal_error
+        self.outcome_code = outcome_code
+        self.failure_reason = failure_reason
         self.metrics = metrics
         self.output_encoding = output_encoding
         self.output_payload_uri_prefix = output_payload_uri_prefix
+        self.uploaded_data_payloads = uploaded_data_payloads
+        self.uploaded_stdout = uploaded_stdout
+        self.uploaded_stderr = uploaded_stderr
 
     @classmethod
     def internal_error(
@@ -62,7 +75,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
-        output_payload_uri_prefix: Optional[str],
+        output_payload_uri_prefix: str,
     ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
@@ -73,8 +86,9 @@ class TaskOutput:
             function_name=function_name,
             graph_version=graph_version,
             graph_invocation_id=graph_invocation_id,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
             stderr="Platform failed to execute the function.",
-            is_internal_error=True,
             output_payload_uri_prefix=output_payload_uri_prefix,
         )
 
@@ -88,7 +102,7 @@ class TaskOutput:
         graph_version: str,
         graph_invocation_id: str,
         timeout_sec: float,
-        output_payload_uri_prefix: Optional[str],
+        output_payload_uri_prefix: str,
     ) -> "TaskOutput":
         """Creates a TaskOutput for an function timeout error."""
         # Task stdout, stderr is not available.
@@ -99,7 +113,8 @@ class TaskOutput:
             function_name=function_name,
             graph_version=graph_version,
             graph_invocation_id=graph_invocation_id,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
             stderr=f"Function or router exceeded its configured timeout of {timeout_sec:.3f} sec.",
-            is_internal_error=False,
             output_payload_uri_prefix=output_payload_uri_prefix,
         )

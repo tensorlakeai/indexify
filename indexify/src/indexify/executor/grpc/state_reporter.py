@@ -22,6 +22,10 @@ from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
+    ReportTaskOutcomeRequest,
+    TaskFailureReason,
+    TaskOutcome,
+    TaskOutcomeCode,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -31,6 +35,7 @@ from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
+from ..function_executor.task_output import TaskOutput
 from ..host_resources.host_resources import HostResources, HostResourcesProvider
 from ..host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .channel_manager import ChannelManager
@@ -42,7 +47,6 @@ from .metrics.state_reporter import (
 
 _REPORTING_INTERVAL_SEC = 5
 _REPORT_RPC_TIMEOUT_SEC = 5
-_REPORT_BACKOFF_ON_ERROR_SEC = 5
 
 
 class ExecutorStateReporter:
@@ -67,77 +71,133 @@ class ExecutorStateReporter:
             function_executor_states
         )
         self._channel_manager = channel_manager
-        self._host_resources_provider: HostResourcesProvider = host_resources_provider
         self._logger: Any = logger.bind(module=__name__)
         self._reporting_interval_sec: int = reporting_interval_sec
-        self._total_host_resources: Optional[HostResourcesProto] = None
-        self._total_function_executor_resources: Optional[HostResourcesProto] = None
-
-        self._is_shutdown: bool = False
-        self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
         self._allowed_functions: List[AllowedFunction] = _to_grpc_allowed_functions(
             function_allowlist
         )
+        # We need to fetch total resources only once, because they are not changing.
+        self._total_host_resources: HostResources = (
+            host_resources_provider.total_host_resources(self._logger)
+        )
+        self._total_function_executor_resources: HostResources = (
+            host_resources_provider.total_function_executor_resources(self._logger)
+        )
+        self._logger.info(
+            "detected host resources",
+            total_host_resources=self._total_host_resources,
+            total_function_executor_resources=self._total_function_executor_resources,
+        )
+        self._state_report_worker: Optional[asyncio.Task] = None
+        self._periodic_state_report_scheduler: Optional[asyncio.Task] = None
+
+        # Mutable fields
+        self._state_report_scheduled_event: asyncio.Event = asyncio.Event()
+        self._state_reported_event: asyncio.Event = asyncio.Event()
+        self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
+        self._completed_task_outputs: List[TaskOutput] = []
 
-    def update_executor_status(self, value: ExecutorStatus):
+    def update_executor_status(self, value: ExecutorStatus) -> None:
         self._executor_status = value
 
-    def update_last_server_clock(self, value: int):
+    def update_last_server_clock(self, value: int) -> None:
         self._last_server_clock = value
 
-    async def run(self):
+    def add_completed_task_output(self, task_output: TaskOutput) -> None:
+        self._completed_task_outputs.append(task_output)
+
+    def schedule_state_report(self) -> None:
+        """Schedules a state report to be sent to the server asap.
+
+        This method is called when the executor state changes and it needs to get reported.
+        The call doesn't block and returns immediately.
+        """
+        self._state_report_scheduled_event.set()
+
+    async def report_state_and_wait_for_completion(self) -> None:
+        """Schedules a state report to be sent to the server asap and waits for the completion of the reporting."""
+        self._state_reported_event.clear()
+        self.schedule_state_report()
+        await self._state_reported_event.wait()
+
+    async def start(self) -> None:
+        """Start the state reporter.
+
+        This method is called when the executor starts and it needs to start reporting its state
+        periodically. Can be called only once.
+        """
+        self._state_report_worker = asyncio.create_task(
+            self._state_report_worker_loop(), name="state_reporter_worker"
+        )
+        self._periodic_state_report_scheduler = asyncio.create_task(
+            self._periodic_state_report_scheduler_loop(),
+            name="state_reporter_periodic_scheduler",
+        )
+
+    async def shutdown(self) -> None:
+        if self._state_report_worker is not None:
+            self._state_report_worker.cancel()
+            self._state_report_worker = None
+        if self._periodic_state_report_scheduler is not None:
+            self._periodic_state_report_scheduler.cancel()
+            self._periodic_state_report_scheduler = None
+
+    async def _periodic_state_report_scheduler_loop(self) -> None:
+        while True:
+            self._state_report_scheduled_event.set()
+            await asyncio.sleep(self._reporting_interval_sec)
+
+    async def _state_report_worker_loop(self) -> None:
         """Runs the state reporter.
 
         Never raises any exceptions.
         """
-        # TODO: Move this method into a new async task and cancel it in shutdown().
-        while not self._is_shutdown:
+        while True:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
-            while not self._is_shutdown:
+            while True:
+                await self._state_report_scheduled_event.wait()
+                # Clear the event immidiately to report again asap if needed. This reduces latency in the system.
+                self._state_report_scheduled_event.clear()
                 try:
                     # The periodic state reports serve as channel health monitoring requests
                     # (same as TCP keep-alive). Channel Manager returns the same healthy channel
                     # for all RPCs that we do from Executor to Server. So all the RPCs benefit
                     # from this channel health monitoring.
-                    await self.report_state(stub)
-                    await asyncio.sleep(self._reporting_interval_sec)
+                    await self._report_state(stub)
+                    self._state_reported_event.set()
                 except Exception as e:
                     self._logger.error(
-                        f"failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
+                        f"failed to report state to the server, retrying in {self._reporting_interval_sec} sec.",
                         exc_info=e,
                     )
-                    await asyncio.sleep(_REPORT_BACKOFF_ON_ERROR_SEC)
-                    break
+                    break  # exit the inner loop to recreate the channel if needed
 
-        self._logger.info("state reporter shutdown")
-
-    async def report_state(self, stub: ExecutorAPIStub):
+    async def _report_state(self, stub: ExecutorAPIStub):
         """Reports the current state to the server represented by the supplied stub.
 
-        Raises exceptions on failure.
+        Raises an exception on failure.
         """
-        if self._total_host_resources is None:
-            # We need to fetch total resources only once, because they are not changing.
-            total_host_resources: HostResources = (
-                await self._host_resources_provider.total_host_resources(self._logger)
-            )
-            total_function_executor_resources: HostResources = (
-                await self._host_resources_provider.total_function_executor_resources(
-                    self._logger
+        # TODO: Remove this code once all task outcomes are reported via ExecutorState message.
+        # Warning: this code needs to go before the state report RPC, because currently Server marks tasks
+        # as failed once we report a terminated FE. As a result task outputs are not stored in Server state store.
+        # Careful with list modification here as an output can be appended there by another coroutine.
+        while len(self._completed_task_outputs) > 0:
+            task_output: TaskOutput = self._completed_task_outputs.pop()
+            try:
+                task_outcome: TaskOutcome = _task_output_to_proto(task_output)
+                await _report_task_outcome(
+                    task_outcome=task_outcome,
+                    stub=stub,
+                    executor_id=self._executor_id,
+                    logger=self._logger,  # Okay to pass logger which doesn't have the task context because this code is going be delete anyway.
                 )
-            )
-            self._logger.info(
-                "detected host resources",
-                total_host_resources=total_host_resources,
-                total_function_executor_resources=total_function_executor_resources,
-            )
-            self._total_host_resources = _host_resources_to_proto(total_host_resources)
-            self._total_function_executor_resources = _host_resources_to_proto(
-                total_function_executor_resources
-            )
+            except Exception as e:
+                # We need to re-add the output to the list to retry it later on the next Executor state report.
+                self._completed_task_outputs.append(task_output)
+                raise
 
         with (
             metric_state_report_errors.count_exceptions(),
@@ -149,8 +209,10 @@ class ExecutorStateReporter:
                 hostname=self._hostname,
                 version=self._version,
                 status=self._executor_status,
-                total_function_executor_resources=self._total_function_executor_resources,
-                total_resources=self._total_host_resources,
+                total_function_executor_resources=_host_resources_to_proto(
+                    self._total_function_executor_resources
+                ),
+                total_resources=_host_resources_to_proto(self._total_host_resources),
                 allowed_functions=self._allowed_functions,
                 function_executor_states=await self._fetch_function_executor_states(),
                 labels=self._labels,
@@ -163,13 +225,6 @@ class ExecutorStateReporter:
                 ReportExecutorStateRequest(executor_state=state),
                 timeout=_REPORT_RPC_TIMEOUT_SEC,
             )
-
-    async def shutdown(self):
-        """Shuts down the state reporter.
-
-        Never raises any exceptions.
-        """
-        self._is_shutdown = True
 
     async def _fetch_function_executor_states(self) -> List[FunctionExecutorStateProto]:
         states = []
@@ -290,3 +345,54 @@ def _executor_labels() -> Dict[str, str]:
         "python_major_version": str(sys.version_info.major),
         "python_minor_version": str(sys.version_info.minor),
     }
+
+
+def _task_output_to_proto(output: TaskOutput) -> TaskOutcome:
+    task_outcome = TaskOutcome(
+        task_id=output.task_id,
+        namespace=output.namespace,
+        graph_name=output.graph_name,
+        function_name=output.function_name,
+        graph_invocation_id=output.graph_invocation_id,
+        reducer=output.reducer,
+        outcome_code=output.outcome_code,
+        next_functions=(output.router_output.edges if output.router_output else []),
+        function_outputs=output.uploaded_data_payloads,
+    )
+    if output.failure_reason is not None:
+        task_outcome.failure_reason = output.failure_reason
+    if output.uploaded_stdout is not None:
+        task_outcome.stdout.CopyFrom(output.uploaded_stdout)
+    if output.uploaded_stderr is not None:
+        task_outcome.stderr.CopyFrom(output.uploaded_stderr)
+
+    return task_outcome
+
+
+async def _report_task_outcome(
+    task_outcome: TaskOutcome,
+    stub: ExecutorAPIStub,
+    executor_id: str,
+    logger: Any,
+) -> None:
+    logger.info(
+        "reporting task outcome",
+        task_id=task_outcome.task_id,
+        namespace=task_outcome.namespace,
+        graph_name=task_outcome.graph_name,
+        function_name=task_outcome.function_name,
+        graph_invocation_id=task_outcome.graph_invocation_id,
+        outcome_code=TaskOutcomeCode.Name(task_outcome.outcome_code),
+    )
+
+    try:
+        await stub.report_task_outcome(
+            ReportTaskOutcomeRequest(
+                executor_id=executor_id,
+                task_outcome=task_outcome,
+            ),
+            timeout=5.0,
+        )
+    except Exception as e:
+        logger.error("failed to report task outcome", exc_info=e)
+        raise

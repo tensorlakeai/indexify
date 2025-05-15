@@ -20,7 +20,6 @@ from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
-from ..task_reporter import TaskReporter
 from .channel_manager import ChannelManager
 from .function_executor_controller import (
     FunctionExecutorController,
@@ -34,6 +33,7 @@ from .metrics.state_reconciler import (
 )
 from .state_reporter import ExecutorStateReporter
 from .task_controller import TaskController, task_logger, validate_task
+from .task_output_uploader import TaskOutputUploader
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 _RECONCILIATION_RETRIES = 3
@@ -48,7 +48,7 @@ class ExecutorStateReconciler:
         function_executor_states: FunctionExecutorStatesContainer,
         config_path: Optional[str],
         downloader: Downloader,
-        task_reporter: TaskReporter,
+        task_output_uploader: TaskOutputUploader,
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
@@ -61,7 +61,7 @@ class ExecutorStateReconciler:
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
         self._downloader: Downloader = downloader
-        self._task_reporter: TaskReporter = task_reporter
+        self._task_output_uploader: TaskOutputUploader = task_output_uploader
         self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
         self._reconciliation_loop_task: Optional[asyncio.Task] = None
@@ -99,7 +99,7 @@ class ExecutorStateReconciler:
                 stub = ExecutorAPIStub(await self._channel_manager.get_channel())
                 # Report state once before starting the stream so Server
                 # doesn't use stale state it knew about this Executor in the past.
-                await self._state_reporter.report_state(stub)
+                await self._state_reporter.report_state_and_wait_for_completion()
 
                 desired_states_stream: AsyncGenerator[DesiredExecutorState, None] = (
                     stub.get_desired_executor_states(
@@ -311,6 +311,7 @@ class ExecutorStateReconciler:
                 function_executor_description=function_executor_description,
                 function_executor_server_factory=self._function_executor_server_factory,
                 downloader=self._downloader,
+                state_reporter=self._state_reporter,
                 base_url=self._base_url,
                 config_path=self._config_path,
                 logger=self._logger,
@@ -369,9 +370,10 @@ class ExecutorStateReconciler:
             self._task_controllers[task_allocation.task.id] = TaskController(
                 task=task_allocation.task,
                 downloader=self._downloader,
-                task_reporter=self._task_reporter,
+                task_output_uploader=self._task_output_uploader,
                 function_executor_id=task_allocation.function_executor_id,
                 function_executor_state=function_executor_state,
+                state_reporter=self._state_reporter,
                 logger=self._logger,
             )
         except Exception as e:

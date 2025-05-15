@@ -1,4 +1,3 @@
-import asyncio
 from typing import Any, List, Optional
 
 import psutil
@@ -47,34 +46,11 @@ class HostResourcesProvider:
             host_overhead_function_executors_ephimeral_disks_gb
         )
 
-    async def total_host_resources(self, logger: Any) -> HostResources:
+    def total_host_resources(self, logger: Any) -> HostResources:
         """Returns all hardware resources that exist at the host.
 
         Raises Exception on error.
         """
-        # Run psutil library calls in a separate thread to not block the event loop.
-        return await asyncio.to_thread(self._total_host_resources, logger=logger)
-
-    async def total_function_executor_resources(self, logger: Any) -> HostResources:
-        """Returns all hardware resources on the host that are usable by Function Executors.
-
-        Raises Exception on error.
-        """
-        total_resources: HostResources = await self.total_host_resources(logger=logger)
-        return HostResources(
-            cpu_count=max(0, total_resources.cpu_count - self._host_overhead_cpus),
-            memory_mb=max(
-                0, total_resources.memory_mb - self._host_overhead_memory_gb * 1024
-            ),
-            disk_mb=max(
-                0,
-                total_resources.disk_mb
-                - self._host_overhead_function_executors_ephimeral_disks_gb * 1024,
-            ),
-            gpus=total_resources.gpus,
-        )
-
-    def _total_host_resources(self, logger: Any) -> HostResources:
         logger = logger.bind(module=__name__)
 
         # If users disable Hyper-Threading in OS then we'd only see physical cores here.
@@ -101,4 +77,23 @@ class HostResourcesProvider:
             memory_mb=memory_mb,
             disk_mb=disk_mb,
             gpus=all_gpus,
+        )
+
+    def total_function_executor_resources(self, logger: Any) -> HostResources:
+        """Returns all hardware resources on the host that are usable by Function Executors.
+
+        Raises Exception on error.
+        """
+        total_resources: HostResources = self.total_host_resources(logger=logger)
+        return HostResources(
+            cpu_count=max(0, total_resources.cpu_count - self._host_overhead_cpus),
+            memory_mb=max(
+                0, total_resources.memory_mb - self._host_overhead_memory_gb * 1024
+            ),
+            disk_mb=max(
+                0,
+                total_resources.disk_mb
+                - self._host_overhead_function_executors_ephimeral_disks_gb * 1024,
+            ),
+            gpus=total_resources.gpus,
         )

@@ -81,7 +81,6 @@ message FunctionExecutorResources {
 }
 
 message FunctionExecutorDescription {
-    reserved 8;
     optional string id = 1;
     optional string namespace = 2;
     optional string graph_name = 3;
@@ -98,7 +97,6 @@ message FunctionExecutorDescription {
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
-    reserved 3;
 }
 
 enum ExecutorStatus {
@@ -110,14 +108,7 @@ enum ExecutorStatus {
     EXECUTOR_STATUS_STOPPED = 5;
 }
 
-enum ExecutorFlavor {
-    EXECUTOR_FLAVOR_UNKNOWN = 0;
-    EXECUTOR_FLAVOR_OSS = 1;
-    EXECUTOR_FLAVOR_PLATFORM = 2;
-}
-
 message ExecutorState {
-    reserved 2, 4;
     optional string executor_id = 1;
     optional string hostname = 3;
     optional string version = 5;
@@ -156,7 +147,6 @@ message TaskRetryPolicy {
 }
 
 message Task {
-    reserved 8, 9;
     optional string id = 1;
     optional string namespace = 2;
     optional string graph_name = 3;
@@ -194,31 +184,41 @@ message DesiredExecutorState {
 }
 
 // ===== report_task_outcome RPC =====
-enum TaskOutcome {
-    TASK_OUTCOME_UNKNOWN = 0;
-    TASK_OUTCOME_SUCCESS = 1;
-    TASK_OUTCOME_FAILURE = 2;
+enum TaskOutcomeCode {
+    TASK_OUTCOME_CODE_UNKNOWN = 0;
+    TASK_OUTCOME_CODE_SUCCESS = 1;
+    TASK_OUTCOME_CODE_FAILURE = 2;
 }
 
-message ReportTaskOutcomeRequest {
-    reserved 8, 13, 5;
+enum TaskFailureReason {
+    TASK_FAILURE_REASON_UNKNOWN = 0;
+    TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 4;
+}
+
+message TaskOutcome {
     optional string task_id = 1;
     optional string namespace = 2;
     optional string graph_name = 3;
     optional string function_name = 4;
-    optional string graph_invocation_id = 6;
-    optional TaskOutcome outcome = 7;
-    optional string executor_id = 9;
-    optional bool reducer = 10;
-
+    optional string graph_invocation_id = 5;
+    optional bool reducer = 6;
+    optional TaskOutcomeCode outcome_code = 7;
+    optional TaskFailureReason failure_reason = 8;
     // Edges that the function wants the invocation to be routed to.
     // Previously called router_edges.
-    repeated string next_functions = 11;
-    // Outputs of the function.
-    repeated DataPayload fn_outputs = 12;
+    repeated string next_functions = 9;
+    repeated DataPayload function_outputs = 10;
     // Standard output and error streams of the function.
-    optional DataPayload stdout = 14;
-    optional DataPayload stderr = 15;
+    optional DataPayload stdout = 11;
+    optional DataPayload stderr = 12;
+}
+
+message ReportTaskOutcomeRequest {
+    optional string executor_id = 1;
+    optional TaskOutcome task_outcome = 2;
 }
 
 message ReportTaskOutcomeResponse {
