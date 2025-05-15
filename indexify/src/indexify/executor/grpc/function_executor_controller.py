@@ -122,7 +122,7 @@ class FunctionExecutorController:
         self._lock: asyncio.Lock = asyncio.Lock()
         # The same as the initial FE status.
         self._desired_status: FunctionExecutorStatusProto = (
-            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_STOPPED
+            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNKNOWN
         )
         self._desired_status_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self._lock
@@ -138,12 +138,12 @@ class FunctionExecutorController:
 
     async def startup(self) -> None:
         await self._set_desired_status(
-            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_IDLE
+            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_RUNNING
         )
 
     async def shutdown(self) -> None:
         await self._set_desired_status(
-            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_SHUTDOWN
+            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED
         )
 
     async def _set_desired_status(
@@ -163,7 +163,7 @@ class FunctionExecutorController:
         self._logger.info("function executor controller reconciliation loop started")
         # The same as the initial FE status.
         last_seen_desired_status: FunctionExecutorStatusProto = (
-            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_STOPPED
+            FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNKNOWN
         )
         # The loop is exited via loop async task cancellation on FE shutdown.
         while True:
@@ -182,12 +182,12 @@ class FunctionExecutorController:
         async with self._function_executor_state.lock:
             if (
                 desired_status
-                == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_IDLE
+                == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_RUNNING
             ):
                 return await self._startup()
             elif (
                 desired_status
-                == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_SHUTDOWN
+                == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED
             ):
                 # Shutdown can be requested with any current status.
                 return await self._shutdown()

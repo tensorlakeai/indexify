@@ -31,19 +31,9 @@ class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FUNCTION_EXECUTOR_STATUS_UNKNOWN: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STARTING_UP: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: _ClassVar[
-        FunctionExecutorStatus
-    ]
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: _ClassVar[
-        FunctionExecutorStatus
-    ]
-    FUNCTION_EXECUTOR_STATUS_IDLE: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STOPPING: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STOPPED: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_SHUTDOWN: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_PENDING: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_RUNNING: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_TERMINATED: _ClassVar[FunctionExecutorStatus]
 
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -78,15 +68,9 @@ GPU_MODEL_NVIDIA_TESLA_T4: GPUModel
 GPU_MODEL_NVIDIA_A6000: GPUModel
 GPU_MODEL_NVIDIA_A10: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_IDLE: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_UNHEALTHY: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STOPPING: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STOPPED: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_SHUTDOWN: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_PENDING: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_RUNNING: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_TERMINATED: FunctionExecutorStatus
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus

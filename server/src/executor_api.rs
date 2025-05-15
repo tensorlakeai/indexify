@@ -174,23 +174,13 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
     }
 }
 
-impl From<FunctionExecutorStatus> for data_model::FunctionExecutorStatus {
+impl From<FunctionExecutorStatus> for data_model::FunctionExecutorState {
     fn from(status: FunctionExecutorStatus) -> Self {
         match status {
-            FunctionExecutorStatus::StartingUp => data_model::FunctionExecutorStatus::StartingUp,
-            FunctionExecutorStatus::StartupFailedCustomerError => {
-                data_model::FunctionExecutorStatus::StartupFailedCustomerError
-            }
-            FunctionExecutorStatus::StartupFailedPlatformError => {
-                data_model::FunctionExecutorStatus::StartupFailedPlatformError
-            }
-            FunctionExecutorStatus::Idle => data_model::FunctionExecutorStatus::Idle,
-            FunctionExecutorStatus::RunningTask => data_model::FunctionExecutorStatus::RunningTask,
-            FunctionExecutorStatus::Stopping => data_model::FunctionExecutorStatus::Stopping,
-            FunctionExecutorStatus::Stopped => data_model::FunctionExecutorStatus::Stopped,
-            FunctionExecutorStatus::Unhealthy => data_model::FunctionExecutorStatus::Unhealthy,
-            FunctionExecutorStatus::Shutdown => data_model::FunctionExecutorStatus::Shutdown,
-            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorStatus::Unknown,
+            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
+            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
+            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
+            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated,
         }
     }
 }
@@ -257,7 +247,6 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(state_hash) = executor_state.state_hash.clone() {
             executor_metadata.state_hash(state_hash);
         }
-        // FIXME: ignoring Executor flavor for now.
         if let Some(executor_version) = executor_state.version {
             executor_metadata.executor_version(executor_version);
         }
@@ -285,7 +274,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
                 .clone()
                 .ok_or(anyhow::anyhow!("description is required"))?;
             let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
-            function_executor.status = function_executor_state.status().into();
+            function_executor.state = function_executor_state.status().into();
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.function_executors(function_executors);
@@ -351,7 +340,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             compute_fn_name,
             version,
             // is set when the parent proto message FunctionExecutorStatus is converted
-            status: data_model::FunctionExecutorStatus::Unknown,
+            state: data_model::FunctionExecutorState::Unknown,
         })
     }
 }

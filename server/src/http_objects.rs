@@ -1028,7 +1028,7 @@ pub struct FunctionExecutorMetadata {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: String,
-    pub status: String,
+    pub state: String,
 }
 
 impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
@@ -1039,7 +1039,7 @@ impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
             compute_graph_name: executor.compute_graph_name,
             compute_fn_name: executor.compute_fn_name,
             version: executor.version.to_string(),
-            status: executor.status.to_string(),
+            state: executor.state.to_string(),
         }
     }
 }
@@ -1158,7 +1158,7 @@ pub struct FnExecutor {
     pub count: usize,
     pub function_executor_id: String,
     pub fn_uri: String,
-    pub status: String,
+    pub state: String,
     pub desired_state: String,
     pub allocations: Vec<Allocation>,
 }

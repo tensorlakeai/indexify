@@ -627,7 +627,7 @@ impl ExecutorManager {
                             .get()
                             .to_string(),
                         fn_uri,
-                        status: fe_meta.function_executor.status.as_ref().to_string(),
+                        state: fe_meta.function_executor.state.as_ref().to_string(),
                         desired_state: fe_meta.desired_state.as_ref().to_string(),
                         allocations,
                     });
