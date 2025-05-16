@@ -18,7 +18,7 @@ from ..downloader import Downloader
 from ..function_executor.function_executor import FunctionExecutor
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_status import FunctionExecutorStatus
-from ..function_executor.health_checker import HealthChecker
+from ..function_executor.health_checker import HealthCheckResult
 from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_errors,
     metric_function_executor_run_task_rpc_latency,
@@ -244,7 +244,20 @@ class TaskController:
             # and no other tasks run on this FE because it'd result in undefined behavior.
             if self._is_timed_out:
                 next_status = FunctionExecutorStatus.UNHEALTHY
-            # TODO: When task controller is removed do FE health check here to stop scheduling tasks on unhealthy FE asap.
+            else:
+                # TODO: only run the health check if the task failed.
+                # If the task failed due to FE being unhealthy then report it to server asap to not schedule more tasks on it.
+                # This reduces latency in the system.
+                result: HealthCheckResult = (
+                    await self._function_executor_state.function_executor.health_checker().check()
+                )
+                if not result.is_healthy:
+                    next_status = FunctionExecutorStatus.UNHEALTHY
+                    self._logger.error(
+                        "Function Executor health check failed, marking Function Executor as unhealthy",
+                        health_check_fail_reason=result.reason,
+                    )
+
             await self._release_function_executor(next_status=next_status)
 
     async def _acquire_function_executor(self) -> Optional[TaskOutput]:
