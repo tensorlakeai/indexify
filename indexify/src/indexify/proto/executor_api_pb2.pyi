@@ -434,15 +434,18 @@ class Task(_message.Message):
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
-    __slots__ = ("function_executor_id", "task")
+    __slots__ = ("function_executor_id", "task", "allocation_id")
     FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     function_executor_id: str
     task: Task
+    allocation_id: str
     def __init__(
         self,
         function_executor_id: _Optional[str] = ...,
         task: _Optional[_Union[Task, _Mapping]] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...
 
 class GetDesiredExecutorStatesRequest(_message.Message):
@@ -487,6 +490,7 @@ class ReportTaskOutcomeRequest(_message.Message):
         "stderr",
         "output_encoding",
         "output_encoding_version",
+        "allocation_id",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -503,6 +507,7 @@ class ReportTaskOutcomeRequest(_message.Message):
     STDERR_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_ENCODING_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
@@ -518,6 +523,7 @@ class ReportTaskOutcomeRequest(_message.Message):
     stderr: DataPayload
     output_encoding: OutputEncoding
     output_encoding_version: int
+    allocation_id: str
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -535,6 +541,7 @@ class ReportTaskOutcomeRequest(_message.Message):
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
         output_encoding: _Optional[_Union[OutputEncoding, str]] = ...,
         output_encoding_version: _Optional[int] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...
 
 class ReportTaskOutcomeResponse(_message.Message):
@@ -558,6 +565,7 @@ class TaskResult(_message.Message):
         "stderr",
         "output_encoding",
         "output_encoding_version",
+        "allocation_id",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -574,6 +582,7 @@ class TaskResult(_message.Message):
     STDERR_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_ENCODING_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
@@ -589,6 +598,7 @@ class TaskResult(_message.Message):
     stderr: DataPayload
     output_encoding: OutputEncoding
     output_encoding_version: int
+    allocation_id: str
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -606,4 +616,5 @@ class TaskResult(_message.Message):
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
         output_encoding: _Optional[_Union[OutputEncoding, str]] = ...,
         output_encoding_version: _Optional[int] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...

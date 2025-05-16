@@ -100,6 +100,7 @@ class TaskController:
         state_reporter: Optional[ExecutorStateReporter],
         executor_io: ExecutorIO,
         function_executor_id: str,
+        allocation_id: str,
         function_executor_state: FunctionExecutorState,
         logger: Any,
     ):
@@ -126,6 +127,7 @@ class TaskController:
         )
         self._state_reporter: Optional[ExecutorStateReporter] = state_reporter
         self._executor_io: ExecutorIO = executor_io
+        self._allocation_id: str = allocation_id
 
     def function_executor_id(self) -> str:
         return self._function_executor_id
@@ -358,7 +360,7 @@ class TaskController:
                     raise
 
         return _task_output_from_function_executor_response(
-            task=self._task, response=response
+            task=self._task, response=response, allocation_id=self._allocation_id
         )
 
     async def _report_task_outcome(self, output: TaskOutput) -> None:
@@ -436,7 +438,7 @@ class TaskController:
 
 
 def _task_output_from_function_executor_response(
-    task: Task, response: RunTaskResponse
+    task: Task, response: RunTaskResponse, allocation_id: str
 ) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
@@ -457,6 +459,7 @@ def _task_output_from_function_executor_response(
         function_name=task.function_name,
         graph_version=task.graph_version,
         graph_invocation_id=task.graph_invocation_id,
+        allocation_id=allocation_id,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,

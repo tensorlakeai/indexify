@@ -25,6 +25,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
+        allocation_id: str,
         output_payload_uri_prefix: Optional[str],
         output_encoding: Optional[str] = None,
         function_output: Optional[FunctionOutput] = None,
@@ -42,6 +43,7 @@ class TaskOutput:
         self.function_name = function_name
         self.graph_version = graph_version
         self.graph_invocation_id = graph_invocation_id
+        self.allocation_id = allocation_id
         self.function_output = function_output
         self.router_output = router_output
         self.stdout = stdout

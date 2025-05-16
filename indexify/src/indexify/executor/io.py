@@ -173,6 +173,7 @@ class ExecutorIO:
             stderr=stderr,
             output_encoding=_to_grpc_output_encoding(output),
             output_encoding_version=0,
+            allocation_id=output.allocation_id,
         )
         return task_result
 

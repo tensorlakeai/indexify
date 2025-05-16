@@ -186,6 +186,7 @@ message Task {
 message TaskAllocation {
     optional string function_executor_id = 1;
     optional Task task = 2;
+    optional string allocation_id = 3;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -241,6 +242,9 @@ message ReportTaskOutcomeRequest {
     // This allows us to change how we encode the output from functions
     // and serialize them into storage.
     optional uint64 output_encoding_version = 5;  // deprecated. TODO: remove when DataPayload.encoding_version is used everywhere
+
+    // The allocation id of the allocation that ran the task.
+    optional string allocation_id = 16;
 }
 
 message ReportTaskOutcomeResponse {
@@ -270,6 +274,9 @@ message TaskResult {
     // This allows us to change how we encode the output from functions
     // and serialize them into storage.
     optional uint64 output_encoding_version = 5;  // deprecated. TODO: remove when DataPayload.encoding_version is used everywhere
+
+    // The allocation id of the allocation that ran the task.
+    optional string allocation_id = 16;
 }
 
 

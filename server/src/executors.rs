@@ -455,6 +455,7 @@ impl ExecutorManager {
                         output_payload_uri_prefix: Some(computed_task.output_payload_uri_prefix),
                         retry_policy: Some(task.retry_policy.clone().into()),
                     }),
+                    allocation_id: Some(task.allocation_id.clone()),
                 };
                 task_allocations.push(task_allocation_pb);
             }

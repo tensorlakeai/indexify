@@ -464,6 +464,7 @@ impl ExecutorApi for ExecutorAPIService {
             }
             task.output_status = TaskOutputsIngestionStatus::Ingested;
             task.status = TaskStatus::Completed;
+            let allocation_id = task_result.allocation_id.clone().ok_or(Status::invalid_argument("allocation_id is required"))?;
 
             let mut node_outputs = Vec::new();
             for output in task_result.fn_outputs.clone() {
@@ -560,7 +561,7 @@ impl ExecutorApi for ExecutorAPIService {
                 ),
             };
             task.diagnostics = Some(task_diagnostic.clone());
-            let _request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
+            let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),
                 compute_graph: compute_graph.to_string(),
                 compute_fn: compute_fn.to_string(),
@@ -568,8 +569,9 @@ impl ExecutorApi for ExecutorAPIService {
                 task: task.clone(),
                 node_outputs,
                 executor_id: ExecutorId::new(executor_id.clone()),
+                allocation_id: allocation_id.to_string(),
             });
-            task_ingestion_requests.push(_request);
+            task_ingestion_requests.push(request);
         }
         self.executor_manager
             .heartbeat(executor_metadata)
@@ -845,6 +847,7 @@ impl ExecutorApi for ExecutorAPIService {
             ),
         };
         task.diagnostics = Some(task_diagnostic.clone());
+        let allocation_id = request.get_ref().allocation_id.clone().ok_or(Status::invalid_argument("allocation_id is required"))?;
         let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
@@ -853,6 +856,7 @@ impl ExecutorApi for ExecutorAPIService {
             task: task.clone(),
             node_outputs,
             executor_id: ExecutorId::new(executor_id.clone()),
+            allocation_id: allocation_id.to_string(),
         });
 
         let sm_req = StateMachineUpdateRequest {
