@@ -18,6 +18,7 @@ from ..downloader import Downloader
 from ..function_executor.function_executor import FunctionExecutor
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_status import FunctionExecutorStatus
+from ..function_executor.health_checker import HealthChecker
 from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_errors,
     metric_function_executor_run_task_rpc_latency,
@@ -162,6 +163,11 @@ class TaskController:
                 success=output.outcome_code
                 == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS,
                 outcome_code=TaskOutcomeCode.Name(output.outcome_code),
+                failure_reason=(
+                    TaskFailureReason.Name(output.failure_reason)
+                    if output.failure_reason is not None
+                    else None
+                ),
             )
             _log_function_metrics(output, self._logger)
         except Exception as e:
@@ -170,11 +176,13 @@ class TaskController:
             self._logger.error("task execution failed", exc_info=e)
         except asyncio.CancelledError:
             metric_task_cancellations.inc()
+            # Suppress current asyncio task cancellation to report the task outcome and metrics.
+            if hasattr(asyncio.current_task(), "uncancel"):
+                # In Python 3.11+ we need to call uncancel() see:
+                # https://docs.python.org/3/library/asyncio-task.html#asyncio.Task.uncancel
+                asyncio.current_task().uncancel()
+            output = self._task_cancelled_output()
             self._logger.info("task execution cancelled")
-            # Don't report task outcome according to the current policy.
-            # asyncio.CancelledError can't be suppressed, see Python docs.
-            raise
-
         # Current task outcome reporting policy:
         # Don't report task outcomes for tasks that didn't fail with internal or customer error.
         # This is required to simplify the protocol so Server doesn't need to care about task states
@@ -216,7 +224,11 @@ class TaskController:
         """Runs the task on the Function Executor when it's available.
 
         Raises an Exception if task failed due to an internal error."""
-        await self._acquire_function_executor()
+        fe_terminated_task_output: Optional[TaskOutput] = (
+            await self._acquire_function_executor()
+        )
+        if fe_terminated_task_output is not None:
+            return fe_terminated_task_output
 
         next_status: FunctionExecutorStatus = FunctionExecutorStatus.IDLE
         try:
@@ -235,7 +247,7 @@ class TaskController:
             # TODO: When task controller is removed do FE health check here to stop scheduling tasks on unhealthy FE asap.
             await self._release_function_executor(next_status=next_status)
 
-    async def _acquire_function_executor(self) -> None:
+    async def _acquire_function_executor(self) -> Optional[TaskOutput]:
         """Waits until the Function Executor is in IDLE state and then locks it so the task can run on it.
 
         Doesn't raise any exceptions.
@@ -252,16 +264,21 @@ class TaskController:
                 "task is blocked by policy: waiting for idle function executor"
             )
             async with self._function_executor_state.lock:
-                # TODO: Handle TaskOutcome.TASK_OUTCOME_FAILURE_FUNCTION_EXECUTOR_TERMINATED.
                 await self._function_executor_state.wait_status(
-                    allowlist=[FunctionExecutorStatus.IDLE]
+                    allowlist=[
+                        FunctionExecutorStatus.IDLE,
+                        FunctionExecutorStatus.SHUTDOWN,
+                    ],
                 )
-                await self._function_executor_state.set_status(
-                    FunctionExecutorStatus.RUNNING_TASK
-                )
-
-            # At this point the Function Executor belongs to this task controller due to RUNNING_TASK status.
-            # We can now unlock the FE state. We have to update the FE status once the task succeeds or fails.
+                if self._function_executor_state.status == FunctionExecutorStatus.IDLE:
+                    await self._function_executor_state.set_status(
+                        FunctionExecutorStatus.RUNNING_TASK
+                    )
+                    # At this point the Function Executor belongs to this task controller due to RUNNING_TASK status.
+                    # We can now unlock the FE state. We have to update the FE status once the task succeeds or fails.
+                else:
+                    # Dirty handling of FE failure.
+                    return self._function_executor_terminated_output()
 
     async def _release_function_executor(
         self, next_status: FunctionExecutorStatus
@@ -391,6 +408,28 @@ class TaskController:
             graph_version=self._task.graph_version,
             graph_invocation_id=self._task.graph_invocation_id,
             timeout_sec=timeout_sec,
+            output_payload_uri_prefix=self._task.output_payload_uri_prefix,
+        )
+
+    def _task_cancelled_output(self) -> TaskOutput:
+        return TaskOutput.task_cancelled(
+            task_id=self._task.id,
+            namespace=self._task.namespace,
+            graph_name=self._task.graph_name,
+            function_name=self._task.function_name,
+            graph_version=self._task.graph_version,
+            graph_invocation_id=self._task.graph_invocation_id,
+            output_payload_uri_prefix=self._task.output_payload_uri_prefix,
+        )
+
+    def _function_executor_terminated_output(self) -> TaskOutput:
+        return TaskOutput.function_executor_terminated(
+            task_id=self._task.id,
+            namespace=self._task.namespace,
+            graph_name=self._task.graph_name,
+            function_name=self._task.function_name,
+            graph_version=self._task.graph_version,
+            graph_invocation_id=self._task.graph_invocation_id,
             output_payload_uri_prefix=self._task.output_payload_uri_prefix,
         )
 

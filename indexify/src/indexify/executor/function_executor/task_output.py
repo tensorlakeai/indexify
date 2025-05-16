@@ -118,3 +118,54 @@ class TaskOutput:
             stderr=f"Function or router exceeded its configured timeout of {timeout_sec:.3f} sec.",
             output_payload_uri_prefix=output_payload_uri_prefix,
         )
+
+    @classmethod
+    def task_cancelled(
+        cls,
+        task_id: str,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_version: str,
+        graph_invocation_id: str,
+        output_payload_uri_prefix: str,
+    ) -> "TaskOutput":
+        """Creates a TaskOutput for the case when task didn't finish because its allocation was removed by Server."""
+        return TaskOutput(
+            task_id=task_id,
+            namespace=namespace,
+            graph_name=graph_name,
+            function_name=function_name,
+            graph_version=graph_version,
+            graph_invocation_id=graph_invocation_id,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED,
+            output_payload_uri_prefix=output_payload_uri_prefix,
+        )
+
+    @classmethod
+    def function_executor_terminated(
+        cls,
+        task_id: str,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_version: str,
+        graph_invocation_id: str,
+        output_payload_uri_prefix: str,
+    ) -> "TaskOutput":
+        """Creates a TaskOutput for the case when task didn't run because its FE terminated."""
+        return TaskOutput(
+            task_id=task_id,
+            namespace=namespace,
+            graph_name=graph_name,
+            function_name=function_name,
+            graph_version=graph_version,
+            graph_invocation_id=graph_invocation_id,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
+            # TODO: add FE startup stdout, stderr to the task output if FE failed to startup.
+            stdout="",
+            stderr="Can't execute the function because its Function Executor terminated.",
+            output_payload_uri_prefix=output_payload_uri_prefix,
+        )

@@ -56,6 +56,7 @@ class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TASK_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
@@ -86,6 +87,7 @@ TASK_FAILURE_REASON_UNKNOWN: TaskFailureReason
 TASK_FAILURE_REASON_INTERNAL_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
+TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 
 class DataPayload(_message.Message):
