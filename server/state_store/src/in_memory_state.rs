@@ -99,6 +99,11 @@ impl Ord for UnallocatedTaskId {
     }
 }
 
+pub struct CandidateFunctionExecutors {
+    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub num_pending_function_executors: usize,
+}
+
 pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
@@ -989,13 +994,21 @@ impl InMemoryState {
         &self,
         task: &Task,
         capacity_threshold: usize,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    ) -> Result<CandidateFunctionExecutors> {
         let mut candidates = Vec::new();
         let fn_uri = FunctionURI::from(task);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
+        let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for function_executor in function_executors.iter() {
-                if function_executor.desired_state == FunctionExecutorState::Terminated {
+                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
+                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+                {
+                    num_pending_function_executors += 1;
+                }
+                if function_executor.desired_state == FunctionExecutorState::Terminated ||
+                    function_executor.function_executor.state == FunctionExecutorState::Running
+                {
                     continue;
                 }
                 // FIXME - Create a reverse index of fe_id -> # active allocations
@@ -1010,7 +1023,10 @@ impl InMemoryState {
                 }
             }
         }
-        Ok(candidates)
+        Ok(CandidateFunctionExecutors {
+            function_executors: candidates,
+            num_pending_function_executors,
+        })
     }
 
     pub fn next_reduction_task(
