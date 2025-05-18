@@ -344,6 +344,7 @@ def _executor_labels() -> Dict[str, str]:
 def _task_output_to_proto(output: TaskOutput) -> TaskResult:
     task_result = TaskResult(
         task_id=output.task_id,
+        allocation_id=output.allocation_id,
         namespace=output.namespace,
         graph_name=output.graph_name,
         function_name=output.function_name,

@@ -167,6 +167,7 @@ message Task {
 message TaskAllocation {
     optional string function_executor_id = 1;
     optional Task task = 2;
+    optional string allocation_id = 3;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -216,6 +217,8 @@ message TaskResult {
     // Standard output and error streams of the function.
     optional DataPayload stdout = 11;
     optional DataPayload stderr = 12;
+
+    optional string allocation_id = 13;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

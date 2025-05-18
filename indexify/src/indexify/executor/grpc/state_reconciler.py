@@ -369,6 +369,7 @@ class ExecutorStateReconciler:
             )
             self._task_controllers[task_allocation.task.id] = TaskController(
                 task=task_allocation.task,
+                allocation_id=task_allocation.allocation_id,
                 downloader=self._downloader,
                 task_output_uploader=self._task_output_uploader,
                 function_executor_id=task_allocation.function_executor_id,

@@ -95,6 +95,7 @@ class TaskController:
     def __init__(
         self,
         task: Task,
+        allocation_id: str,
         downloader: Downloader,
         task_output_uploader: TaskOutputUploader,
         function_executor_id: str,
@@ -107,6 +108,7 @@ class TaskController:
         The supplied Task must be already validated by the caller using validate_task().
         """
         self._task: Task = task
+        self._allocation_id: str = allocation_id
         self._downloader: Downloader = downloader
         self._task_output_uploader: TaskOutputUploader = task_output_uploader
         self._function_executor_id: str = function_executor_id
@@ -378,7 +380,7 @@ class TaskController:
                     raise
 
         return _task_output_from_function_executor_response(
-            task=self._task, response=response
+            task=self._task, response=response, allocation_id=self._allocation_id
         )
 
     async def _upload_task_output(self, output: TaskOutput) -> None:
@@ -404,6 +406,7 @@ class TaskController:
     def _internal_error_output(self) -> TaskOutput:
         return TaskOutput.internal_error(
             task_id=self._task.id,
+            allocation_id=self._allocation_id,
             namespace=self._task.namespace,
             graph_name=self._task.graph_name,
             function_name=self._task.function_name,
@@ -415,6 +418,7 @@ class TaskController:
     def _function_timeout_output(self, timeout_sec: float) -> TaskOutput:
         return TaskOutput.function_timeout(
             task_id=self._task.id,
+            allocation_id=self._allocation_id,
             namespace=self._task.namespace,
             graph_name=self._task.graph_name,
             function_name=self._task.function_name,
@@ -427,6 +431,7 @@ class TaskController:
     def _task_cancelled_output(self) -> TaskOutput:
         return TaskOutput.task_cancelled(
             task_id=self._task.id,
+            allocation_id=self._allocation_id,
             namespace=self._task.namespace,
             graph_name=self._task.graph_name,
             function_name=self._task.function_name,
@@ -438,6 +443,7 @@ class TaskController:
     def _function_executor_terminated_output(self) -> TaskOutput:
         return TaskOutput.function_executor_terminated(
             task_id=self._task.id,
+            allocation_id=self._allocation_id,
             namespace=self._task.namespace,
             graph_name=self._task.graph_name,
             function_name=self._task.function_name,
@@ -448,7 +454,7 @@ class TaskController:
 
 
 def _task_output_from_function_executor_response(
-    task: Task, response: RunTaskResponse
+    task: Task, response: RunTaskResponse, allocation_id: str
 ) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
@@ -464,6 +470,7 @@ def _task_output_from_function_executor_response(
 
     output = TaskOutput(
         task_id=task.id,
+        allocation_id=allocation_id,
         namespace=task.namespace,
         graph_name=task.graph_name,
         function_name=task.function_name,
