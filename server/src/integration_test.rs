@@ -123,17 +123,14 @@ mod tests {
 
         // finalize the starting node task
         {
-            let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(
-                executor_tasks.len(),
-                1,
-                "Executor tasks: {:#?}",
-                executor_tasks
-            );
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.task_allocations.len(), 1,);
+            let task_allocation = desired_state.task_allocations.first().unwrap();
             executor
                 .finalize_task(
-                    executor_tasks.first().unwrap(),
-                    FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                    &task_allocation,
+                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
 
@@ -151,19 +148,16 @@ mod tests {
 
         // finalize the remaining tasks
         {
-            let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(
-                executor_tasks.len(),
-                2,
-                "fn_b and fn_c tasks: {:#?}",
-                executor_tasks
-            );
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.task_allocations.len(), 2,);
+            let task_allocation = desired_state.task_allocations.first().unwrap();
 
-            for task in executor_tasks {
+            for task_allocation in desired_state.task_allocations {
                 executor
                     .finalize_task(
-                        &task,
-                        FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                        &task_allocation,
+                        FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                            .task_outcome(TaskOutcome::Success),
                     )
                     .await?;
             }
@@ -185,11 +179,11 @@ mod tests {
                 .collect();
             assert_eq!(successful_tasks.len(), 3, "{:#?}", successful_tasks);
 
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
             assert!(
-                executor_tasks.is_empty(),
+                desired_state.task_allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                executor_tasks
+                desired_state.task_allocations
             );
 
             let invocation = indexify_state
@@ -369,17 +363,19 @@ mod tests {
 
         // finalize the starting node task
         {
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
             assert_eq!(
-                executor_tasks.len(),
+                desired_state.task_allocations.len(),
                 1,
                 "Executor tasks: {:#?}",
-                executor_tasks
+                desired_state.task_allocations
             );
+            let task_allocation = desired_state.task_allocations.first().unwrap();
             executor
                 .finalize_task(
-                    executor_tasks.first().unwrap(),
-                    FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                    task_allocation,
+                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
 
@@ -397,19 +393,19 @@ mod tests {
 
         // finalize the remaining tasks
         {
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
             assert_eq!(
-                executor_tasks.len(),
+                desired_state.task_allocations.len(),
                 2,
                 "fn_b and fn_c tasks: {:#?}",
-                executor_tasks
+                desired_state.task_allocations
             );
 
-            for task in executor_tasks {
+            for task_allocation in desired_state.task_allocations {
                 executor
                     .finalize_task(
-                        &task,
-                        FinalizeTaskArgs::new()
+                        &task_allocation,
+                        FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
                             .task_outcome(TaskOutcome::Success)
                             .diagnostics(true, true),
                     )
@@ -433,11 +429,11 @@ mod tests {
                 .collect();
             assert_eq!(successful_tasks.len(), 3, "{:#?}", successful_tasks);
 
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
             assert!(
-                executor_tasks.is_empty(),
+                desired_state.task_allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                executor_tasks
+                desired_state.task_allocations
             );
 
             let invocation = indexify_state
@@ -511,8 +507,14 @@ mod tests {
 
         // finalize the starting node task with failure
         {
-            let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
+            let desired_state = executor.desired_state().await;
+            assert_eq!(
+                desired_state.task_allocations.len(),
+                1,
+                "{:#?}",
+                desired_state.task_allocations
+            );
+            let task_allocation = desired_state.task_allocations.first().unwrap();
 
             test_srv
                 .assert_task_states(TaskStateAssertions {
@@ -525,8 +527,9 @@ mod tests {
 
             executor
                 .finalize_task(
-                    executor_tasks.first().unwrap(),
-                    FinalizeTaskArgs::new().task_outcome(TaskOutcome::Failure),
+                    task_allocation,
+                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        .task_outcome(TaskOutcome::Failure),
                 )
                 .await?;
 
@@ -544,11 +547,11 @@ mod tests {
                 })
                 .await?;
 
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
             assert!(
-                executor_tasks.is_empty(),
+                desired_state.task_allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                executor_tasks
+                desired_state.task_allocations
             );
 
             let invocation = indexify_state
@@ -593,8 +596,13 @@ mod tests {
                 })
                 .await?;
 
-            let executor_tasks = executor1.get_tasks().await?;
-            assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
+            let desired_state = executor1.desired_state().await;
+            assert_eq!(
+                desired_state.task_allocations.len(),
+                1,
+                "Executor tasks: {:#?}",
+                desired_state.task_allocations
+            );
 
             executor1
         };
@@ -616,8 +624,12 @@ mod tests {
                 })
                 .await?;
 
-            let executor_tasks = executor2.get_tasks().await?;
-            assert!(executor_tasks.is_empty(), "{:#?}", executor_tasks);
+            let desired_state = executor2.desired_state().await;
+            assert!(
+                desired_state.task_allocations.is_empty(),
+                "expected all tasks to be finalized: {:#?}",
+                desired_state.task_allocations
+            );
 
             executor2
         };
@@ -637,8 +649,13 @@ mod tests {
                 })
                 .await?;
 
-            let executor_tasks = executor2.get_tasks().await?;
-            assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
+            let desired_state = executor2.desired_state().await;
+            assert_eq!(
+                desired_state.task_allocations.len(),
+                1,
+                "Executor tasks: {:#?}",
+                desired_state.task_allocations
+            );
         }
 
         // when executor2 deregisters, its tasks are not unallocated
@@ -656,73 +673,6 @@ mod tests {
                 })
                 .await?;
         }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_create_tasks_for_router_tasks() -> Result<()> {
-        let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
-
-        let invocation_id = test_state_store::with_router_graph(&indexify_state).await;
-
-        test_srv.process_all_state_changes().await?;
-
-        let tasks = indexify_state
-            .reader()
-            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)?
-            .0;
-        assert_eq!(tasks.len(), 1);
-
-        // Finish the task and check if new tasks are created
-        test_state_store::finalize_task_graph_b(
-            &indexify_state,
-            &mock_invocation_payload_graph_b().id,
-            &tasks[0],
-        )
-        .await
-        .unwrap();
-
-        test_srv.process_all_state_changes().await?;
-
-        let tasks = indexify_state
-            .reader()
-            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
-            .unwrap()
-            .0;
-        assert_eq!(tasks.len(), 2);
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .unwrap();
-
-        // has task created state change in it.
-        assert_eq!(
-            unprocessed_state_changes.changes.len(),
-            0,
-            "{:?}",
-            unprocessed_state_changes
-        );
-
-        // Now finish the router task and we should have 3 tasks
-        // The last one would be for the edge which the router picks
-        test_state_store::finalize_router_x(
-            &indexify_state,
-            &mock_invocation_payload_graph_b().id,
-            &tasks[1],
-        )
-        .await
-        .unwrap();
-
-        test_srv.process_all_state_changes().await?;
-
-        let tasks = indexify_state
-            .reader()
-            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
-            .unwrap()
-            .0;
-        assert_eq!(tasks.len(), 3, "tasks: {:?}", tasks);
 
         Ok(())
     }

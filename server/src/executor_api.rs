@@ -510,6 +510,10 @@ impl ExecutorAPIService {
                 ),
             };
             task.diagnostics = Some(task_diagnostic.clone());
+            let allocation_id = task_result
+                .allocation_id
+                .clone()
+                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),
                 compute_graph: compute_graph.to_string(),
@@ -518,6 +522,7 @@ impl ExecutorAPIService {
                 task: task.clone(),
                 node_outputs,
                 executor_id: executor_id.clone(),
+                allocation_id,
             });
 
             println!(
