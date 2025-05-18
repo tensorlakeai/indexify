@@ -7,7 +7,6 @@ mod tests {
         test_objects::tests::{
             mock_executor,
             mock_executor_id,
-            mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
         },
         ExecutorId,
@@ -150,7 +149,6 @@ mod tests {
         {
             let desired_state = executor.desired_state().await;
             assert_eq!(desired_state.task_allocations.len(), 2,);
-            let task_allocation = desired_state.task_allocations.first().unwrap();
 
             for task_allocation in desired_state.task_allocations {
                 executor

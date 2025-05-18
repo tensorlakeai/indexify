@@ -16,7 +16,6 @@ use data_model::{
 };
 use nanoid::nanoid;
 use state_store::{
-    in_memory_state::DesiredExecutorState,
     requests::{
         DeregisterExecutorRequest,
         IngestTaskOutputsRequest,
@@ -30,7 +29,7 @@ use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 use crate::{
     config::ServerConfig,
-    executor_api::executor_api_pb::{TaskAllocation, TaskResult},
+    executor_api::executor_api_pb::TaskAllocation,
     service::Service,
 };
 
