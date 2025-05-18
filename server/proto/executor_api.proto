@@ -131,6 +131,7 @@ message ExecutorState {
 // A message sent by Executor to report its up to date state to Server.
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
+    repeated TaskResult task_results = 2;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of Executor state.
@@ -199,7 +200,7 @@ enum TaskFailureReason {
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 5;
 }
 
-message TaskOutcome {
+message TaskResult {
     optional string task_id = 1;
     optional string namespace = 2;
     optional string graph_name = 3;
@@ -215,14 +216,6 @@ message TaskOutcome {
     // Standard output and error streams of the function.
     optional DataPayload stdout = 11;
     optional DataPayload stderr = 12;
-}
-
-message ReportTaskOutcomeRequest {
-    optional string executor_id = 1;
-    optional TaskOutcome task_outcome = 2;
-}
-
-message ReportTaskOutcomeResponse {
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
@@ -242,7 +235,4 @@ service ExecutorAPI {
     //
     // Deprecated HTTP API is used to download the serialized graph and task inputs.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
-
-    // Report the outcome of a task.
-    rpc report_task_outcome(ReportTaskOutcomeRequest) returns (ReportTaskOutcomeResponse) {}
 }

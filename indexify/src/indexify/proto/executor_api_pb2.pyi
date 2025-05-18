@@ -305,11 +305,15 @@ class ExecutorState(_message.Message):
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state",)
+    __slots__ = ("executor_state", "task_results")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
+    TASK_RESULTS_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
+    task_results: _containers.RepeatedCompositeFieldContainer[TaskResult]
     def __init__(
-        self, executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...
+        self,
+        executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
+        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -422,7 +426,7 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
-class TaskOutcome(_message.Message):
+class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
         "namespace",
@@ -476,19 +480,3 @@ class TaskOutcome(_message.Message):
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
-
-class ReportTaskOutcomeRequest(_message.Message):
-    __slots__ = ("executor_id", "task_outcome")
-    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
-    TASK_OUTCOME_FIELD_NUMBER: _ClassVar[int]
-    executor_id: str
-    task_outcome: TaskOutcome
-    def __init__(
-        self,
-        executor_id: _Optional[str] = ...,
-        task_outcome: _Optional[_Union[TaskOutcome, _Mapping]] = ...,
-    ) -> None: ...
-
-class ReportTaskOutcomeResponse(_message.Message):
-    __slots__ = ()
-    def __init__(self) -> None: ...
