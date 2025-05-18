@@ -4,11 +4,7 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            TEST_NAMESPACE,
-        },
+        test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
         ExecutorId,
         Task,
         TaskOutcome,
