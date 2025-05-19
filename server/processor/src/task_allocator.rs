@@ -225,7 +225,9 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut function_executors = self
             .in_memory_state
             .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
-        if function_executors.is_empty() {
+        if function_executors.function_executors.is_empty() &&
+            function_executors.num_pending_function_executors == 0
+        {
             info!(
                 invocation_id = task.invocation_id,
                 compute_graph = task.compute_graph_name,
@@ -249,10 +251,13 @@ impl<'a> TaskAllocationProcessor<'a> {
             compute_fn = task.compute_fn_name,
             version = task.graph_version.to_string(),
             "found {} function executors for task",
-            function_executors.len()
+            function_executors.function_executors.len()
         );
 
-        let Some(candidate) = function_executors.choose(&mut rand::rng()) else {
+        let Some(candidate) = function_executors
+            .function_executors
+            .choose(&mut rand::rng())
+        else {
             return Ok(update);
         };
         let fe_id = candidate.function_executor.id.clone();
@@ -456,7 +461,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id))]
+    #[tracing::instrument(skip(self, executor_id, function_executors_to_remove))]
     fn remove_function_executors(
         &mut self,
         executor_id: &ExecutorId,

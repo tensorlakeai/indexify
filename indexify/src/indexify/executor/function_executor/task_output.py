@@ -26,6 +26,7 @@ class TaskOutput:
     def __init__(
         self,
         task_id: str,
+        allocation_id: str,
         namespace: str,
         graph_name: str,
         function_name: str,
@@ -47,6 +48,7 @@ class TaskOutput:
         uploaded_stderr: Optional[DataPayload] = None,
     ):
         self.task_id = task_id
+        self.allocation_id = allocation_id
         self.namespace = namespace
         self.graph_name = graph_name
         self.function_name = function_name
@@ -70,6 +72,7 @@ class TaskOutput:
     def internal_error(
         cls,
         task_id: str,
+        allocation_id: str,
         namespace: str,
         graph_name: str,
         function_name: str,
@@ -81,6 +84,7 @@ class TaskOutput:
         # We are not sharing internal error messages with the customer.
         return TaskOutput(
             task_id=task_id,
+            allocation_id=allocation_id,
             namespace=namespace,
             graph_name=graph_name,
             function_name=function_name,
@@ -96,6 +100,7 @@ class TaskOutput:
     def function_timeout(
         cls,
         task_id: str,
+        allocation_id: str,
         namespace: str,
         graph_name: str,
         function_name: str,
@@ -108,6 +113,7 @@ class TaskOutput:
         # Task stdout, stderr is not available.
         return TaskOutput(
             task_id=task_id,
+            allocation_id=allocation_id,
             namespace=namespace,
             graph_name=graph_name,
             function_name=function_name,
@@ -123,6 +129,7 @@ class TaskOutput:
     def task_cancelled(
         cls,
         task_id: str,
+        allocation_id: str,
         namespace: str,
         graph_name: str,
         function_name: str,
@@ -133,6 +140,7 @@ class TaskOutput:
         """Creates a TaskOutput for the case when task didn't finish because its allocation was removed by Server."""
         return TaskOutput(
             task_id=task_id,
+            allocation_id=allocation_id,
             namespace=namespace,
             graph_name=graph_name,
             function_name=function_name,
@@ -147,6 +155,7 @@ class TaskOutput:
     def function_executor_terminated(
         cls,
         task_id: str,
+        allocation_id: str,
         namespace: str,
         graph_name: str,
         function_name: str,
@@ -157,6 +166,7 @@ class TaskOutput:
         """Creates a TaskOutput for the case when task didn't run because its FE terminated."""
         return TaskOutput(
             task_id=task_id,
+            allocation_id=allocation_id,
             namespace=namespace,
             graph_name=graph_name,
             function_name=function_name,

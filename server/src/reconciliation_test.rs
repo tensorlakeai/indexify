@@ -57,11 +57,13 @@ mod tests {
             .await?;
 
         // Finalize task - the new tasks should also be allocated
-        let executor_tasks = executor.get_tasks().await?;
+        let desired_state = executor.desired_state().await;
+        let task_allocation = desired_state.task_allocations.first().unwrap();
         executor
             .finalize_task(
-                executor_tasks.first().unwrap(),
-                FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                task_allocation,
+                FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    .task_outcome(TaskOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -125,11 +127,13 @@ mod tests {
             .await?;
 
         // Finalize task - new tasks should be allocated for b and c functions
-        let executor_tasks = executor.get_tasks().await?;
+        let desired_state = executor.desired_state().await;
+        let task_allocation = desired_state.task_allocations.first().unwrap();
         executor
             .finalize_task(
-                executor_tasks.first().unwrap(),
-                FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                task_allocation,
+                FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    .task_outcome(TaskOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -273,11 +277,13 @@ mod tests {
 
         // Complete the task to create fn_b and fn_c tasks
         {
-            let executor_tasks = executor.get_tasks().await?;
+            let desired_state = executor.desired_state().await;
+            let task_allocation = desired_state.task_allocations.first().unwrap();
             executor
                 .finalize_task(
-                    executor_tasks.first().unwrap(),
-                    FinalizeTaskArgs::new().task_outcome(TaskOutcome::Success),
+                    task_allocation,
+                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;

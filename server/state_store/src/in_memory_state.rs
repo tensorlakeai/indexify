@@ -40,6 +40,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct DesiredStateTask {
     pub task: Box<Task>,
+    pub allocation_id: String,
     pub timeout_ms: u32,
     pub retry_policy: NodeRetryPolicy,
 }
@@ -96,6 +97,11 @@ impl Ord for UnallocatedTaskId {
             time_ordering => time_ordering,
         }
     }
+}
+
+pub struct CandidateFunctionExecutors {
+    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub num_pending_function_executors: usize,
 }
 
 pub struct InMemoryState {
@@ -627,14 +633,6 @@ impl InMemoryState {
 
                 // Remove the allocation
                 {
-                    let allocation_id = Allocation::id(
-                        &req.executor_id,
-                        &req.task.id,
-                        &req.namespace,
-                        &req.compute_graph,
-                        &req.compute_fn,
-                        &req.invocation_id,
-                    );
                     self.allocations_by_executor
                         .entry(req.executor_id.clone())
                         .and_modify(|allocation_map| {
@@ -642,7 +640,7 @@ impl InMemoryState {
                             //       we should measure the overhead.
                             allocation_map.iter_mut().for_each(|(_, allocations)| {
                                 if let Some(index) =
-                                    allocations.iter().position(|a| a.id == allocation_id)
+                                    allocations.iter().position(|a| a.id == req.allocation_id)
                                 {
                                     let allocation = &allocations[index];
                                     // Record metrics
@@ -996,13 +994,21 @@ impl InMemoryState {
         &self,
         task: &Task,
         capacity_threshold: usize,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    ) -> Result<CandidateFunctionExecutors> {
         let mut candidates = Vec::new();
         let fn_uri = FunctionURI::from(task);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
+        let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for function_executor in function_executors.iter() {
-                if function_executor.desired_state == FunctionExecutorState::Terminated {
+                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
+                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+                {
+                    num_pending_function_executors += 1;
+                }
+                if function_executor.desired_state == FunctionExecutorState::Terminated ||
+                    function_executor.function_executor.state == FunctionExecutorState::Running
+                {
                     continue;
                 }
                 // FIXME - Create a reverse index of fe_id -> # active allocations
@@ -1017,7 +1023,10 @@ impl InMemoryState {
                 }
             }
         }
-        Ok(candidates)
+        Ok(CandidateFunctionExecutors {
+            function_executors: candidates,
+            num_pending_function_executors,
+        })
     }
 
     pub fn next_reduction_task(
@@ -1284,6 +1293,7 @@ impl InMemoryState {
                 };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
+                    allocation_id: allocation.id.clone(),
                     timeout_ms: cg_node.timeout().0,
                     retry_policy: cg_node.retry_policy(),
                 };

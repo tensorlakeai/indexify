@@ -81,25 +81,6 @@ pub struct Allocation {
 }
 
 impl Allocation {
-    pub fn id(
-        executor_id: &ExecutorId,
-        task_id: &TaskId,
-        namespace: &str,
-        compute_graph: &str,
-        compute_fn: &str,
-        invocation_id: &str,
-    ) -> String {
-        // TODO: Investigate impact of not using the function executor id
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        compute_graph.hash(&mut hasher);
-        compute_fn.hash(&mut hasher);
-        task_id.get().hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        executor_id.get().hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    }
-
     pub fn key(&self) -> String {
         Allocation::key_from(
             &self.namespace,
@@ -184,15 +165,18 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("executor_id is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
+
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        compute_graph.hash(&mut hasher);
+        compute_fn.hash(&mut hasher);
+        task_id.get().hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
+        executor_id.get().hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+
         Ok(Allocation {
-            id: Allocation::id(
-                &executor_id,
-                &task_id,
-                &namespace,
-                &compute_graph,
-                &compute_fn,
-                &invocation_id,
-            ),
+            id,
             function_executor_id,
             executor_id,
             task_id,

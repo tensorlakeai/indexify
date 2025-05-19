@@ -27,7 +27,11 @@ use state_store::{
 use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
-use crate::{config::ServerConfig, service::Service};
+use crate::{
+    config::ServerConfig,
+    executor_api::executor_api_pb::TaskAllocation,
+    service::Service,
+};
 
 pub struct TaskStateAssertions {
     pub total: usize,
@@ -231,15 +235,17 @@ pub struct FinalizeTaskArgs {
     pub task_outcome: TaskOutcome,
     pub reducer_fn: Option<String>,
     pub diagnostics: Option<TaskDiagnostics>,
+    pub allocation_id: String,
 }
 
 impl FinalizeTaskArgs {
-    pub fn new() -> FinalizeTaskArgs {
+    pub fn new(allocation_id: String) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
             num_outputs: 1,
             task_outcome: TaskOutcome::Success,
             reducer_fn: None,
             diagnostics: None,
+            allocation_id,
         }
     }
 
@@ -399,64 +405,16 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn get_tasks(&self) -> Result<Vec<Task>> {
-        // First check if we can get the tasks directly from in-memory state
-        // This is more reliable for testing as it contains all task fields
-        let indexes = self
-            .test_service
-            .service
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await;
-
-        let tasks_from_memory = indexes.active_tasks_for_executor(&self.executor_id);
-
-        if !tasks_from_memory.is_empty() {
-            return Ok(tasks_from_memory
-                .into_iter()
-                .map(|task| (*task).clone())
-                .collect());
-        }
-
-        // Fallback to using executor_manager if no tasks found in memory
+    pub async fn desired_state(
+        &self,
+    ) -> crate::executor_api::executor_api_pb::DesiredExecutorState {
         let desired_state = self
             .test_service
             .service
             .executor_manager
             .get_executor_state(&self.executor_id)
             .await;
-
-        // Convert TaskAllocation to Task
-        let tasks = desired_state
-            .task_allocations
-            .into_iter()
-            .filter_map(|allocation| {
-                // Skip if task is missing
-                let proto_task = allocation.task?;
-
-                // Get required fields
-                let id = proto_task.id?;
-                let namespace = proto_task.namespace?;
-                let compute_graph_name = proto_task.graph_name?;
-                let compute_fn_name = proto_task.function_name?;
-                let invocation_id = proto_task.graph_invocation_id?;
-
-                // Look up the task in the state store to get all fields
-                match self.test_service.service.indexify_state.reader().get_task(
-                    &namespace,
-                    &compute_graph_name,
-                    &invocation_id,
-                    &compute_fn_name,
-                    &id,
-                ) {
-                    Ok(Some(task)) => Some(task),
-                    _ => None,
-                }
-            })
-            .collect();
-
-        Ok(tasks)
+        desired_state
     }
 
     pub async fn deregister(&self) -> Result<()> {
@@ -473,19 +431,38 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn finalize_task(&self, task: &Task, args: FinalizeTaskArgs) -> Result<()> {
+    pub async fn finalize_task(
+        &self,
+        task_allocation: &TaskAllocation,
+        args: FinalizeTaskArgs,
+    ) -> Result<()> {
         let node_outputs = (0..args.num_outputs)
             .map(|_| {
                 mock_node_fn_output(
-                    task.invocation_id.as_str(),
-                    task.compute_graph_name.as_str(),
-                    task.compute_fn_name.as_str(),
+                    task_allocation.task.as_ref().unwrap().graph_invocation_id(),
+                    task_allocation.task.as_ref().unwrap().graph_name(),
+                    task_allocation.task.as_ref().unwrap().function_name(),
                     args.reducer_fn.clone(),
                 )
             })
             .collect();
 
-        let mut task = task.clone();
+        // get the task from the state store
+        let mut task = self
+            .test_service
+            .service
+            .indexify_state
+            .reader()
+            .get_task(
+                &task_allocation.task.as_ref().unwrap().namespace(),
+                &task_allocation.task.as_ref().unwrap().graph_name(),
+                &task_allocation.task.as_ref().unwrap().graph_invocation_id(),
+                &task_allocation.task.as_ref().unwrap().function_name(),
+                &task_allocation.task.as_ref().unwrap().id(),
+            )
+            .unwrap()
+            .unwrap();
+
         task.outcome = args.task_outcome.clone();
         task.status = TaskStatus::Completed;
         task.diagnostics = args.diagnostics.clone();
@@ -502,6 +479,7 @@ impl TestExecutor<'_> {
                     task,
                     node_outputs,
                     executor_id: self.executor_id.clone(),
+                    allocation_id: args.allocation_id.clone(),
                 }),
                 processed_state_changes: vec![],
             })

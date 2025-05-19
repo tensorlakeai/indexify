@@ -22,9 +22,7 @@ from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
-    ReportTaskOutcomeRequest,
-    TaskFailureReason,
-    TaskOutcome,
+    TaskResult,
     TaskOutcomeCode,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
@@ -180,25 +178,6 @@ class ExecutorStateReporter:
 
         Raises an exception on failure.
         """
-        # TODO: Remove this code once all task outcomes are reported via ExecutorState message.
-        # Warning: this code needs to go before the state report RPC, because currently Server marks tasks
-        # as failed once we report a terminated FE. As a result task outputs are not stored in Server state store.
-        # Careful with list modification here as an output can be appended there by another coroutine.
-        while len(self._completed_task_outputs) > 0:
-            task_output: TaskOutput = self._completed_task_outputs.pop()
-            try:
-                task_outcome: TaskOutcome = _task_output_to_proto(task_output)
-                await _report_task_outcome(
-                    task_outcome=task_outcome,
-                    stub=stub,
-                    executor_id=self._executor_id,
-                    logger=self._logger,  # Okay to pass logger which doesn't have the task context because this code is going be delete anyway.
-                )
-            except Exception as e:
-                # We need to re-add the output to the list to retry it later on the next Executor state report.
-                self._completed_task_outputs.append(task_output)
-                raise
-
         with (
             metric_state_report_errors.count_exceptions(),
             metric_state_report_latency.time(),
@@ -221,10 +200,31 @@ class ExecutorStateReporter:
             # Set fields not included in the state hash.
             state.server_clock = self._last_server_clock
 
-            await stub.report_executor_state(
-                ReportExecutorStateRequest(executor_state=state),
-                timeout=_REPORT_RPC_TIMEOUT_SEC,
-            )
+            try:
+                task_results_proto = []
+                task_outputs = []
+                while len(self._completed_task_outputs) > 0:
+                    task_output = self._completed_task_outputs.pop()
+                    task_outputs.append(task_output)
+                    task_results_proto.append(_task_output_to_proto(task_output))
+                    self._logger.info(
+                        "reporting task outcome",
+                        task_id=task_output.task_id,
+                        namespace=task_output.namespace,
+                        graph_name=task_output.graph_name,
+                        function_name=task_output.function_name,
+                        graph_invocation_id=task_output.graph_invocation_id,
+                        outcome_code=TaskOutcomeCode.Name(task_output.outcome_code)
+                    )
+                await stub.report_executor_state(
+                    ReportExecutorStateRequest(
+                        executor_state=state, task_results=task_results_proto
+                    ),
+                    timeout=_REPORT_RPC_TIMEOUT_SEC,
+                )
+            except Exception as e:
+                self._completed_task_outputs.extend(task_outputs)
+                raise
 
     async def _fetch_function_executor_states(self) -> List[FunctionExecutorStateProto]:
         states = []
@@ -347,9 +347,10 @@ def _executor_labels() -> Dict[str, str]:
     }
 
 
-def _task_output_to_proto(output: TaskOutput) -> TaskOutcome:
-    task_outcome = TaskOutcome(
+def _task_output_to_proto(output: TaskOutput) -> TaskResult:
+    task_result = TaskResult(
         task_id=output.task_id,
+        allocation_id=output.allocation_id,
         namespace=output.namespace,
         graph_name=output.graph_name,
         function_name=output.function_name,
@@ -360,39 +361,10 @@ def _task_output_to_proto(output: TaskOutput) -> TaskOutcome:
         function_outputs=output.uploaded_data_payloads,
     )
     if output.failure_reason is not None:
-        task_outcome.failure_reason = output.failure_reason
+        task_result.failure_reason = output.failure_reason
     if output.uploaded_stdout is not None:
-        task_outcome.stdout.CopyFrom(output.uploaded_stdout)
+        task_result.stdout.CopyFrom(output.uploaded_stdout)
     if output.uploaded_stderr is not None:
-        task_outcome.stderr.CopyFrom(output.uploaded_stderr)
+        task_result.stderr.CopyFrom(output.uploaded_stderr)
 
-    return task_outcome
-
-
-async def _report_task_outcome(
-    task_outcome: TaskOutcome,
-    stub: ExecutorAPIStub,
-    executor_id: str,
-    logger: Any,
-) -> None:
-    logger.info(
-        "reporting task outcome",
-        task_id=task_outcome.task_id,
-        namespace=task_outcome.namespace,
-        graph_name=task_outcome.graph_name,
-        function_name=task_outcome.function_name,
-        graph_invocation_id=task_outcome.graph_invocation_id,
-        outcome_code=TaskOutcomeCode.Name(task_outcome.outcome_code),
-    )
-
-    try:
-        await stub.report_task_outcome(
-            ReportTaskOutcomeRequest(
-                executor_id=executor_id,
-                task_outcome=task_outcome,
-            ),
-            timeout=5.0,
-        )
-    except Exception as e:
-        logger.error("failed to report task outcome", exc_info=e)
-        raise
+    return task_result
