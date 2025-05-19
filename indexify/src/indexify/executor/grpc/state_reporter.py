@@ -23,6 +23,7 @@ from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
     TaskResult,
+    TaskOutcomeCode,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -207,7 +208,13 @@ class ExecutorStateReporter:
                     task_outputs.append(task_output)
                     task_results_proto.append(_task_output_to_proto(task_output))
                     self._logger.info(
-                        f"reporting task result: {task_output.task_id}, outcome_code: {task_output.outcome_code}"
+                        "reporting task outcome",
+                        task_id=task_output.task_id,
+                        namespace=task_output.namespace,
+                        graph_name=task_output.graph_name,
+                        function_name=task_output.function_name,
+                        graph_invocation_id=task_output.graph_invocation_id,
+                        outcome_code=TaskOutcomeCode.Name(task_output.outcome_code)
                     )
                 await stub.report_executor_state(
                     ReportExecutorStateRequest(
@@ -216,7 +223,6 @@ class ExecutorStateReporter:
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
             except Exception as e:
-                self._logger.error("failed to report state to the server", exc_info=e)
                 self._completed_task_outputs.extend(task_outputs)
                 raise
 
