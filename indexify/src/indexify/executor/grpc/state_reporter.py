@@ -22,8 +22,8 @@ from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
-    TaskResult,
     TaskOutcomeCode,
+    TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -214,7 +214,7 @@ class ExecutorStateReporter:
                         graph_name=task_output.graph_name,
                         function_name=task_output.function_name,
                         graph_invocation_id=task_output.graph_invocation_id,
-                        outcome_code=TaskOutcomeCode.Name(task_output.outcome_code)
+                        outcome_code=TaskOutcomeCode.Name(task_output.outcome_code),
                     )
                 await stub.report_executor_state(
                     ReportExecutorStateRequest(
