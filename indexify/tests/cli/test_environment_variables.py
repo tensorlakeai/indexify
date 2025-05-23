@@ -6,6 +6,7 @@ from typing import Dict
 import pydantic
 import testing
 from tensorlake import Graph, RemoteGraph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
@@ -46,7 +47,9 @@ class TestEnvironmentVariables(unittest.TestCase):
                 description="test",
                 start_node=function_a,
             )
-            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+            graph = RemoteGraph.deploy(
+                graph=graph, code_dir_path=graph_code_dir_path(__file__)
+            )
 
             # Run 10 times to have close to 100% chance of landing the functions on executor_a and not default test executor.
             for _ in range(10):

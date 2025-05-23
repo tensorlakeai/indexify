@@ -13,6 +13,7 @@ from tensorlake import (
     tensorlake_function,
     tensorlake_router,
 )
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import test_graph_name
 
 
@@ -45,7 +46,9 @@ class TestFunctionTimeouts(unittest.TestCase):
             description="test",
             start_node=FunctionThatSleepsForeverOnInitialization,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         start_time = time.monotonic()
         invocation_id = graph.run(block_until_done=True)
         duration_sec = time.monotonic() - start_time
@@ -66,7 +69,9 @@ class TestFunctionTimeouts(unittest.TestCase):
             description="test",
             start_node=function_that_sleeps_forever_when_running,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         start_time = time.monotonic()
         # We don't have a public SDK API to read a functions' stderr
         # so we rely on internal SDK behavior where it prints a failed function's
@@ -136,7 +141,9 @@ class TestRouterTimeouts(unittest.TestCase):
                 function_that_sleeps_forever_when_running,
             ],
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         start_time = time.monotonic()
         invocation_id = graph.run(block_until_done=True)
         duration_sec = time.monotonic() - start_time
@@ -159,7 +166,9 @@ class TestRouterTimeouts(unittest.TestCase):
                 function_that_sleeps_forever_when_running,
             ],
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         start_time = time.monotonic()
         # We don't have a public SDK API to read a functions' stderr
         # so we rely on internal SDK behavior where it prints a failed function's
