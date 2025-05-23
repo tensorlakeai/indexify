@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 import testing
 from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
 from testing import (
     ExecutorProcessContextManager,
@@ -101,7 +102,9 @@ class TestFunctionAllowlist(unittest.TestCase):
             start_node=get_dev_mode_executor_pid,
             version=version,
         )
-        graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         invocation_id = graph.run(block_until_done=True)
         output = graph.output(invocation_id, "get_dev_mode_executor_pid")
         self.assertEqual(len(output), 1)
@@ -175,7 +178,9 @@ class TestFunctionAllowlist(unittest.TestCase):
             graph.add_edge(function_a, function_b)
             graph.add_edge(function_b, function_c)
             graph.add_edge(function_c, function_dev)
-            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+            graph = RemoteGraph.deploy(
+                graph=graph, code_dir_path=graph_code_dir_path(__file__)
+            )
 
             # Track tasks per executor
             tasks_per_executor_pid = {}
@@ -185,7 +190,7 @@ class TestFunctionAllowlist(unittest.TestCase):
 
             invocation_ids = []
             for _ in range(total_invokes):
-                invocation_ids.append(graph.run(block_until_done=False))
+                invocation_ids.append(graph.run(block_until_done=True))
 
             print("Waiting for all invocations to finish...")
             for invocation_id in invocation_ids:
