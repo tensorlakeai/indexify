@@ -11,14 +11,6 @@ from .function_executor_server_factory import (
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
 
-def get_free_tcp_port() -> int:
-    iface = socket.gethostbyname("")
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((iface, 0))
-        _, port = sock.getsockname()
-        return port
-
-
 class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     def __init__(self, verbose_logs: bool) -> None:
         super().__init__()
@@ -37,10 +29,10 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
             )
 
         try:
-            port = get_free_tcp_port()
-            logger.info("allocated function executor port", port=port)
+            port = _find_free_localhost_tcp_port()
             args = [
                 f"--executor-id={config.executor_id}",  # use = as executor_id can start with -
+                f"--function-executor-id={config.function_executor_id}",
                 "--address",
                 _server_address(port),
             ]
@@ -97,10 +89,23 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
             )
 
 
+# Function Executors are only listening on localhost so external connections to them are not possible.
+# This is a security measure. Also Executor <-> Function Executor communication is always local and
+# don't support Function Executors running on a different host.
+_FUNCTION_EXECUTOR_SERVER_HOSTNAME = "localhost"
+
+
 def _server_address(port: int) -> str:
-    return f"localhost:{port}"
+    return f"{_FUNCTION_EXECUTOR_SERVER_HOSTNAME}:{port}"
 
 
 def _new_process_group() -> None:
     """Creates a new process group with ID equal to the current process PID. POSIX only."""
     os.setpgid(0, 0)
+
+
+def _find_free_localhost_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((_FUNCTION_EXECUTOR_SERVER_HOSTNAME, 0))
+        _, port = sock.getsockname()
+        return port

@@ -97,6 +97,7 @@ message FunctionExecutorDescription {
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
+    // TODO: add a termination reason field to give more inforation to Server to decide on what to do when FE terminates.
 }
 
 enum ExecutorStatus {

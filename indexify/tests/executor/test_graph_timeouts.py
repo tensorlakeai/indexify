@@ -1,5 +1,4 @@
 import io
-import os
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -35,10 +34,6 @@ def function_that_sleeps_forever_when_running() -> str:
     return "success"
 
 
-@unittest.skipIf(
-    os.environ.get("LEGACY_SSE_STREAM_IS_USED", "0") == "1",
-    "Timeouts functionality is only implemented in gRPC mode",
-)
 class TestFunctionTimeouts(unittest.TestCase):
     def test_initilization(self):
         graph = Graph(
@@ -97,6 +92,7 @@ class TestFunctionTimeouts(unittest.TestCase):
         # point.
         #
         # Use regex to ignore console formatting characters
+        # TODO: uncomment this assertion once the bug that make it fail is fixed.
         # self.assertRegex(
         #     sdk_stdout.getvalue(),
         #     r"Function or router exceeded its configured timeout of.*3.000.*sec",
@@ -129,10 +125,6 @@ def router_that_sleeps_forever_when_running() -> Union[
     return function_that_sleeps_forever_when_running
 
 
-@unittest.skipIf(
-    os.environ.get("LEGACY_SSE_STREAM_IS_USED", "0") == "1",
-    "Timeouts functionality is only implemented in gRPC mode",
-)
 class TestRouterTimeouts(unittest.TestCase):
     def test_initilization(self):
         graph = Graph(
@@ -195,6 +187,10 @@ class TestRouterTimeouts(unittest.TestCase):
         # point.
         #
         # Use regex to ignore console formatting characters
+<<<<<<< HEAD
+=======
+        # TODO: uncomment this assertion once the bug that make it fail is fixed.
+>>>>>>> 7f0bc8b2 (Refactor Executor)
         # self.assertRegex(
         #     sdk_stdout.getvalue(),
         #     r"Function or router exceeded its configured timeout of.*2.000.*sec",

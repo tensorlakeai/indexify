@@ -9,34 +9,25 @@ from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
     ExecutorState,
     ExecutorStatus,
-    FunctionExecutorDescription,
+    FunctionExecutorState,
+    GPUModel,
+    GPUResources,
 )
-from indexify.proto.executor_api_pb2 import (
-    FunctionExecutorState as FunctionExecutorStateProto,
-)
-from indexify.proto.executor_api_pb2 import (
-    FunctionExecutorStatus as FunctionExecutorStatusProto,
-)
-from indexify.proto.executor_api_pb2 import GPUModel as GPUModelProto
-from indexify.proto.executor_api_pb2 import GPUResources as GPUResourcesProto
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
+    TaskFailureReason,
     TaskOutcomeCode,
     TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
-from ..function_allowlist import FunctionURI
-from ..function_executor.function_executor_state import FunctionExecutorState
-from ..function_executor.function_executor_states_container import (
-    FunctionExecutorStatesContainer,
-)
-from ..function_executor.function_executor_status import FunctionExecutorStatus
-from ..function_executor.task_output import TaskOutput
-from ..host_resources.host_resources import HostResources, HostResourcesProvider
-from ..host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .channel_manager import ChannelManager
+from .function_allowlist import FunctionURI
+from .function_executor_controller.loggers import task_logger
+from .function_executor_controller.task_output import TaskOutput
+from .host_resources.host_resources import HostResources, HostResourcesProvider
+from .host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .metrics.state_reporter import (
     metric_state_report_errors,
     metric_state_report_latency,
@@ -54,7 +45,6 @@ class ExecutorStateReporter:
         version: str,
         labels: Dict[str, str],
         function_allowlist: List[FunctionURI],
-        function_executor_states: FunctionExecutorStatesContainer,
         channel_manager: ChannelManager,
         host_resources_provider: HostResourcesProvider,
         logger: Any,
@@ -65,13 +55,10 @@ class ExecutorStateReporter:
         self._labels: Dict[str, str] = labels.copy()
         self._labels.update(_executor_labels())
         self._hostname: str = gethostname()
-        self._function_executor_states: FunctionExecutorStatesContainer = (
-            function_executor_states
-        )
         self._channel_manager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
         self._reporting_interval_sec: int = reporting_interval_sec
-        self._allowed_functions: List[AllowedFunction] = _to_grpc_allowed_functions(
+        self._allowed_functions: List[AllowedFunction] = _to_allowed_function_protos(
             function_allowlist
         )
         # We need to fetch total resources only once, because they are not changing.
@@ -97,12 +84,29 @@ class ExecutorStateReporter:
             0  # Server expects initial value to be 0 until it is set by Server.
         )
         self._completed_task_outputs: List[TaskOutput] = []
+        self._function_executor_states: Dict[str, FunctionExecutorState] = {}
 
     def update_executor_status(self, value: ExecutorStatus) -> None:
         self._executor_status = value
 
     def update_last_server_clock(self, value: int) -> None:
         self._last_server_clock = value
+
+    def update_function_executor_state(
+        self,
+        state: FunctionExecutorState,
+    ) -> None:
+        self._function_executor_states[state.description.id] = state
+
+    def remove_function_executor_info(self, function_executor_id: str) -> None:
+        if function_executor_id not in self._function_executor_states:
+            self._logger.warning(
+                "attempted to remove non-existing function executor state",
+                function_executor_id=function_executor_id,
+            )
+            return
+
+        self._function_executor_states.pop(function_executor_id)
 
     def add_completed_task_output(self, task_output: TaskOutput) -> None:
         self._completed_task_outputs.append(task_output)
@@ -121,11 +125,11 @@ class ExecutorStateReporter:
         self.schedule_state_report()
         await self._state_reported_event.wait()
 
-    async def start(self) -> None:
-        """Start the state reporter.
+    def run(self) -> None:
+        """Runs the state reporter.
 
         This method is called when the executor starts and it needs to start reporting its state
-        periodically. Can be called only once.
+        periodically.
         """
         self._state_report_worker = asyncio.create_task(
             self._state_report_worker_loop(), name="state_reporter_worker"
@@ -138,9 +142,18 @@ class ExecutorStateReporter:
     async def shutdown(self) -> None:
         if self._state_report_worker is not None:
             self._state_report_worker.cancel()
+            try:
+                await self._state_report_worker
+            except asyncio.CancelledError:
+                pass  # Expected exception
             self._state_report_worker = None
+
         if self._periodic_state_report_scheduler is not None:
             self._periodic_state_report_scheduler.cancel()
+            try:
+                await self._periodic_state_report_scheduler
+            except asyncio.CancelledError:
+                pass
             self._periodic_state_report_scheduler = None
 
     async def _periodic_state_report_scheduler_loop(self) -> None:
@@ -183,77 +196,62 @@ class ExecutorStateReporter:
             metric_state_report_latency.time(),
         ):
             metric_state_report_rpcs.inc()
-            state = ExecutorState(
-                executor_id=self._executor_id,
-                hostname=self._hostname,
-                version=self._version,
-                status=self._executor_status,
-                total_function_executor_resources=_host_resources_to_proto(
-                    self._total_function_executor_resources
-                ),
-                total_resources=_host_resources_to_proto(self._total_host_resources),
-                allowed_functions=self._allowed_functions,
-                function_executor_states=await self._fetch_function_executor_states(),
-                labels=self._labels,
-            )
-            state.state_hash = _state_hash(state)
-            # Set fields not included in the state hash.
-            state.server_clock = self._last_server_clock
+            state: ExecutorState = self._current_executor_state()
+            task_outputs: List[TaskOutput] = self._remove_completed_tasks()
+            task_results: List[TaskResult] = _to_task_result_protos(task_outputs)
 
             try:
-                task_results_proto = []
-                task_outputs = []
-                while len(self._completed_task_outputs) > 0:
-                    task_output = self._completed_task_outputs.pop()
-                    task_outputs.append(task_output)
-                    task_results_proto.append(_task_output_to_proto(task_output))
-                    self._logger.info(
-                        "reporting task outcome",
-                        task_id=task_output.task_id,
-                        namespace=task_output.namespace,
-                        graph_name=task_output.graph_name,
-                        function_name=task_output.function_name,
-                        graph_invocation_id=task_output.graph_invocation_id,
-                        outcome_code=TaskOutcomeCode.Name(task_output.outcome_code),
-                    )
                 await stub.report_executor_state(
                     ReportExecutorStateRequest(
-                        executor_state=state, task_results=task_results_proto
+                        executor_state=state, task_results=task_results
                     ),
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
             except Exception as e:
-                self._completed_task_outputs.extend(task_outputs)
+                for task_output in task_outputs:
+                    self.add_completed_task_output(task_output)
                 raise
 
-    async def _fetch_function_executor_states(self) -> List[FunctionExecutorStateProto]:
-        states = []
+    def _current_executor_state(self) -> ExecutorState:
+        """Returns the current executor state."""
+        state = ExecutorState(
+            executor_id=self._executor_id,
+            hostname=self._hostname,
+            version=self._version,
+            status=self._executor_status,
+            total_function_executor_resources=_to_host_resources_proto(
+                self._total_function_executor_resources
+            ),
+            total_resources=_to_host_resources_proto(self._total_host_resources),
+            allowed_functions=self._allowed_functions,
+            function_executor_states=list(self._function_executor_states.values()),
+            labels=self._labels,
+        )
+        state.state_hash = _state_hash(state)
+        # Set fields not included in the state hash.
+        state.server_clock = self._last_server_clock
+        return state
 
-        async for function_executor_state in self._function_executor_states:
-            function_executor_state: FunctionExecutorState
-            function_executor_state_proto = FunctionExecutorStateProto(
-                description=FunctionExecutorDescription(
-                    id=function_executor_state.id,
-                    namespace=function_executor_state.namespace,
-                    graph_name=function_executor_state.graph_name,
-                    graph_version=function_executor_state.graph_version,
-                    function_name=function_executor_state.function_name,
-                    secret_names=function_executor_state.secret_names,
-                ),
-                status=_to_grpc_function_executor_status(
-                    function_executor_state.status, self._logger
+    def _remove_completed_tasks(self) -> List[TaskOutput]:
+        task_outputs: List[TaskOutput] = []
+        while len(self._completed_task_outputs) > 0:
+            task_output = self._completed_task_outputs.pop()
+            task_outputs.append(task_output)
+            task_logger(task_output.task, self._logger).info(
+                "reporting task outcome",
+                outcome_code=TaskOutcomeCode.Name(task_output.outcome_code),
+                failure_reason=(
+                    "None"
+                    if task_output.failure_reason is None
+                    else TaskFailureReason.Name(task_output.failure_reason)
                 ),
             )
-            if function_executor_state.image_uri:
-                function_executor_state_proto.description.image_uri = (
-                    function_executor_state.image_uri
-                )
-            states.append(function_executor_state_proto)
-
-        return states
+        return task_outputs
 
 
-def _to_grpc_allowed_functions(function_allowlist: List[FunctionURI]):
+def _to_allowed_function_protos(
+    function_allowlist: List[FunctionURI],
+) -> List[AllowedFunction]:
     allowed_functions: List[AllowedFunction] = []
     for function_uri in function_allowlist:
         function_uri: FunctionURI
@@ -269,32 +267,6 @@ def _to_grpc_allowed_functions(function_allowlist: List[FunctionURI]):
     return allowed_functions
 
 
-_STATUS_MAPPING: Dict[FunctionExecutorStatus, Any] = {
-    FunctionExecutorStatus.STARTING_UP: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_PENDING,
-    FunctionExecutorStatus.STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-    FunctionExecutorStatus.STARTUP_FAILED_PLATFORM_ERROR: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-    FunctionExecutorStatus.IDLE: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_RUNNING,
-    FunctionExecutorStatus.RUNNING_TASK: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_RUNNING,
-    FunctionExecutorStatus.UNHEALTHY: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-    FunctionExecutorStatus.DESTROYING: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-    FunctionExecutorStatus.DESTROYED: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-    FunctionExecutorStatus.SHUTDOWN: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-}
-
-
-def _to_grpc_function_executor_status(
-    status: FunctionExecutorStatus, logger: Any
-) -> FunctionExecutorStatusProto:
-    result: FunctionExecutorStatusProto = _STATUS_MAPPING.get(
-        status, FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNKNOWN
-    )
-
-    if result == FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNKNOWN:
-        logger.error("unexpected Function Executor status", status=status)
-
-    return result
-
-
 def _state_hash(state: ExecutorState) -> str:
     serialized_state: bytes = state.SerializeToString(deterministic=True)
     hasher = hashlib.sha256(usedforsecurity=False)
@@ -302,7 +274,7 @@ def _state_hash(state: ExecutorState) -> str:
     return hasher.hexdigest()
 
 
-def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProto:
+def _to_host_resources_proto(host_resources: HostResources) -> HostResourcesProto:
     proto = HostResourcesProto(
         cpu_count=host_resources.cpu_count,
         memory_bytes=host_resources.memory_mb * 1024 * 1024,
@@ -310,9 +282,9 @@ def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProt
     )
     if len(host_resources.gpus) > 0:
         proto.gpu.CopyFrom(
-            GPUResourcesProto(
+            GPUResources(
                 count=len(host_resources.gpus),
-                model=_gpu_model_to_proto(
+                model=_to_gpu_model_proto(
                     host_resources.gpus[0].model
                 ),  # All GPUs have the same model
             )
@@ -320,21 +292,48 @@ def _host_resources_to_proto(host_resources: HostResources) -> HostResourcesProt
     return proto
 
 
-def _gpu_model_to_proto(gpu_model: NVIDIA_GPU_MODEL) -> GPUModelProto:
-    if gpu_model == NVIDIA_GPU_MODEL.A100_40GB:
-        return GPUModelProto.GPU_MODEL_NVIDIA_A100_40GB
-    elif gpu_model == NVIDIA_GPU_MODEL.A100_80GB:
-        return GPUModelProto.GPU_MODEL_NVIDIA_A100_80GB
-    elif gpu_model == NVIDIA_GPU_MODEL.H100_80GB:
-        return GPUModelProto.GPU_MODEL_NVIDIA_H100_80GB
-    elif gpu_model == NVIDIA_GPU_MODEL.TESLA_T4:
-        return GPUModelProto.GPU_MODEL_NVIDIA_TESLA_T4
-    elif gpu_model == NVIDIA_GPU_MODEL.A6000:
-        return GPUModelProto.GPU_MODEL_NVIDIA_A6000
-    elif gpu_model == NVIDIA_GPU_MODEL.A10:
-        return GPUModelProto.GPU_MODEL_NVIDIA_A10
+def _to_gpu_model_proto(nvidia_gpu_model: NVIDIA_GPU_MODEL) -> GPUModel:
+    if nvidia_gpu_model == NVIDIA_GPU_MODEL.A100_40GB:
+        return GPUModel.GPU_MODEL_NVIDIA_A100_40GB
+    elif nvidia_gpu_model == NVIDIA_GPU_MODEL.A100_80GB:
+        return GPUModel.GPU_MODEL_NVIDIA_A100_80GB
+    elif nvidia_gpu_model == NVIDIA_GPU_MODEL.H100_80GB:
+        return GPUModel.GPU_MODEL_NVIDIA_H100_80GB
+    elif nvidia_gpu_model == NVIDIA_GPU_MODEL.TESLA_T4:
+        return GPUModel.GPU_MODEL_NVIDIA_TESLA_T4
+    elif nvidia_gpu_model == NVIDIA_GPU_MODEL.A6000:
+        return GPUModel.GPU_MODEL_NVIDIA_A6000
+    elif nvidia_gpu_model == NVIDIA_GPU_MODEL.A10:
+        return GPUModel.GPU_MODEL_NVIDIA_A10
     else:
-        return GPUModelProto.GPU_MODEL_UNKNOWN
+        return GPUModel.GPU_MODEL_UNKNOWN
+
+
+def _to_task_result_protos(task_outputs: List[TaskOutput]) -> List[TaskResult]:
+    task_results: List[TaskResult] = []
+
+    for output in task_outputs:
+        task_result = TaskResult(
+            task_id=output.task.id,
+            allocation_id=output.allocation_id,
+            namespace=output.task.namespace,
+            graph_name=output.task.graph_name,
+            function_name=output.task.function_name,
+            graph_invocation_id=output.task.graph_invocation_id,
+            reducer=output.reducer,
+            outcome_code=output.outcome_code,
+            next_functions=(output.router_output.edges if output.router_output else []),
+            function_outputs=output.uploaded_data_payloads,
+        )
+        if output.failure_reason is not None:
+            task_result.failure_reason = output.failure_reason
+        if output.uploaded_stdout is not None:
+            task_result.stdout.CopyFrom(output.uploaded_stdout)
+        if output.uploaded_stderr is not None:
+            task_result.stderr.CopyFrom(output.uploaded_stderr)
+        task_results.append(task_result)
+
+    return task_results
 
 
 def _executor_labels() -> Dict[str, str]:
@@ -345,26 +344,3 @@ def _executor_labels() -> Dict[str, str]:
         "python_major_version": str(sys.version_info.major),
         "python_minor_version": str(sys.version_info.minor),
     }
-
-
-def _task_output_to_proto(output: TaskOutput) -> TaskResult:
-    task_result = TaskResult(
-        task_id=output.task_id,
-        allocation_id=output.allocation_id,
-        namespace=output.namespace,
-        graph_name=output.graph_name,
-        function_name=output.function_name,
-        graph_invocation_id=output.graph_invocation_id,
-        reducer=output.reducer,
-        outcome_code=output.outcome_code,
-        next_functions=(output.router_output.edges if output.router_output else []),
-        function_outputs=output.uploaded_data_payloads,
-    )
-    if output.failure_reason is not None:
-        task_result.failure_reason = output.failure_reason
-    if output.uploaded_stdout is not None:
-        task_result.stdout.CopyFrom(output.uploaded_stdout)
-    if output.uploaded_stderr is not None:
-        task_result.stderr.CopyFrom(output.uploaded_stderr)
-
-    return task_result

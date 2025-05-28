@@ -134,7 +134,9 @@ class FunctionExecutor:
     async def destroy(self):
         """Destroys all resources owned by this FunctionExecutor.
 
-        Never raises any exceptions but logs them."""
+        Never raises any exceptions but logs them.
+        Idempotent.
+        """
         try:
             with (
                 metric_destroy_errors.count_exceptions(),

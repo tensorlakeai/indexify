@@ -1,8 +1,6 @@
 import prometheus_client
 
-from ..monitoring.metrics import latency_metric_for_fast_operation
-
-# This file contains all metrics used by Downloader.
+from indexify.executor.monitoring.metrics import latency_metric_for_fast_operation
 
 # Graph download metrics
 metric_graph_downloads: prometheus_client.Counter = prometheus_client.Counter(
