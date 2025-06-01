@@ -211,6 +211,7 @@ pub async fn finalize_task(
         &task.compute_graph_name,
         compute_fn_for_reducer.clone(),
         num_outputs,
+        allocation_id.clone(),
     );
 
     let mut task = task.clone();
@@ -252,7 +253,13 @@ pub async fn finalize_task_graph_b(
         compute_fn: "fn_a".to_string(),
         invocation_id: invocation_id.to_string(),
         task: task.clone(),
-        node_output: mock_node_fn_output_fn_a(&invocation_id, "graph_B", None, 1),
+        node_output: mock_node_fn_output_fn_a(
+            &invocation_id,
+            "graph_B",
+            None,
+            1,
+            allocation_id.clone(),
+        ),
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         allocation_id,
     };

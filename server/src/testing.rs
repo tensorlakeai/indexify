@@ -436,12 +436,14 @@ impl TestExecutor<'_> {
         task_allocation: &TaskAllocation,
         args: FinalizeTaskArgs,
     ) -> Result<()> {
+        let allocation_id = task_allocation.allocation_id.clone().unwrap();
         let node_output = mock_node_fn_output(
             task_allocation.task.as_ref().unwrap().graph_invocation_id(),
             task_allocation.task.as_ref().unwrap().graph_name(),
             task_allocation.task.as_ref().unwrap().function_name(),
             args.reducer_fn.clone(),
             args.num_outputs as usize,
+            allocation_id,
         );
 
         // get the task from the state store

@@ -75,8 +75,16 @@ pub mod tests {
         graph: &str,
         reducer_fn: Option<String>,
         num_outputs: usize,
+        allocation_id: String,
     ) -> NodeOutput {
-        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn, num_outputs)
+        mock_node_fn_output(
+            invocation_id,
+            graph,
+            "fn_a",
+            reducer_fn,
+            num_outputs,
+            allocation_id,
+        )
     }
 
     pub fn mock_node_fn_output(
@@ -85,6 +93,7 @@ pub mod tests {
         compute_fn_name: &str,
         reducer_fn: Option<String>,
         num_outputs: usize,
+        allocation_id: String,
     ) -> NodeOutput {
         let mut path = rand::rng()
             .sample_iter(rand::distr::Alphanumeric)
@@ -100,6 +109,7 @@ pub mod tests {
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
+            .allocation_id(allocation_id)
             .payloads(
                 (0..num_outputs)
                     .map(|_| DataPayload {
@@ -109,6 +119,7 @@ pub mod tests {
                     })
                     .collect(),
             )
+            .edges(vec![])
             .build()
             .unwrap()
     }

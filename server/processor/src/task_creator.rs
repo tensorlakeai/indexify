@@ -407,7 +407,9 @@ impl TaskCreator {
         // Find the edges of the function
         let Some(edges) = compute_graph_version.edges.get(&task.compute_fn_name) else {
             // If there are no edges, check if the invocation should be finished.
-            trace!("No more edges to schedule tasks for, waiting for outstanding tasks to finalize");
+            trace!(
+                "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
+            );
             if invocation_ctx.all_tasks_completed() {
                 invocation_ctx.complete_invocation(false, GraphInvocationOutcome::Success);
             }
