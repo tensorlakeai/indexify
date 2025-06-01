@@ -16,7 +16,6 @@ use data_model::{
     FunctionExecutorId,
     GraphVersion,
     NodeOutputBuilder,
-    OutputPayload,
     TaskDiagnostics,
     TaskOutcome,
     TaskOutputsIngestionStatus,
@@ -400,7 +399,11 @@ impl ExecutorAPIService {
                 .graph_invocation_id
                 .clone()
                 .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
-            let task = self
+            let allocation_id = task_result
+                .allocation_id
+                .clone()
+                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+            let Some(mut task) = self
                 .indexify_state
                 .reader()
                 .get_task(
@@ -410,12 +413,26 @@ impl ExecutorAPIService {
                     &compute_fn,
                     &task_id,
                 )
-                .map_err(|e| Status::internal(e.to_string()))?;
-            if task.is_none() {
+                .map_err(|e| Status::internal(e.to_string()))?
+            else {
                 warn!("Task not found for task_id: {}", task_id);
                 continue;
-            }
-            let mut task = task.unwrap();
+            };
+
+            let Some(compute_graph) = self.indexify_state.reader().get_compute_graph_version(
+                &namespace,
+                &compute_graph,
+                &task.graph_version,
+            )?
+            else {
+                warn!("Compute graph version not found for task_id: {}", task_id);
+                continue;
+            };
+
+            let Some(compute_fn_node) = compute_graph.nodes.get(&compute_fn) else {
+                warn!("Compute fn node not found for task_id: {}", task_id);
+                continue;
+            };
             match outcome_code {
                 executor_api_pb::TaskOutcomeCode::Success => {
                     task.outcome = TaskOutcome::Success;
@@ -431,7 +448,8 @@ impl ExecutorAPIService {
             task.output_status = TaskOutputsIngestionStatus::Ingested;
             task.status = TaskStatus::Completed;
 
-            let mut node_outputs = Vec::new();
+            let mut payloads = Vec::new();
+            let mut encoding_str = String::new();
             for output in task_result.function_outputs.clone() {
                 let url = output
                     .uri
@@ -453,7 +471,7 @@ impl ExecutorAPIService {
                     size,
                     sha256_hash,
                 };
-                let encoding_str = match output.encoding {
+                encoding_str = match output.encoding {
                     Some(value) => {
                         let output_encoding = DataPayloadEncoding::try_from(value)
                             .map_err(|e| Status::invalid_argument(e.to_string()))?;
@@ -469,33 +487,49 @@ impl ExecutorAPIService {
                     None => Err(Status::invalid_argument(
                         "data payload encoding is required",
                     )),
-                }?;
-
-                let node_output = NodeOutputBuilder::default()
-                    .namespace(namespace.to_string())
-                    .compute_graph_name(compute_graph.to_string())
-                    .invocation_id(invocation_id.to_string())
-                    .compute_fn_name(compute_fn.to_string())
-                    .payload(OutputPayload::Fn(data_payload))
-                    .encoding(encoding_str.to_string())
-                    .reduced_state(task_result.reducer.unwrap_or(false))
-                    .build()
-                    .map_err(|e| Status::internal(e.to_string()))?;
-                node_outputs.push(node_output);
+                }?
+                .to_string();
+                payloads.push(data_payload);
             }
 
+            let mut node_output = NodeOutputBuilder::default()
+                .namespace(namespace.to_string())
+                .compute_graph_name(compute_graph.compute_graph_name.clone())
+                .invocation_id(invocation_id.to_string())
+                .compute_fn_name(compute_fn.to_string())
+                .payloads(payloads)
+                .edges(vec![])
+                .encoding(encoding_str.to_string())
+                .allocation_id(allocation_id.clone())
+                .reducer_output(compute_fn_node.reducer())
+                .build()
+                .map_err(|e| Status::internal(e.to_string()))?;
+
+            println!(
+                "DIPTANU task_result.next_functions: {:?} FN {}",
+                task_result.next_functions,
+                task_result.function_name()
+            );
+
             if task_result.next_functions.len() > 0 {
-                let node_output = NodeOutputBuilder::default()
+                // Get the outputs of the function which was upstream of the router
+                // and set its payloads as the payloads of the router node so that task creator
+                // can create the downstream tasks with the same payloads.
+                // This won't be needed when we merge the router and compute function nodes.
+
+                // TODO: WE WILL FIX THIS WHEN WE MERGE THE ROUTER AND COMPUTE FUNCTION NODES.
+
+                node_output = NodeOutputBuilder::default()
                     .namespace(namespace.to_string())
-                    .compute_graph_name(compute_graph.to_string())
+                    .compute_graph_name(compute_graph.compute_graph_name.clone())
                     .invocation_id(invocation_id.to_string())
                     .compute_fn_name(compute_fn.to_string())
-                    .payload(OutputPayload::Router(data_model::RouterOutput {
-                        edges: task_result.next_functions.clone(),
-                    }))
+                    .edges(task_result.next_functions.clone())
+                    .payloads(vec![task.input.clone()])
+                    .encoding(encoding_str.to_string())
+                    .allocation_id(allocation_id.clone())
                     .build()
                     .map_err(|e| Status::internal(e.to_string()))?;
-                node_outputs.push(node_output);
             }
             let task_diagnostic = TaskDiagnostics {
                 stdout: prepare_data_payload(
@@ -514,21 +548,18 @@ impl ExecutorAPIService {
                 .allocation_id
                 .clone()
                 .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),
-                compute_graph: compute_graph.to_string(),
+                compute_graph: compute_graph.compute_graph_name.clone(),
                 compute_fn: compute_fn.to_string(),
                 invocation_id: invocation_id.to_string(),
                 task: task.clone(),
-                node_outputs,
+                node_output,
                 executor_id: executor_id.clone(),
                 allocation_id,
             });
 
-            println!(
-                "writing task result to state machine task_id: {}, outcome_code: {:?}",
-                task_id, outcome_code
-            );
             requests.push(request);
         }
         for request in requests {

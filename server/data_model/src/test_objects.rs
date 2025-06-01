@@ -35,16 +35,15 @@ pub mod tests {
     pub fn create_mock_task(
         cg: &ComputeGraph,
         cg_fn: &str,
-        node_output_key: &str,
+        payload: DataPayload,
         inv_id: &str,
     ) -> Task {
         TaskBuilder::default()
             .namespace(cg.namespace.to_string())
             .compute_fn_name(cg_fn.to_string())
             .compute_graph_name(cg.name.to_string())
-            .input_node_output_key(node_output_key.to_string())
+            .input(payload)
             .invocation_id(inv_id.to_string())
-            .reducer_output_id(None)
             .graph_version(Default::default())
             .build()
             .unwrap()
@@ -75,8 +74,9 @@ pub mod tests {
         invocation_id: &str,
         graph: &str,
         reducer_fn: Option<String>,
+        num_outputs: usize,
     ) -> NodeOutput {
-        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn)
+        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn, num_outputs)
     }
 
     pub fn mock_node_fn_output(
@@ -84,6 +84,7 @@ pub mod tests {
         graph: &str,
         compute_fn_name: &str,
         reducer_fn: Option<String>,
+        num_outputs: usize,
     ) -> NodeOutput {
         let mut path = rand::rng()
             .sample_iter(rand::distr::Alphanumeric)
@@ -99,11 +100,15 @@ pub mod tests {
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .payload(crate::OutputPayload::Fn(DataPayload {
-                sha256_hash: "3433".to_string(),
-                path,
-                size: 12,
-            }))
+            .payloads(
+                (0..num_outputs)
+                    .map(|_| DataPayload {
+                        sha256_hash: "3433".to_string(),
+                        path: path.clone(),
+                        size: 12,
+                    })
+                    .collect(),
+            )
             .build()
             .unwrap()
     }
@@ -114,9 +119,7 @@ pub mod tests {
             .compute_fn_name("router_x".to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .payload(crate::OutputPayload::Router(crate::RouterOutput {
-                edges: vec!["fn_c".to_string()],
-            }))
+            .edges(vec!["fn_c".to_string()])
             .build()
             .unwrap()
     }

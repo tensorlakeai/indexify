@@ -436,16 +436,13 @@ impl TestExecutor<'_> {
         task_allocation: &TaskAllocation,
         args: FinalizeTaskArgs,
     ) -> Result<()> {
-        let node_outputs = (0..args.num_outputs)
-            .map(|_| {
-                mock_node_fn_output(
-                    task_allocation.task.as_ref().unwrap().graph_invocation_id(),
-                    task_allocation.task.as_ref().unwrap().graph_name(),
-                    task_allocation.task.as_ref().unwrap().function_name(),
-                    args.reducer_fn.clone(),
-                )
-            })
-            .collect();
+        let node_output = mock_node_fn_output(
+            task_allocation.task.as_ref().unwrap().graph_invocation_id(),
+            task_allocation.task.as_ref().unwrap().graph_name(),
+            task_allocation.task.as_ref().unwrap().function_name(),
+            args.reducer_fn.clone(),
+            args.num_outputs as usize,
+        );
 
         // get the task from the state store
         let mut task = self
@@ -476,8 +473,8 @@ impl TestExecutor<'_> {
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),
                     invocation_id: task.invocation_id.clone(),
+                    node_output,
                     task,
-                    node_outputs,
                     executor_id: self.executor_id.clone(),
                     allocation_id: args.allocation_id.clone(),
                 }),

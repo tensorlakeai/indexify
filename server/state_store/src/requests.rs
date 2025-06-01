@@ -55,18 +55,12 @@ impl FunctionExecutorIdWithExecutionId {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CachedTaskOutput {
-    pub task: Task,
-    pub node_outputs: Vec<NodeOutput>,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub remove_allocations: Vec<Allocation>,
     pub updated_tasks: HashMap<TaskId, Task>,
-    pub cached_task_outputs: HashMap<TaskId, CachedTaskOutput>,
+    pub cached_task_outputs: HashMap<TaskId, NodeOutput>,
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
@@ -109,7 +103,7 @@ pub struct IngestTaskOutputsRequest {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task: Task,
-    pub node_outputs: Vec<NodeOutput>,
+    pub node_output: NodeOutput,
     pub executor_id: ExecutorId,
     pub allocation_id: String,
 }

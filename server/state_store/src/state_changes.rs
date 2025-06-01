@@ -110,6 +110,7 @@ pub fn task_outputs_ingested(
             compute_fn: request.compute_fn.clone(),
             invocation_id: request.invocation_id.clone(),
             task_id: request.task.id.clone(),
+            node_output_key: request.node_output.key(),
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.task.id.clone().to_string())

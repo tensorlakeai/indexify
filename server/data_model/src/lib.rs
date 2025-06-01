@@ -434,8 +434,8 @@ impl Node {
         namespace: &str,
         compute_graph_name: &str,
         invocation_id: &str,
-        input_key: &str,
-        reducer_output_id: Option<String>,
+        input: DataPayload,
+        acc_input: Option<DataPayload>,
         graph_version: &GraphVersion,
     ) -> Result<Task> {
         let name = match self {
@@ -451,34 +451,12 @@ impl Node {
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
-            .input_node_output_key(input_key.to_string())
-            .reducer_output_id(reducer_output_id)
+            .input(input)
+            .acc_input(acc_input)
             .graph_version(graph_version.clone())
             .cache_key(cache_key)
             .build()?;
         Ok(task)
-    }
-
-    pub fn reducer_task(
-        &self,
-        namespace: &str,
-        compute_graph_name: &str,
-        invocation_id: &str,
-        task_id: &str,
-        task_output_key: &str,
-    ) -> ReduceTask {
-        let name = match self {
-            Node::Router(router) => router.name.clone(),
-            Node::Compute(compute) => compute.name.clone(),
-        };
-        ReduceTask {
-            namespace: namespace.to_string(),
-            compute_graph_name: compute_graph_name.to_string(),
-            invocation_id: invocation_id.to_string(),
-            compute_fn_name: name,
-            task_id: task_id.to_string(),
-            task_output_key: task_output_key.to_string(),
-        }
     }
 }
 
@@ -671,12 +649,6 @@ pub struct TaskDiagnostics {
     pub stderr: Option<DataPayload>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum OutputPayload {
-    Router(RouterOutput),
-    Fn(DataPayload),
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
@@ -685,19 +657,36 @@ pub struct NodeOutput {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub invocation_id: String,
-    pub payload: OutputPayload,
+    pub payloads: Vec<DataPayload>,
+    pub edges: Vec<String>,
     pub errors: Option<DataPayload>,
-    pub reduced_state: bool,
     pub created_at: u64,
     pub encoding: String,
+    pub allocation_id: String,
+
+    // If this is the output of an individual reducer
+    // We need this here since we are going to filter out the individual reducer outputs
+    // and return the accumulated output
+    pub reducer_output: bool,
 }
 
 impl NodeOutput {
-    pub fn key(&self, invocation_id: &str) -> String {
+    // We store the last reducer output separately
+    // because that's the value that's interesting to the user
+    // and not the intermediate values since they are not useful other than for
+    // debugging
+    pub fn reducer_acc_value_key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.invocation_id, self.compute_fn_name,
+        )
+    }
+
+    pub fn key(&self) -> String {
         NodeOutput::key_from(
             &self.namespace,
             &self.compute_graph_name,
-            invocation_id,
+            &self.invocation_id,
             &self.compute_fn_name,
             &self.id,
         )
@@ -743,20 +732,23 @@ impl NodeOutputBuilder {
             .encoding
             .clone()
             .unwrap_or_else(|| "application/octet-stream".to_string());
-        let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
-        let reduced_state = self.reduced_state.clone().unwrap_or(false);
+        let allocation_id = self
+            .allocation_id
+            .clone()
+            .ok_or(anyhow!("allocation_id is required"))?;
+        let reducer_output = self.reducer_output.clone().unwrap_or(false);
+        let payloads = self
+            .payloads
+            .clone()
+            .ok_or(anyhow!("payloads is required"))?;
+        let edges = self.edges.clone().ok_or(anyhow!("edges is required"))?;
         let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
         invocation_id.hash(&mut hasher);
-        match &payload {
-            OutputPayload::Router(router) => router.edges.hash(&mut hasher),
-            OutputPayload::Fn(data) => {
-                data.path.hash(&mut hasher);
-            }
-        }
+        allocation_id.hash(&mut hasher);
         let errors = self.errors.clone().flatten();
 
         let id = format!("{:x}", hasher.finish());
@@ -766,11 +758,13 @@ impl NodeOutputBuilder {
             compute_graph_name: cg_name,
             invocation_id,
             compute_fn_name: fn_name,
-            payload,
+            payloads,
             errors,
-            reduced_state,
+            edges,
             created_at,
             encoding,
+            allocation_id,
+            reducer_output,
         })
     }
 }
@@ -874,13 +868,14 @@ pub struct GraphInvocationCtx {
     #[serde(default)]
     pub outcome: GraphInvocationOutcome,
     pub outstanding_tasks: u64,
+    pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
 }
 
 impl GraphInvocationCtx {
-    pub fn create_tasks(&mut self, tasks: &Vec<Task>) {
+    pub fn create_tasks(&mut self, tasks: &Vec<Task>, reducer_tasks: &Vec<ReduceTask>) {
         for task in tasks {
             let fn_name = task.compute_fn_name.clone();
             self.fn_task_analytics
@@ -889,6 +884,15 @@ impl GraphInvocationCtx {
                 .pending();
         }
         self.outstanding_tasks += tasks.len() as u64;
+        self.outstanding_reducer_tasks += reducer_tasks.len() as u64;
+
+        for reducer_task in reducer_tasks {
+            let fn_name = reducer_task.compute_fn_name.clone();
+            self.fn_task_analytics
+                .entry(fn_name.clone())
+                .or_insert_with(|| TaskAnalytics::default())
+                .queued_reducer(1);
+        }
     }
 
     pub fn update_analytics(&mut self, task: &Task) {
@@ -903,6 +907,25 @@ impl GraphInvocationCtx {
             }
         }
         self.outstanding_tasks -= 1;
+    }
+
+    pub fn complete_reducer_task(&mut self, reducer_task_fn_name: &str) {
+        if let Some(analytics) = self.fn_task_analytics.get_mut(reducer_task_fn_name) {
+            analytics.completed_reducer(1);
+        }
+        self.outstanding_reducer_tasks -= 1;
+    }
+
+    pub fn all_tasks_completed(&self) -> bool {
+        self.outstanding_tasks == 0 && self.outstanding_reducer_tasks == 0
+    }
+
+    pub fn tasks_completed(&self, compute_fn_name: &str) -> bool {
+        if let Some(analytics) = self.fn_task_analytics.get(compute_fn_name) {
+            analytics.pending_tasks == 0 && analytics.queued_reducer_tasks == 0
+        } else {
+            false
+        }
     }
 
     pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
@@ -982,6 +1005,7 @@ impl GraphInvocationCtxBuilder {
             outcome: GraphInvocationOutcome::Undefined,
             fn_task_analytics,
             outstanding_tasks: 0,
+            outstanding_reducer_tasks: 0,
             created_at,
         })
     }
@@ -994,21 +1018,19 @@ pub struct ReduceTask {
     pub invocation_id: String,
     pub compute_fn_name: String,
 
-    // The task for which we are need to create the reduce task
-    pub task_id: String,
-    pub task_output_key: String,
+    pub input: DataPayload,
+    pub id: String,
 }
 
 impl ReduceTask {
     pub fn key(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}",
             self.namespace,
             self.compute_graph_name,
             self.invocation_id,
             self.compute_fn_name,
-            self.task_id,
-            self.task_output_key,
+            self.id,
         )
     }
 
@@ -1098,7 +1120,10 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
-    pub input_node_output_key: String,
+    // Input to the function
+    pub input: DataPayload,
+    // Input to the reducer function
+    pub acc_input: Option<DataPayload>,
     #[serde(default = "TaskOutputsIngestionStatus::pending")]
     pub output_status: TaskOutputsIngestionStatus,
     #[serde(default)]
@@ -1108,7 +1133,6 @@ pub struct Task {
     pub creation_time: SystemTime,
     pub creation_time_ns: u128,
     pub diagnostics: Option<TaskDiagnostics>,
-    pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
 }
@@ -1204,8 +1228,8 @@ impl Display for Task {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input_key: {}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input_node_output_key, self.outcome
+            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input: {:?}, outcome: {:?})",
+            self.id, self.compute_fn_name, self.compute_graph_name, self.input, self.outcome
         )
     }
 }
@@ -1224,10 +1248,8 @@ impl TaskBuilder {
             .compute_fn_name
             .clone()
             .ok_or(anyhow!("compute fn name is not present"))?;
-        let input_key = self
-            .input_node_output_key
-            .clone()
-            .ok_or(anyhow!("input data object id is not present"))?;
+        let input = self.input.clone().ok_or(anyhow!("input is not present"))?;
+        let acc_input = self.acc_input.clone().flatten();
         let invocation_id = self
             .invocation_id
             .clone()
@@ -1236,7 +1258,6 @@ impl TaskBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
-        let reducer_output_id = self.reducer_output_id.clone().flatten();
         let current_time = SystemTime::now();
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
         let creation_time_ns = duration.as_nanos();
@@ -1246,7 +1267,8 @@ impl TaskBuilder {
             id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
-            input_node_output_key: input_key,
+            input,
+            acc_input,
             invocation_id,
             namespace,
             output_status: TaskOutputsIngestionStatus::Pending,
@@ -1254,7 +1276,6 @@ impl TaskBuilder {
             outcome: TaskOutcome::Unknown,
             creation_time: current_time,
             diagnostics: None,
-            reducer_output_id,
             graph_version,
             creation_time_ns,
             cache_key,
@@ -1268,6 +1289,7 @@ pub struct TaskAnalytics {
     pub pending_tasks: u64,
     pub successful_tasks: u64,
     pub failed_tasks: u64,
+    pub queued_reducer_tasks: u64,
 }
 
 impl TaskAnalytics {
@@ -1288,6 +1310,14 @@ impl TaskAnalytics {
         if self.pending_tasks > 0 {
             self.pending_tasks -= 1;
         }
+    }
+
+    pub fn queued_reducer(&mut self, count: u64) {
+        self.queued_reducer_tasks += count;
+    }
+
+    pub fn completed_reducer(&mut self, count: u64) {
+        self.queued_reducer_tasks -= count;
     }
 }
 
@@ -1848,6 +1878,7 @@ pub struct TaskOutputsIngestedEvent {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
+    pub node_output_key: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

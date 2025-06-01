@@ -98,6 +98,7 @@ mod tests {
                     completed: false,
                     outcome: data_model::GraphInvocationOutcome::Failure,
                     outstanding_tasks: 0,
+                    outstanding_reducer_tasks: 0,
                     fn_task_analytics: HashMap::new(),
                     created_at: get_epoch_time_in_ms(),
                 })?,
@@ -109,17 +110,19 @@ mod tests {
                 compute_fn_name: "fn_a".to_string(),
                 compute_graph_name: compute_graph.name.clone(),
                 invocation_id: invocation.id.clone(),
-                payload: data_model::OutputPayload::Fn(data_model::DataPayload {
+                payloads: vec![data_model::DataPayload {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
-                }),
+                }],
                 errors: None,
-                reduced_state: false,
                 created_at: 5,
+                reducer_output: false,
+                allocation_id: "allocation_id".to_string(),
+                edges: vec![],
                 encoding: "application/octet-stream".to_string(),
             };
-            let key = output.key(&output.invocation_id);
+            let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;
             indexify_state.db.put_cf(
                 &IndexifyObjectsColumns::FnOutputs.cf_db(&indexify_state.db),

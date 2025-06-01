@@ -5,9 +5,7 @@ use std::{
 
 use data_model::{
     CacheKey,
-    DataPayload,
     NodeOutput,
-    OutputPayload,
     Task,
     TaskOutcome,
     TaskOutputsIngestedEvent,
@@ -16,7 +14,7 @@ use data_model::{
 };
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
-    requests::{CachedTaskOutput, SchedulerUpdateRequest},
+    requests::SchedulerUpdateRequest,
     IndexifyState,
 };
 use tracing::{debug, span};
@@ -26,40 +24,11 @@ pub struct CacheState {
     outputs_ingested: usize,
     cache_checks: usize,
     cache_hits: usize,
-    map: HashMap<String, HashMap<(CacheKey, String), Vec<NodeOutput>>>,
+    map: HashMap<String, HashMap<(CacheKey, String), NodeOutput>>,
 }
 
 pub struct TaskCache {
     mutex: Mutex<CacheState>,
-}
-
-fn task_input_hash(task: &Task, indexify_state: &IndexifyState) -> Option<String> {
-    if task.invocation_id == task.input_node_output_key.split("|").last().unwrap_or("") {
-        // This is an invocation task; we look up its input hash via the invocation
-        // payload.
-        indexify_state
-            .reader()
-            .invocation_payload(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-            )
-            .ok()
-            .map(|ip| ip.payload.sha256_hash)
-    } else {
-        // Otherwise, we look up the input hash via the task's input_node_output_key.
-        indexify_state
-            .reader()
-            .fn_output_payload_by_key(&task.input_node_output_key)
-            .ok()
-            .and_then(|no| match no.payload {
-                OutputPayload::Fn(DataPayload {
-                    sha256_hash: input_hash,
-                    ..
-                }) => Some(input_hash),
-                _ => None,
-            })
-    }
 }
 
 impl TaskCache {
@@ -100,14 +69,12 @@ impl TaskCache {
             return;
         };
 
-        let Some(input_hash) = task_input_hash(&task, &mut state.indexify_state) else {
-            return;
-        };
+        let input_hash = task.input.sha256_hash.clone();
 
-        let Ok(outputs) = state
+        let Ok(Some(node_output)) = state
             .indexify_state
             .reader()
-            .get_task_outputs(&task.namespace, &task.id.to_string())
+            .get_node_output_by_key(&event.node_output_key)
         else {
             return;
         };
@@ -116,17 +83,11 @@ impl TaskCache {
 
         debug!("Caching the output of {namespace}/{cache_key:?}/{input_hash}");
 
-        for node_output in &outputs {
-            if let OutputPayload::Fn(DataPayload { sha256_hash, .. }) = &node_output.payload {
-                debug!(output_hash = sha256_hash);
-            }
-        }
-
         state
             .map
             .entry(namespace)
             .or_default()
-            .insert((cache_key.clone(), input_hash.clone()), outputs);
+            .insert((cache_key.clone(), input_hash.clone()), node_output);
     }
 
     pub fn try_allocate(&self, indexes: Arc<RwLock<InMemoryState>>) -> SchedulerUpdateRequest {
@@ -151,20 +112,15 @@ impl TaskCache {
                 continue;
             };
 
-            let Some(input_hash) = task_input_hash(&task, &mut state.indexify_state) else {
-                continue;
-            };
-
             debug!(namespace = task.namespace);
             debug!(task_key = ?cache_key);
-            debug!(input_hash = ?input_hash);
 
             let Some(submap) = state.map.get(&task.namespace) else {
                 debug!("No cache namespace entry found");
                 continue;
             };
 
-            let submap_key = (cache_key.clone(), input_hash);
+            let submap_key = (cache_key.clone(), task.input.sha256_hash.clone());
 
             let Some(outputs) = submap.get(&submap_key) else {
                 debug!("No cache entry found");
@@ -184,13 +140,9 @@ impl TaskCache {
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
             task.output_status = TaskOutputsIngestionStatus::Ingested;
-            result.cached_task_outputs.insert(
-                task.id.clone(),
-                CachedTaskOutput {
-                    task: task.clone(),
-                    node_outputs: outputs.clone(),
-                },
-            );
+            result
+                .cached_task_outputs
+                .insert(task.id.clone(), outputs.clone());
             result.updated_tasks.insert(task.id.clone(), task);
             state.cache_hits += 1;
         }
