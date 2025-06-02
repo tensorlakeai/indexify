@@ -4,11 +4,11 @@ use std::{
 };
 
 use data_model::{
+    AllocationOutputIngestedEvent,
     CacheKey,
     NodeOutput,
     Task,
     TaskOutcome,
-    AllocationOutputIngestedEvent,
     TaskOutputsIngestionStatus,
     TaskStatus,
 };

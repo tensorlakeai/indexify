@@ -3,6 +3,7 @@ use std::{mem, sync::Arc};
 use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
+    AllocationOutputIngestedEvent,
     ComputeGraph,
     ComputeGraphVersion,
     DataPayload,
@@ -15,7 +16,6 @@ use data_model::{
     StateChange,
     Task,
     TaskAnalytics,
-    AllocationOutputIngestedEvent,
     UnprocessedStateChanges,
 };
 use indexify_utils::get_epoch_time_in_ms;

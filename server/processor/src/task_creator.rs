@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    AllocationOutputIngestedEvent,
     ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
@@ -13,7 +14,6 @@ use data_model::{
     ReduceTask,
     Task,
     TaskOutcome,
-    AllocationOutputIngestedEvent,
 };
 use state_store::{
     in_memory_state::InMemoryState,

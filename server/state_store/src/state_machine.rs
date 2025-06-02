@@ -9,6 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
+    AllocationOutputIngestedEvent,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
@@ -20,7 +21,6 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
-    AllocationOutputIngestedEvent,
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};

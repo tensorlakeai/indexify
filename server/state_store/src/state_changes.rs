@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Result;
 use data_model::{
+    AllocationOutputIngestedEvent,
     ChangeType,
     ExecutorAddedEvent,
     ExecutorId,
@@ -13,7 +14,6 @@ use data_model::{
     StateChange,
     StateChangeBuilder,
     StateChangeId,
-    AllocationOutputIngestedEvent,
     TombstoneComputeGraphEvent,
     TombstoneInvocationEvent,
 };
@@ -104,14 +104,16 @@ pub fn task_outputs_ingested(
         .namespace(Some(request.namespace.clone()))
         .compute_graph(Some(request.compute_graph.clone()))
         .invocation(Some(request.invocation_id.clone()))
-        .change_type(ChangeType::AllocationOutputsIngested(AllocationOutputIngestedEvent {
-            namespace: request.namespace.clone(),
-            compute_graph: request.compute_graph.clone(),
-            compute_fn: request.compute_fn.clone(),
-            invocation_id: request.invocation_id.clone(),
-            task_id: request.task.id.clone(),
-            node_output_key: request.node_output.key(),
-        }))
+        .change_type(ChangeType::AllocationOutputsIngested(
+            AllocationOutputIngestedEvent {
+                namespace: request.namespace.clone(),
+                compute_graph: request.compute_graph.clone(),
+                compute_fn: request.compute_fn.clone(),
+                invocation_id: request.invocation_id.clone(),
+                task_id: request.task.id.clone(),
+                node_output_key: request.node_output.key(),
+            },
+        ))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.task.id.clone().to_string())
         .id(StateChangeId::new(last_change_id))
