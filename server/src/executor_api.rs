@@ -505,12 +505,6 @@ impl ExecutorAPIService {
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
 
-            println!(
-                "DIPTANU task_result.next_functions: {:?} FN {}",
-                task_result.next_functions,
-                task_result.function_name()
-            );
-
             if task_result.next_functions.len() > 0 {
                 // Get the outputs of the function which was upstream of the router
                 // and set its payloads as the payloads of the router node so that task creator
