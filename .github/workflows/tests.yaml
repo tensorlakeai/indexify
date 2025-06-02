@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - 'main'
-      - 'server-sse-stream-stable'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
@@ -64,6 +63,7 @@ jobs:
         with:
           name: indexify-server
           path: server/target/debug/indexify-server
+
   lint_python_packages:
     name: Lint Python packages
     runs-on: ubuntu-latest
