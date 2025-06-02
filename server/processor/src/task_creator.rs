@@ -322,44 +322,6 @@ impl TaskCreator {
         };
         let mut new_tasks = vec![];
 
-        // Check if the task has a router output and create new tasks for the router
-        // edges.
-        {
-            let mut router_edges = vec![];
-            router_edges.extend(node_output.edges.iter().map(|edge| edge.to_string()));
-            if !router_edges.is_empty() {
-                for edge in router_edges {
-                    let compute_fn = compute_graph_version
-                        .nodes
-                        .get(&edge)
-                        .ok_or(anyhow!("compute node not found: {:?}", edge))?;
-                    for payload in node_output.payloads.iter() {
-                        let new_task = compute_fn.create_task(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &task.invocation_id,
-                            payload.clone(),
-                            None,
-                            &invocation_ctx.graph_version,
-                        )?;
-                        new_tasks.push(new_task);
-                    }
-                }
-                trace!(
-                    task_keys = ?new_tasks.iter().map(|t| t.key()).collect::<Vec<String>>(),
-                    "Creating a router edge task",
-                );
-                invocation_ctx.create_tasks(&new_tasks, &vec![]);
-
-                return Ok(TaskCreationResult {
-                    tasks: new_tasks,
-                    new_reduction_tasks: vec![],
-                    processed_reduction_tasks: vec![],
-                    invocation_ctx: Some(invocation_ctx),
-                });
-            }
-        }
-
         let Some(compute_node) = compute_graph_version.nodes.get(&task.compute_fn_name) else {
             error!(
                 task_id = task.id.to_string(),
@@ -389,12 +351,7 @@ impl TaskCreator {
                 )?;
                 new_tasks.push(new_task.clone());
                 invocation_ctx.create_tasks(&vec![new_task.clone()], &vec![]);
-                println!(
-                    "DIPTANU BEFORE REDUCER invocation_ctx: {:?}",
-                    invocation_ctx
-                );
                 invocation_ctx.complete_reducer_task(&task.compute_fn_name);
-                println!("DIPTANU AFTER REDUCER invocation_ctx: {:?}", invocation_ctx);
                 return Ok(TaskCreationResult {
                     tasks: new_tasks,
                     new_reduction_tasks: vec![],
@@ -403,10 +360,19 @@ impl TaskCreator {
                 });
             }
         }
+        let mut edges = vec![];
+        if !node_output.edges.is_empty() {
+            edges = node_output.edges.clone();
+        }
+        if edges.is_empty() {
+            edges = compute_graph_version
+                .edges
+                .get(&task.compute_fn_name)
+                .cloned()
+                .unwrap_or_default();
+        }
 
-        // Find the edges of the function
-        let Some(edges) = compute_graph_version.edges.get(&task.compute_fn_name) else {
-            // If there are no edges, check if the invocation should be finished.
+        if edges.is_empty() {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
