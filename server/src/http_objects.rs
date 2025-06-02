@@ -814,7 +814,16 @@ pub struct DataPayload {
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
-    pub content_type: String,
+}
+
+impl From<data_model::DataPayload> for DataPayload {
+    fn from(payload: data_model::DataPayload) -> Self {
+        Self {
+            path: payload.path,
+            size: payload.size,
+            sha256_hash: payload.sha256_hash,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -824,10 +833,10 @@ pub struct Task {
     pub compute_fn: String,
     pub compute_graph: String,
     pub invocation_id: String,
-    pub input_key: String,
+    pub input: DataPayload,
+    pub acc_input: Option<DataPayload>,
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub image_uri: Option<String>,
     pub secret_names: Vec<String>,
@@ -848,10 +857,10 @@ impl From<data_model::Task> for Task {
             compute_fn: task.compute_fn_name,
             compute_graph: task.compute_graph_name,
             invocation_id: task.invocation_id,
-            input_key: task.input_node_output_key,
+            input: task.input.into(),
+            acc_input: task.acc_input.map(|input| input.into()),
             outcome: task.outcome.into(),
             status: task.status.into(),
-            reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
             image_uri: None,
             secret_names: Default::default(),
@@ -874,19 +883,9 @@ pub struct Tasks {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutput {
-    pub compute_fn: String,
     pub id: String,
+    pub compute_fn: String,
     pub created_at: u64,
-}
-
-impl From<data_model::NodeOutput> for FnOutput {
-    fn from(output: data_model::NodeOutput) -> Self {
-        Self {
-            compute_fn: output.compute_fn_name,
-            id: output.id.to_string(),
-            created_at: output.created_at,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

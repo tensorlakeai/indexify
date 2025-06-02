@@ -9,6 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
+    AllocationOutputIngestedEvent,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
@@ -16,12 +17,10 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
-    OutputPayload,
     StateChange,
     StateChangeBuilder,
     StateChangeId,
     Task,
-    TaskOutputsIngestedEvent,
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
@@ -39,7 +38,6 @@ use tracing::{debug, error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    CachedTaskOutput,
     DeleteInvocationRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
@@ -73,7 +71,6 @@ pub enum IndexifyObjectsColumns {
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
-    TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -248,12 +245,6 @@ pub(crate) fn delete_invocation(
             }
             None => {}
         }
-        let task_output_prefix = Task::key_output_prefix_from(&req.namespace, &task.id.get());
-        delete_cf_prefix(
-            txn,
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            task_output_prefix.as_bytes(),
-        )?;
     }
 
     let allocation_prefix = Allocation::key_prefix_from_invocation(
@@ -307,15 +298,12 @@ pub(crate) fn delete_invocation(
     ) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
-        match &value.payload {
-            OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
-            }
+        for payload in value.payloads {
+            txn.put_cf(
+                &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                payload.path.as_bytes(),
+                [],
+            )?;
         }
         txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
     }
@@ -725,51 +713,36 @@ pub(crate) fn handle_scheduler_update(
 
     let mut state_changes = vec![];
 
-    for (_, CachedTaskOutput { task, node_outputs }) in &request.cached_task_outputs {
-        info!(
-            namespace = task.namespace,
-            graph = task.compute_graph_name,
-            invocation_id = task.invocation_id,
-            function_name = task.compute_fn_name,
-            task_id = task.id.to_string(),
-            status = task.status.to_string(),
-            outcome = task.outcome.to_string(),
-            duration_secs = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
-            "cached task outputs",
-        );
-        for output in node_outputs {
-            let serialized_output = JsonEncoder::encode(&output)?;
-            // Create an output key
-            let output_key = output.key(&task.invocation_id);
-            txn.put_cf(
-                &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-                &output_key,
-                serialized_output,
-            )?;
+    for (task_id, node_output) in &request.cached_task_outputs {
+        let serialized_output = JsonEncoder::encode(&node_output)?;
+        // Create an output key
+        let output_key = node_output.key();
+        txn.put_cf(
+            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+            &output_key,
+            serialized_output,
+        )?;
 
-            // Create a key to store the pointer to the node output to the task
-            // NS_TASK_ID_<OutputID> -> Output Key
-            let task_output_key = &task.key_output(&output.id);
-            let node_output_id = JsonEncoder::encode(&output_key)?;
-            txn.put_cf(
-                &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-                task_output_key,
-                node_output_id,
-            )?;
-        }
+        let task = txn.get_for_update_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            task_id.get(),
+            true,
+        )?;
+        let task = JsonEncoder::decode::<Task>(&task.unwrap())?;
 
         let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
         let event = StateChangeBuilder::default()
             .namespace(Some(task.namespace.clone()))
             .compute_graph(Some(task.compute_graph_name.clone()))
             .invocation(Some(task.invocation_id.clone()))
-            .change_type(data_model::ChangeType::TaskOutputsIngested(
-                TaskOutputsIngestedEvent {
+            .change_type(data_model::ChangeType::AllocationOutputsIngested(
+                AllocationOutputIngestedEvent {
                     namespace: task.namespace.clone(),
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),
                     invocation_id: task.invocation_id.clone(),
                     task_id: task.id.clone(),
+                    node_output_key: output_key,
                 },
             ))
             .created_at(get_epoch_time_in_ms())
@@ -918,26 +891,26 @@ pub fn ingest_task_outputs(
         return Ok(false);
     }
 
-    for output in req.node_outputs {
-        let serialized_output = JsonEncoder::encode(&output)?;
-        // Create an output key
-        let output_key = output.key(&req.invocation_id);
+    let serialized_output = JsonEncoder::encode(&req.node_output)?;
+
+    if req.node_output.reducer_output {
+        let mut acc_value = req.node_output.clone();
+        acc_value.reducer_output = false;
+        let reducer_acc_value = JsonEncoder::encode(&acc_value)?;
+        let reducer_output_key = req.node_output.reducer_acc_value_key();
         txn.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-            &output_key,
-            serialized_output,
-        )?;
-
-        // Create a key to store the pointer to the node output to the task
-        // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = &req.task.key_output(&output.id);
-        let node_output_id = JsonEncoder::encode(&output_key)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            task_output_key,
-            node_output_id,
+            &reducer_output_key,
+            reducer_acc_value,
         )?;
     }
+    // Create an output key
+    let output_key = req.node_output.key();
+    txn.put_cf(
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        &output_key,
+        serialized_output,
+    )?;
 
     let existing_task = req.task;
 

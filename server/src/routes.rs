@@ -41,17 +41,19 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
+use crate::http_objects::{
+    FnOutput,
+    Invocation,
+    InvocationStatus,
+    StateChangesResponse,
+    UnallocatedTasks,
+};
 
 mod download;
 mod internal_ingest;
 mod invoke;
 mod logs;
-use download::{
-    download_fn_output_by_key,
-    download_fn_output_payload,
-    download_invocation_payload,
-};
+use download::{download_fn_output_payload, download_invocation_payload};
 use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
 use logs::download_task_logs;
@@ -202,10 +204,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unprocessed_state_changes",
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/fn_outputs/{input_key}",
-            get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
@@ -860,7 +858,16 @@ async fn list_outputs(
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
-    let outputs = outputs.into_iter().map(Into::into).collect();
+    let mut http_outputs = vec![];
+    for output in outputs {
+        for (idx, _payload) in output.payloads.iter().enumerate() {
+            http_outputs.push(FnOutput {
+                id: format!("{}|{}", output.id, idx),
+                compute_fn: output.compute_fn_name.clone(),
+                created_at: output.created_at,
+            });
+        }
+    }
 
     let status = if invocation_ctx.completed {
         InvocationStatus::Finalized
@@ -876,7 +883,7 @@ async fn list_outputs(
     Ok(Json(FnOutputs {
         status,
         outcome: invocation_ctx.outcome.into(),
-        outputs,
+        outputs: http_outputs,
         cursor,
     }))
 }

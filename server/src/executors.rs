@@ -471,82 +471,35 @@ impl ExecutorManager {
 
     /// Extracts only the computed fields from a data_model::Task
     pub fn extract_computed_fields(&self, task: &data_model::Task) -> anyhow::Result<ComputedTask> {
-        // Extract input payload
-        let input_payload = if task.invocation_id ==
-            task.input_node_output_key.split("|").last().unwrap_or("")
-        {
-            // First function in graph
-            let invocation_payload = self.indexify_state.reader().invocation_payload(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-            )?;
-
-            DataPayload {
-                uri: Some(blob_store_path_to_url(
-                    &invocation_payload.payload.path,
-                    &self.blob_store_url_scheme,
-                    &self.blob_store_url,
-                )),
-                size: Some(invocation_payload.payload.size),
-                sha256_hash: Some(invocation_payload.payload.sha256_hash),
-                encoding: Some(DataPayloadEncoding::try_from(invocation_payload.encoding)?.into()),
-                encoding_version: None,
-            }
-        } else {
-            // Intermediate function
-            let node_output = self
-                .indexify_state
-                .reader()
-                .fn_output_payload_by_key(&task.input_node_output_key)?;
-
-            match node_output.payload {
-                data_model::OutputPayload::Fn(payload) => DataPayload {
-                    uri: Some(blob_store_path_to_url(
-                        &payload.path,
-                        &self.blob_store_url_scheme,
-                        &self.blob_store_url,
-                    )),
-                    size: Some(payload.size),
-                    sha256_hash: Some(payload.sha256_hash),
-                    encoding: Some(DataPayloadEncoding::try_from(node_output.encoding)?.into()),
-                    encoding_version: None,
-                },
-                _ => return Err(anyhow::anyhow!("Unexpected node output payload type")),
-            }
+        let input_payload = DataPayload {
+            uri: Some(blob_store_path_to_url(
+                &task.input.path,
+                &self.blob_store_url_scheme,
+                &self.blob_store_url,
+            )),
+            size: Some(task.input.size),
+            sha256_hash: Some(task.input.sha256_hash.clone()),
+            encoding: Some(
+                DataPayloadEncoding::try_from("application/octet-stream".to_string())?.into(),
+            ),
+            encoding_version: None,
         };
 
-        // Extract reducer input payload (optional)
-        let reducer_input_payload = match task.reducer_output_id.as_ref() {
-            Some(reducer_output_id) => {
-                let reducer_output = self.indexify_state.reader().fn_output_payload(
-                    &task.namespace,
-                    &task.compute_graph_name,
-                    &task.invocation_id,
-                    &task.compute_fn_name,
-                    reducer_output_id,
-                )?;
-
-                match reducer_output {
-                    Some(output) => match output.payload {
-                        data_model::OutputPayload::Fn(payload) => Some(DataPayload {
-                            uri: Some(blob_store_path_to_url(
-                                &payload.path,
-                                &self.blob_store_url_scheme,
-                                &self.blob_store_url,
-                            )),
-                            size: Some(payload.size),
-                            sha256_hash: Some(payload.sha256_hash),
-                            encoding: Some(DataPayloadEncoding::try_from(output.encoding)?.into()),
-                            encoding_version: None,
-                        }),
-                        _ => return Err(anyhow::anyhow!("Unexpected reducer output payload type")),
-                    },
-                    None => None,
-                }
-            }
-            None => None,
-        };
+        let reducer_input = task.acc_input.clone().map(|input| DataPayload {
+            uri: Some(blob_store_path_to_url(
+                &input.path,
+                &self.blob_store_url_scheme,
+                &self.blob_store_url,
+            )),
+            size: Some(input.size),
+            sha256_hash: Some(input.sha256_hash.clone()),
+            encoding: Some(
+                DataPayloadEncoding::try_from("application/octet-stream".to_string())
+                    .unwrap()
+                    .into(),
+            ),
+            encoding_version: None,
+        });
 
         // Create output payload URI prefix
         let output_payload_uri_prefix = format!(
@@ -559,7 +512,7 @@ impl ExecutorManager {
         );
 
         Ok(ComputedTask {
-            reducer_input_payload,
+            reducer_input_payload: reducer_input.clone(),
             output_payload_uri_prefix,
             input_payload,
         })

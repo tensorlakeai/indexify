@@ -2,6 +2,8 @@ use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    Allocation,
+    AllocationOutputIngestedEvent,
     ComputeGraph,
     ComputeGraphVersion,
     DataPayload,
@@ -14,7 +16,6 @@ use data_model::{
     StateChange,
     Task,
     TaskAnalytics,
-    TaskOutputsIngestedEvent,
     UnprocessedStateChanges,
 };
 use indexify_utils::get_epoch_time_in_ms;
@@ -361,6 +362,25 @@ impl StateReader {
         Ok(urls)
     }
 
+    pub fn get_graph_input(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> Result<Option<DataPayload>> {
+        let kvs = &[KeyValue::new("op", "get_graph_input")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+        let key = InvocationPayload::key_from(namespace, compute_graph, invocation_id);
+        let Some(input) = self.get_from_cf::<InvocationPayload, _>(
+            &IndexifyObjectsColumns::GraphInvocations,
+            key.as_bytes(),
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(input.payload))
+    }
+
     pub fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -669,6 +689,14 @@ impl StateReader {
         }
     }
 
+    pub fn get_allocation(&self, allocation_id: &str) -> Result<Option<Allocation>> {
+        let kvs = &[KeyValue::new("op", "get_allocation")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let allocation = self.get_from_cf(&IndexifyObjectsColumns::Allocations, allocation_id)?;
+        Ok(allocation)
+    }
+
     pub fn list_outputs_by_compute_graph(
         &self,
         namespace: &str,
@@ -681,17 +709,22 @@ impl StateReader {
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key_prefix = NodeOutput::key_prefix_from(namespace, compute_graph, invocation_id);
-        self.get_rows_from_cf_with_limits::<NodeOutput>(
+        let (node_outputs, cursor) = self.get_rows_from_cf_with_limits::<NodeOutput>(
             key_prefix.as_bytes(),
             restart_key,
             IndexifyObjectsColumns::FnOutputs,
             limit,
-        )
+        )?;
+        let node_outputs = node_outputs
+            .into_iter()
+            .filter(|node_output| !node_output.reducer_output)
+            .collect();
+        Ok((node_outputs, cursor))
     }
 
     pub fn get_task_from_finished_event(
         &self,
-        req: &TaskOutputsIngestedEvent,
+        req: &AllocationOutputIngestedEvent,
     ) -> Result<Option<Task>> {
         return self.get_task(
             &req.namespace,
@@ -774,24 +807,17 @@ impl StateReader {
         )
     }
 
-    pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Vec<NodeOutput>> {
-        let kvs = &[KeyValue::new("op", "get_task_outputs")];
+    pub fn get_node_output_by_key(&self, key: &str) -> Result<Option<NodeOutput>> {
+        let kvs = &[KeyValue::new("op", "get_node_output_by_key")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = Task::key_output_prefix_from(&*namespace, &task_id);
-        let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
-            key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::TaskOutputs,
-            None,
-        )?;
-        let keys = node_output_keys.iter().map(|key| key.as_bytes()).collect();
-        let data_objects = self
-            .get_rows_from_cf_multi_key::<NodeOutput>(keys, IndexifyObjectsColumns::FnOutputs)?
-            .into_iter()
-            .filter_map(|v| v)
-            .collect();
-        Ok(data_objects)
+        let value = self
+            .db
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+        match value {
+            Some(value) => Ok(JsonEncoder::decode(&value)?),
+            None => Ok(None),
+        }
     }
 
     pub fn invocation_ctx(

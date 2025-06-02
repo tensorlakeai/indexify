@@ -205,11 +205,11 @@ impl GraphProcessor {
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut task_creator =
             task_creator::TaskCreator::new(self.indexify_state.clone(), indexes.clone(), clock);
-        if let ChangeType::TaskOutputsIngested(req) = &state_change.change_type {
+        if let ChangeType::AllocationOutputsIngested(req) = &state_change.change_type {
             self.task_cache.handle_task_outputs(req, indexes.clone());
         }
         let req = match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
+            ChangeType::InvokeComputeGraph(_) | ChangeType::AllocationOutputsIngested(_) => {
                 let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;
 
                 scheduler_update.extend(self.task_cache.try_allocate(indexes.clone()));

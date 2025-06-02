@@ -11,9 +11,10 @@ from .function_executor_server_factory import (
 from .subprocess_function_executor_server import SubprocessFunctionExecutorServer
 
 
-def get_free_tcp_port(iface_name="localhost") -> int:
+def get_free_tcp_port() -> int:
+    iface = socket.gethostbyname("")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((iface_name, 0))
+        sock.bind((iface, 0))
         _, port = sock.getsockname()
         return port
 
