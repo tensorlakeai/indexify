@@ -17,6 +17,12 @@ env:
   CARGO_TERM_COLOR: always
   INDEXIFY_URL: http://localhost:8900
 
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
 jobs:
   lint_server:
     name: Lint Indexify Server
