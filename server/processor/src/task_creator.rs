@@ -13,7 +13,7 @@ use data_model::{
     ReduceTask,
     Task,
     TaskOutcome,
-    TaskOutputsIngestedEvent,
+    AllocationOutputIngestedEvent,
 };
 use state_store::{
     in_memory_state::InMemoryState,
@@ -54,7 +54,7 @@ impl TaskCreator {
     #[tracing::instrument(skip(self))]
     pub async fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
-            ChangeType::TaskOutputsIngested(ev) => {
+            ChangeType::AllocationOutputsIngested(ev) => {
                 let result = self.handle_task_finished_inner(ev).await?;
                 let scheduler_update = SchedulerUpdateRequest {
                     updated_tasks: result
@@ -120,7 +120,7 @@ impl TaskCreator {
     #[tracing::instrument(skip(self, task_finished_event))]
     pub async fn handle_task_finished_inner(
         &self,
-        task_finished_event: &TaskOutputsIngestedEvent,
+        task_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<TaskCreationResult> {
         let in_memory_state = self.in_memory_state.read().unwrap();
         let invocation_ctx = in_memory_state

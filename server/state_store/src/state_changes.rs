@@ -13,7 +13,7 @@ use data_model::{
     StateChange,
     StateChangeBuilder,
     StateChangeId,
-    TaskOutputsIngestedEvent,
+    AllocationOutputIngestedEvent,
     TombstoneComputeGraphEvent,
     TombstoneInvocationEvent,
 };
@@ -104,7 +104,7 @@ pub fn task_outputs_ingested(
         .namespace(Some(request.namespace.clone()))
         .compute_graph(Some(request.compute_graph.clone()))
         .invocation(Some(request.invocation_id.clone()))
-        .change_type(ChangeType::TaskOutputsIngested(TaskOutputsIngestedEvent {
+        .change_type(ChangeType::AllocationOutputsIngested(AllocationOutputIngestedEvent {
             namespace: request.namespace.clone(),
             compute_graph: request.compute_graph.clone(),
             compute_fn: request.compute_fn.clone(),

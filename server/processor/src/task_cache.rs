@@ -8,7 +8,7 @@ use data_model::{
     NodeOutput,
     Task,
     TaskOutcome,
-    TaskOutputsIngestedEvent,
+    AllocationOutputIngestedEvent,
     TaskOutputsIngestionStatus,
     TaskStatus,
 };
@@ -46,7 +46,7 @@ impl TaskCache {
 
     pub fn handle_task_outputs(
         &self,
-        event: &TaskOutputsIngestedEvent,
+        event: &AllocationOutputIngestedEvent,
         indexes: Arc<RwLock<InMemoryState>>,
     ) {
         let _span = span!(tracing::Level::DEBUG, "cache_write").entered();

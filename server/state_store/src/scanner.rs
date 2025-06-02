@@ -15,7 +15,7 @@ use data_model::{
     StateChange,
     Task,
     TaskAnalytics,
-    TaskOutputsIngestedEvent,
+    AllocationOutputIngestedEvent,
     UnprocessedStateChanges,
 };
 use indexify_utils::get_epoch_time_in_ms;
@@ -724,7 +724,7 @@ impl StateReader {
 
     pub fn get_task_from_finished_event(
         &self,
-        req: &TaskOutputsIngestedEvent,
+        req: &AllocationOutputIngestedEvent,
     ) -> Result<Option<Task>> {
         return self.get_task(
             &req.namespace,

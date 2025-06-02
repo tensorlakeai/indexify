@@ -20,7 +20,7 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
-    TaskOutputsIngestedEvent,
+    AllocationOutputIngestedEvent,
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
@@ -735,8 +735,8 @@ pub(crate) fn handle_scheduler_update(
             .namespace(Some(task.namespace.clone()))
             .compute_graph(Some(task.compute_graph_name.clone()))
             .invocation(Some(task.invocation_id.clone()))
-            .change_type(data_model::ChangeType::TaskOutputsIngested(
-                TaskOutputsIngestedEvent {
+            .change_type(data_model::ChangeType::AllocationOutputsIngested(
+                AllocationOutputIngestedEvent {
                     namespace: task.namespace.clone(),
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),

@@ -14,7 +14,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use filter::LabelsFilter;
-use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
+use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strum::Display;
@@ -1129,8 +1129,6 @@ pub struct Task {
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    #[serde(default = "default_creation_time")]
-    pub creation_time: SystemTime,
     pub creation_time_ns: u128,
     pub diagnostics: Option<TaskDiagnostics>,
     pub graph_version: GraphVersion,
@@ -1274,7 +1272,6 @@ impl TaskBuilder {
             output_status: TaskOutputsIngestionStatus::Pending,
             status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
-            creation_time: current_time,
             diagnostics: None,
             graph_version,
             creation_time_ns,
@@ -1872,7 +1869,7 @@ impl fmt::Display for TaskFinalizedEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TaskOutputsIngestedEvent {
+pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -1912,7 +1909,7 @@ pub struct ExecutorAddedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    TaskOutputsIngested(TaskOutputsIngestedEvent),
+    AllocationOutputsIngested(AllocationOutputIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorAddedEvent),
@@ -1930,7 +1927,7 @@ impl fmt::Display for ChangeType {
                     ev.namespace, ev.invocation_id, ev.compute_graph
                 )
             }
-            ChangeType::TaskOutputsIngested(ev) => write!(
+            ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
                 "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",
                 ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,
