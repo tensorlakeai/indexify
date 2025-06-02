@@ -885,19 +885,7 @@ pub struct Tasks {
 pub struct FnOutput {
     pub id: String,
     pub compute_fn: String,
-    pub payloads: Vec<DataPayload>,
     pub created_at: u64,
-}
-
-impl From<data_model::NodeOutput> for FnOutput {
-    fn from(output: data_model::NodeOutput) -> Self {
-        Self {
-            id: output.id,
-            compute_fn: output.compute_fn_name,
-            payloads: output.payloads.into_iter().map(|p| p.into()).collect(),
-            created_at: output.created_at,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

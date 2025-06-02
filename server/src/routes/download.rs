@@ -60,20 +60,24 @@ pub async fn download_invocation_payload(
     ),
 )]
 pub async fn download_fn_output_payload(
-    Path((namespace, compute_graph, invocation_id, fn_name, id, index)): Path<(
+    Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
         String,
         String,
         String,
         String,
         String,
-        u32,
     )>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
+    // The ID will be node_output_id|index
+    let (node_output_id, index) = id.split_once('|')
+        .map(|(id, index)| (id, index.parse::<usize>().unwrap_or(0)))
+        .unwrap_or((id.as_str(), 0));
+
     let output = state
         .indexify_state
         .reader()
-        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &id)
+        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &node_output_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
                 "failed to download invocation payload: {}",
@@ -88,10 +92,9 @@ pub async fn download_fn_output_payload(
             .as_str(),
         ))?;
 
-    println!("output: {:?}", output);
     let encoding = output.encoding.clone();
 
-    let payload = &output.payloads[index as usize];
+    let payload = &output.payloads[index];
     let storage_reader = state
         .blob_storage
         .get(&payload.path)

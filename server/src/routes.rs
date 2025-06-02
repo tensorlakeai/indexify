@@ -41,7 +41,7 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
+use crate::http_objects::{FnOutput, Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
 
 mod download;
 mod internal_ingest;
@@ -303,7 +303,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             get(download_invocation_payload).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}/index/{index}",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))
@@ -852,7 +852,16 @@ async fn list_outputs(
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
-    let outputs = outputs.into_iter().map(Into::into).collect();
+    let mut http_outputs = vec![];
+    for output in outputs {
+        for (idx, _payload) in output.payloads.iter().enumerate() {
+            http_outputs.push(FnOutput {
+                id: format!("{}|{}", output.id, idx),
+                compute_fn: output.compute_fn_name.clone(),
+                created_at: output.created_at,
+            });
+        }
+    }
 
     let status = if invocation_ctx.completed {
         InvocationStatus::Finalized
@@ -868,7 +877,7 @@ async fn list_outputs(
     Ok(Json(FnOutputs {
         status,
         outcome: invocation_ctx.outcome.into(),
-        outputs,
+        outputs: http_outputs,
         cursor,
     }))
 }
