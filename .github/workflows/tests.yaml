@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'server-sse-stream-stable'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
@@ -64,6 +65,16 @@ jobs:
           name: indexify-server
           path: server/target/debug/indexify-server
 
+  build_dev_ecr:
+    uses: ./.github/workflows/build_ecr_image.yaml
+    with: 
+      environment: dev
+
+  build_prod_ecr:
+    uses: ./.github/workflows/build_ecr_image.yaml
+    with: 
+      environment: prod
+      
   lint_python_packages:
     name: Lint Python packages
     runs-on: ubuntu-latest
