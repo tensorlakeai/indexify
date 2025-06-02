@@ -498,7 +498,7 @@ impl ExecutorAPIService {
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payloads(payloads)
-                .edges(vec![])
+                .edges(task_result.next_functions.clone())
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
                 .reducer_output(compute_fn_node.reducer())
