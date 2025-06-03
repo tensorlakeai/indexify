@@ -22,7 +22,7 @@ permissions:
 defaults:
   run:
     working-directory: ./server
-    
+
 jobs:
   build-and-push:
     name: Build indexify server and push to ${{ inputs.environment }}
@@ -50,4 +50,4 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - run: |
-          docker buildx build --platform=linux/amd64 --push . -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}t -f dockerfiles/Dockerfile.release_server;
+          docker buildx build --platform=linux/amd64 --push . -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}t -f dockerfiles/Dockerfile.local;
