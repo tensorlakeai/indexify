@@ -1,9 +1,6 @@
 from typing import Dict, List, Optional
 
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionOutput,
-    RouterOutput,
-)
+from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
@@ -38,7 +35,7 @@ class TaskOutput:
         failure_reason: TaskFailureReason = None,
         output_encoding: Optional[str] = None,
         function_output: Optional[FunctionOutput] = None,
-        router_output: Optional[RouterOutput] = None,
+        edges: Optional[List[str]] = None,
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
@@ -55,7 +52,7 @@ class TaskOutput:
         self.graph_version = graph_version
         self.graph_invocation_id = graph_invocation_id
         self.function_output = function_output
-        self.router_output = router_output
+        self.edges = edges
         self.stdout = stdout
         self.stderr = stderr
         self.reducer = reducer
@@ -121,7 +118,7 @@ class TaskOutput:
             graph_invocation_id=graph_invocation_id,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
-            stderr=f"Function or router exceeded its configured timeout of {timeout_sec:.3f} sec.",
+            stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
             output_payload_uri_prefix=output_payload_uri_prefix,
         )
 

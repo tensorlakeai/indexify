@@ -20,7 +20,6 @@ class TaskOutputSummary:
     def __init__(self):
         self.output_count: int = 0
         self.output_total_bytes: int = 0
-        self.router_output_count: int = 0
         self.stdout_count: int = 0
         self.stdout_total_bytes: int = 0
         self.stderr_count: int = 0
@@ -51,7 +50,6 @@ class TaskOutputUploader:
             + output_summary.stderr_count,
             output_files=output_summary.output_count,
             output_bytes=output_summary.total_bytes,
-            router_output_count=output_summary.router_output_count,
             stdout_bytes=output_summary.stdout_total_bytes,
             stderr_bytes=output_summary.stderr_total_bytes,
         )
@@ -153,9 +151,6 @@ def _task_output_summary(output: TaskOutput) -> TaskOutputSummary:
             )
             summary.output_count += 1
             summary.output_total_bytes += output_len
-
-    if output.router_output is not None:
-        summary.router_output_count += 1
 
     summary.total_bytes = (
         summary.output_total_bytes

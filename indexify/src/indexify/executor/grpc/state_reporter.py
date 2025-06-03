@@ -215,6 +215,7 @@ class ExecutorStateReporter:
                         function_name=task_output.function_name,
                         graph_invocation_id=task_output.graph_invocation_id,
                         outcome_code=TaskOutcomeCode.Name(task_output.outcome_code),
+                        task_results_proto=task_results_proto,
                     )
                 await stub.report_executor_state(
                     ReportExecutorStateRequest(
@@ -222,7 +223,7 @@ class ExecutorStateReporter:
                     ),
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
-            except Exception as e:
+            except Exception:
                 self._completed_task_outputs.extend(task_outputs)
                 raise
 
@@ -357,7 +358,7 @@ def _task_output_to_proto(output: TaskOutput) -> TaskResult:
         graph_invocation_id=output.graph_invocation_id,
         reducer=output.reducer,
         outcome_code=output.outcome_code,
-        next_functions=(output.router_output.edges if output.router_output else []),
+        next_functions=output.edges if output.edges else [],
         function_outputs=output.uploaded_data_payloads,
     )
     if output.failure_reason is not None:
