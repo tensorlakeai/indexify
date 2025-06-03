@@ -45,12 +45,5 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          platforms: linux/amd64
-          push: true
-          file: dockerfiles/Dockerfile.release_server
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/indexify-server:latest
-            ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}
+      - run: |
+          docker buildx build --platform=linux/amd64 --push . -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}t -f dockerfiles/Dockerfile.release_server;
