@@ -50,6 +50,7 @@ jobs:
         with:
           platforms: linux/amd64
           push: true
+          file: dockerfiles/Dockerfile.release_server
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/indexify-server:latest
             ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}
