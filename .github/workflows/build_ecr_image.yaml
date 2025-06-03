@@ -19,6 +19,10 @@ permissions:
   id-token: write
   contents: read
 
+defaults:
+  run:
+    working-directory: ./server
+    
 jobs:
   build-and-push:
     name: Build indexify server and push to ${{ inputs.environment }}
