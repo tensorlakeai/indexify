@@ -3,7 +3,6 @@ import time
 import unittest
 from typing import Dict, List, Optional
 
-import testing
 from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
@@ -16,14 +15,6 @@ from testing import (
     wait_function_output,
 )
 
-# Executor PIDs for different function executors
-executors_pid: Dict[str, Optional[int]] = {
-    "dev_mode": None,  # Existing dev mode executor that can run any function
-    "function_a": None,  # Executor that can only run function_a
-    "function_b": None,  # Executor that can only run function_b
-    "function_c": None,  # Executor that can only run function_c any version
-}
-
 
 @tensorlake_function()
 def get_dev_mode_executor_pid() -> int:
@@ -32,55 +23,22 @@ def get_dev_mode_executor_pid() -> int:
 
 @tensorlake_function()
 def function_a() -> int:
-    current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [
-        executors_pid["function_a"],
-        executors_pid["dev_mode"],
-    ]
-    if current_executor_pid not in allowed_executor_pids:
-        raise Exception(
-            f"function_a Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
-        )
-    return current_executor_pid
+    return executor_pid()
 
 
 @tensorlake_function()
-def function_b(_: str) -> int:
-    current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [
-        executors_pid["function_b"],
-        executors_pid["dev_mode"],
-    ]
-    if current_executor_pid not in allowed_executor_pids:
-        raise Exception(
-            f"function_b Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
-        )
-    return current_executor_pid
+def function_b(_: int) -> int:
+    return executor_pid()
 
 
 @tensorlake_function()
-def function_c(_: str) -> int:
-    current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [
-        executors_pid["function_c"],
-        executors_pid["dev_mode"],
-    ]
-    if current_executor_pid not in allowed_executor_pids:
-        raise Exception(
-            f"function_c Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
-        )
-    return current_executor_pid
+def function_c(_: int) -> int:
+    return executor_pid()
 
 
 @tensorlake_function()
-def function_dev(_: str) -> int:
-    current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [executors_pid["dev_mode"]]
-    if current_executor_pid not in allowed_executor_pids:
-        raise Exception(
-            f"function_dev Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
-        )
-    return current_executor_pid
+def function_dev(_: int) -> int:
+    return executor_pid()
 
 
 class TestFunctionAllowlist(unittest.TestCase):
@@ -91,6 +49,14 @@ class TestFunctionAllowlist(unittest.TestCase):
             "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
         time.sleep(30)
+
+        # Executor PIDs for different function executors
+        executors_pid: Dict[str, int] = {
+            "dev_mode": -1,  # Existing dev mode executor that can run any function
+            "function_a": -1,  # Executor that can only run function_a
+            "function_b": -1,  # Executor that can only run function_b
+            "function_c": -1,  # Executor that can only run function_c any version
+        }
 
         graph_name = test_graph_name(self)
         version = str(time.time())
@@ -201,12 +167,35 @@ class TestFunctionAllowlist(unittest.TestCase):
                     "function_c",
                     "function_dev",
                 ]:
+                    if func_name == "function_a":
+                        allowed_executor_pids: List[int] = [
+                            executors_pid["function_a"],
+                            executors_pid["dev_mode"],
+                        ]
+                    elif func_name == "function_b":
+                        allowed_executor_pids: List[int] = [
+                            executors_pid["function_b"],
+                            executors_pid["dev_mode"],
+                        ]
+                    elif func_name == "function_c":
+                        allowed_executor_pids: List[int] = [
+                            executors_pid["function_c"],
+                            executors_pid["dev_mode"],
+                        ]
+                    elif func_name == "function_dev":
+                        allowed_executor_pids: List[int] = [executors_pid["dev_mode"]]
+
                     output = wait_function_output(graph, invocation_id, func_name)
-                    # This verifies that the function didn't land on a wrong executor.
-                    # Otherwise, the function fails.
                     self.assertEqual(len(output), 1)
-                    tasks_per_executor_pid[output[0]] = (
-                        tasks_per_executor_pid.get(output[0], 0) + 1
+
+                    func_executor_pid: int = output[0]
+                    if func_executor_pid not in allowed_executor_pids:
+                        raise Exception(
+                            f"{func_name} Executor PID {func_executor_pid} is not in the allowlist: {allowed_executor_pids}"
+                        )
+
+                    tasks_per_executor_pid[func_executor_pid] = (
+                        tasks_per_executor_pid.get(func_executor_pid, 0) + 1
                     )
 
             # Create mapping of executor PIDs to names for better reporting
