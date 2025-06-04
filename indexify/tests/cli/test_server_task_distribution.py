@@ -3,8 +3,8 @@ import time
 import unittest
 from typing import List
 
-import testing
 from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
 from testing import (
     ExecutorProcessContextManager,
@@ -60,7 +60,9 @@ class TestServerTaskDistribution(unittest.TestCase):
                 start_node=get_executor_pid,
                 version=version,
             )
-            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+            graph = RemoteGraph.deploy(
+                graph, code_dir_path=graph_code_dir_path(__file__)
+            )
 
             invocations_per_pid = {}
             invocation_ids: List[str] = []
@@ -100,7 +102,7 @@ class TestServerTaskDistribution(unittest.TestCase):
             start_node=get_executor_pid,
             version=version,
         )
-        graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         invocations_per_pid = {}
         invocation_ids: List[str] = []
@@ -171,7 +173,9 @@ class TestServerTaskDistribution(unittest.TestCase):
                 start_node=success_func,
                 version=version,
             )
-            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+            graph = RemoteGraph.deploy(
+                graph, code_dir_path=graph_code_dir_path(__file__)
+            )
 
             invocation_ids: List[str] = []
             # Run many invokes to collect enough samples.

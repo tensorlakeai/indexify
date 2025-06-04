@@ -3,6 +3,7 @@ import time
 import unittest
 
 from tensorlake import Graph, RemoteGraph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import test_graph_name
 
 
@@ -41,7 +42,7 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             description="test",
             start_node=sleep_a,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         # Pre-warm Executor so Executor delays in the next invokes are very low.
         invoke_sleep_graph(
@@ -91,7 +92,9 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             description="test",
             start_node=sleep_a,
         )
-        graph_a = RemoteGraph.deploy(graph_a)
+        graph_a = RemoteGraph.deploy(
+            graph_a, code_dir_path=graph_code_dir_path(__file__)
+        )
 
         graph_b_name = test_graph_name(self) + "_b"
         graph_b = Graph(
@@ -99,7 +102,9 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             description="test",
             start_node=sleep_b,
         )
-        graph_b = RemoteGraph.deploy(graph_b)
+        graph_b = RemoteGraph.deploy(
+            graph_b, code_dir_path=graph_code_dir_path(__file__)
+        )
 
         # Pre-warm Executor so Executor delays in the next invokes are very low.
         invoke_sleep_graph(
