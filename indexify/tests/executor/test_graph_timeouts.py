@@ -8,6 +8,7 @@ from typing import List, Union
 from tensorlake import (
     Graph,
     RemoteGraph,
+    RouteTo,
     TensorlakeCompute,
     tensorlake_function,
 )
@@ -92,6 +93,98 @@ class TestFunctionTimeouts(unittest.TestCase):
         self.assertRegex(
             sdk_stdout.getvalue(),
             r"Function exceeded its configured timeout of.*3.000.*sec",
+        )
+
+
+class RouterThatSleepsForeverOnInitialization(TensorlakeCompute):
+    name = "RouterThatSleepsForeverOnInitialization"
+    next = [
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ]
+    timeout = 1
+
+    def __init__(self):
+        super().__init__()
+        time.sleep(1000000)
+
+    def run(self, action: str) -> RouteTo[
+        int,
+        Union[
+            FunctionThatSleepsForeverOnInitialization,
+            function_that_sleeps_forever_when_running,
+        ],
+    ]:
+        raise Exception("This router can never run because it fails to initialize.")
+
+
+@tensorlake_function(
+    timeout=2,
+    next=[
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ],
+)
+def router_that_sleeps_forever_when_running() -> RouteTo[
+    int,
+    Union[
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ],
+]:
+    time.sleep(1000000)
+    return RouteTo(0, function_that_sleeps_forever_when_running)
+
+
+@unittest.skipIf(
+    os.environ.get("LEGACY_SSE_STREAM_IS_USED", "0") == "1",
+    "Timeouts functionality is only implemented in gRPC mode",
+)
+class TestRouterTimeouts(unittest.TestCase):
+    def test_initilization(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test",
+            start_node=RouterThatSleepsForeverOnInitialization,
+        )
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
+        start_time = time.monotonic()
+        invocation_id = graph.run(block_until_done=True)
+        duration_sec = time.monotonic() - start_time
+        self.assertLess(
+            duration_sec,
+            20,  # Add extra for state reporting and reconciliation latency
+            "Router initialization didn't timeout in duration close to 1 sec",
+        )
+
+    def test_run(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test",
+            start_node=router_that_sleeps_forever_when_running,
+        )
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
+        start_time = time.monotonic()
+        # We don't have a public SDK API to read a functions' stderr
+        # so we rely on internal SDK behavior where it prints a failed function's
+        # stderr to the current stdout.
+        sdk_stdout: io.StringIO = io.StringIO()
+        with redirect_stdout(sdk_stdout):
+            invocation_id = graph.run(block_until_done=True)
+        duration_sec = time.monotonic() - start_time
+        self.assertLess(
+            duration_sec,
+            20,  # Add extra for state reporting and reconciliation latency
+            "Router run didn't timeout in duration close to 2 sec",
+        )
+        # Use regex to ignore console formatting characters
+        self.assertRegex(
+            sdk_stdout.getvalue(),
+            r"Function or router exceeded its configured timeout of.*2.000.*sec",
         )
 
 
