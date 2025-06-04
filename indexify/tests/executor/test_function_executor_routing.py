@@ -3,6 +3,7 @@ import platform
 import unittest
 
 from tensorlake import Graph, RemoteGraph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import test_graph_name
 
 
@@ -29,7 +30,7 @@ class TestFunctionExecutorRouting(unittest.TestCase):
             description="test",
             start_node=get_function_executor_id_1,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         invocation_id = graph.run(block_until_done=True)
         output = graph.output(invocation_id, "get_function_executor_id_1")
@@ -50,7 +51,7 @@ class TestFunctionExecutorRouting(unittest.TestCase):
             start_node=get_function_executor_id_1,
             version="1.0",
         )
-        graph1 = RemoteGraph.deploy(graph)
+        graph1 = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         invocation_id = graph1.run(block_until_done=True)
         output = graph1.output(invocation_id, "get_function_executor_id_1")
@@ -58,7 +59,7 @@ class TestFunctionExecutorRouting(unittest.TestCase):
         function_executor_id_1 = output[0]
 
         graph.version = "2.0"
-        graph2 = RemoteGraph.deploy(graph)
+        graph2 = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
         invocation_id = graph2.run(block_until_done=True)
         output = graph2.output(invocation_id, "get_function_executor_id_1")
         self.assertEqual(len(output), 1)
@@ -75,7 +76,7 @@ class TestFunctionExecutorRouting(unittest.TestCase):
             start_node=get_function_executor_id_1,
         )
         graph.add_edge(get_function_executor_id_1, get_function_executor_id_2)
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         invocation_id = graph.run(block_until_done=True)
         output = graph.output(invocation_id, "get_function_executor_id_1")
@@ -96,14 +97,14 @@ class TestFunctionExecutorRouting(unittest.TestCase):
             description="test",
             start_node=get_function_executor_id_1,
         )
-        graph1 = RemoteGraph.deploy(graph1)
+        graph1 = RemoteGraph.deploy(graph1, code_dir_path=graph_code_dir_path(__file__))
 
         graph2 = Graph(
             name=test_graph_name(self) + "_2",
             description="test",
             start_node=get_function_executor_id_1,
         )
-        graph2 = RemoteGraph.deploy(graph2)
+        graph2 = RemoteGraph.deploy(graph2, code_dir_path=graph_code_dir_path(__file__))
 
         invocation_id = graph1.run(block_until_done=True)
         output = graph1.output(invocation_id, "get_function_executor_id_1")

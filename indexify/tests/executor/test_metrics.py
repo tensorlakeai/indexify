@@ -8,6 +8,7 @@ from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
 from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
 from testing import test_graph_name
 
@@ -270,7 +271,7 @@ class TestMetrics(unittest.TestCase):
             description="test",
             start_node=successful_function,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
         invocation_id = graph.run(
             block_until_done=True,
             arg="ignored",
@@ -470,7 +471,7 @@ class TestMetrics(unittest.TestCase):
             description="test",
             start_node=successful_function,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
         invocation_id = graph.run(
             block_until_done=True,
             arg="ignored",

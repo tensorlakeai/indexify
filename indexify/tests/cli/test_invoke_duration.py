@@ -2,6 +2,7 @@ import time
 import unittest
 
 from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
 
 
@@ -17,7 +18,7 @@ class TestInvokeDurations(unittest.TestCase):
             description="test",
             start_node=get_start_time,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         invoke_start_time = time.time()
         invocation_id = graph.run(block_until_done=True, x=1)
@@ -38,7 +39,7 @@ class TestInvokeDurations(unittest.TestCase):
             description="test",
             start_node=get_start_time,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, code_dir_path=graph_code_dir_path(__file__))
 
         # Cold start first.
         invocation_id = graph.run(block_until_done=True, x=1)
