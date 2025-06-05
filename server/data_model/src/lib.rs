@@ -639,6 +639,12 @@ pub struct TaskDiagnostics {
     pub stderr: Option<DataPayload>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Routing {
+    UseGraphEdges,
+    Edges(Vec<String>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
@@ -648,7 +654,7 @@ pub struct NodeOutput {
     pub compute_fn_name: String,
     pub invocation_id: String,
     pub payloads: Vec<DataPayload>,
-    pub edges: Vec<String>,
+    pub routing: Routing,
     pub errors: Option<DataPayload>,
     pub created_at: u64,
     pub encoding: String,
@@ -731,7 +737,7 @@ impl NodeOutputBuilder {
             .payloads
             .clone()
             .ok_or(anyhow!("payloads is required"))?;
-        let edges = self.edges.clone().ok_or(anyhow!("edges is required"))?;
+        let routing = self.routing.clone().ok_or(anyhow!("routing is required"))?;
         let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
@@ -750,7 +756,7 @@ impl NodeOutputBuilder {
             compute_fn_name: fn_name,
             payloads,
             errors,
-            edges,
+            routing,
             created_at,
             encoding,
             allocation_id,

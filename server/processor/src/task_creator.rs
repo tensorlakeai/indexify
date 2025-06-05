@@ -12,6 +12,7 @@ use data_model::{
     GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     ReduceTask,
+    Routing,
     Task,
     TaskOutcome,
 };
@@ -362,19 +363,13 @@ impl TaskCreator {
                 });
             }
         }
-        let mut edges = vec![];
-        if !node_output.edges.is_empty() {
-            edges = node_output.edges.clone();
-        }
-        if edges.is_empty() {
-            edges = compute_graph_version
-                .edges
-                .get(&task.compute_fn_name)
-                .cloned()
-                .unwrap_or_default();
-        }
 
-        if edges.is_empty() {
+        let edges = match &node_output.routing {
+            Routing::UseGraphEdges => compute_graph_version.edges.get(&task.compute_fn_name),
+            Routing::Edges(e) => Some(e),
+        };
+
+        if edges.is_none_or(|e| e.len() == 0) {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
@@ -389,7 +384,7 @@ impl TaskCreator {
 
         // Create new tasks for the edges of the node of the current task.
         let mut new_reduction_tasks = vec![];
-        for edge in edges.iter() {
+        for edge in edges.unwrap().iter() {
             let edge_compute_node = compute_graph_version
                 .nodes
                 .get(edge)
@@ -449,10 +444,6 @@ impl TaskCreator {
             new_tasks.push(new_task.clone());
             invocation_ctx.create_tasks(&vec![new_task.clone()], &vec![]);
             invocation_ctx.complete_reducer_task(&reducer_task.compute_fn_name);
-        }
-
-        if edges.is_empty() && invocation_ctx.all_tasks_completed() {
-            invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Success);
         }
 
         Ok(TaskCreationResult {

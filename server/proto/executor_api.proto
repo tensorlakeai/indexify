@@ -219,6 +219,12 @@ enum TaskFailureReason {
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 5;
 }
 
+message ResultRouting {
+    // The list of next functions.
+    // NB: An empty list indicates that no routing should be performed.
+    repeated string next_functions = 1;
+}
+
 message TaskResult {
     optional string task_id = 1;
     optional string namespace = 2;
@@ -230,6 +236,8 @@ message TaskResult {
     optional TaskFailureReason failure_reason = 8;
     // Edges that the function wants the invocation to be routed to.
     // Previously called router_edges.
+    // NB: An empty list indicates that the graph's route definitions should be used,
+    // unless this field is overridden by the presence of the `routing` field.
     repeated string next_functions = 9;
     repeated DataPayload function_outputs = 10;
     // Standard output and error streams of the function.
@@ -237,6 +245,16 @@ message TaskResult {
     optional DataPayload stderr = 12;
 
     optional string allocation_id = 13;
+
+    // Indicates how the results should be routed.
+    // If this is present, it replaces `next_functions`.
+    //
+    // If absent, `next_functions` will be used; note that if no
+    // routes are defined in `next_functions`, this will use the
+    // graph's routing.  The long-term goal is to deprecate
+    // `next_functions`, so that if `routing` is not present, the
+    // graph's routing definitions will always be used.
+    ResultRouting routing = 14;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

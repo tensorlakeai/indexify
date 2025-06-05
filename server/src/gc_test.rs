@@ -119,7 +119,7 @@ mod tests {
                 created_at: 5,
                 reducer_output: false,
                 allocation_id: "allocation_id".to_string(),
-                edges: vec![],
+                routing: data_model::Routing::UseGraphEdges,
                 encoding: "application/octet-stream".to_string(),
             };
             let key = output.key();
