@@ -858,9 +858,7 @@ pub fn ingest_task_outputs(
             &req.namespace,
             &req.compute_graph,
             &req.invocation_id,
-            &req.compute_fn,
-            &req.task.id,
-            &req.executor_id,
+            &req.allocation_id,
         ),
     )?;
 

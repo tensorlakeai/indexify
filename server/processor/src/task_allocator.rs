@@ -261,6 +261,9 @@ impl<'a> TaskAllocationProcessor<'a> {
             return Ok(update);
         };
         let fe_id = candidate.function_executor.id.clone();
+        let mut updated_task = task.clone();
+        updated_task.status = TaskStatus::Running;
+        updated_task.retry_number = task.retry_number + 1;
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
@@ -269,6 +272,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .task_id(task.id.clone())
             .executor_id(candidate.executor_id.clone())
             .function_executor_id(fe_id.clone())
+            .retry_number(updated_task.retry_number)
             .build()?;
 
         info!(
@@ -279,8 +283,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             allocation = allocation.id,
             "created allocation"
         );
-        let mut updated_task = task.clone();
-        updated_task.status = TaskStatus::Running;
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
