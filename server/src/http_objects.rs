@@ -1051,43 +1051,46 @@ pub struct ExecutorMetadata {
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: Vec<FunctionExecutorMetadata>,
     pub host_resources: HostResources,
+    pub free_resources: HostResources,
     pub state: String,
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
 }
 
-impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
-    fn from(executor: data_model::ExecutorMetadata) -> Self {
-        let function_allowlist = executor.function_allowlist.map(|allowlist| {
-            allowlist
-                .iter()
-                .map(|fn_uri| FunctionAllowlist {
-                    namespace: fn_uri.namespace.clone(),
-                    compute_graph: fn_uri.compute_graph_name.clone(),
-                    compute_fn: fn_uri.compute_fn_name.clone(),
-                    version: fn_uri.version.clone().map(|v| v.into()),
-                })
-                .collect()
-        });
-        Self {
-            id: executor.id.to_string(),
-            executor_version: executor.executor_version,
-            addr: executor.addr,
-            function_allowlist,
-            labels: executor.labels,
-            function_executors: executor
-                .function_executors
-                .values()
-                .cloned()
-                .map(|v| v.into())
-                .collect(),
-            host_resources: executor.host_resources.into(),
-            state: executor.state.as_ref().to_string(),
-            tombstoned: executor.tombstoned,
-            state_hash: executor.state_hash,
-            clock: executor.clock,
-        }
+pub fn from_data_model_executor_metadata(
+    executor: data_model::ExecutorMetadata,
+    free_resources: data_model::HostResources,
+) -> ExecutorMetadata {
+    let function_allowlist = executor.function_allowlist.map(|allowlist| {
+        allowlist
+            .iter()
+            .map(|fn_uri| FunctionAllowlist {
+                namespace: fn_uri.namespace.clone(),
+                compute_graph: fn_uri.compute_graph_name.clone(),
+                compute_fn: fn_uri.compute_fn_name.clone(),
+                version: fn_uri.version.clone().map(|v| v.into()),
+            })
+            .collect()
+    });
+    ExecutorMetadata {
+        id: executor.id.to_string(),
+        executor_version: executor.executor_version,
+        addr: executor.addr,
+        function_allowlist,
+        labels: executor.labels,
+        function_executors: executor
+            .function_executors
+            .values()
+            .cloned()
+            .map(|v| v.into())
+            .collect(),
+        host_resources: executor.host_resources.into(),
+        free_resources: free_resources.into(),
+        state: executor.state.as_ref().to_string(),
+        tombstoned: executor.tombstoned,
+        state_hash: executor.state_hash,
+        clock: executor.clock,
     }
 }
 

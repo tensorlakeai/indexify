@@ -130,9 +130,14 @@ impl<'a> TaskAllocationProcessor<'a> {
         let function_executors_to_mark = self
             .in_memory_state
             .vacuum_function_executors_candidates()?;
-        debug!(
-            "vacuum phase identified {} function executors to mark for termination",
-            function_executors_to_mark.len()
+        let function_executor_ids = function_executors_to_mark
+            .iter()
+            .map(|fe| fe.function_executor.id.get())
+            .collect::<Vec<_>>();
+        info!(
+            function_executors = function_executor_ids.join(", "),
+            num_function_executors = function_executors_to_mark.len(),
+            "vacuum phase identified function executors to mark for termination",
         );
 
         // Mark FEs for termination (change desired state to Terminated)
