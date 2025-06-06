@@ -1008,7 +1008,7 @@ impl InMemoryState {
                     num_pending_function_executors += 1;
                 }
                 if function_executor.desired_state == FunctionExecutorState::Terminated ||
-                    function_executor.function_executor.state == FunctionExecutorState::Running
+                    function_executor.function_executor.state == FunctionExecutorState::Terminated
                 {
                     continue;
                 }
