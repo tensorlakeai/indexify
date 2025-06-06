@@ -743,7 +743,7 @@ def _to_fe_status_metric_label(status: FunctionExecutorStatus, logger: Any) -> s
         return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
 
 
-_termination_reason_to_short_name: Dict[FunctionExecutorTerminationReason, str] = {
+_termination_reason_to_short_name_map = {
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: "UNKNOWN",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: "STARTUP_FAILED_INTERNAL_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: "STARTUP_FAILED_FUNCTION_ERROR",
@@ -762,4 +762,4 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     if value is None:
         return "None"
 
-    return _termination_reason_to_short_name.get(value, "UNEXPECTED")
+    return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
