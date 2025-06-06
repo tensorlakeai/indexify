@@ -9,8 +9,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import (
-    CustomerError,
+    FunctionError,
     FunctionExecutor,
+    FunctionTimeoutError,
 )
 from indexify.executor.function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -18,6 +19,7 @@ from indexify.executor.function_executor.server.function_executor_server_factory
 )
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
+    FunctionExecutorTerminationReason,
 )
 
 from .downloads import download_graph
@@ -51,17 +53,34 @@ async def create_function_executor(
             logger=logger,
         )
         return FunctionExecutorCreated(function_executor)
-    except CustomerError as e:
-        return FunctionExecutorCreated(function_executor=None, customer_error=e)
+    except FunctionTimeoutError as e:
+        return FunctionExecutorCreated(
+            function_executor=None,
+            function_error=e,
+            termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT,
+        )
+    except FunctionError as e:
+        return FunctionExecutorCreated(
+            function_executor=None,
+            function_error=e,
+            termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
+        )
     except BaseException as e:
         if isinstance(e, asyncio.CancelledError):
             logger.info("function executor startup was cancelled")
+            return FunctionExecutorCreated(
+                function_executor=None,
+                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE,
+            )
         else:
             logger.error(
                 "failed to create function executor due to platform error",
                 exc_info=e,
             )
-        return FunctionExecutorCreated(function_executor=None)
+            return FunctionExecutorCreated(
+                function_executor=None,
+                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR,
+            )
 
 
 async def _create_function_executor(
@@ -77,7 +96,7 @@ async def _create_function_executor(
     """Creates a function executor.
 
     Raises Exception on platform error.
-    Raises CustomerError if customer code failed during FE creation.
+    Raises FunctionError if customer code failed during FE creation.
     """
     graph: SerializedObject = await download_graph(
         function_executor_description=function_executor_description,
@@ -121,7 +140,7 @@ async def _create_function_executor(
     )
 
     try:
-        # Raises CustomerError if initialization failed in customer code or customer code timed out.
+        # Raises FunctionError if initialization failed in customer code or customer code timed out.
         await function_executor.initialize(
             config=config,
             initialize_request=initialize_request,

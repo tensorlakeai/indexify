@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Any
+from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
@@ -14,7 +14,12 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
-from indexify.proto.executor_api_pb2 import Task, TaskFailureReason, TaskOutcomeCode
+from indexify.proto.executor_api_pb2 import (
+    FunctionExecutorTerminationReason,
+    Task,
+    TaskFailureReason,
+    TaskOutcomeCode,
+)
 
 from .events import TaskExecutionFinished
 from .metrics.run_task import (
@@ -60,7 +65,10 @@ async def run_task_on_function_executor(
     metric_function_executor_run_task_rpcs.inc()
     metric_function_executor_run_task_rpcs_in_progress.inc()
     start_time = time.monotonic()
-    function_executor_is_reusable = True
+    # Not None if the Function Executor should be terminated after running the task.
+    function_executor_termination_reason: Optional[
+        FunctionExecutorTerminationReason
+    ] = None
 
     # If this RPC failed due to customer code crashing the server we won't be
     # able to detect this. We'll treat this as our own error for now and thus
@@ -78,7 +86,10 @@ async def run_task_on_function_executor(
         )
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-            function_executor_is_reusable = False  # The task is still running in FE, we only cancelled the client-side RPC.
+            # The task is still running in FE, we only cancelled the client-side RPC.
+            function_executor_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
+            )
             task_info.output = TaskOutput.function_timeout(
                 task=task_info.task,
                 allocation_id=task_info.allocation_id,
@@ -91,7 +102,10 @@ async def run_task_on_function_executor(
                 task=task_info.task, allocation_id=task_info.allocation_id
             )
     except asyncio.CancelledError:
-        function_executor_is_reusable = False  # The task is still running in FE, we only cancelled the client-side RPC.
+        # The task is still running in FE, we only cancelled the client-side RPC.
+        function_executor_termination_reason = (
+            FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
+        )
         task_info.output = TaskOutput.task_cancelled(
             task=task_info.task, allocation_id=task_info.allocation_id
         )
@@ -111,12 +125,14 @@ async def run_task_on_function_executor(
 
     if (
         task_info.output.outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
-        and function_executor_is_reusable
+        and function_executor_termination_reason is None
     ):
         # Check if the task failed because the FE is unhealthy to prevent more tasks failing.
         result: HealthCheckResult = await function_executor.health_checker().check()
         if not result.is_healthy:
-            function_executor_is_reusable = False
+            function_executor_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+            )
             logger.error(
                 "Function Executor health check failed after running task, shutting down Function Executor",
                 health_check_fail_reason=result.reason,
@@ -125,7 +141,8 @@ async def run_task_on_function_executor(
     _log_task_execution_finished(output=task_info.output, logger=logger)
 
     return TaskExecutionFinished(
-        task_info=task_info, function_executor_is_reusable=function_executor_is_reusable
+        task_info=task_info,
+        function_executor_termination_reason=function_executor_termination_reason,
     )
 
 

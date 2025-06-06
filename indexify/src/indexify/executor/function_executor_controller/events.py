@@ -2,9 +2,10 @@ from enum import Enum
 from typing import Optional
 
 from indexify.executor.function_executor.function_executor import (
-    CustomerError,
+    FunctionError,
     FunctionExecutor,
 )
+from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
 
 from .task_info import TaskInfo
 
@@ -43,11 +44,14 @@ class FunctionExecutorCreated(BaseEvent):
     def __init__(
         self,
         function_executor: Optional[FunctionExecutor] = None,
-        customer_error: Optional[CustomerError] = None,
+        function_error: Optional[FunctionError] = None,
+        termination_reason: FunctionExecutorTerminationReason = None,  # type: Optional[FunctionExecutorTerminationReason]
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_CREATED)
         self.function_executor: Optional[FunctionExecutor] = function_executor
-        self.customer_error: Optional[CustomerError] = customer_error
+        self.function_error: Optional[FunctionError] = function_error
+        # Reason for FE termination if failed to create FE (.function_executor is None).
+        self.termination_reason = termination_reason
 
 
 class FunctionExecutorDestroyed(BaseEvent):
@@ -55,12 +59,19 @@ class FunctionExecutorDestroyed(BaseEvent):
     Event indicating that Function Executor has been destroyed.
     """
 
-    def __init__(self, is_success: bool):
+    def __init__(
+        self, is_success: bool, termination_reason: FunctionExecutorTerminationReason
+    ):
         super().__init__(EventType.FUNCTION_EXECUTOR_DESTROYED)
         self.is_success: bool = is_success
+        self.termination_reason: FunctionExecutorTerminationReason = termination_reason
 
     def __str__(self) -> str:
-        return f"Event(type={self.event_type.name}, " f"is_success={self.is_success}"
+        return (
+            f"Event(type={self.event_type.name}, "
+            f"is_success={self.is_success}, "
+            f"termination_reason={FunctionExecutorTerminationReason.Name(self.termination_reason)})"
+        )
 
 
 class ShutdownInitiated(BaseEvent):
@@ -68,8 +79,15 @@ class ShutdownInitiated(BaseEvent):
     Event indicating that Function Executor shutdown has been initiated.
     """
 
-    def __init__(self):
+    def __init__(self, termination_reason: FunctionExecutorTerminationReason):
         super().__init__(EventType.SHUTDOWN_INITIATED)
+        self.termination_reason: FunctionExecutorTerminationReason = termination_reason
+
+    def __str__(self) -> str:
+        return (
+            f"Event(type={self.event_type.name}, "
+            f"termination_reason={FunctionExecutorTerminationReason.Name(self.termination_reason)})"
+        )
 
 
 class TaskPreparationFinished(BaseEvent):
@@ -112,19 +130,26 @@ class TaskExecutionFinished(BaseEvent):
     def __init__(
         self,
         task_info: TaskInfo,
-        function_executor_is_reusable: bool,
+        function_executor_termination_reason: FunctionExecutorTerminationReason,  # type: Optional[FunctionExecutorTerminationReason]
     ):
         super().__init__(EventType.TASK_EXECUTION_FINISHED)
         self.task_info: TaskInfo = task_info
-        # False if the task finished in a bad way and the Function Executor is now in undefined state
-        # and should not be used to run tasks anymore.
-        self.function_executor_is_reusable: bool = function_executor_is_reusable
+        # Not None if the FE needs to get destroyed after running the task.
+        self.function_executor_termination_reason = function_executor_termination_reason
 
     def __str__(self) -> str:
+        function_executor_termination_reason_str: str = (
+            "None"
+            if self.function_executor_termination_reason is None
+            else FunctionExecutorTerminationReason.Name(
+                self.function_executor_termination_reason
+            )
+        )
         return (
             f"Event(type={self.event_type.name}, "
             f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id})"
+            f"allocation_id={self.task_info.allocation_id}), "
+            f"function_executor_termination_reason={function_executor_termination_reason_str}"
         )
 
 

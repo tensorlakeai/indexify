@@ -15,6 +15,7 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
+    FunctionExecutorTerminationReason,
     Task,
 )
 
@@ -224,16 +225,23 @@ class FunctionExecutorController:
         )
         self._spawn_aio(
             aio=next_aio,
-            event_on_failure=FunctionExecutorCreated(function_executor=None),
+            event_on_failure=FunctionExecutorCreated(
+                function_executor=None,
+                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
+            ),
         )
 
-    async def shutdown(self) -> None:
+    async def shutdown(
+        self, termination_reason: FunctionExecutorTerminationReason
+    ) -> None:
         """Shutsdown the Function Executor and frees all of its resources.
 
         All the tasks are reported as failed with FE Terminated failure code.
         Doesn't raise any exceptions. Blocks until the shutdown is complete.
         """
-        self._add_event(ShutdownInitiated(), source="shutdown")
+        self._add_event(
+            ShutdownInitiated(termination_reason=termination_reason), source="shutdown"
+        )
         try:
             await self._control_loop_aio_task
         except asyncio.CancelledError:
@@ -245,7 +253,11 @@ class FunctionExecutorController:
             )
         self._logger.info("function executor controller shutdown finished")
 
-    def _set_status(self, status: FunctionExecutorStatus) -> None:
+    def _set_status(
+        self,
+        status: FunctionExecutorStatus,
+        termination_reason: FunctionExecutorTerminationReason = None,  # type: Optional[FunctionExecutorTerminationReason]
+    ) -> None:
         """Sets Function Executor status and reports it to the Server.
 
         Not blocking. Never raises exceptions."""
@@ -257,6 +269,7 @@ class FunctionExecutorController:
             "function executor status changed",
             old_status=FunctionExecutorStatus.Name(old_status),
             new_status=FunctionExecutorStatus.Name(new_status),
+            termination_reason=_termination_reason_to_short_name(termination_reason),
         )
         metric_function_executors_with_status.labels(
             status=_to_fe_status_metric_label(old_status, self._logger)
@@ -265,11 +278,12 @@ class FunctionExecutorController:
             status=_to_fe_status_metric_label(new_status, self._logger)
         ).inc()
 
-        self._state_reporter.update_function_executor_state(
-            FunctionExecutorState(
-                description=self._function_executor_description, status=new_status
-            )
+        new_fe_state = FunctionExecutorState(
+            description=self._function_executor_description, status=new_status
         )
+        if termination_reason is not None:
+            new_fe_state.termination_reason = termination_reason
+        self._state_reporter.update_function_executor_state(new_fe_state)
         # Report the status change to the Server asap to reduce latency in the system.
         self._state_reporter.schedule_state_report()
 
@@ -422,12 +436,12 @@ class FunctionExecutorController:
         Doesn't raise any exceptions. Doesn't block.
         """
         if event.function_executor is None:
-            self._destroy_function_executor_before_termination()
-            if event.customer_error is not None:
+            self._destroy_function_executor_before_termination(event.termination_reason)
+            if event.function_error is not None:
                 # TODO: Save stdout and stderr of customer code that ran during FE creation into BLOBs and uncomment the corresponding tests.
                 self._logger.error(
                     "failed to create function executor due to error in customer code",
-                    exc_info=event.customer_error,
+                    exc_info=event.function_error,
                 )
             return
 
@@ -454,7 +468,10 @@ class FunctionExecutorController:
                 "Function Executor destroy failed unexpectedly, this should never happen",
             )
         # Set the status only after the FE got destroyed because Server assumes that all FE resources are freed when the status changes.
-        self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED)
+        self._set_status(
+            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
+            termination_reason=event.termination_reason,
+        )
         # Invoke the scheduler so it can fail runnable tasks with FE Terminated error.
         self._add_event(
             ScheduleTaskExecution(),
@@ -466,7 +483,9 @@ class FunctionExecutorController:
             "Function Executor health check failed, terminating Function Executor",
             reason=result.reason,
         )
-        self._destroy_function_executor_before_termination()
+        self._destroy_function_executor_before_termination(
+            termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+        )
 
     def _handle_event_task_preparation_finished(
         self, event: TaskPreparationFinished
@@ -548,7 +567,8 @@ class FunctionExecutorController:
                 aio=next_aio,
                 task_info=task_info,
                 event_on_failure=TaskExecutionFinished(
-                    task_info=task_info, function_executor_is_reusable=False
+                    task_info=task_info,
+                    function_executor_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
                 ),
             )
         else:
@@ -574,12 +594,14 @@ class FunctionExecutorController:
         """
         self._running_task = None
 
-        if event.function_executor_is_reusable:
+        if event.function_executor_termination_reason is None:
             self._add_event(
                 ScheduleTaskExecution(), source="_handle_event_task_execution_finished"
             )
         else:
-            self._destroy_function_executor_before_termination()
+            self._destroy_function_executor_before_termination(
+                termination_reason=event.function_executor_termination_reason
+            )
 
         # Ignore is_cancelled because cancelling a task still involves uploading its output.
         # We'll just upload a real output instead of "task cancelled" output.
@@ -634,17 +656,24 @@ class FunctionExecutorController:
         self._state_reporter.add_completed_task_output(task_info.output)
         self._state_reporter.schedule_state_report()
 
-    def _destroy_function_executor_before_termination(self) -> None:
+    def _destroy_function_executor_before_termination(
+        self, termination_reason: FunctionExecutorTerminationReason
+    ) -> None:
         """Destroys the Function Executor and frees all its resources to prepare for transitioning to the TERMINATED state.
 
         Doesn't raise any exceptions. Doesn't block.
         """
         next_aio = destroy_function_executor(
-            function_executor=self._function_executor, logger=self._logger
+            function_executor=self._function_executor,
+            termination_reason=termination_reason,
+            logger=self._logger,
         )
         self._function_executor = None
         self._spawn_aio(
-            aio=next_aio, event_on_failure=FunctionExecutorDestroyed(is_success=False)
+            aio=next_aio,
+            event_on_failure=FunctionExecutorDestroyed(
+                is_success=False, termination_reason=termination_reason
+            ),
         )
 
     async def _shutdown_no_exceptions(self, event: ShutdownInitiated) -> None:
@@ -685,7 +714,9 @@ class FunctionExecutorController:
 
         self._handle_event_function_executor_destroyed(
             await destroy_function_executor(
-                function_executor=self._function_executor, logger=self._logger
+                function_executor=self._function_executor,
+                termination_reason=event.termination_reason,
+                logger=self._logger,
             )
         )
         self._state_reporter.remove_function_executor_info(self.function_executor_id())
@@ -710,3 +741,62 @@ def _to_fe_status_metric_label(status: FunctionExecutorStatus, logger: Any) -> s
             status=FunctionExecutorStatus.Name(status),
         )
         return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
+
+
+def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) -> str:
+    # The enum value names are really long, shorten them to make the logs more readable.
+    if value is None:
+        return "None"
+
+    if (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN
+    ):
+        return "UNKNOWN"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
+    ):
+        return "STARTUP_FAILED_INTERNAL_ERROR"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+    ):
+        return "STARTUP_FAILED_FUNCTION_ERROR"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
+    ):
+        return "STARTUP_FAILED_FUNCTION_TIMEOUT"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN
+    ):
+        return "EXECUTOR_SHUTDOWN"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE
+    ):
+        return "REMOVED_FROM_DESIRED_STATE"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+    ):
+        return "UNHEALTHY"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR
+    ):
+        return "INTERNAL_ERROR"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
+    ):
+        return "FUNCTION_TIMEOUT"
+    elif (
+        value
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
+    ):
+        return "FUNCTION_CANCELLED"
+
+    return "UNEXPECTED"

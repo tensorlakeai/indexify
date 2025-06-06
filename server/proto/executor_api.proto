@@ -70,6 +70,23 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
+enum FunctionExecutorTerminationReason {
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR = 1;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR = 2;
+    // Timeout on FE startup while running the function constructor.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
+
+    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN = 10;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE = 11;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
+    // Timeout while running the function.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
+    // The running function allocation was removed from the desired state.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
+}
+
 // Immutable information that identifies and describes a Function Executor.
 message FunctionExecutorResources {
     // 1000 CPU ms per sec is one full CPU core.
@@ -97,7 +114,7 @@ message FunctionExecutorDescription {
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
-    // TODO: add a termination reason field to give more inforation to Server to decide on what to do when FE terminates.
+    optional FunctionExecutorTerminationReason termination_reason = 3;
 }
 
 enum ExecutorStatus {
