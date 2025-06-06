@@ -8,10 +8,9 @@ from typing import List, Union
 from tensorlake import (
     Graph,
     RemoteGraph,
+    RouteTo,
     TensorlakeCompute,
-    TensorlakeRouter,
     tensorlake_function,
-    tensorlake_router,
 )
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import test_graph_name
@@ -93,34 +92,48 @@ class TestFunctionTimeouts(unittest.TestCase):
         # Use regex to ignore console formatting characters
         self.assertRegex(
             sdk_stdout.getvalue(),
-            r"Function or router exceeded its configured timeout of.*3.000.*sec",
+            r"Function exceeded its configured timeout of.*3.000.*sec",
         )
 
 
-class RouterThatSleepsForeverOnInitialization(TensorlakeRouter):
+class RouterThatSleepsForeverOnInitialization(TensorlakeCompute):
     name = "RouterThatSleepsForeverOnInitialization"
+    next = [
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ]
     timeout = 1
 
     def __init__(self):
         super().__init__()
         time.sleep(1000000)
 
-    def run(self, action: str) -> List[
+    def run(self, action: str) -> RouteTo[
+        int,
         Union[
             FunctionThatSleepsForeverOnInitialization,
             function_that_sleeps_forever_when_running,
-        ]
+        ],
     ]:
         raise Exception("This router can never run because it fails to initialize.")
 
 
-@tensorlake_router(timeout=2)
-def router_that_sleeps_forever_when_running() -> Union[
-    FunctionThatSleepsForeverOnInitialization,
-    function_that_sleeps_forever_when_running,
+@tensorlake_function(
+    timeout=2,
+    next=[
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ],
+)
+def router_that_sleeps_forever_when_running() -> RouteTo[
+    int,
+    Union[
+        FunctionThatSleepsForeverOnInitialization,
+        function_that_sleeps_forever_when_running,
+    ],
 ]:
     time.sleep(1000000)
-    return function_that_sleeps_forever_when_running
+    return RouteTo(0, function_that_sleeps_forever_when_running)
 
 
 @unittest.skipIf(
@@ -133,13 +146,6 @@ class TestRouterTimeouts(unittest.TestCase):
             name=test_graph_name(self),
             description="test",
             start_node=RouterThatSleepsForeverOnInitialization,
-        )
-        graph.route(
-            RouterThatSleepsForeverOnInitialization,
-            [
-                FunctionThatSleepsForeverOnInitialization,
-                function_that_sleeps_forever_when_running,
-            ],
         )
         graph = RemoteGraph.deploy(
             graph=graph, code_dir_path=graph_code_dir_path(__file__)
@@ -158,13 +164,6 @@ class TestRouterTimeouts(unittest.TestCase):
             name=test_graph_name(self),
             description="test",
             start_node=router_that_sleeps_forever_when_running,
-        )
-        graph.route(
-            router_that_sleeps_forever_when_running,
-            [
-                FunctionThatSleepsForeverOnInitialization,
-                function_that_sleeps_forever_when_running,
-            ],
         )
         graph = RemoteGraph.deploy(
             graph=graph, code_dir_path=graph_code_dir_path(__file__)

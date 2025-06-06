@@ -495,8 +495,9 @@ def _task_output_from_function_executor_response(
 
     if response.HasField("function_output"):
         output.function_output = response.function_output
-    if response.HasField("router_output"):
-        output.router_output = response.router_output
+        output.edges = response.function_output.edges
+    elif response.HasField("router_output"):
+        output.edges = response.router_output.edges
 
     return output
 
