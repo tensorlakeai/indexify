@@ -76,6 +76,7 @@ impl TaskCreator {
                 self.in_memory_state.write().unwrap().update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                    "task_creator",
                 )?;
                 Ok(scheduler_update)
             }
@@ -101,6 +102,7 @@ impl TaskCreator {
                 self.in_memory_state.write().unwrap().update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                    "task_creator",
                 )?;
                 Ok(scheduler_update)
             }

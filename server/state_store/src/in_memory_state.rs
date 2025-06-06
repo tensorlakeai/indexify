@@ -603,6 +603,7 @@ impl InMemoryState {
         &mut self,
         new_clock: u64,
         state_machine_update_request: &RequestPayload,
+        _ctx: &str,
     ) -> Result<HashSet<ExecutorId>> {
         // keep track of what clock we are at for this update state
         self.clock = new_clock;
@@ -811,10 +812,10 @@ impl InMemoryState {
                         );
                         continue;
                     };
-                    executor_state
-                        .function_executors
-                        .entry(fe_meta.function_executor.id.clone())
-                        .or_insert(Box::new(fe_meta.clone()));
+                    executor_state.function_executors.insert(
+                        fe_meta.function_executor.id.clone(),
+                        Box::new(fe_meta.clone()),
+                    );
 
                     let fn_uri = FunctionURI::from(fe_meta.clone());
                     self.function_executors_by_fn_uri
@@ -953,7 +954,7 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
-    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorMetadata>>> {
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
@@ -982,8 +983,8 @@ impl InMemoryState {
                 .free_resources
                 .can_handle(&compute_fn.resources())
             {
-                let mut candidate = executor.clone();
-                candidate.host_resources.consume(&compute_fn.resources())?;
+                let mut candidate = executor_state.clone();
+                candidate.free_resources.consume(&compute_fn.resources())?;
                 candidates.push(candidate);
             }
         }
@@ -1235,7 +1236,7 @@ impl InMemoryState {
             .map(|executor_state| executor_state.function_executors.clone())
             .unwrap_or_default()
             .values()
-            .filter(|fe_meta| fe_meta.function_executor.state != FunctionExecutorState::Terminated)
+            .filter(|fe_meta| fe_meta.desired_state != FunctionExecutorState::Terminated)
             .map(|fe_meta| fe_meta.clone())
             .collect::<Vec<_>>();
 
