@@ -42,6 +42,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
+    from_data_model_executor_metadata,
     FnOutput,
     Invocation,
     InvocationStatus,
@@ -689,7 +690,24 @@ async fn list_executors(
         .list_executors()
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    let http_executors = executors.into_iter().map(|e| e.into()).collect();
+    let executor_server_metadata = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .executor_states
+        .clone();
+
+    let mut http_executors = vec![];
+    for executor in executors {
+        if let Some(executor_server_metadata) = executor_server_metadata.get(&executor.id) {
+            http_executors.push(from_data_model_executor_metadata(
+                executor,
+                executor_server_metadata.free_resources.clone(),
+            ));
+        }
+    }
+
     Ok(Json(http_executors))
 }
 

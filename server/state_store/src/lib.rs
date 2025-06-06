@@ -289,7 +289,7 @@ impl IndexifyState {
             .in_memory_state
             .write()
             .await
-            .update_state(current_state_id, &request.payload)
+            .update_state(current_state_id, &request.payload, "state_store")
             .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
         // Notify the executors with state changes
         {

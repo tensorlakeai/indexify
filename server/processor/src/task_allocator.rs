@@ -130,9 +130,14 @@ impl<'a> TaskAllocationProcessor<'a> {
         let function_executors_to_mark = self
             .in_memory_state
             .vacuum_function_executors_candidates()?;
-        debug!(
-            "vacuum phase identified {} function executors to mark for termination",
-            function_executors_to_mark.len()
+        let function_executor_ids = function_executors_to_mark
+            .iter()
+            .map(|fe| fe.function_executor.id.get())
+            .collect::<Vec<_>>();
+        info!(
+            function_executors = function_executor_ids.join(", "),
+            num_function_executors = function_executors_to_mark.len(),
+            "vacuum phase identified function executors to mark for termination",
         );
 
         // Mark FEs for termination (change desired state to Terminated)
@@ -167,6 +172,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                "task_allocator",
             )?;
             candidates = self.in_memory_state.candidate_executors(task)?;
         }
@@ -182,7 +188,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         let Some(candidate) = candidates.choose(&mut rand::rng()) else {
             return Ok(update);
         };
-        let executor_id = candidate.id.clone();
+        let executor_id = candidate.executor_id.clone();
         // Create a new function executor
         let function_executor = FunctionExecutorBuilder::default()
             .namespace(task.namespace.clone())
@@ -212,10 +218,11 @@ impl<'a> TaskAllocationProcessor<'a> {
         // Consume resources from executor
         update
             .updated_executor_resources
-            .insert(executor_id.clone(), candidate.host_resources.clone());
+            .insert(executor_id.clone(), candidate.free_resources.clone());
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            "task_allocator",
         )?;
         Ok(update)
     }
@@ -240,6 +247,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                "task_allocator",
             )?;
             function_executors = self
                 .in_memory_state
@@ -261,6 +269,9 @@ impl<'a> TaskAllocationProcessor<'a> {
             return Ok(update);
         };
         let fe_id = candidate.function_executor.id.clone();
+        let mut updated_task = task.clone();
+        updated_task.status = TaskStatus::Running;
+        updated_task.retry_number = task.retry_number + 1;
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
@@ -269,6 +280,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .task_id(task.id.clone())
             .executor_id(candidate.executor_id.clone())
             .function_executor_id(fe_id.clone())
+            .retry_number(updated_task.retry_number)
             .build()?;
 
         info!(
@@ -279,8 +291,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             allocation = allocation.id,
             "created allocation"
         );
-        let mut updated_task = task.clone();
-        updated_task.status = TaskStatus::Running;
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
@@ -288,6 +298,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            "task_allocator",
         )?;
         Ok(update)
     }
@@ -376,6 +387,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             self.in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                "task_allocator",
             )?;
         }
 
@@ -456,6 +468,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            "task_allocator",
         )?;
 
         Ok(update)
@@ -597,6 +610,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 self.in_memory_state.update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                    "task_allocator",
                 )?;
             }
         }
@@ -629,6 +643,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            "task_allocator",
         )?;
 
         let allocation_update = self.allocate()?;
@@ -636,6 +651,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            "task_allocator",
         )?;
 
         return Ok(update);

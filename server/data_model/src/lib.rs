@@ -78,6 +78,7 @@ pub struct Allocation {
     pub compute_fn: String,
     pub invocation_id: String,
     pub created_at: u128,
+    pub retry_number: u32,
 }
 
 impl Allocation {
@@ -86,29 +87,12 @@ impl Allocation {
             &self.namespace,
             &self.compute_graph,
             &self.invocation_id,
-            &self.compute_fn,
-            &self.task_id,
-            &self.executor_id,
+            &self.id,
         )
     }
 
-    pub fn key_from(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        task_id: &TaskId,
-        executor_id: &ExecutorId,
-    ) -> String {
-        format!(
-            "{}|{}|{}|{}|{}|{}",
-            namespace,
-            compute_graph,
-            invocation_id,
-            compute_fn,
-            task_id.get(),
-            executor_id.get(),
-        )
+    pub fn key_from(namespace: &str, compute_graph: &str, invocation_id: &str, id: &str) -> String {
+        format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, id,)
     }
 
     pub fn key_prefix_from_invocation(
@@ -165,6 +149,10 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("executor_id is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
+        let retry_number = self
+            .retry_number
+            .clone()
+            .ok_or(anyhow!("retry_number is required"))?;
 
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
@@ -172,6 +160,7 @@ impl AllocationBuilder {
         compute_fn.hash(&mut hasher);
         task_id.get().hash(&mut hasher);
         invocation_id.hash(&mut hasher);
+        retry_number.hash(&mut hasher);
         executor_id.get().hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
 
@@ -185,6 +174,7 @@ impl AllocationBuilder {
             compute_fn,
             invocation_id,
             created_at,
+            retry_number,
         })
     }
 }
@@ -1133,6 +1123,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
+    pub retry_number: u32,
 }
 
 impl Task {
@@ -1276,6 +1267,7 @@ impl TaskBuilder {
             graph_version,
             creation_time_ns,
             cache_key,
+            retry_number: 0,
         };
         Ok(task)
     }
