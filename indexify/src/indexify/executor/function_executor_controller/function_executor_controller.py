@@ -2,7 +2,7 @@ import asyncio
 import time
 from collections.abc import Coroutine
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import FunctionExecutor
@@ -743,60 +743,23 @@ def _to_fe_status_metric_label(status: FunctionExecutorStatus, logger: Any) -> s
         return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
 
 
+_termination_reason_to_short_name: Dict[FunctionExecutorTerminationReason, str] = {
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: "UNKNOWN",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: "STARTUP_FAILED_INTERNAL_ERROR",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: "STARTUP_FAILED_FUNCTION_ERROR",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: "STARTUP_FAILED_FUNCTION_TIMEOUT",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: "EXECUTOR_SHUTDOWN",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: "REMOVED_FROM_DESIRED_STATE",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: "UNHEALTHY",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: "INTERNAL_ERROR",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: "FUNCTION_TIMEOUT",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: "FUNCTION_CANCELLED",
+}
+
+
 def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) -> str:
     # The enum value names are really long, shorten them to make the logs more readable.
     if value is None:
         return "None"
 
-    if (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN
-    ):
-        return "UNKNOWN"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
-    ):
-        return "STARTUP_FAILED_INTERNAL_ERROR"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
-    ):
-        return "STARTUP_FAILED_FUNCTION_ERROR"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
-    ):
-        return "STARTUP_FAILED_FUNCTION_TIMEOUT"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN
-    ):
-        return "EXECUTOR_SHUTDOWN"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE
-    ):
-        return "REMOVED_FROM_DESIRED_STATE"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
-    ):
-        return "UNHEALTHY"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR
-    ):
-        return "INTERNAL_ERROR"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
-    ):
-        return "FUNCTION_TIMEOUT"
-    elif (
-        value
-        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
-    ):
-        return "FUNCTION_CANCELLED"
-
-    return "UNEXPECTED"
+    return _termination_reason_to_short_name.get(value, "UNEXPECTED")
