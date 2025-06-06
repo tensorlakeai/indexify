@@ -320,12 +320,9 @@ class ExecutorStateReconciler:
             logger.error("failed adding Function Executor", exc_info=e)
 
     def _remove_function_executor_controller(self, function_executor_id: str) -> None:
-        # The FE controller will remove itself from reported FEs when its shutdown is complete.
         fe_controller: FunctionExecutorController = (
             self._function_executor_controllers.pop(function_executor_id)
         )
-        self._state_reporter.remove_function_executor_info(function_executor_id)
-        self._state_reporter.schedule_state_report()
         asyncio.create_task(
             fe_controller.shutdown(),
             name=f"Shutdown Function Executor {function_executor_id}",

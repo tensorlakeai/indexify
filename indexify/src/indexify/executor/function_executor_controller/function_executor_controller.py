@@ -688,7 +688,8 @@ class FunctionExecutorController:
                 function_executor=self._function_executor, logger=self._logger
             )
         )
-        # Reconciler will remove the FE from state reporter once Server signals that it noticed the status change.
+        self._state_reporter.remove_function_executor_info(self.function_executor_id())
+        self._state_reporter.schedule_state_report()
 
         self._logger.info("function executor controller control loop finished")
         debug_print_events(events=self._events, logger=self._logger)
