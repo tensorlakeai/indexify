@@ -700,10 +700,16 @@ async fn list_executors(
 
     let mut http_executors = vec![];
     for executor in executors {
-        if let Some(executor_server_metadata) = executor_server_metadata.get(&executor.id) {
+        if let Some(fe_server_metadata) = executor_server_metadata.get(&executor.id) {
             http_executors.push(from_data_model_executor_metadata(
                 executor,
-                executor_server_metadata.free_resources.clone(),
+                fe_server_metadata.free_resources.clone(),
+                fe_server_metadata
+                    .function_executors
+                    .clone()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.clone()))
+                    .collect(),
             ));
         }
     }
