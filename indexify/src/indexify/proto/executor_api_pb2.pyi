@@ -35,6 +35,41 @@ class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FUNCTION_EXECUTOR_STATUS_RUNNING: _ClassVar[FunctionExecutorStatus]
     FUNCTION_EXECUTOR_STATUS_TERMINATED: _ClassVar[FunctionExecutorStatus]
 
+class FunctionExecutorTerminationReason(
+    int, metaclass=_enum_type_wrapper.EnumTypeWrapper
+):
+    __slots__ = ()
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     EXECUTOR_STATUS_UNKNOWN: _ClassVar[ExecutorStatus]
@@ -74,6 +109,28 @@ FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_PENDING: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_RUNNING: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_TERMINATED: FunctionExecutorStatus
+FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: (
+    FunctionExecutorTerminationReason
+)
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
@@ -223,15 +280,20 @@ class FunctionExecutorDescription(_message.Message):
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status")
+    __slots__ = ("description", "status", "termination_reason")
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
+    TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
+    termination_reason: FunctionExecutorTerminationReason
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
         status: _Optional[_Union[FunctionExecutorStatus, str]] = ...,
+        termination_reason: _Optional[
+            _Union[FunctionExecutorTerminationReason, str]
+        ] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):

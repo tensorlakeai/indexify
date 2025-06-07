@@ -4,7 +4,14 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
+use data_model::{
+    ComputeGraphCode,
+    FunctionExecutorId,
+    FunctionExecutorServerMetadata,
+    FunctionExecutorState,
+    GraphInvocationCtx,
+    GraphInvocationOutcome,
+};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -1028,20 +1035,24 @@ pub struct FunctionExecutorMetadata {
     pub compute_fn_name: String,
     pub version: String,
     pub state: String,
+    pub desired_state: String,
 }
 
-impl From<data_model::FunctionExecutor> for FunctionExecutorMetadata {
-    fn from(executor: data_model::FunctionExecutor) -> Self {
-        Self {
-            id: executor.id.get().to_string(),
-            namespace: executor.namespace,
-            compute_graph_name: executor.compute_graph_name,
-            compute_fn_name: executor.compute_fn_name,
-            version: executor.version.to_string(),
-            state: executor.state.to_string(),
-        }
+pub fn from_data_model_function_executor(
+    fe: data_model::FunctionExecutor,
+    desired_state: FunctionExecutorState,
+) -> FunctionExecutorMetadata {
+    FunctionExecutorMetadata {
+        id: fe.id.get().to_string(),
+        namespace: fe.namespace,
+        compute_graph_name: fe.compute_graph_name,
+        compute_fn_name: fe.compute_fn_name,
+        version: fe.version.to_string(),
+        state: fe.state.to_string(),
+        desired_state: desired_state.to_string(),
     }
 }
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
@@ -1061,6 +1072,10 @@ pub struct ExecutorMetadata {
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
+    function_executor_server_metadata: HashMap<
+        FunctionExecutorId,
+        Box<FunctionExecutorServerMetadata>,
+    >,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
         allowlist
@@ -1073,18 +1088,25 @@ pub fn from_data_model_executor_metadata(
             })
             .collect()
     });
+    let mut function_executors = Vec::new();
+    for (fe_id, fe) in executor.function_executors.iter() {
+        if let Some(fe_server_metadata) = function_executor_server_metadata.get(fe_id) {
+            let desired_state = fe_server_metadata.desired_state.clone();
+            function_executors.push(from_data_model_function_executor(fe.clone(), desired_state));
+        } else {
+            function_executors.push(from_data_model_function_executor(
+                fe.clone(),
+                FunctionExecutorState::Unknown,
+            ));
+        }
+    }
     ExecutorMetadata {
         id: executor.id.to_string(),
         executor_version: executor.executor_version,
         addr: executor.addr,
         function_allowlist,
         labels: executor.labels,
-        function_executors: executor
-            .function_executors
-            .values()
-            .cloned()
-            .map(|v| v.into())
-            .collect(),
+        function_executors,
         host_resources: executor.host_resources.into(),
         free_resources: free_resources.into(),
         state: executor.state.as_ref().to_string(),

@@ -1,6 +1,6 @@
 import prometheus_client
 
-from ...monitoring.metrics import latency_metric_for_fast_operation
+from ..monitoring.metrics import latency_metric_for_fast_operation
 
 metric_grpc_server_channel_creations = prometheus_client.Counter(
     "grpc_server_channel_creations",

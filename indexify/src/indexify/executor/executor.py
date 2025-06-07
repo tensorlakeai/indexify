@@ -5,27 +5,19 @@ from socket import gethostname
 from typing import Dict, List, Optional
 
 import structlog
-from tensorlake.utils.logging import suppress as suppress_logging
 
 from indexify.proto.executor_api_pb2 import ExecutorStatus
 
 from .blob_store.blob_store import BLOBStore
-from .downloader import Downloader
+from .channel_manager import ChannelManager
 from .function_allowlist import (
     FunctionURI,
     function_allowlist_to_indexed_dict,
     parse_function_uris,
 )
-from .function_executor.function_executor_states_container import (
-    FunctionExecutorStatesContainer,
-)
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
-from .grpc.channel_manager import ChannelManager
-from .grpc.state_reconciler import ExecutorStateReconciler
-from .grpc.state_reporter import ExecutorStateReporter
-from .grpc.task_output_uploader import TaskOutputUploader
 from .host_resources.host_resources import HostResourcesProvider
 from .metrics.executor import (
     metric_executor_info,
@@ -36,6 +28,8 @@ from .monitoring.health_checker.health_checker import HealthChecker
 from .monitoring.prometheus_metrics_handler import PrometheusMetricsHandler
 from .monitoring.server import MonitoringServer
 from .monitoring.startup_probe_handler import StartupProbeHandler
+from .state_reconciler import ExecutorStateReconciler
+from .state_reporter import ExecutorStateReporter
 
 metric_executor_state.state("starting")
 
@@ -46,7 +40,7 @@ class Executor:
         id: str,
         version: str,
         labels: Dict[str, str],
-        code_path: Path,
+        cache_path: Path,
         health_checker: HealthChecker,
         function_uris: List[str],
         function_executor_server_factory: FunctionExecutorServerFactory,
@@ -72,12 +66,6 @@ class Executor:
             health_probe_handler=HealthCheckHandler(health_checker),
             metrics_handler=PrometheusMetricsHandler(),
         )
-        self._function_executor_states = FunctionExecutorStatesContainer(
-            logger=self._logger
-        )
-        health_checker.set_function_executor_states_container(
-            self._function_executor_states
-        )
         self._channel_manager = ChannelManager(
             server_address=grpc_server_addr,
             config_path=config_path,
@@ -89,7 +77,6 @@ class Executor:
             version=version,
             labels=labels,
             function_allowlist=function_allowlist,
-            function_executor_states=self._function_executor_states,
             channel_manager=self._channel_manager,
             host_resources_provider=host_resources_provider,
             logger=self._logger,
@@ -101,25 +88,19 @@ class Executor:
             executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
             base_url=f"{protocol}://{server_addr}",
-            function_executor_states=self._function_executor_states,
             config_path=config_path,
-            downloader=Downloader(
-                code_path=code_path,
-                blob_store=blob_store,
-            ),
-            task_output_uploader=TaskOutputUploader(
-                executor_id=id,
-                blob_store=blob_store,
-            ),
+            cache_path=cache_path,
+            blob_store=blob_store,
             channel_manager=self._channel_manager,
             state_reporter=self._state_reporter,
             logger=self._logger,
         )
+        self._run_aio_task: Optional[asyncio.Task] = None
 
         executor_info: Dict[str, str] = {
             "id": id,
             "version": version,
-            "code_path": str(code_path),
+            "cache_path": str(cache_path),
             "server_addr": server_addr,
             "grpc_server_addr": str(grpc_server_addr),
             "config_path": str(config_path),
@@ -132,6 +113,18 @@ class Executor:
 
     def run(self):
         asyncio.new_event_loop()
+
+        self._run_aio_task = asyncio.get_event_loop().create_task(
+            self._run(),
+            name="executor startup and run loop",
+        )
+
+        try:
+            asyncio.get_event_loop().run_until_complete(self._run_aio_task)
+        except asyncio.CancelledError:
+            pass  # Expected exception on shutdown
+
+    async def _run(self):
         for signum in [
             signal.SIGABRT,
             signal.SIGINT,
@@ -140,53 +133,38 @@ class Executor:
             signal.SIGHUP,
         ]:
             asyncio.get_event_loop().add_signal_handler(
-                signum, self.shutdown, asyncio.get_event_loop()
+                signum, self._shutdown_signal_handler, asyncio.get_event_loop()
             )
 
-        asyncio.get_event_loop().create_task(
+        asyncio.create_task(
             self._monitoring_server.run(), name="monitoring server runner"
         )
         self._state_reporter.update_executor_status(
             ExecutorStatus.EXECUTOR_STATUS_RUNNING
         )
-        asyncio.get_event_loop().create_task(
-            self._state_reporter.start(), name="state reporter startup"
-        )
-
+        self._state_reporter.run()
+        self._state_reconciler.run()
         metric_executor_state.state("running")
         self._startup_probe_handler.set_ready()
 
-        try:
-            asyncio.get_event_loop().run_until_complete(self._state_reconciler.run())
-        except asyncio.CancelledError:
-            pass  # Suppress this expected exception and return without error (normally).
+        # Run the Executor forever until it is shut down.
+        while True:
+            await asyncio.sleep(10)
 
-    async def _shutdown(self, loop):
-        self._logger.info(
-            "shutting down, all Executor logs are suppressed, no task outcomes will be reported to Server from this point"
-        )
+    def _shutdown_signal_handler(self, loop):
+        loop.create_task(self._shutdown(), name="executor shutdown")
+
+    async def _shutdown(self):
+        self._logger.info("shutting down Executor")
         self._state_reporter.update_executor_status(
             ExecutorStatus.EXECUTOR_STATUS_STOPPING
         )
         metric_executor_state.state("shutting_down")
-        # There will be lots of task cancellation exceptions and "X is shutting down"
-        # exceptions logged during Executor shutdown. Suppress their logs as they are
-        # expected and are confusing for users.
-        suppress_logging()
 
-        await self._monitoring_server.shutdown()
-        await self._state_reporter.shutdown()
+        # Shutdown state reconciler first because its FE controllers
+        # report cancelled task results and clearnup FE resources.
         await self._state_reconciler.shutdown()
+        await self._state_reporter.shutdown()
         await self._channel_manager.destroy()
-
-        # We need to shutdown all users of FE states first,
-        # otherwise states might disappear unexpectedly and we might
-        # report errors, etc that are expected.
-        await self._function_executor_states.shutdown()
-        # We mainly need to cancel the task that runs _.*_mode_loop().
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
-        # The current task is cancelled, the code after this line will not run.
-
-    def shutdown(self, loop):
-        loop.create_task(self._shutdown(loop), name="executor shutdown")
+        await self._monitoring_server.shutdown()
+        self._run_aio_task.cancel()

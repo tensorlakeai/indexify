@@ -171,9 +171,6 @@ class TestMetrics(unittest.TestCase):
             "function_executor_destroy_health_checker_latency_seconds_count",
             "function_executor_destroy_health_checker_latency_seconds_sum",
             "function_executor_destroy_health_checker_errors_total",
-            # FE states
-            "function_executor_state_not_locked_errors_total",
-            "function_executor_states_count",
             # FE statuses
             "function_executors_with_status",
             # Executor
@@ -189,20 +186,12 @@ class TestMetrics(unittest.TestCase):
             "task_output_blob_store_upload_errors_total",
             "task_output_blob_store_upload_latency_seconds_count",
             "task_output_blob_store_upload_latency_seconds_sum",
-            # Running a task
-            "task_policy_runs_total",
-            "task_policy_errors_total",
-            "task_policy_latency_seconds_count",
-            "task_policy_latency_seconds_sum",
-            "tasks_blocked_by_policy",
-            #
-            "task_runs_total",
-            "task_run_platform_errors_total",
-            "task_run_latency_seconds_count",
-            "task_run_latency_seconds_sum",
-            "tasks_running",
-            "task_cancellations_total",
-            #
+            # Task scheduling
+            "schedule_task_latency_seconds_count",
+            "schedule_task_latency_seconds_sum",
+            "runnable_tasks",
+            # Run task RPC
+            "function_executor_run_task_rpcs_in_progress",
             "function_executor_run_task_rpcs_total",
             "function_executor_run_task_rpc_errors_total",
             "function_executor_run_task_rpc_latency_seconds_count",
@@ -235,7 +224,7 @@ class TestMetrics(unittest.TestCase):
         info_sample: Sample = info_metric.samples[0]
         self.assertIn("id", info_sample.labels)
         self.assertIn("version", info_sample.labels)
-        self.assertIn("code_path", info_sample.labels)
+        self.assertIn("cache_path", info_sample.labels)
         self.assertIn("server_addr", info_sample.labels)
         self.assertIn("grpc_server_addr", info_sample.labels)
         self.assertIn("config_path", info_sample.labels)
@@ -371,8 +360,6 @@ class TestMetrics(unittest.TestCase):
             SampleSpec(
                 "function_executor_destroy_health_checker_errors_total", {}, 0.0
             ),
-            # FE states
-            SampleSpec("function_executor_state_not_locked_errors_total", {}, 0.0),
             # Executor
             SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
@@ -412,18 +399,11 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("task_output_blob_store_uploads_total", {}, 1.0),
             SampleSpec("task_output_blob_store_upload_errors_total", {}, 0.0),
             SampleSpec("task_output_blob_store_upload_latency_seconds_count", {}, 1.0),
-            # Running a task
-            SampleSpec("task_policy_runs_total", {}, 1.0),
-            SampleSpec("task_policy_errors_total", {}, 0.0),
-            SampleSpec("task_policy_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_blocked_by_policy", {}, 0.0),
-            #
-            SampleSpec("task_runs_total", {}, 1.0),
-            SampleSpec("task_run_platform_errors_total", {}, 0.0),
-            SampleSpec("task_run_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_running", {}, 0.0),
-            SampleSpec("task_cancellations_total", {}, 0.0),
-            #
+            # Task scheduling
+            SampleSpec("schedule_task_latency_seconds_count", {}, 1.0),
+            SampleSpec("runnable_tasks", {}, 0.0),
+            # Run task RPC
+            SampleSpec("function_executor_run_task_rpcs_in_progress", {}, 0.0),
             SampleSpec("function_executor_run_task_rpcs_total", {}, 1.0),
             SampleSpec("function_executor_run_task_rpc_errors_total", {}, 0.0),
             SampleSpec("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
@@ -470,7 +450,7 @@ class TestMetrics(unittest.TestCase):
         expected_metrics: List[SampleSpec] = [
             # Running a task
             SampleSpec(
-                "tasks_blocked_by_policy_per_function_name",
+                "runnable_tasks_per_function_name",
                 {"function_name": "successful_function"},
                 0.0,
             ),

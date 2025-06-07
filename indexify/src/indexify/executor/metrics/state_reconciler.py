@@ -1,6 +1,6 @@
 import prometheus_client
 
-from ...monitoring.metrics import latency_metric_for_fast_operation
+from ..monitoring.metrics import latency_metric_for_fast_operation
 
 metric_state_reconciliations = prometheus_client.Counter(
     "state_reconciliations",

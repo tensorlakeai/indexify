@@ -173,11 +173,10 @@ jobs:
               sleep 1
             done
           done
-      # TODO: Uncomment once the bug with FE shutdowns is fixed
-      # - name: Validate that all processes terminated
-      #   run: |
-      #     if pgrep -f indexify; then
-      #       echo "Error: Some Indexify processes are still running."
-      #       ps aux | grep indexify
-      #       exit 1
-      #     fi
+      - name: Validate that all processes terminated
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi

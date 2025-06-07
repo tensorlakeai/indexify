@@ -56,7 +56,11 @@ from .server.function_executor_server_factory import (
 )
 
 
-class CustomerError(RuntimeError):
+class FunctionError(RuntimeError):
+    pass
+
+
+class FunctionTimeoutError(FunctionError):
     pass
 
 
@@ -134,7 +138,9 @@ class FunctionExecutor:
     async def destroy(self):
         """Destroys all resources owned by this FunctionExecutor.
 
-        Never raises any exceptions but logs them."""
+        Never raises any exceptions but logs them.
+        Idempotent.
+        """
         try:
             with (
                 metric_destroy_errors.count_exceptions(),
@@ -312,12 +318,12 @@ async def _initialize_server(
             if initialize_response.success:
                 return
             if initialize_response.HasField("customer_error"):
-                raise CustomerError(initialize_response.customer_error)
+                raise FunctionError(initialize_response.customer_error)
             else:
                 raise Exception("initialize RPC failed at function executor server")
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                raise CustomerError(
+                raise FunctionTimeoutError(
                     f"Customer code timeout of {customer_code_timeout_sec:.3f} sec expired"
                 ) from e
             raise
