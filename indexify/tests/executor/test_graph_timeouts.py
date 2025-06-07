@@ -187,10 +187,7 @@ class TestRouterTimeouts(unittest.TestCase):
         # point.
         #
         # Use regex to ignore console formatting characters
-<<<<<<< HEAD
-=======
         # TODO: uncomment this assertion once the bug that make it fail is fixed.
->>>>>>> 7f0bc8b2 (Refactor Executor)
         # self.assertRegex(
         #     sdk_stdout.getvalue(),
         #     r"Function or router exceeded its configured timeout of.*2.000.*sec",

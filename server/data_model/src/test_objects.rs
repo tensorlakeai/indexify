@@ -10,6 +10,7 @@ pub mod tests {
         Node,
         Node::Compute,
         NodeOutput,
+        Routing,
         RuntimeInformation,
     };
     use crate::{
@@ -119,7 +120,7 @@ pub mod tests {
                     })
                     .collect(),
             )
-            .edges(vec![])
+            .routing(Routing::UseGraphEdges)
             .build()
             .unwrap()
     }
@@ -130,7 +131,7 @@ pub mod tests {
             .compute_fn_name("router_x".to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .edges(vec!["fn_c".to_string()])
+            .routing(Routing::Edges(vec!["fn_c".to_string()]))
             .build()
             .unwrap()
     }

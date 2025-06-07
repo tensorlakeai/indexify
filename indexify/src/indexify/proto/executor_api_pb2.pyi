@@ -491,6 +491,12 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
+class ResultRouting(_message.Message):
+    __slots__ = ("next_functions",)
+    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    next_functions: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, next_functions: _Optional[_Iterable[str]] = ...) -> None: ...
+
 class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
@@ -506,6 +512,7 @@ class TaskResult(_message.Message):
         "stdout",
         "stderr",
         "allocation_id",
+        "routing",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -520,6 +527,7 @@ class TaskResult(_message.Message):
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    ROUTING_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
@@ -533,6 +541,7 @@ class TaskResult(_message.Message):
     stdout: DataPayload
     stderr: DataPayload
     allocation_id: str
+    routing: ResultRouting
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -548,4 +557,5 @@ class TaskResult(_message.Message):
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
+        routing: _Optional[_Union[ResultRouting, _Mapping]] = ...,
     ) -> None: ...

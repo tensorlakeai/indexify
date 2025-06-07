@@ -16,6 +16,7 @@ use data_model::{
     FunctionExecutorId,
     GraphVersion,
     NodeOutputBuilder,
+    Routing,
     TaskDiagnostics,
     TaskOutcome,
     TaskOutputsIngestionStatus,
@@ -492,13 +493,34 @@ impl ExecutorAPIService {
                 payloads.push(data_payload);
             }
 
+            // Figure out the routing to use.
+            //
+            // The `next_functions` field has a special-case edge
+            // behavior: iff it's empty, we use the routing specified
+            // by the graph itself.  We're replacing this with a
+            // `routing` field which, if present, overrides
+            // `next_functions` entirely; it has its own
+            // `next_functions`, defined as being the complete route
+            // list (if empty, there are no routes, and this part of
+            // the graph is complete).
+            let routing = match task_result.routing.as_ref() {
+                Some(r) => Routing::Edges(r.next_functions.clone()),
+                None => {
+                    if task_result.next_functions.len() > 0 {
+                        Routing::Edges(task_result.next_functions.clone())
+                    } else {
+                        Routing::UseGraphEdges
+                    }
+                }
+            };
+
             let mut node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
                 .compute_graph_name(compute_graph.compute_graph_name.clone())
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payloads(payloads)
-                .edges(task_result.next_functions.clone())
+                .routing(routing)
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
                 .reducer_output(compute_fn_node.reducer())
@@ -518,7 +540,7 @@ impl ExecutorAPIService {
                     .compute_graph_name(compute_graph.compute_graph_name.clone())
                     .invocation_id(invocation_id.to_string())
                     .compute_fn_name(compute_fn.to_string())
-                    .edges(task_result.next_functions.clone())
+                    .routing(node_output.routing)
                     .payloads(vec![task.input.clone()])
                     .encoding(encoding_str.to_string())
                     .allocation_id(allocation_id.clone())
