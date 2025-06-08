@@ -7,7 +7,21 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use anyhow::Result;
 use data_model::{
-    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionAllowlist, FunctionExecutor, FunctionExecutorId, GraphVersion, NodeOutputBuilder, NodeResources, Routing, TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus, TaskStatus
+    DataPayload,
+    ExecutorId,
+    ExecutorMetadata,
+    ExecutorMetadataBuilder,
+    FunctionAllowlist,
+    FunctionExecutor,
+    FunctionExecutorId,
+    GraphVersion,
+    NodeOutputBuilder,
+    NodeResources,
+    Routing,
+    TaskDiagnostics,
+    TaskOutcome,
+    TaskOutputsIngestionStatus,
+    TaskStatus,
 };
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
