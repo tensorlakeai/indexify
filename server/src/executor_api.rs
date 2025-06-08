@@ -7,20 +7,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use anyhow::Result;
 use data_model::{
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorMetadataBuilder,
-    FunctionAllowlist,
-    FunctionExecutor,
-    FunctionExecutorId,
-    GraphVersion,
-    NodeOutputBuilder,
-    Routing,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskOutputsIngestionStatus,
-    TaskStatus,
+    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionAllowlist, FunctionExecutor, FunctionExecutorId, GraphVersion, NodeOutputBuilder, NodeResources, Routing, TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus, TaskStatus
 };
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
@@ -332,13 +319,18 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             .graph_version
             .map(GraphVersion)
             .ok_or(anyhow::anyhow!("version is required"))?;
-
+        let resources = function_executor_description
+            .resources
+            .clone()
+            .ok_or(anyhow::anyhow!("resources is required"))?;
+        let node_resources = NodeResources::try_from(resources)?;
         Ok(FunctionExecutor {
             id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
+            resources: node_resources,
             // is set when the parent proto message FunctionExecutorStatus is converted
             state: data_model::FunctionExecutorState::Unknown,
         })

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use data_model::{
     Allocation,
@@ -40,21 +40,6 @@ pub enum RequestPayload {
     Noop,
 }
 
-#[derive(Debug, Clone)]
-pub struct FunctionExecutorIdWithExecutionId {
-    pub function_executor_id: FunctionExecutorId,
-    pub executor_id: ExecutorId,
-}
-
-impl FunctionExecutorIdWithExecutionId {
-    pub fn new(function_executor_id: FunctionExecutorId, executor_id: ExecutorId) -> Self {
-        Self {
-            function_executor_id,
-            executor_id,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
@@ -65,7 +50,7 @@ pub struct SchedulerUpdateRequest {
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
-    pub remove_function_executors: Vec<FunctionExecutorIdWithExecutionId>,
+    pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
 }
 

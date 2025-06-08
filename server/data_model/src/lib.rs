@@ -1599,6 +1599,7 @@ pub struct FunctionExecutor {
     pub compute_fn_name: String,
     pub version: GraphVersion,
     pub state: FunctionExecutorState,
+    pub resources: NodeResources,
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1678,6 +1679,10 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
         let state = self.state.clone().ok_or(anyhow!("state is required"))?;
+        let resources = self
+            .resources
+            .clone()
+            .ok_or(anyhow!("resources is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -1685,6 +1690,7 @@ impl FunctionExecutorBuilder {
             compute_fn_name,
             version,
             state,
+            resources,
         })
     }
 }
@@ -1695,6 +1701,7 @@ pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     pub free_resources: HostResources,
+    pub resource_claims: im::HashMap<FunctionExecutorId, NodeResources>,
 }
 
 impl Eq for ExecutorServerMetadata {}
