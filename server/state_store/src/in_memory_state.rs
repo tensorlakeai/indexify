@@ -817,6 +817,11 @@ impl InMemoryState {
                         Box::new(fe_meta.clone()),
                     );
 
+                    executor_state.resource_claims.insert(
+                        fe_meta.function_executor.id.clone(),
+                        fe_meta.function_executor.resources.clone(),
+                    );
+
                     let fn_uri = FunctionURI::from(fe_meta.clone());
                     self.function_executors_by_fn_uri
                         .entry(fn_uri)
@@ -879,28 +884,34 @@ impl InMemoryState {
                     }
                 }
 
-                for function_executor in &req.remove_function_executors {
+                for (executor_id, function_executors) in &req.remove_function_executors {
                     self.allocations_by_executor
-                        .get_mut(&function_executor.executor_id)
-                        .and_then(|allocation_map| {
-                            allocation_map.remove(&function_executor.function_executor_id)
+                        .get_mut(&executor_id)
+                        .and_then(|fe_allocations| {
+                            for function_executor_id in function_executors {
+                                fe_allocations.remove(&function_executor_id);
+                            }
+                            Some(())
                         });
-                    let fe = self
-                        .executor_states
-                        .get_mut(&function_executor.executor_id)
-                        .and_then(|executor_state| {
-                            executor_state
-                                .function_executors
-                                .remove(&function_executor.function_executor_id)
-                        });
+                    for function_executor_id in function_executors {
+                        let fe =
+                            self.executor_states
+                                .get_mut(&executor_id)
+                                .and_then(|executor_state| {
+                                    executor_state.resource_claims.remove(&function_executor_id);
+                                    executor_state
+                                        .function_executors
+                                        .remove(&function_executor_id)
+                                });
 
-                    if let Some(fe) = fe {
-                        let fn_uri = FunctionURI::from(fe.clone());
-                        self.function_executors_by_fn_uri
-                            .get_mut(&fn_uri)
-                            .and_then(|fe_set| fe_set.remove(&fe));
+                        if let Some(fe) = fe {
+                            let fn_uri = FunctionURI::from(fe.clone());
+                            self.function_executors_by_fn_uri
+                                .get_mut(&fn_uri)
+                                .and_then(|fe_set| fe_set.remove(&fe));
+                        }
+                        changed_executors.insert(executor_id.clone());
                     }
-                    changed_executors.insert(function_executor.executor_id.clone());
                 }
 
                 for executor_id in &req.remove_executors {
@@ -912,9 +923,9 @@ impl InMemoryState {
                     changed_executors.insert(executor_id.clone());
                 }
 
-                for (executor_id, host_resources) in &req.updated_executor_resources {
+                for (executor_id, free_resources) in &req.updated_executor_resources {
                     if let Some(executor) = self.executor_states.get_mut(executor_id) {
-                        executor.free_resources = host_resources.clone();
+                        executor.free_resources = free_resources.clone();
                     }
                     // } else {
                     //     self.executor_states.insert(
@@ -937,6 +948,7 @@ impl InMemoryState {
                         Box::new(ExecutorServerMetadata {
                             executor_id: req.executor.id.clone(),
                             function_executors: im::HashMap::new(),
+                            resource_claims: im::HashMap::new(),
                             free_resources: req.executor.host_resources.clone(),
                         }),
                     );
@@ -983,9 +995,7 @@ impl InMemoryState {
                 .free_resources
                 .can_handle(&compute_fn.resources())
             {
-                let mut candidate = executor_state.clone();
-                candidate.free_resources.consume(&compute_fn.resources())?;
-                candidates.push(candidate);
+                candidates.push(executor_state.clone());
             }
         }
         Ok(candidates)
@@ -1058,6 +1068,20 @@ impl InMemoryState {
                 allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
             }
         }
+    }
+
+    pub fn get_fe_resources_by_uri(
+        &self,
+        ns: &str,
+        cg: &str,
+        fn_name: &str,
+        version: &GraphVersion,
+    ) -> Option<NodeResources> {
+        let cg_version = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(ns, cg, version))
+            .cloned()?;
+        cg_version.nodes.get(fn_name).map(|node| node.resources())
     }
 
     pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<NodeResources> {

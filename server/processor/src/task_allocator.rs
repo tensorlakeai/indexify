@@ -25,7 +25,7 @@ use itertools::Itertools;
 use rand::seq::IndexedRandom;
 use state_store::{
     in_memory_state::InMemoryState,
-    requests::{FunctionExecutorIdWithExecutionId, RequestPayload, SchedulerUpdateRequest},
+    requests::{RequestPayload, SchedulerUpdateRequest},
 };
 use tracing::{debug, error, info, warn};
 
@@ -185,10 +185,19 @@ impl<'a> TaskAllocationProcessor<'a> {
             candidates.len()
         );
 
-        let Some(candidate) = candidates.choose(&mut rand::rng()) else {
+        let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
             return Ok(update);
         };
         let executor_id = candidate.executor_id.clone();
+        let node_resources = self
+            .in_memory_state
+            .get_fe_resources_by_uri(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.compute_fn_name,
+                &task.graph_version,
+            )
+            .ok_or(anyhow!("failed to get function executor resources"))?;
         // Create a new function executor
         let function_executor = FunctionExecutorBuilder::default()
             .namespace(task.namespace.clone())
@@ -196,6 +205,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .compute_fn_name(task.compute_fn_name.clone())
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
+            .resources(node_resources.clone())
             .build()?;
 
         info!(
@@ -215,10 +225,13 @@ impl<'a> TaskAllocationProcessor<'a> {
         );
         update.new_function_executors.push(fe_server_metadata);
 
+        candidate.free_resources.consume(&node_resources)?;
+
         // Consume resources from executor
         update
             .updated_executor_resources
             .insert(executor_id.clone(), candidate.free_resources.clone());
+
         self.in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
@@ -340,6 +353,12 @@ impl<'a> TaskAllocationProcessor<'a> {
             .get(&executor.id)
             .map(|executor_state| executor_state.function_executors.clone())
             .unwrap_or_default();
+        let mut executor_server_metadata = self
+            .in_memory_state
+            .executor_states
+            .get(&executor.id)
+            .unwrap()
+            .clone();
         // Step 1: Identify and remove FEs that should be removed
         // Cases when we should remove:
         // 1. FE in our indexes has desired_state=Running but doesn't exist in
@@ -451,11 +470,24 @@ impl<'a> TaskAllocationProcessor<'a> {
                     .in_memory_state
                     .get_fe_resources(&fe_metadata.function_executor);
                 if let Some(node_resources) = node_resources {
-                    let mut executor = executor.clone();
-                    executor.host_resources.consume(&node_resources)?;
-                    update
-                        .updated_executor_resources
-                        .insert(executor.id.clone(), executor.host_resources);
+                    if !executor_server_metadata
+                        .free_resources
+                        .can_handle(&node_resources)
+                    {
+                        error!(
+                            "function executor {} has resources that are not available on executor {}",
+                            fe_id.get(),
+                            executor.id.get()
+                        );
+                        continue;
+                    };
+                    executor_server_metadata
+                        .free_resources
+                        .consume(&node_resources)?;
+                    update.updated_executor_resources.insert(
+                        executor.id.clone(),
+                        executor_server_metadata.free_resources.clone(),
+                    );
                 }
             }
         }
@@ -574,21 +606,13 @@ impl<'a> TaskAllocationProcessor<'a> {
         update.remove_allocations = allocations_to_remove.clone();
 
         // Add function executors to remove list
-        update.remove_function_executors = function_executors_to_remove
-            .iter()
-            .map(|fe| FunctionExecutorIdWithExecutionId::new(fe.id.clone(), executor_id.clone()))
-            .collect();
+        update
+            .remove_function_executors
+            .entry(executor_id.clone())
+            .or_default()
+            .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
 
         for fe in function_executors_to_remove {
-            let Some(mut executor) = self.in_memory_state.executors.get(executor_id).cloned()
-            else {
-                error!(
-                    "executor {} not found while removing function executor {}",
-                    executor_id.get(),
-                    fe.id.get()
-                );
-                continue;
-            };
             // FIXME - We are getting FE resources from the compute graph version at the
             // moment Compute Graphs could be delted before FEs are deleted.
             // If we can't find CG version, we won't be able to free
@@ -596,17 +620,31 @@ impl<'a> TaskAllocationProcessor<'a> {
             // to the FE objects.
             let fe_resources = self.in_memory_state.get_fe_resources(&fe);
             if let Some(fe_resources) = fe_resources {
-                if let Err(err) = executor.host_resources.free(&fe_resources) {
+                let Some(mut executor_server_metadata) = self
+                    .in_memory_state
+                    .executor_states
+                    .get(executor_id)
+                    .cloned()
+                else {
                     error!(
-                        "failed to free resources for function executor {} in executor {}: {}",
-                        fe.id.get(),
+                        "executor {} not found while removing function executor {}",
                         executor_id.get(),
-                        err
+                        fe.id.get()
+                    );
+                    continue;
+                };
+                if executor_server_metadata
+                    .resource_claims
+                    .contains_key(&fe.id)
+                {
+                    executor_server_metadata
+                        .free_resources
+                        .free(&fe_resources)?;
+                    update.updated_executor_resources.insert(
+                        executor_id.clone(),
+                        executor_server_metadata.free_resources.clone(),
                     );
                 }
-                update
-                    .updated_executor_resources
-                    .insert(executor_id.clone(), executor.host_resources.clone());
                 self.in_memory_state.update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
