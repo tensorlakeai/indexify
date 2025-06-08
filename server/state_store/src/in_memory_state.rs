@@ -32,7 +32,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
 
 use crate::{
-    requests::RequestPayload,
+    requests::{RequestPayload, SchedulerUpdateRequest},
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };

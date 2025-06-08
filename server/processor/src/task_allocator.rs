@@ -347,18 +347,13 @@ impl<'a> TaskAllocationProcessor<'a> {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         // Get the function executors from the indexes
-        let function_executors_in_indexes = self
-            .in_memory_state
-            .executor_states
-            .get(&executor.id)
-            .map(|executor_state| executor_state.function_executors.clone())
-            .unwrap_or_default();
         let mut executor_server_metadata = self
             .in_memory_state
             .executor_states
             .get(&executor.id)
             .unwrap()
             .clone();
+        let server_function_executors = executor_server_metadata.function_executors.clone();
         // Step 1: Identify and remove FEs that should be removed
         // Cases when we should remove:
         // 1. FE in our indexes has desired_state=Running but doesn't exist in
@@ -367,7 +362,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         // 3. FE in executor has status mapping to Terminated state
         // Note: We should never remove a FE that is in Pending state in our indexes if
         // not present in executor's list, since it may still be creating.
-        let function_executors_to_remove = function_executors_in_indexes
+        let mut function_executors_to_remove = server_function_executors
             .iter()
             .filter_map(|(indexed_fe_id, indexed_fe)| {
                 // Case 1: If our indexed FE is marked as Terminated, remove it
@@ -394,57 +389,39 @@ impl<'a> TaskAllocationProcessor<'a> {
                 None
             })
             .collect_vec();
-        if !function_executors_to_remove.is_empty() {
-            debug!(
-                "Executor {} has {} function executors to be removed",
-                executor.id.get(),
-                function_executors_to_remove.len()
-            );
-            update.extend(
-                self.remove_function_executors(&executor.id, &function_executors_to_remove)?,
-            );
-            self.in_memory_state.update_state(
-                self.clock,
-                &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
-                "task_allocator",
-            )?;
-        }
 
         // Consider both Running and Pending function executors from the executor as
         // valid
 
         let mut active_function_executors = HashMap::new();
-        let mut stale_function_executors = HashMap::new();
         for (fe_id, fe) in executor.function_executors.iter() {
             let state = fe.state;
             if state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending {
                 active_function_executors.insert(fe_id.clone(), fe.clone());
             } else {
-                stale_function_executors.insert(fe_id.clone(), fe.clone());
+                function_executors_to_remove.push(fe.clone());
             }
         }
 
         // Step 2: Update existing FEs and add new ones
         for (fe_id, fe) in active_function_executors.into_iter() {
             // Check if this FE already exists in our indexes
-            if let Some(indexed_fe) = function_executors_in_indexes.get(&fe_id) {
+            if let Some(server_fe) = server_function_executors.get(&fe_id) {
                 // FE exists in our indexes - check if we need to update its state
-                let executor_state = fe.state;
-
-                if indexed_fe.desired_state != executor_state {
+                if server_fe.desired_state != fe.state && server_fe.desired_state != FunctionExecutorState::Terminated {
                     // Update state to match executor's state
                     debug!(
                         "Updating function executor {} state from {:?} to {:?}",
                         fe_id.get(),
-                        indexed_fe.desired_state,
-                        executor_state
+                        server_fe.desired_state,
+                        fe.state
                     );
 
                     // Create updated metadata
                     let updated_fe_metadata = FunctionExecutorServerMetadata::new(
                         executor.id.clone(),
                         fe.clone(),
-                        executor_state,
+                        fe.state,
                     );
 
                     // Add to update
@@ -494,7 +471,7 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         update.extend(self.remove_function_executors(
             &executor.id,
-            &stale_function_executors.values().cloned().collect_vec(),
+            &function_executors_to_remove,
         )?);
 
         self.in_memory_state.update_state(
@@ -549,7 +526,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         info!(
             num_allocations = allocations_to_remove.len(),
             executor_id = executor_id.get(),
-            "removing allocations from dead executor",
+            "removing allocations from executor",
         );
 
         for allocation in &allocations_to_remove {
@@ -613,43 +590,36 @@ impl<'a> TaskAllocationProcessor<'a> {
             .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
 
         for fe in function_executors_to_remove {
-            // FIXME - We are getting FE resources from the compute graph version at the
-            // moment Compute Graphs could be delted before FEs are deleted.
-            // If we can't find CG version, we won't be able to free
-            // resources. So we need to move the resouces allocated to the FEs
-            // to the FE objects.
-            let fe_resources = self.in_memory_state.get_fe_resources(&fe);
-            if let Some(fe_resources) = fe_resources {
-                let Some(mut executor_server_metadata) = self
-                    .in_memory_state
-                    .executor_states
-                    .get(executor_id)
-                    .cloned()
-                else {
-                    error!(
-                        "executor {} not found while removing function executor {}",
-                        executor_id.get(),
-                        fe.id.get()
-                    );
-                    continue;
-                };
-                if executor_server_metadata
-                    .resource_claims
-                    .contains_key(&fe.id)
-                {
-                    executor_server_metadata
-                        .free_resources
-                        .free(&fe_resources)?;
-                    update.updated_executor_resources.insert(
-                        executor_id.clone(),
-                        executor_server_metadata.free_resources.clone(),
-                    );
-                }
-                self.in_memory_state.update_state(
-                    self.clock,
-                    &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
-                    "task_allocator",
-                )?;
+            let Some(mut executor_server_metadata) = self
+                .in_memory_state
+                .executor_states
+                .get(executor_id)
+                .cloned()
+            else {
+                error!(
+                    "executor {} not found while removing function executor {}",
+                    executor_id.get(),
+                    fe.id.get()
+                );
+                continue;
+            };
+            if executor_server_metadata
+                .resource_claims
+                .contains_key(&fe.id)
+            {
+                executor_server_metadata
+                    .free_resources
+                    .free(&fe.resources)?;
+                update.updated_executor_resources.insert(
+                    executor_id.clone(),
+                    executor_server_metadata.free_resources.clone(),
+                );
+            } else {
+                error!(
+                    "resources not freed: function executor {} is not claiming resources on executor {}",
+                    fe.id.get(),
+                    executor_id.get()
+                );
             }
         }
         Ok(update)
