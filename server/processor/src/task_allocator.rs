@@ -590,12 +590,6 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         let allocation_update = self.allocate()?;
         update.extend(allocation_update);
-        self.in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
-            "task_allocator",
-        )?;
-
         return Ok(update);
     }
 }
