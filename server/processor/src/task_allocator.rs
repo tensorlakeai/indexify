@@ -434,16 +434,11 @@ impl<'a> TaskAllocationProcessor<'a> {
         if function_executors_to_remove.is_empty() {
             return Ok(update);
         }
-        let function_executor_ids = function_executors_to_remove
-            .iter()
-            .map(|fe| fe.id.clone())
-            .collect::<Vec<_>>();
-
         info!(
             num_function_executors = function_executors_to_remove.len(),
-            function_executors = function_executor_ids
+            function_executors = function_executors_to_remove
                 .iter()
-                .map(|id| id.get())
+                .map(|fe| fe.id.get())
                 .collect::<Vec<_>>()
                 .join(", "),
             executor_id = executor_server_metadata.executor_id.get(),
@@ -452,17 +447,16 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         // Handle allocations for FEs to be removed and update tasks
         let mut allocations_to_remove = Vec::new();
-        if let Some(allocations_by_fe) = self
-            .in_memory_state
-            .allocations_by_executor
-            .get(&executor_server_metadata.executor_id)
-        {
-            allocations_to_remove = function_executors_to_remove
-                .iter()
-                .filter_map(|fe| allocations_by_fe.get(&fe.id))
-                .flat_map(|allocations| allocations.iter().map(|alloc| *alloc.clone()))
-                .collect()
-        };
+        for fe in function_executors_to_remove {
+            let allocs = self
+                .in_memory_state
+                .allocations_by_executor
+                .get(&executor_server_metadata.executor_id)
+                .and_then(|allocs_be_fe| allocs_be_fe.get(&fe.id))
+                .cloned()
+                .unwrap_or_default();
+            allocations_to_remove.extend(allocs);
+        }
 
         info!(
             num_allocations = allocations_to_remove.len(),
@@ -521,7 +515,10 @@ impl<'a> TaskAllocationProcessor<'a> {
         }
 
         // Add allocations to remove list
-        update.remove_allocations = allocations_to_remove.clone();
+        update.remove_allocations = allocations_to_remove
+            .iter()
+            .map(|alloc| *alloc.clone())
+            .collect();
 
         // Add function executors to remove list
         update

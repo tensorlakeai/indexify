@@ -133,7 +133,7 @@ pub struct InMemoryState {
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
-        im::HashMap<ExecutorId, im::HashMap<FunctionExecutorId, im::Vector<Box<Allocation>>>>,
+        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
     // TaskKey -> Task
     pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
@@ -431,7 +431,7 @@ impl InMemoryState {
         // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_executor: im::HashMap<
             ExecutorId,
-            im::HashMap<FunctionExecutorId, im::Vector<Box<Allocation>>>,
+            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
         > = im::HashMap::new();
         {
             let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
@@ -446,7 +446,7 @@ impl InMemoryState {
                     .or_default()
                     .entry(allocation.function_executor_id.clone())
                     .or_default()
-                    .push_back(Box::new(allocation));
+                    .push(Box::new(allocation));
             }
         }
 
@@ -865,7 +865,7 @@ impl InMemoryState {
                             .or_default()
                             .entry(allocation.function_executor_id.clone())
                             .or_default()
-                            .push_back(Box::new(allocation.clone()));
+                            .push(Box::new(allocation.clone()));
 
                         // Record metrics
                         self.task_pending_latency.record(
@@ -1305,7 +1305,7 @@ impl InMemoryState {
                 .allocations_by_executor
                 .get(executor_id)
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
-                .unwrap_or(&im::Vector::new())
+                .unwrap_or(&Vec::new())
                 .clone();
             let mut desired_state_tasks = std::vec::Vec::new();
             for allocation in allocations.iter() {

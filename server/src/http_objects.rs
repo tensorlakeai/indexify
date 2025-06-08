@@ -1061,6 +1061,7 @@ pub struct ExecutorMetadata {
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: Vec<FunctionExecutorMetadata>,
+    pub server_only_function_executors: Vec<FunctionExecutorMetadata>,
     pub host_resources: HostResources,
     pub free_resources: HostResources,
     pub state: String,
@@ -1100,6 +1101,16 @@ pub fn from_data_model_executor_metadata(
             ));
         }
     }
+    let server_only_function_executors = function_executor_server_metadata
+        .iter()
+        .filter(|(fe_id, _fe)| !executor.function_executors.contains_key(fe_id))
+        .map(|(_fe_id, fe)| {
+            from_data_model_function_executor(
+                fe.function_executor.clone(),
+                fe.desired_state.clone(),
+            )
+        })
+        .collect();
     ExecutorMetadata {
         id: executor.id.to_string(),
         executor_version: executor.executor_version,
@@ -1107,6 +1118,7 @@ pub fn from_data_model_executor_metadata(
         function_allowlist,
         labels: executor.labels,
         function_executors,
+        server_only_function_executors,
         host_resources: executor.host_resources.into(),
         free_resources: free_resources.into(),
         state: executor.state.as_ref().to_string(),
