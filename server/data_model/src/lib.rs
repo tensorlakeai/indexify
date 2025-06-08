@@ -18,7 +18,6 @@ use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strum::Display;
-use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
