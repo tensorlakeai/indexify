@@ -10,6 +10,7 @@ use data_model::{
     ChangeType,
     ExecutorId,
     ExecutorMetadata,
+    ExecutorServerMetadata,
     FunctionExecutor,
     FunctionExecutorBuilder,
     FunctionExecutorServerMetadata,
@@ -20,8 +21,6 @@ use data_model::{
     TaskOutcome,
     TaskStatus,
 };
-use im::HashMap;
-use itertools::Itertools;
 use rand::seq::IndexedRandom;
 use state_store::{
     in_memory_state::InMemoryState,
@@ -354,123 +353,65 @@ impl<'a> TaskAllocationProcessor<'a> {
             .unwrap()
             .clone();
         let server_function_executors = executor_server_metadata.function_executors.clone();
-        // Step 1: Identify and remove FEs that should be removed
-        // Cases when we should remove:
-        // 1. FE in our indexes has desired_state=Running but doesn't exist in
-        //    executor's valid list
-        // 2. FE in our indexes has desired_state=Terminated (marked by vacuum phase)
-        // 3. FE in executor has status mapping to Terminated state
-        // Note: We should never remove a FE that is in Pending state in our indexes if
-        // not present in executor's list, since it may still be creating.
-        let mut function_executors_to_remove = server_function_executors
+        let mut function_executors_to_remove = Vec::new();
+        let mut new_function_executors = Vec::new();
+
+        let fes_exist_only_in_executor = executor
+            .function_executors
             .iter()
-            .filter_map(|(indexed_fe_id, indexed_fe)| {
-                // Case 1: If our indexed FE is marked as Terminated, remove it
-                if indexed_fe.desired_state == FunctionExecutorState::Terminated {
-                    debug!(
-                        "Removing function executor {} that was marked for termination",
-                        indexed_fe_id.get()
-                    );
-                    return Some(indexed_fe.function_executor.clone());
-                }
-
-                // Case 2: Check if it exists in executor's list
-                if let Some(executor_fe) = executor.function_executors.get(indexed_fe_id) {
-                    // It exists in executor's list, check if its state is Terminated
-                    if executor_fe.state == FunctionExecutorState::Terminated {
-                        debug!(
-                            "Removing function executor {} that is in Terminated state in executor",
-                            indexed_fe_id.get()
-                        );
-                        return Some(indexed_fe.function_executor.clone());
-                    }
-                }
-                // Otherwise keep it
-                None
-            })
-            .collect_vec();
-
-        // Consider both Running and Pending function executors from the executor as
-        // valid
-
-        let mut active_function_executors = HashMap::new();
-        for (fe_id, fe) in executor.function_executors.iter() {
-            let state = fe.state;
-            if state == FunctionExecutorState::Running || state == FunctionExecutorState::Pending {
-                active_function_executors.insert(fe_id.clone(), fe.clone());
-            } else {
-                function_executors_to_remove.push(fe.clone());
+            .filter(|(fe_id, _fe)| !server_function_executors.contains_key(fe_id))
+            .map(|(_fe_id, fe)| fe.clone())
+            .collect::<Vec<_>>();
+        let fes_exist_only_in_server = server_function_executors
+            .iter()
+            .filter(|(fe_id, _fe)| !executor.function_executors.contains_key(fe_id))
+            .map(|(_fe_id, fe)| fe.clone())
+            .collect::<Vec<_>>();
+        for fe in fes_exist_only_in_server {
+            if fe.desired_state == FunctionExecutorState::Terminated {
+                function_executors_to_remove.push(fe.function_executor.clone());
             }
         }
-
-        // Step 2: Update existing FEs and add new ones
-        for (fe_id, fe) in active_function_executors.into_iter() {
-            // Check if this FE already exists in our indexes
-            if let Some(server_fe) = server_function_executors.get(&fe_id) {
-                // FE exists in our indexes - check if we need to update its state
-                if server_fe.desired_state != fe.state && server_fe.desired_state != FunctionExecutorState::Terminated {
-                    // Update state to match executor's state
-                    debug!(
-                        "Updating function executor {} state from {:?} to {:?}",
-                        fe_id.get(),
-                        server_fe.desired_state,
-                        fe.state
-                    );
-
-                    // Create updated metadata
-                    let updated_fe_metadata = FunctionExecutorServerMetadata::new(
-                        executor.id.clone(),
-                        fe.clone(),
-                        fe.state,
-                    );
-
-                    // Add to update
-                    update
-                        .new_function_executors
-                        .push(updated_fe_metadata.clone());
-                }
-            } else {
-                // This FE exists in the executor but not in our indexes - add it
-                debug!(
-                    "Adding existing function executor {} from executor {} to indexes",
-                    fe_id.get(),
-                    executor.id.get()
+        for fe in fes_exist_only_in_executor {
+            if fe.state != FunctionExecutorState::Terminated &&
+                executor_server_metadata
+                    .free_resources
+                    .can_handle(&fe.resources)
+            {
+                new_function_executors.push(FunctionExecutorServerMetadata::new(
+                    executor.id.clone(),
+                    fe.clone(),
+                    fe.state,
+                ));
+                executor_server_metadata
+                    .free_resources
+                    .consume(&fe.resources)?;
+                update.updated_executor_resources.insert(
+                    executor.id.clone(),
+                    executor_server_metadata.free_resources.clone(),
                 );
-
-                // Create a new FunctionExecutorMetadata
-                let fe_metadata =
-                    FunctionExecutorServerMetadata::new(executor.id.clone(), fe.clone(), fe.state);
-
-                // Add to update
-                update.new_function_executors.push(fe_metadata.clone());
-                let node_resources = self
-                    .in_memory_state
-                    .get_fe_resources(&fe_metadata.function_executor);
-                if let Some(node_resources) = node_resources {
-                    if !executor_server_metadata
-                        .free_resources
-                        .can_handle(&node_resources)
-                    {
-                        error!(
-                            "function executor {} has resources that are not available on executor {}",
-                            fe_id.get(),
-                            executor.id.get()
-                        );
-                        continue;
-                    };
-                    executor_server_metadata
-                        .free_resources
-                        .consume(&node_resources)?;
-                    update.updated_executor_resources.insert(
-                        executor.id.clone(),
-                        executor_server_metadata.free_resources.clone(),
-                    );
+            }
+        }
+        for (executor_fe_id, executor_fe) in &executor.function_executors {
+            if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
+                if executor_fe.state == FunctionExecutorState::Terminated {
+                    function_executors_to_remove.push(executor_fe.clone());
+                    continue;
+                }
+                if server_fe.desired_state == FunctionExecutorState::Terminated {
+                    continue;
+                }
+                if executor_fe.state != server_fe.desired_state {
+                    let mut server_fe_clone = server_fe.clone();
+                    server_fe_clone.function_executor.state = executor_fe.state;
+                    new_function_executors.push(*server_fe_clone);
                 }
             }
         }
+        update.new_function_executors.extend(new_function_executors);
 
         update.extend(self.remove_function_executors(
-            &executor.id,
+            &mut executor_server_metadata,
             &function_executors_to_remove,
         )?);
 
@@ -483,10 +424,10 @@ impl<'a> TaskAllocationProcessor<'a> {
         Ok(update)
     }
 
-    #[tracing::instrument(skip(self, executor_id, function_executors_to_remove))]
+    #[tracing::instrument(skip(self, executor_server_metadata, function_executors_to_remove))]
     fn remove_function_executors(
         &mut self,
-        executor_id: &ExecutorId,
+        executor_server_metadata: &mut ExecutorServerMetadata,
         function_executors_to_remove: &Vec<FunctionExecutor>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
@@ -505,7 +446,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .map(|id| id.get())
                 .collect::<Vec<_>>()
                 .join(", "),
-            executor_id = executor_id.get(),
+            executor_id = executor_server_metadata.executor_id.get(),
             "Removing function executors from executor",
         );
 
@@ -514,7 +455,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         if let Some(allocations_by_fe) = self
             .in_memory_state
             .allocations_by_executor
-            .get(executor_id)
+            .get(&executor_server_metadata.executor_id)
         {
             allocations_to_remove = function_executors_to_remove
                 .iter()
@@ -525,7 +466,7 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         info!(
             num_allocations = allocations_to_remove.len(),
-            executor_id = executor_id.get(),
+            executor_id = executor_server_metadata.executor_id.get(),
             "removing allocations from executor",
         );
 
@@ -539,7 +480,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             let fe_state = self
                 .in_memory_state
                 .executors
-                .get(executor_id)
+                .get(&executor_server_metadata.executor_id)
                 .map(|em| em.function_executors.get(&allocation.function_executor_id))
                 .flatten()
                 .map(|fe| fe.state.clone())
@@ -585,24 +526,11 @@ impl<'a> TaskAllocationProcessor<'a> {
         // Add function executors to remove list
         update
             .remove_function_executors
-            .entry(executor_id.clone())
+            .entry(executor_server_metadata.executor_id.clone())
             .or_default()
             .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
 
         for fe in function_executors_to_remove {
-            let Some(mut executor_server_metadata) = self
-                .in_memory_state
-                .executor_states
-                .get(executor_id)
-                .cloned()
-            else {
-                error!(
-                    "executor {} not found while removing function executor {}",
-                    executor_id.get(),
-                    fe.id.get()
-                );
-                continue;
-            };
             if executor_server_metadata
                 .resource_claims
                 .contains_key(&fe.id)
@@ -611,14 +539,14 @@ impl<'a> TaskAllocationProcessor<'a> {
                     .free_resources
                     .free(&fe.resources)?;
                 update.updated_executor_resources.insert(
-                    executor_id.clone(),
+                    executor_server_metadata.executor_id.clone(),
                     executor_server_metadata.free_resources.clone(),
                 );
             } else {
                 error!(
                     "resources not freed: function executor {} is not claiming resources on executor {}",
                     fe.id.get(),
-                    executor_id.get()
+                    &executor_server_metadata.executor_id.get()
                 );
             }
         }
@@ -632,21 +560,30 @@ impl<'a> TaskAllocationProcessor<'a> {
             ..Default::default()
         };
 
-        // Get all function executors to remove
-        let function_executors_to_remove = self
+        let Some(mut executor_server_metadata) = self
             .in_memory_state
             .executor_states
             .get(executor_id)
-            .map(|fes| {
-                fes.function_executors
-                    .values()
-                    .map(|fe| fe.function_executor.clone())
-                    .collect::<Vec<_>>()
-            });
+            .cloned()
+        else {
+            error!(
+                "executor {} not found while deregistering executor",
+                executor_id.get()
+            );
+            return Ok(update);
+        };
 
-        if let Some(function_executors) = function_executors_to_remove {
-            update.extend(self.remove_function_executors(executor_id, &function_executors)?);
-        }
+        // Get all function executors to remove
+        let function_executors_to_remove = &executor_server_metadata
+            .function_executors
+            .values()
+            .map(|fe| fe.function_executor.clone())
+            .collect::<Vec<_>>();
+
+        update.extend(self.remove_function_executors(
+            &mut executor_server_metadata,
+            &function_executors_to_remove,
+        )?);
 
         self.in_memory_state.update_state(
             self.clock,

@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, collections::HashSet, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -32,7 +36,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
 
 use crate::{
-    requests::{RequestPayload, SchedulerUpdateRequest},
+    requests::RequestPayload,
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };
@@ -947,8 +951,8 @@ impl InMemoryState {
                         req.executor.id.clone(),
                         Box::new(ExecutorServerMetadata {
                             executor_id: req.executor.id.clone(),
-                            function_executors: im::HashMap::new(),
-                            resource_claims: im::HashMap::new(),
+                            function_executors: HashMap::new(),
+                            resource_claims: HashMap::new(),
                             free_resources: req.executor.host_resources.clone(),
                         }),
                     );
