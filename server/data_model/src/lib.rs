@@ -1699,9 +1699,9 @@ impl FunctionExecutorBuilder {
 #[builder(build_fn(skip))]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     pub free_resources: HostResources,
-    pub resource_claims: im::HashMap<FunctionExecutorId, NodeResources>,
+    pub resource_claims: HashMap<FunctionExecutorId, NodeResources>,
 }
 
 impl Eq for ExecutorServerMetadata {}
