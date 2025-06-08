@@ -895,14 +895,17 @@ impl GraphInvocationCtx {
         let fn_name = task.compute_fn_name.clone();
         if let Some(analytics) = self.fn_task_analytics.get_mut(&fn_name) {
             match task.outcome {
-                TaskOutcome::Success => analytics.success(),
-                TaskOutcome::Failure => analytics.fail(),
-                _ => {
-                    warn!("Task outcome shouldn't be unknown: {:?}", task)
+                TaskOutcome::Success => {
+                    analytics.success();
+                    self.outstanding_tasks -= 1;
                 }
+                TaskOutcome::Failure => {
+                    analytics.fail();
+                    self.outstanding_tasks -= 1;
+                }
+                _ => {}
             }
         }
-        self.outstanding_tasks -= 1;
     }
 
     pub fn complete_reducer_task(&mut self, reducer_task_fn_name: &str) {
@@ -1550,6 +1553,27 @@ pub enum FunctionExecutorState {
     Terminated,
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Default,
+    strum::AsRefStr,
+    Display,
+    Eq,
+    Hash,
+)]
+pub enum FunctionExecutorTerminationReason {
+    #[default]
+    Unknown,
+    DesiredStateRemoved,
+    CustomerCodeError,
+    PlatformError,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
@@ -1599,6 +1623,7 @@ pub struct FunctionExecutor {
     pub compute_fn_name: String,
     pub version: GraphVersion,
     pub state: FunctionExecutorState,
+    pub termination_reason: FunctionExecutorTerminationReason,
     pub resources: NodeResources,
 }
 
@@ -1683,6 +1708,10 @@ impl FunctionExecutorBuilder {
             .resources
             .clone()
             .ok_or(anyhow!("resources is required"))?;
+        let termination_reason = self
+            .termination_reason
+            .clone()
+            .ok_or(anyhow!("termination_reason is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -1690,6 +1719,7 @@ impl FunctionExecutorBuilder {
             compute_fn_name,
             version,
             state,
+            termination_reason,
             resources,
         })
     }

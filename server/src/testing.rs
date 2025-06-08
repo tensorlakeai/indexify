@@ -342,7 +342,7 @@ impl TestExecutor<'_> {
 
         // Get executor from in-memory state - this is the base executor without
         // complete function executors
-        let base_executor = indexes
+        let executor = indexes
             .read()
             .unwrap()
             .executors
@@ -350,28 +350,21 @@ impl TestExecutor<'_> {
             .cloned()
             .ok_or(anyhow::anyhow!("Executor not found in state store"))?;
 
+        let executor_server_metadata = indexes
+            .read()
+            .unwrap()
+            .executor_states
+            .get(&self.executor_id)
+            .cloned()
+            .ok_or(anyhow::anyhow!("Executor not found in state store"))?;
+
         // Clone base executor
-        let mut executor = *base_executor.clone();
+        let mut executor = *executor.clone();
 
-        // Use executor_manager to get current state - this has the most up-to-date
-        // function executors and tasks
-        let desired_executor_state = self
-            .test_service
-            .service
-            .executor_manager
-            .get_executor_state(&self.executor_id)
-            .await;
-
-        // Convert function executors from desired state to ExecutorMetadata format
-        executor.function_executors = desired_executor_state
+        executor.function_executors = executor_server_metadata
             .function_executors
             .into_iter()
-            .filter_map(|desc| {
-                // Create FunctionExecutor
-                let function_executor: FunctionExecutor = desc.try_into().unwrap();
-
-                Some((function_executor.id.clone(), function_executor))
-            })
+            .map(|(id, fe)| (id, fe.function_executor))
             .collect();
 
         Ok(executor)

@@ -30,7 +30,6 @@ use executor_api_pb::{
     DesiredExecutorState,
     ExecutorState,
     ExecutorStatus,
-    FunctionExecutorDescription,
     FunctionExecutorResources,
     FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
@@ -49,7 +48,10 @@ use tokio_stream::{wrappers::WatchStream, Stream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, trace, warn};
 
-use crate::executors::ExecutorManager;
+use crate::{
+    executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
+    executors::ExecutorManager,
+};
 
 impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
@@ -270,12 +272,8 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         executor_metadata.labels(labels);
         let mut function_executors = HashMap::new();
         for function_executor_state in executor_state.function_executor_states {
-            let function_executor_description = function_executor_state
-                .description
-                .clone()
-                .ok_or(anyhow::anyhow!("description is required"))?;
-            let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
-            function_executor.state = function_executor_state.status().into();
+            let function_executor =
+                data_model::FunctionExecutor::try_from(function_executor_state)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.function_executors(function_executors);
@@ -310,43 +308,100 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
     }
 }
 
-impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
+impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutorTerminationReason {
     type Error = anyhow::Error;
 
     fn try_from(
-        function_executor_description: FunctionExecutorDescription,
+        termination_reason: FunctionExecutorTerminationReason,
     ) -> Result<Self, Self::Error> {
-        let id = function_executor_description
-            .id
-            .map(|id| FunctionExecutorId::new(id))
+        match termination_reason {
+            FunctionExecutorTerminationReason::Unknown => {
+                Ok(data_model::FunctionExecutorTerminationReason::Unknown)
+            }
+            FunctionExecutorTerminationReason::StartupFailedInternalError => {
+                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+            }
+            FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+            }
+            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+            }
+            FunctionExecutorTerminationReason::ExecutorShutdown => {
+                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+            }
+            FunctionExecutorTerminationReason::RemovedFromDesiredState => {
+                Ok(data_model::FunctionExecutorTerminationReason::DesiredStateRemoved)
+            }
+            FunctionExecutorTerminationReason::Unhealthy => {
+                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+            }
+            FunctionExecutorTerminationReason::InternalError => {
+                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+            }
+            FunctionExecutorTerminationReason::FunctionTimeout => {
+                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+            }
+            FunctionExecutorTerminationReason::FunctionCancelled => {
+                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+            }
+        }
+    }
+}
+
+impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
+    type Error = anyhow::Error;
+
+    fn try_from(function_executor_state: FunctionExecutorState) -> Result<Self, Self::Error> {
+        let termination_reason = data_model::FunctionExecutorTerminationReason::try_from(
+            function_executor_state.termination_reason(),
+        )?;
+        let id = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.id.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("id is required"))?;
-        let namespace = function_executor_description
-            .namespace
+        let namespace = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.namespace.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_executor_description
-            .graph_name
+        let compute_graph_name = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.graph_name.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = function_executor_description
-            .function_name
+        let compute_fn_name = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.function_name.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
-        let version = function_executor_description
-            .graph_version
-            .map(GraphVersion)
+        let version = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.graph_version.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("version is required"))?;
-        let resources = function_executor_description
-            .resources
-            .clone()
+        let resources = function_executor_state
+            .description
+            .as_ref()
+            .map(|description| description.resources.clone())
+            .flatten()
             .ok_or(anyhow::anyhow!("resources is required"))?;
-        let node_resources = NodeResources::try_from(resources)?;
+        let node_resources = NodeResources::try_from(resources.clone())?;
         Ok(FunctionExecutor {
-            id,
-            namespace,
-            compute_graph_name,
-            compute_fn_name,
-            version,
+            id: FunctionExecutorId::new(id.clone()),
+            namespace: namespace.clone(),
+            compute_graph_name: compute_graph_name.clone(),
+            compute_fn_name: compute_fn_name.clone(),
+            version: GraphVersion(version.clone()),
+            state: function_executor_state.status().into(),
+            termination_reason,
             resources: node_resources,
-            // is set when the parent proto message FunctionExecutorStatus is converted
-            state: data_model::FunctionExecutorState::Unknown,
         })
     }
 }

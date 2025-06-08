@@ -15,8 +15,8 @@ use data_model::{
     FunctionExecutorBuilder,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
+    FunctionExecutorTerminationReason,
     GraphInvocationCtx,
-    GraphInvocationOutcome,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -205,6 +205,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(node_resources.clone())
+            .termination_reason(FunctionExecutorTerminationReason::Unknown)
             .build()?;
 
         info!(
@@ -455,7 +456,45 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .and_then(|allocs_be_fe| allocs_be_fe.get(&fe.id))
                 .cloned()
                 .unwrap_or_default();
-            allocations_to_remove.extend(allocs);
+            allocations_to_remove.extend(allocs.clone());
+            for alloc in allocs {
+                let Some(mut task) = self.in_memory_state.tasks.get(&alloc.task_key()).cloned()
+                else {
+                    continue;
+                };
+                if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
+                    task.status = TaskStatus::Completed;
+                    task.outcome = TaskOutcome::Failure;
+                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
+                {
+                    task.status = TaskStatus::Pending;
+                    task.retry_number = task.retry_number + 1;
+                } else if fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
+                    fe.termination_reason ==
+                        FunctionExecutorTerminationReason::DesiredStateRemoved
+                {
+                    task.status = TaskStatus::Pending;
+                }
+                update.updated_tasks.insert(task.id.clone(), *task.clone());
+                let invocation_ctx_key = GraphInvocationCtx::key_from(
+                    &task.namespace,
+                    &task.compute_graph_name,
+                    &task.invocation_id,
+                );
+                if let Some(invocation_ctx) = self
+                    .in_memory_state
+                    .invocation_ctx
+                    .get(&invocation_ctx_key)
+                    .cloned()
+                {
+                    if task.status == TaskStatus::Completed {
+                        let mut invocation_ctx = invocation_ctx.clone();
+                        invocation_ctx.completed = true;
+                        invocation_ctx.outcome = task.outcome.into();
+                        update.updated_invocations_states.push(*invocation_ctx);
+                    }
+                }
+            }
         }
 
         info!(
@@ -463,62 +502,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             executor_id = executor_server_metadata.executor_id.get(),
             "removing allocations from executor",
         );
-
-        for allocation in &allocations_to_remove {
-            let task = self
-                .in_memory_state
-                .tasks
-                .get(&allocation.task_key())
-                .cloned();
-
-            let fe_state = self
-                .in_memory_state
-                .executors
-                .get(&executor_server_metadata.executor_id)
-                .map(|em| em.function_executors.get(&allocation.function_executor_id))
-                .flatten()
-                .map(|fe| fe.state.clone())
-                .unwrap_or(FunctionExecutorState::Unknown);
-
-            let is_fe_failure = match fe_state {
-                FunctionExecutorState::Terminated => true,
-                _ => false,
-            };
-            if let Some(mut task) = task {
-                if is_fe_failure {
-                    task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
-                } else {
-                    task.status = TaskStatus::Pending;
-                }
-                update.updated_tasks.insert(task.id.clone(), *task.clone());
-            }
-            let invocation_ctx_key = GraphInvocationCtx::key_from(
-                &allocation.namespace,
-                &allocation.compute_graph,
-                &allocation.invocation_id,
-            );
-
-            if let Some(invocation_ctx) = self
-                .in_memory_state
-                .invocation_ctx
-                .get(&invocation_ctx_key)
-                .cloned()
-            {
-                if is_fe_failure {
-                    let mut invocation_ctx = invocation_ctx.clone();
-                    invocation_ctx.completed = true;
-                    invocation_ctx.outcome = GraphInvocationOutcome::Failure;
-                    update.updated_invocations_states.push(*invocation_ctx);
-                }
-            }
-        }
-
-        // Add allocations to remove list
-        update.remove_allocations = allocations_to_remove
-            .iter()
-            .map(|alloc| *alloc.clone())
-            .collect();
 
         // Add function executors to remove list
         update
