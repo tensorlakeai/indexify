@@ -150,9 +150,7 @@ class FunctionExecutorController:
         self._spawn_aio_for_task(
             aio=next_aio,
             task_info=task_info,
-            event_on_failure=TaskPreparationFinished(
-                task_info=task_info, is_success=False
-            ),
+            on_exception=TaskPreparationFinished(task_info=task_info, is_success=False),
         )
 
     def has_task(self, task_id: str) -> bool:
@@ -223,9 +221,9 @@ class FunctionExecutorController:
             cache_path=self._cache_path,
             logger=self._logger,
         )
-        self._spawn_aio(
+        self._spawn_aio_for_fe(
             aio=next_aio,
-            event_on_failure=FunctionExecutorCreated(
+            on_exception=FunctionExecutorCreated(
                 function_executor=None,
                 termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
             ),
@@ -351,55 +349,43 @@ class FunctionExecutorController:
         self,
         aio: Coroutine[Any, Any, BaseEvent],
         task_info: TaskInfo,
-        event_on_failure: BaseEvent,
+        on_exception: BaseEvent,
     ) -> None:
-        """Spawns an aio task for the supplied task and coroutine.
-
-        The coroutine should return an event that will be added to the FE controller events.
-        The coroutine should not raise any exceptions.
-        event_on_failure will be added to the FE controller events if the aio task raises an unexpected exception.
-        event_on_failure is required to not silently stall the task processing due to an unexpected exception.
-        Doesn't raise any exceptions. Doesn't block.
-        """
-
-        aio_task_name: str = str(aio)
-        # Wrap the coroutine into aio task to disable warning "coroutine was never awaited" when the task is cancelled.
-        aio: asyncio.Task = asyncio.create_task(aio, name=aio_task_name)
-
-        async def coroutine_wrapper() -> None:
-            try:
-                self._add_event(await aio, source=str(aio))
-            except asyncio.CancelledError:
-                pass  # Expected exception on task cancellation or FE controller shutdown.
-            except BaseException as e:
-                task_logger(task_info.task, self._logger).error(
-                    "unexpected exception in aio task",
-                    exc_info=e,
-                    aio_task_name=aio_task_name,
-                )
-                self._add_event(event_on_failure, source=aio_task_name)
-            finally:
-                task_info.aio_task = None
-                self._running_aio_tasks.remove(asyncio.current_task())
-
-        aio_wrapper_task: asyncio.Task = asyncio.create_task(
-            coroutine_wrapper(),
-            name=f"function executor controller aio task for task_id {task_info.task.id}",
+        self._spawn_aio(
+            aio=aio,
+            task_info=task_info,
+            on_exception=on_exception,
+            logger=task_logger(task_info.task, self._logger),
         )
-        self._running_aio_tasks.append(aio_wrapper_task)
-        task_info.aio_task = aio_wrapper_task
+
+    def _spawn_aio_for_fe(
+        self, aio: Coroutine[Any, Any, BaseEvent], on_exception: BaseEvent
+    ) -> None:
+        self._spawn_aio(
+            aio=aio,
+            task_info=None,
+            on_exception=on_exception,
+            logger=self._logger,
+        )
 
     def _spawn_aio(
-        self, aio: Coroutine[Any, Any, BaseEvent], event_on_failure: BaseEvent
+        self,
+        aio: Coroutine[Any, Any, BaseEvent],
+        task_info: Optional[TaskInfo],
+        on_exception: BaseEvent,
+        logger: Any,
     ) -> None:
         """Spawns an aio task for the supplied coroutine.
 
         The coroutine should return an event that will be added to the FE controller events.
         The coroutine should not raise any exceptions.
-        event_on_failure will be added to the FE controller events if the aio task raises an unexpected exception.
-        event_on_failure is required to not silently stall FE progress due to an unexpected exception.
+        on_exception event will be added to the FE controller events if the aio task raises an unexpected exception.
+        on_exception is required to not silently stall the task processing due to an unexpected exception.
+        If task_info is not None, the aio task will be associated with the task_info while the aio task is running.
         Doesn't raise any exceptions. Doesn't block.
+        Use `_spawn_aio_for_task` and `_spawn_aio_for_fe` instead of directly calling this method.
         """
+
         aio_task_name: str = str(aio)
         # Wrap the coroutine into aio task to disable warning "coroutine was never awaited" when the task is cancelled.
         aio: asyncio.Task = asyncio.create_task(aio, name=aio_task_name)
@@ -408,22 +394,26 @@ class FunctionExecutorController:
             try:
                 self._add_event(await aio, source=aio_task_name)
             except asyncio.CancelledError:
-                pass  # Expected exception on task cancellation or FE controller shutdown.
+                pass  # Expected exception on aio task cancellation.
             except BaseException as e:
-                self._logger.error(
+                logger.error(
                     "unexpected exception in aio task",
                     exc_info=e,
                     aio_task_name=aio_task_name,
                 )
-                self._add_event(event_on_failure, source=aio_task_name)
+                self._add_event(on_exception, source=aio_task_name)
             finally:
+                if task_info is not None:
+                    task_info.aio_task = None
                 self._running_aio_tasks.remove(asyncio.current_task())
 
         aio_wrapper_task: asyncio.Task = asyncio.create_task(
             coroutine_wrapper(),
-            name=f"function executor controller aio task",
+            name=f"function executor controller aio task '{aio_task_name}'",
         )
         self._running_aio_tasks.append(aio_wrapper_task)
+        if task_info is not None:
+            task_info.aio_task = aio_wrapper_task
 
     # Event handlers for the events added to the control loop.
     # All the event handlers are synchronous and never block on any long running operations.
@@ -566,7 +556,7 @@ class FunctionExecutorController:
             self._spawn_aio_for_task(
                 aio=next_aio,
                 task_info=task_info,
-                event_on_failure=TaskExecutionFinished(
+                on_exception=TaskExecutionFinished(
                     task_info=task_info,
                     function_executor_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
                 ),
@@ -621,7 +611,7 @@ class FunctionExecutorController:
         self._spawn_aio_for_task(
             aio=next_aio,
             task_info=task_info,
-            event_on_failure=TaskOutputUploadFinished(
+            on_exception=TaskOutputUploadFinished(
                 task_info=task_info, is_success=False
             ),
         )
@@ -669,9 +659,9 @@ class FunctionExecutorController:
             logger=self._logger,
         )
         self._function_executor = None
-        self._spawn_aio(
+        self._spawn_aio_for_fe(
             aio=next_aio,
-            event_on_failure=FunctionExecutorDestroyed(
+            on_exception=FunctionExecutorDestroyed(
                 is_success=False, termination_reason=termination_reason
             ),
         )
