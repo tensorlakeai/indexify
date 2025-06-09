@@ -17,8 +17,10 @@ jobs:
     uses: ./.github/workflows/build_ecr_image.yaml
     with: 
       environment: dev
+    secrets: inherit
 
   build_prod_ecr:
     uses: ./.github/workflows/build_ecr_image.yaml
     with: 
       environment: prod
+    secrets: inherit
