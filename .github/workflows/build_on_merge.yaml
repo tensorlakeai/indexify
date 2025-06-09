@@ -5,6 +5,7 @@ on:
     branches:
       - 'main'
       - 'server-sse-stream-stable'
+      - 'troubleshoot-ecr-builds'
 
 permissions:
   id-token: write
