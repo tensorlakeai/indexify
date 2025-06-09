@@ -1510,7 +1510,6 @@ pub enum ExecutorState {
     StartingUp,
     Running,
     Drained,
-    Stopping,
     Stopped,
 }
 

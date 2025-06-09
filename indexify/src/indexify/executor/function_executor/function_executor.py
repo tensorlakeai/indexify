@@ -96,7 +96,7 @@ class FunctionExecutor:
     ):
         """Creates and initializes a FunctionExecutorServer and all resources associated with it.
 
-        Raises CustomerError if the server failed to initialize due to an error in customer owned code or data.
+        Raises FunctionError if the server failed to initialize due to an error in customer owned code or data.
         Raises an Exception if an internal error occured."""
         try:
             with (
@@ -324,6 +324,6 @@ async def _initialize_server(
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 raise FunctionTimeoutError(
-                    f"Customer code timeout of {customer_code_timeout_sec:.3f} sec expired"
+                    f"Function initialization exceeded its configured timeout of {customer_code_timeout_sec:.3f} sec."
                 ) from e
             raise

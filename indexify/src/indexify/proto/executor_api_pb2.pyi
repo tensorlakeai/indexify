@@ -76,7 +76,6 @@ class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_STATUS_STARTING_UP: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_RUNNING: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_DRAINED: _ClassVar[ExecutorStatus]
-    EXECUTOR_STATUS_STOPPING: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_STOPPED: _ClassVar[ExecutorStatus]
 
 class TaskOutcomeCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -135,7 +134,6 @@ EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
 EXECUTOR_STATUS_DRAINED: ExecutorStatus
-EXECUTOR_STATUS_STOPPING: ExecutorStatus
 EXECUTOR_STATUS_STOPPED: ExecutorStatus
 TASK_OUTCOME_CODE_UNKNOWN: TaskOutcomeCode
 TASK_OUTCOME_CODE_SUCCESS: TaskOutcomeCode

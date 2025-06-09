@@ -86,17 +86,11 @@ class TestFunctionTimeouts(unittest.TestCase):
         )
         self.assertEqual(len(output), 0)
 
-        # NB: Parsing stdout with a regex turned out to be a little
-        # fragile; we're commenting out this check for now, but
-        # keeping it in place in case we want to revive it at some
-        # point.
-        #
         # Use regex to ignore console formatting characters
-        # TODO: uncomment this assertion once the bug that make it fail is fixed.
-        # self.assertRegex(
-        #     sdk_stdout.getvalue(),
-        #     r"Function or router exceeded its configured timeout of.*3.000.*sec",
-        # )
+        self.assertRegex(
+            sdk_stdout.getvalue(),
+            r"Function exceeded its configured timeout of.*3.000.*sec",
+        )
 
 
 class RouterThatSleepsForeverOnInitialization(TensorlakeRouter):
@@ -181,17 +175,11 @@ class TestRouterTimeouts(unittest.TestCase):
             "Router run didn't timeout in duration close to 2 sec",
         )
 
-        # NB: Parsing stdout with a regex turned out to be a little
-        # fragile; we're commenting out this check for now, but
-        # keeping it in place in case we want to revive it at some
-        # point.
-        #
         # Use regex to ignore console formatting characters
-        # TODO: uncomment this assertion once the bug that make it fail is fixed.
-        # self.assertRegex(
-        #     sdk_stdout.getvalue(),
-        #     r"Function or router exceeded its configured timeout of.*2.000.*sec",
-        # )
+        self.assertRegex(
+            sdk_stdout.getvalue(),
+            r"Function exceeded its configured timeout of.*2.000.*sec",
+        )
 
 
 if __name__ == "__main__":

@@ -140,6 +140,9 @@ class ExecutorStateReporter:
         )
 
     async def shutdown(self) -> None:
+        """Tries to do one last state report and shuts down the state reporter.
+
+        Doesn't raise any exceptions."""
         if self._state_report_worker is not None:
             self._state_report_worker.cancel()
             try:
@@ -155,6 +158,18 @@ class ExecutorStateReporter:
             except asyncio.CancelledError:
                 pass
             self._periodic_state_report_scheduler = None
+
+        # Don't retry state report if it failed during shutdown.
+        # We only do best effort last state report and Server might not be available.
+        try:
+            async with self._channel_manager.create_channel() as channel:
+                stub = ExecutorAPIStub(channel)
+                await self._report_state(stub)
+        except BaseException as e:
+            self._logger.error(
+                "failed to report state during shutdown",
+                exc_info=e,
+            )
 
     async def _periodic_state_report_scheduler_loop(self) -> None:
         while True:
