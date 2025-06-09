@@ -96,6 +96,7 @@ class Executor:
             logger=self._logger,
         )
         self._run_aio_task: Optional[asyncio.Task] = None
+        self._shutdown_aio_task: Optional[asyncio.Task] = None
 
         executor_info: Dict[str, str] = {
             "id": id,
@@ -152,18 +153,22 @@ class Executor:
             await asyncio.sleep(10)
 
     def _shutdown_signal_handler(self, loop):
-        loop.create_task(self._shutdown(), name="executor shutdown")
+        if self._shutdown_aio_task is None:
+            self._shutdown_aio_task = loop.create_task(
+                self._shutdown(), name="executor shutdown"
+            )
 
     async def _shutdown(self):
         self._logger.info("shutting down Executor")
-        self._state_reporter.update_executor_status(
-            ExecutorStatus.EXECUTOR_STATUS_STOPPING
-        )
         metric_executor_state.state("shutting_down")
 
-        # Shutdown state reconciler first because its FE controllers
-        # report cancelled task results and clearnup FE resources.
+        # Shutdown state reconciler first because it changes reported state on shutdown.
         await self._state_reconciler.shutdown()
+
+        # Do one last state report with STOPPED status. This reduces latency in the system.
+        self._state_reporter.update_executor_status(
+            ExecutorStatus.EXECUTOR_STATUS_STOPPED
+        )
         await self._state_reporter.shutdown()
         await self._channel_manager.destroy()
         await self._monitoring_server.shutdown()

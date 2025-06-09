@@ -110,7 +110,7 @@ class FunctionExecutorController:
         # aio tasks spawned by the control loop.
         self._running_aio_tasks: List[asyncio.Task] = []
         # Info for all known tasks, Task ID -> TaskInfo.
-        self._tasks: dict[str, TaskInfo] = {}
+        self._tasks: Dict[str, TaskInfo] = {}
         # Tracking of task execution on Function Executor.
         self._runnable_tasks: List[TaskInfo] = []
         self._running_task: Optional[TaskInfo] = None
@@ -428,7 +428,9 @@ class FunctionExecutorController:
         if event.function_executor is None:
             self._destroy_function_executor_before_termination(event.termination_reason)
             if event.function_error is not None:
-                # TODO: Save stdout and stderr of customer code that ran during FE creation into BLOBs and uncomment the corresponding tests.
+                # TODO: Save stdout and stderr of customer code that ran during FE creation into BLOBs
+                # so customers can debug their function initialization errors.
+                # https://github.com/tensorlakeai/indexify/issues/1426
                 self._logger.error(
                     "failed to create function executor due to error in customer code",
                     exc_info=event.function_error,
@@ -702,13 +704,15 @@ class FunctionExecutorController:
                 # BaseException includes asyncio.CancelledError which is always raised here.
                 pass
 
-        self._handle_event_function_executor_destroyed(
-            await destroy_function_executor(
-                function_executor=self._function_executor,
-                termination_reason=event.termination_reason,
-                logger=self._logger,
+        if self._status != FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
+            self._handle_event_function_executor_destroyed(
+                await destroy_function_executor(
+                    function_executor=self._function_executor,
+                    termination_reason=event.termination_reason,
+                    logger=self._logger,
+                )
             )
-        )
+
         self._state_reporter.remove_function_executor_info(self.function_executor_id())
         self._state_reporter.schedule_state_report()
 

@@ -198,8 +198,13 @@ impl ExecutorManager {
     /// Heartbeat an executor to keep it alive and update its metadata
     pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
         let peeked_deadline = {
-            // 1. Create new deadline
-            let new_deadline = ReverseInstant(Instant::now() + EXECUTOR_TIMEOUT);
+            // 1. Create new deadline, lapse a stopped executor immediately
+            let timeout = if executor.state != data_model::ExecutorState::Stopped {
+                EXECUTOR_TIMEOUT
+            } else {
+                Duration::from_secs(0)
+            };
+            let new_deadline = ReverseInstant(Instant::now() + timeout);
 
             trace!(executor_id = executor.id.get(), "Heartbeat received");
 

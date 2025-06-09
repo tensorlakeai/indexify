@@ -45,11 +45,7 @@ class TestFunctionAllowlist(unittest.TestCase):
     def test_tasks_routing_and_distribution(self):
         # This test verifies that function are routed only to the correct executors
         # and that the distribution of tasks is uniform across all executors.
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
-
+        #
         # Executor PIDs for different function executors
         executors_pid: Dict[str, int] = {
             "dev_mode": -1,  # Existing dev mode executor that can run any function

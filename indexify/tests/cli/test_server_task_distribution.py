@@ -3,7 +3,6 @@ import time
 import unittest
 from typing import List
 
-import testing
 from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
@@ -31,14 +30,6 @@ def success_func(sleep_secs: float) -> str:
 
 class TestServerTaskDistribution(unittest.TestCase):
     def test_server_distributes_invocations_fairly_between_two_executors(self):
-        print(
-            "running test_server_distributes_invocations_fairly_between_two_executors"
-        )
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
-
         graph_name = test_graph_name(self)
         version = str(time.time())
 
@@ -92,13 +83,6 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertLess(invocations_count, 199)
 
     def test_server_redistributes_invocations_when_new_executor_joins(self):
-        print(
-            "running test test_server_redistributes_invocations_when_new_executor_joins"
-        )
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
         graph_name = test_graph_name(self)
         version = str(time.time())
 
@@ -151,11 +135,6 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertGreater(invocations_count, 1)
 
     def test_all_tasks_succeed_when_executor_exits(self):
-        print("running test test_all_tasks_succeed_when_executor_exits")
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
         graph_name = test_graph_name(self)
         version = str(time.time())
 

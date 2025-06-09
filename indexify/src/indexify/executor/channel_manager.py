@@ -84,15 +84,28 @@ class ChannelManager:
         # Use the lock to ensure that we only create one channel without race conditions.
         async with self._lock:
             if self._channel is None:
-                self._channel = await self._create_channel()
+                self._channel = await self._create_ready_channel()
             elif not await self._locked_channel_is_healthy():
                 self._logger.info("grpc channel to server is unhealthy")
                 await self._destroy_locked_channel()
-                self._channel = await self._create_channel()
+                self._channel = await self._create_ready_channel()
 
             return self._channel
 
-    async def _create_channel(self) -> grpc.aio.Channel:
+    def create_channel(self) -> grpc.aio.Channel:
+        """Creates a new channel to the gRPC server.
+
+        The channel is not be ready to use. Raises an exception on failure.
+        """
+        if self._channel_credentials is None:
+            return grpc.aio.insecure_channel(target=self._server_address)
+        else:
+            return grpc.aio.secure_channel(
+                target=self._server_address,
+                credentials=self._channel_credentials,
+            )
+
+    async def _create_ready_channel(self) -> grpc.aio.Channel:
         """Creates a new channel to the gRPC server."
 
         Returns a ready to use channel. Blocks until the channel
@@ -104,14 +117,7 @@ class ChannelManager:
             metric_grpc_server_channel_creations.inc()
             while True:
                 try:
-                    if self._channel_credentials is None:
-                        channel = grpc.aio.insecure_channel(target=self._server_address)
-                    else:
-                        channel = grpc.aio.secure_channel(
-                            target=self._server_address,
-                            credentials=self._channel_credentials,
-                        )
-
+                    channel = self.create_channel()
                     await asyncio.wait_for(
                         channel.channel_ready(),
                         timeout=_CONNECT_TIMEOUT_SEC,

@@ -122,7 +122,6 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
             ExecutorStatus::StartingUp => data_model::ExecutorState::StartingUp,
             ExecutorStatus::Running => data_model::ExecutorState::Running,
             ExecutorStatus::Drained => data_model::ExecutorState::Drained,
-            ExecutorStatus::Stopping => data_model::ExecutorState::Stopping,
             ExecutorStatus::Stopped => data_model::ExecutorState::Stopped,
             ExecutorStatus::Unknown => data_model::ExecutorState::Unknown,
         }
