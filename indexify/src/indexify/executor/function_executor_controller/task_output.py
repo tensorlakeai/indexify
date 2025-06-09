@@ -87,7 +87,7 @@ class TaskOutput:
             allocation_id=allocation_id,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
-            stderr=f"Function or router exceeded its configured timeout of {timeout_sec:.3f} sec.",
+            stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
         )
 
     @classmethod
