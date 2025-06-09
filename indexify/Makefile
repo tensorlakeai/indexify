@@ -31,10 +31,6 @@ check:
 	@poetry run black --check .
 	@poetry run isort . --check-only --profile black
 
-lint:
-	@poetry run pylint ./indexify
-	@poetry run black --check .
-
 test:
 	cd tests && ./run_tests.sh
 
