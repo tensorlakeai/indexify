@@ -331,6 +331,9 @@ def _to_task_result_protos(task_outputs: List[TaskOutput]) -> List[TaskResult]:
             task_result.stdout.CopyFrom(output.uploaded_stdout)
         if output.uploaded_stderr is not None:
             task_result.stderr.CopyFrom(output.uploaded_stderr)
+        if output.router_output is not None:
+            task_result.routing.next_functions[:] = output.router_output.edges
+
         task_results.append(task_result)
 
     return task_results
