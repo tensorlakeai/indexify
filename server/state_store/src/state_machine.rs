@@ -1,11 +1,15 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{self, AtomicU64},
+        Arc,
+    },
 };
 
 use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
+    AllocationOutputIngestedEvent,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
@@ -13,8 +17,9 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
-    OutputPayload,
     StateChange,
+    StateChangeBuilder,
+    StateChangeId,
     Task,
     TaskOutputsIngestionStatus,
 };
@@ -29,19 +34,16 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::{
-    requests::{
-        DeleteInvocationRequest,
-        IngestTaskOutputsRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
-        ReductionTasks,
-        SchedulerUpdateRequest,
-    },
-    state_changes,
+use crate::requests::{
+    DeleteInvocationRequest,
+    IngestTaskOutputsRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    SchedulerUpdateRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -69,7 +71,6 @@ pub enum IndexifyObjectsColumns {
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
-    TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -244,12 +245,6 @@ pub(crate) fn delete_invocation(
             }
             None => {}
         }
-        let task_output_prefix = Task::key_output_prefix_from(&req.namespace, &task.id.get());
-        delete_cf_prefix(
-            txn,
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            task_output_prefix.as_bytes(),
-        )?;
     }
 
     let allocation_prefix = Allocation::key_prefix_from_invocation(
@@ -303,15 +298,12 @@ pub(crate) fn delete_invocation(
     ) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
-        match &value.payload {
-            OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
-            }
+        for payload in value.payloads {
+            txn.put_cf(
+                &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                payload.path.as_bytes(),
+                [],
+            )?;
         }
         txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
     }
@@ -660,13 +652,11 @@ pub(crate) fn processed_reduction_tasks(
 }
 
 pub(crate) fn handle_scheduler_update(
-    last_state_change_id: &AtomicU64,
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     request: &SchedulerUpdateRequest,
+    last_state_change_id: &AtomicU64,
 ) -> Result<Vec<StateChange>> {
-    let mut state_changes = vec![];
-
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -688,6 +678,8 @@ pub(crate) fn handle_scheduler_update(
             function_name = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
             allocation_id = alloc.id,
+            function_executor_id = alloc.function_executor_id.get(),
+            executor_id = alloc.executor_id.get(),
             "add_allocation",
         );
         let serialized_alloc = JsonEncoder::encode(&alloc)?;
@@ -719,6 +711,50 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
+    let mut state_changes = vec![];
+
+    for (task_id, node_output) in &request.cached_task_outputs {
+        let serialized_output = JsonEncoder::encode(&node_output)?;
+        // Create an output key
+        let output_key = node_output.key();
+        txn.put_cf(
+            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+            &output_key,
+            serialized_output,
+        )?;
+
+        let task = txn.get_for_update_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            task_id.get(),
+            true,
+        )?;
+        let task = JsonEncoder::decode::<Task>(&task.unwrap())?;
+
+        let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+        let event = StateChangeBuilder::default()
+            .namespace(Some(task.namespace.clone()))
+            .compute_graph(Some(task.compute_graph_name.clone()))
+            .invocation(Some(task.invocation_id.clone()))
+            .change_type(data_model::ChangeType::AllocationOutputsIngested(
+                AllocationOutputIngestedEvent {
+                    namespace: task.namespace.clone(),
+                    compute_graph: task.compute_graph_name.clone(),
+                    compute_fn: task.compute_fn_name.clone(),
+                    invocation_id: task.invocation_id.clone(),
+                    task_id: task.id.clone(),
+                    node_output_key: output_key,
+                },
+            ))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(task.id.clone().to_string())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()?;
+
+        debug!(cache_event = ?event);
+        state_changes.push(event);
+    }
+
     processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
 
     for invocation_ctx in &request.updated_invocations_states {
@@ -739,14 +775,6 @@ pub(crate) fn handle_scheduler_update(
             invocation_ctx.key(),
             &serialized_graph_ctx,
         )?;
-    }
-
-    // Trigger the executor deregistration state change only once even if multiple
-    // executors are removed.
-    if let Some(executor_id) = request.remove_executors.first() {
-        let deregister_events =
-            state_changes::deregister_executor_event(last_state_change_id, executor_id.clone())?;
-        state_changes.extend(deregister_events);
     }
 
     Ok(state_changes)
@@ -830,9 +858,7 @@ pub fn ingest_task_outputs(
             &req.namespace,
             &req.compute_graph,
             &req.invocation_id,
-            &req.compute_fn,
-            &req.task.id,
-            &req.executor_id,
+            &req.allocation_id,
         ),
     )?;
 
@@ -863,26 +889,26 @@ pub fn ingest_task_outputs(
         return Ok(false);
     }
 
-    for output in req.node_outputs {
-        let serialized_output = JsonEncoder::encode(&output)?;
-        // Create an output key
-        let output_key = output.key(&req.invocation_id);
+    let serialized_output = JsonEncoder::encode(&req.node_output)?;
+
+    if req.node_output.reducer_output {
+        let mut acc_value = req.node_output.clone();
+        acc_value.reducer_output = false;
+        let reducer_acc_value = JsonEncoder::encode(&acc_value)?;
+        let reducer_output_key = req.node_output.reducer_acc_value_key();
         txn.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-            &output_key,
-            serialized_output,
-        )?;
-
-        // Create a key to store the pointer to the node output to the task
-        // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = &req.task.key_output(&output.id);
-        let node_output_id = JsonEncoder::encode(&output_key)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            task_output_key,
-            node_output_id,
+            &reducer_output_key,
+            reducer_acc_value,
         )?;
     }
+    // Create an output key
+    let output_key = req.node_output.key();
+    txn.put_cf(
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        &output_key,
+        serialized_output,
+    )?;
 
     let existing_task = req.task;
 

@@ -56,12 +56,6 @@ class ExecutorAPIStub(object):
             response_deserializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
         )
-        self.report_task_outcome = channel.unary_unary(
-            "/executor_api_pb.ExecutorAPI/report_task_outcome",
-            request_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeResponse.FromString,
-            _registered_method=True,
-        )
 
 
 class ExecutorAPIServicer(object):
@@ -92,12 +86,6 @@ class ExecutorAPIServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def report_task_outcome(self, request, context):
-        """Report the outcome of a task."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
-
 
 def add_ExecutorAPIServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -110,11 +98,6 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
             servicer.get_desired_executor_states,
             request_deserializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.FromString,
             response_serializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.SerializeToString,
-        ),
-        "report_task_outcome": grpc.unary_unary_rpc_method_handler(
-            servicer.report_task_outcome,
-            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -185,36 +168,6 @@ class ExecutorAPI(object):
             "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
             indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
             indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True,
-        )
-
-    @staticmethod
-    def report_task_outcome(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            "/executor_api_pb.ExecutorAPI/report_task_outcome",
-            indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeRequest.SerializeToString,
-            indexify_dot_proto_dot_executor__api__pb2.ReportTaskOutcomeResponse.FromString,
             options,
             channel_credentials,
             insecure,

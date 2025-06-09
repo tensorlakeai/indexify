@@ -8,6 +8,7 @@ from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
 from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.remote_graph import RemoteGraph
 from testing import test_graph_name
 
@@ -79,7 +80,6 @@ class SampleSpec:
         self.value = value
 
 
-# TODO: Add tests for grpc connection manager, state reporter, state reconciler once grpc migration is done.
 class TestMetrics(unittest.TestCase):
     def test_all_expected_metrics_are_present(self):
         # See how metrics are mapped to their samples at https://prometheus.io/docs/concepts/metric_types/.
@@ -171,62 +171,46 @@ class TestMetrics(unittest.TestCase):
             "function_executor_destroy_health_checker_latency_seconds_count",
             "function_executor_destroy_health_checker_latency_seconds_sum",
             "function_executor_destroy_health_checker_errors_total",
-            # FE states
-            "function_executor_state_not_locked_errors_total",
-            "function_executor_states_count",
             # FE statuses
             "function_executors_with_status",
             # Executor
             "executor_info",
             "executor_state",
-            # Server registration API
-            "server_registration_requests_total",
-            "server_registration_request_errors_total",
-            "server_registration_request_latency_seconds_count",
-            "server_registration_request_latency_seconds_sum",
             # Task lifecycle steps
             "tasks_fetched_total",
             "tasks_completed_total",
             "task_completion_latency_seconds_count",
             "task_completion_latency_seconds_sum",
-            # Task outcome reporting
-            "task_outcome_reports_total",
-            "tasks_reporting_outcome",
-            "task_outcome_report_latency_seconds_count",
-            "task_outcome_report_latency_seconds_sum",
-            "tasks_outcome_report_retries_total",
-            # TODO: Add task output blob store upload metrics once we stop uploading to Server.
-            # "server_ingest_files_requests_total",
-            # "server_ingest_files_request_errors_total",
-            # "server_ingest_files_request_latency_seconds_count",
-            # "server_ingest_files_request_latency_seconds_sum",
-            # Running a task
-            "task_policy_runs_total",
-            "task_policy_errors_total",
-            "task_policy_latency_seconds_count",
-            "task_policy_latency_seconds_sum",
-            "tasks_blocked_by_policy",
-            #
-            "task_runs_total",
-            "task_run_platform_errors_total",
-            "task_run_latency_seconds_count",
-            "task_run_latency_seconds_sum",
-            "tasks_running",
-            #
+            # Task output blob store upload metrics
+            "task_output_blob_store_uploads_total",
+            "task_output_blob_store_upload_errors_total",
+            "task_output_blob_store_upload_latency_seconds_count",
+            "task_output_blob_store_upload_latency_seconds_sum",
+            # Task scheduling
+            "schedule_task_latency_seconds_count",
+            "schedule_task_latency_seconds_sum",
+            "runnable_tasks",
+            # Run task RPC
+            "function_executor_run_task_rpcs_in_progress",
             "function_executor_run_task_rpcs_total",
             "function_executor_run_task_rpc_errors_total",
             "function_executor_run_task_rpc_latency_seconds_count",
             "function_executor_run_task_rpc_latency_seconds_sum",
-            # Server gRPC channel creation
+            # gRPC channel creation
             "grpc_server_channel_creations_total",
             "grpc_server_channel_creation_retries_total",
             "grpc_server_channel_creation_latency_seconds_count",
             "grpc_server_channel_creation_latency_seconds_sum",
-            # State reporter
+            # Executor state reporting
             "state_report_rpcs_total",
             "state_report_rpc_errors_total",
             "state_report_rpc_latency_seconds_count",
             "state_report_rpc_latency_seconds_sum",
+            # Executor state reconciliation
+            "state_reconciliations_total",
+            "state_reconciliation_errors_total",
+            "state_reconciliation_latency_seconds_count",
+            "state_reconciliation_latency_seconds_sum",
         ]
         metrics: Dict[str, Metric] = fetch_metrics(self)
 
@@ -239,10 +223,8 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(len(info_metric.samples), 1)
         info_sample: Sample = info_metric.samples[0]
         self.assertIn("id", info_sample.labels)
-        self.assertIn("dev_mode", info_sample.labels)
-        self.assertIn("flavor", info_sample.labels)
         self.assertIn("version", info_sample.labels)
-        self.assertIn("code_path", info_sample.labels)
+        self.assertIn("cache_path", info_sample.labels)
         self.assertIn("server_addr", info_sample.labels)
         self.assertIn("grpc_server_addr", info_sample.labels)
         self.assertIn("config_path", info_sample.labels)
@@ -270,7 +252,9 @@ class TestMetrics(unittest.TestCase):
             description="test",
             start_node=successful_function,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         invocation_id = graph.run(
             block_until_done=True,
             arg="ignored",
@@ -376,70 +360,50 @@ class TestMetrics(unittest.TestCase):
             SampleSpec(
                 "function_executor_destroy_health_checker_errors_total", {}, 0.0
             ),
-            # FE states
-            SampleSpec("function_executor_state_not_locked_errors_total", {}, 0.0),
-            # FE statuses
-            SampleSpec(
-                "function_executors_with_status",
-                {"status": "STARTING_UP"},
-                0.0,
-            ),
-            SampleSpec(
-                "function_executors_with_status",
-                {"status": "STARTUP_FAILED_CUSTOMER_ERROR"},
-                0.0,
-            ),
-            SampleSpec(
-                "function_executors_with_status",
-                {"status": "STARTUP_FAILED_PLATFORM_ERROR"},
-                0.0,
-            ),
-            # SampleSpec("function_executors_with_status", {"status": "IDLE"} is either 0 or 1 - depends on what was running at Executor.
-            SampleSpec(
-                "function_executors_with_status", {"status": "RUNNING_TASK"}, 0.0
-            ),
-            SampleSpec("function_executors_with_status", {"status": "UNHEALTHY"}, 0.0),
-            SampleSpec("function_executors_with_status", {"status": "DESTROYING"}, 0.0),
-            SampleSpec("function_executors_with_status", {"status": "DESTROYED"}, 0.0),
-            # SampleSpec("function_executors_with_status", {"status": "SHUTDOWN"} is either 0 or 1 - depends if there was an FE for the graph before the test run or not.
             # Executor
             SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "shutting_down"}, 0.0),
-            # Server registration API
-            SampleSpec("server_registration_requests_total", {}, 0.0),
-            SampleSpec("server_registration_request_errors_total", {}, 0.0),
-            SampleSpec("server_registration_request_latency_seconds_count", {}, 0.0),
-            SampleSpec("server_registration_request_latency_seconds_sum", {}, 0.0),
             # Task lifecycle steps
             SampleSpec("tasks_fetched_total", {}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "all"}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "success"}, 1.0),
-            SampleSpec("tasks_completed_total", {"outcome": "error_platform"}, 0.0),
             SampleSpec(
-                "tasks_completed_total", {"outcome": "error_customer_code"}, 0.0
+                "tasks_completed_total",
+                {"outcome_code": "all", "failure_reason": "all"},
+                1.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "success", "failure_reason": "none"},
+                1.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "failure", "failure_reason": "function_error"},
+                0.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {"outcome_code": "failure", "failure_reason": "internal_error"},
+                0.0,
+            ),
+            SampleSpec(
+                "tasks_completed_total",
+                {
+                    "outcome_code": "failure",
+                    "failure_reason": "function_executor_terminated",
+                },
+                0.0,
             ),
             SampleSpec("task_completion_latency_seconds_count", {}, 1.0),
-            # Task outcome reporting
-            SampleSpec("task_outcome_reports_total", {}, 1.0),
-            SampleSpec("tasks_reporting_outcome", {}, 0.0),
-            SampleSpec("task_outcome_report_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_outcome_report_retries_total", {}, 0.0),
-            # # TODO: Add task output blob store upload metrics once we stop uploading to Server.
-            # SampleSpec("server_ingest_files_requests_total", {}, 1.0),
-            # SampleSpec("server_ingest_files_request_errors_total", {}, 0.0),
-            # SampleSpec("server_ingest_files_request_latency_seconds_count", {}, 1.0),
-            # Running a task
-            SampleSpec("task_policy_runs_total", {}, 1.0),
-            SampleSpec("task_policy_errors_total", {}, 0.0),
-            SampleSpec("task_policy_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_blocked_by_policy", {}, 0.0),
-            #
-            SampleSpec("task_runs_total", {}, 1.0),
-            SampleSpec("task_run_platform_errors_total", {}, 0.0),
-            SampleSpec("task_run_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_running", {}, 0.0),
-            #
+            # Task output blob store upload metrics
+            SampleSpec("task_output_blob_store_uploads_total", {}, 1.0),
+            SampleSpec("task_output_blob_store_upload_errors_total", {}, 0.0),
+            SampleSpec("task_output_blob_store_upload_latency_seconds_count", {}, 1.0),
+            # Task scheduling
+            SampleSpec("schedule_task_latency_seconds_count", {}, 1.0),
+            SampleSpec("runnable_tasks", {}, 0.0),
+            # Run task RPC
+            SampleSpec("function_executor_run_task_rpcs_in_progress", {}, 0.0),
             SampleSpec("function_executor_run_task_rpcs_total", {}, 1.0),
             SampleSpec("function_executor_run_task_rpc_errors_total", {}, 0.0),
             SampleSpec("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
@@ -447,8 +411,10 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("grpc_server_channel_creations_total", {}, 0.0),
             SampleSpec("grpc_server_channel_creation_retries_total", {}, 0.0),
             SampleSpec("grpc_server_channel_creation_latency_seconds_count", {}, 0.0),
-            # State reporter
+            # Executor state reporting
             SampleSpec("state_report_rpc_errors_total", {}, 0.0),
+            # Executor state reconciliation
+            SampleSpec("state_reconciliation_errors_total", {}, 0.0),
         ]
         for expected_diff in expected_sample_diffs:
             sample_before: Sample = get_sample(
@@ -470,7 +436,9 @@ class TestMetrics(unittest.TestCase):
             description="test",
             start_node=successful_function,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(
+            graph=graph, code_dir_path=graph_code_dir_path(__file__)
+        )
         invocation_id = graph.run(
             block_until_done=True,
             arg="ignored",
@@ -482,7 +450,7 @@ class TestMetrics(unittest.TestCase):
         expected_metrics: List[SampleSpec] = [
             # Running a task
             SampleSpec(
-                "tasks_blocked_by_policy_per_function_name",
+                "runnable_tasks_per_function_name",
                 {"function_name": "successful_function"},
                 0.0,
             ),

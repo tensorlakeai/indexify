@@ -14,9 +14,10 @@ use std::{
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use filter::LabelsFilter;
-use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
+use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strum::Display;
 use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,56 +78,21 @@ pub struct Allocation {
     pub compute_fn: String,
     pub invocation_id: String,
     pub created_at: u128,
+    pub retry_number: u32,
 }
 
 impl Allocation {
-    pub fn id(
-        executor_id: &ExecutorId,
-        task_id: &TaskId,
-        namespace: &str,
-        compute_graph: &str,
-        compute_fn: &str,
-        invocation_id: &str,
-    ) -> String {
-        // TODO: Investigate impact of not using the function executor id
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        compute_graph.hash(&mut hasher);
-        compute_fn.hash(&mut hasher);
-        task_id.get().hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        executor_id.get().hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    }
-
     pub fn key(&self) -> String {
         Allocation::key_from(
             &self.namespace,
             &self.compute_graph,
             &self.invocation_id,
-            &self.compute_fn,
-            &self.task_id,
-            &self.executor_id,
+            &self.id,
         )
     }
 
-    pub fn key_from(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        task_id: &TaskId,
-        executor_id: &ExecutorId,
-    ) -> String {
-        format!(
-            "{}|{}|{}|{}|{}|{}",
-            namespace,
-            compute_graph,
-            invocation_id,
-            compute_fn,
-            task_id.get(),
-            executor_id.get(),
-        )
+    pub fn key_from(namespace: &str, compute_graph: &str, invocation_id: &str, id: &str) -> String {
+        format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, id,)
     }
 
     pub fn key_prefix_from_invocation(
@@ -183,15 +149,23 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("executor_id is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
+        let retry_number = self
+            .retry_number
+            .clone()
+            .ok_or(anyhow!("retry_number is required"))?;
+
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        compute_graph.hash(&mut hasher);
+        compute_fn.hash(&mut hasher);
+        task_id.get().hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
+        retry_number.hash(&mut hasher);
+        executor_id.get().hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+
         Ok(Allocation {
-            id: Allocation::id(
-                &executor_id,
-                &task_id,
-                &namespace,
-                &compute_graph,
-                &compute_fn,
-                &invocation_id,
-            ),
+            id,
             function_executor_id,
             executor_id,
             task_id,
@@ -200,6 +174,7 @@ impl AllocationBuilder {
             compute_fn,
             invocation_id,
             created_at,
+            retry_number,
         })
     }
 }
@@ -274,8 +249,8 @@ pub struct NodeResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
     pub cpu_ms_per_sec: u32,
-    pub memory_mb: u32,
-    pub ephemeral_disk_mb: u32,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
     // The list is ordered from most to least preferred GPU configuration.
     pub gpu_configs: Vec<NodeGPUConfig>,
 }
@@ -283,10 +258,10 @@ pub struct NodeResources {
 impl Default for NodeResources {
     fn default() -> Self {
         NodeResources {
-            cpu_ms_per_sec: 125,
-            memory_mb: 128,
-            ephemeral_disk_mb: 100 * 1024, // 100 GB
-            gpu_configs: vec![],           // No GPUs by default
+            cpu_ms_per_sec: 1000,        // 1 full CPU core
+            memory_mb: 1024,             // 1 GB
+            ephemeral_disk_mb: 1 * 1024, // 1 GB
+            gpu_configs: vec![],         // No GPUs by default
         }
     }
 }
@@ -335,6 +310,21 @@ pub struct DynamicEdgeRouter {
     pub retry_policy: NodeRetryPolicy,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
+pub struct CacheKey(String);
+
+impl CacheKey {
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for CacheKey {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ComputeFn {
     pub name: String,
@@ -354,6 +344,7 @@ pub struct ComputeFn {
     pub resources: NodeResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
+    pub cache_key: Option<CacheKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -433,46 +424,29 @@ impl Node {
         namespace: &str,
         compute_graph_name: &str,
         invocation_id: &str,
-        input_key: &str,
-        reducer_output_id: Option<String>,
+        input: DataPayload,
+        acc_input: Option<DataPayload>,
         graph_version: &GraphVersion,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
             Node::Compute(compute) => compute.name.clone(),
         };
+        let cache_key = match self {
+            Node::Router(_) => None,
+            Node::Compute(compute) => compute.cache_key.as_ref().and_then(|v| Some(v.clone())),
+        };
         let task = TaskBuilder::default()
             .namespace(namespace.to_string())
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
-            .input_node_output_key(input_key.to_string())
-            .reducer_output_id(reducer_output_id)
+            .input(input)
+            .acc_input(acc_input)
             .graph_version(graph_version.clone())
+            .cache_key(cache_key)
             .build()?;
         Ok(task)
-    }
-
-    pub fn reducer_task(
-        &self,
-        namespace: &str,
-        compute_graph_name: &str,
-        invocation_id: &str,
-        task_id: &str,
-        task_output_key: &str,
-    ) -> ReduceTask {
-        let name = match self {
-            Node::Router(router) => router.name.clone(),
-            Node::Compute(compute) => compute.name.clone(),
-        };
-        ReduceTask {
-            namespace: namespace.to_string(),
-            compute_graph_name: compute_graph_name.to_string(),
-            invocation_id: invocation_id.to_string(),
-            compute_fn_name: name,
-            task_id: task_id.to_string(),
-            task_output_key: task_output_key.to_string(),
-        }
     }
 }
 
@@ -485,7 +459,7 @@ pub struct ComputeGraphCode {
     pub sha256_hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct GraphVersion(pub String);
 
 impl Default for GraphVersion {
@@ -666,9 +640,9 @@ pub struct TaskDiagnostics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum OutputPayload {
-    Router(RouterOutput),
-    Fn(DataPayload),
+pub enum Routing {
+    UseGraphEdges,
+    Edges(Vec<String>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -679,19 +653,36 @@ pub struct NodeOutput {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub invocation_id: String,
-    pub payload: OutputPayload,
+    pub payloads: Vec<DataPayload>,
+    pub routing: Routing,
     pub errors: Option<DataPayload>,
-    pub reduced_state: bool,
     pub created_at: u64,
     pub encoding: String,
+    pub allocation_id: String,
+
+    // If this is the output of an individual reducer
+    // We need this here since we are going to filter out the individual reducer outputs
+    // and return the accumulated output
+    pub reducer_output: bool,
 }
 
 impl NodeOutput {
-    pub fn key(&self, invocation_id: &str) -> String {
+    // We store the last reducer output separately
+    // because that's the value that's interesting to the user
+    // and not the intermediate values since they are not useful other than for
+    // debugging
+    pub fn reducer_acc_value_key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.invocation_id, self.compute_fn_name,
+        )
+    }
+
+    pub fn key(&self) -> String {
         NodeOutput::key_from(
             &self.namespace,
             &self.compute_graph_name,
-            invocation_id,
+            &self.invocation_id,
             &self.compute_fn_name,
             &self.id,
         )
@@ -737,20 +728,23 @@ impl NodeOutputBuilder {
             .encoding
             .clone()
             .unwrap_or_else(|| "application/octet-stream".to_string());
-        let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
-        let reduced_state = self.reduced_state.clone().unwrap_or(false);
+        let allocation_id = self
+            .allocation_id
+            .clone()
+            .ok_or(anyhow!("allocation_id is required"))?;
+        let reducer_output = self.reducer_output.clone().unwrap_or(false);
+        let payloads = self
+            .payloads
+            .clone()
+            .ok_or(anyhow!("payloads is required"))?;
+        let routing = self.routing.clone().ok_or(anyhow!("routing is required"))?;
         let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
         invocation_id.hash(&mut hasher);
-        match &payload {
-            OutputPayload::Router(router) => router.edges.hash(&mut hasher),
-            OutputPayload::Fn(data) => {
-                data.path.hash(&mut hasher);
-            }
-        }
+        allocation_id.hash(&mut hasher);
         let errors = self.errors.clone().flatten();
 
         let id = format!("{:x}", hasher.finish());
@@ -760,11 +754,13 @@ impl NodeOutputBuilder {
             compute_graph_name: cg_name,
             invocation_id,
             compute_fn_name: fn_name,
-            payload,
+            payloads,
             errors,
-            reduced_state,
+            routing,
             created_at,
             encoding,
+            allocation_id,
+            reducer_output,
         })
     }
 }
@@ -868,13 +864,14 @@ pub struct GraphInvocationCtx {
     #[serde(default)]
     pub outcome: GraphInvocationOutcome,
     pub outstanding_tasks: u64,
+    pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
 }
 
 impl GraphInvocationCtx {
-    pub fn create_tasks(&mut self, tasks: &Vec<Task>) {
+    pub fn create_tasks(&mut self, tasks: &Vec<Task>, reducer_tasks: &Vec<ReduceTask>) {
         for task in tasks {
             let fn_name = task.compute_fn_name.clone();
             self.fn_task_analytics
@@ -883,6 +880,15 @@ impl GraphInvocationCtx {
                 .pending();
         }
         self.outstanding_tasks += tasks.len() as u64;
+        self.outstanding_reducer_tasks += reducer_tasks.len() as u64;
+
+        for reducer_task in reducer_tasks {
+            let fn_name = reducer_task.compute_fn_name.clone();
+            self.fn_task_analytics
+                .entry(fn_name.clone())
+                .or_insert_with(|| TaskAnalytics::default())
+                .queued_reducer(1);
+        }
     }
 
     pub fn update_analytics(&mut self, task: &Task) {
@@ -897,6 +903,25 @@ impl GraphInvocationCtx {
             }
         }
         self.outstanding_tasks -= 1;
+    }
+
+    pub fn complete_reducer_task(&mut self, reducer_task_fn_name: &str) {
+        if let Some(analytics) = self.fn_task_analytics.get_mut(reducer_task_fn_name) {
+            analytics.completed_reducer(1);
+        }
+        self.outstanding_reducer_tasks -= 1;
+    }
+
+    pub fn all_tasks_completed(&self) -> bool {
+        self.outstanding_tasks == 0 && self.outstanding_reducer_tasks == 0
+    }
+
+    pub fn tasks_completed(&self, compute_fn_name: &str) -> bool {
+        if let Some(analytics) = self.fn_task_analytics.get(compute_fn_name) {
+            analytics.pending_tasks == 0 && analytics.queued_reducer_tasks == 0
+        } else {
+            false
+        }
     }
 
     pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
@@ -976,6 +1001,7 @@ impl GraphInvocationCtxBuilder {
             outcome: GraphInvocationOutcome::Undefined,
             fn_task_analytics,
             outstanding_tasks: 0,
+            outstanding_reducer_tasks: 0,
             created_at,
         })
     }
@@ -988,21 +1014,19 @@ pub struct ReduceTask {
     pub invocation_id: String,
     pub compute_fn_name: String,
 
-    // The task for which we are need to create the reduce task
-    pub task_id: String,
-    pub task_output_key: String,
+    pub input: DataPayload,
+    pub id: String,
 }
 
 impl ReduceTask {
     pub fn key(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}",
             self.namespace,
             self.compute_graph_name,
             self.invocation_id,
             self.compute_fn_name,
-            self.task_id,
-            self.task_output_key,
+            self.id,
         )
     }
 
@@ -1092,18 +1116,20 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
-    pub input_node_output_key: String,
+    // Input to the function
+    pub input: DataPayload,
+    // Input to the reducer function
+    pub acc_input: Option<DataPayload>,
     #[serde(default = "TaskOutputsIngestionStatus::pending")]
     pub output_status: TaskOutputsIngestionStatus,
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    #[serde(default = "default_creation_time")]
-    pub creation_time: SystemTime,
     pub creation_time_ns: u128,
     pub diagnostics: Option<TaskDiagnostics>,
-    pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub cache_key: Option<CacheKey>,
+    pub retry_number: u32,
 }
 
 impl Task {
@@ -1131,7 +1157,7 @@ impl Task {
             namespace: self.namespace.clone(),
             compute_graph_name: self.compute_graph_name.clone(),
             compute_fn_name: self.compute_fn_name.clone(),
-            version: Some(self.graph_version.clone()),
+            version: self.graph_version.clone(),
         }
     }
 
@@ -1197,8 +1223,8 @@ impl Display for Task {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input_key: {}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input_node_output_key, self.outcome
+            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input: {:?}, outcome: {:?})",
+            self.id, self.compute_fn_name, self.compute_graph_name, self.input, self.outcome
         )
     }
 }
@@ -1217,10 +1243,8 @@ impl TaskBuilder {
             .compute_fn_name
             .clone()
             .ok_or(anyhow!("compute fn name is not present"))?;
-        let input_key = self
-            .input_node_output_key
-            .clone()
-            .ok_or(anyhow!("input data object id is not present"))?;
+        let input = self.input.clone().ok_or(anyhow!("input is not present"))?;
+        let acc_input = self.acc_input.clone().flatten();
         let invocation_id = self
             .invocation_id
             .clone()
@@ -1229,26 +1253,27 @@ impl TaskBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
-        let reducer_output_id = self.reducer_output_id.clone().flatten();
         let current_time = SystemTime::now();
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
         let creation_time_ns = duration.as_nanos();
         let id = uuid::Uuid::new_v4().to_string();
+        let cache_key = self.cache_key.clone().flatten();
         let task = Task {
             id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
-            input_node_output_key: input_key,
+            input,
+            acc_input,
             invocation_id,
             namespace,
             output_status: TaskOutputsIngestionStatus::Pending,
             status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
-            creation_time: current_time,
             diagnostics: None,
-            reducer_output_id,
             graph_version,
             creation_time_ns,
+            cache_key,
+            retry_number: 0,
         };
         Ok(task)
     }
@@ -1259,6 +1284,7 @@ pub struct TaskAnalytics {
     pub pending_tasks: u64,
     pub successful_tasks: u64,
     pub failed_tasks: u64,
+    pub queued_reducer_tasks: u64,
 }
 
 impl TaskAnalytics {
@@ -1280,6 +1306,14 @@ impl TaskAnalytics {
             self.pending_tasks -= 1;
         }
     }
+
+    pub fn queued_reducer(&mut self, count: u64) {
+        self.queued_reducer_tasks += count;
+    }
+
+    pub fn completed_reducer(&mut self, count: u64) {
+        self.queued_reducer_tasks -= count;
+    }
 }
 
 // FIXME Remove in next release
@@ -1287,17 +1321,40 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FunctionURI {
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
-    // Temporary fix to enable internal migration
-    // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older
-    // versions after all the invocations into them have been
-    // completed, and turn on new versions of the executor.
-    pub version: Option<GraphVersion>,
+    pub version: GraphVersion,
+}
+
+impl From<FunctionExecutorServerMetadata> for FunctionURI {
+    fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
+        FunctionURI {
+            namespace: fe_meta.function_executor.namespace.clone(),
+            compute_graph_name: fe_meta.function_executor.compute_graph_name.clone(),
+            compute_fn_name: fe_meta.function_executor.compute_fn_name.clone(),
+            version: fe_meta.function_executor.version.clone(),
+        }
+    }
+}
+
+impl From<Box<FunctionExecutorServerMetadata>> for FunctionURI {
+    fn from(fe_meta: Box<FunctionExecutorServerMetadata>) -> Self {
+        FunctionURI::from(*fe_meta)
+    }
+}
+
+impl From<&Task> for FunctionURI {
+    fn from(task: &Task) -> Self {
+        FunctionURI {
+            namespace: task.namespace.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            compute_fn_name: task.compute_fn_name.clone(),
+            version: task.graph_version.clone(),
+        }
+    }
 }
 
 impl FunctionURI {
@@ -1305,7 +1362,7 @@ impl FunctionURI {
         self.namespace == task.namespace &&
             self.compute_graph_name == task.compute_graph_name &&
             self.compute_fn_name == task.compute_fn_name &&
-            (self.version.is_none() || self.version.as_ref() == Some(&task.graph_version))
+            self.version == task.graph_version
     }
 }
 
@@ -1314,12 +1371,7 @@ impl Display for FunctionURI {
         write!(
             f,
             "{}|{}|{}|{}",
-            self.namespace,
-            self.compute_graph_name,
-            self.compute_fn_name,
-            self.version
-                .as_ref()
-                .map_or("None".to_string(), |v| v.to_string())
+            self.namespace, self.compute_graph_name, self.compute_fn_name, self.version
         )
     }
 }
@@ -1330,16 +1382,26 @@ pub struct GpuResources {
     pub model: String,
 }
 
+impl GpuResources {
+    pub fn can_handle(&self, requested_resources: &NodeGPUConfig) -> bool {
+        self.count >= requested_resources.count && self.model == requested_resources.model
+    }
+}
+
 // Supported GPU models.
 pub const GPU_MODEL_NVIDIA_H100_80GB: &str = "H100";
 pub const GPU_MODEL_NVIDIA_A100_40GB: &str = "A100-40GB";
 pub const GPU_MODEL_NVIDIA_A100_80GB: &str = "A100-80GB";
 pub const GPU_MODEL_NVIDIA_TESLA_T4: &str = "T4";
-pub const ALL_GPU_MODELS: [&str; 4] = [
+pub const GPU_MODEL_NVIDIA_A6000: &str = "A6000";
+pub const GPU_MODEL_NVIDIA_A10: &str = "A10";
+pub const ALL_GPU_MODELS: [&str; 6] = [
     GPU_MODEL_NVIDIA_H100_80GB,
     GPU_MODEL_NVIDIA_A100_40GB,
     GPU_MODEL_NVIDIA_A100_80GB,
     GPU_MODEL_NVIDIA_TESLA_T4,
+    GPU_MODEL_NVIDIA_A6000,
+    GPU_MODEL_NVIDIA_A10,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1354,13 +1416,88 @@ pub struct HostResources {
 impl Default for HostResources {
     fn default() -> Self {
         // There are no sensible defaults for these values.
-        // Use values that won't be seen in real life as defaults.
+        // If the defaults are ever used then it means that the Executor is not
+        // schedulable.
         Self {
             cpu_count: 0,
             memory_bytes: 0,
             disk_bytes: 0,
             gpu: None,
         }
+    }
+}
+
+impl HostResources {
+    pub fn can_handle(&self, requested_resources: &NodeResources) -> bool {
+        let memory_bytes = requested_resources.memory_mb as u64 * 1024 * 1024;
+        let disk_bytes = requested_resources.ephemeral_disk_mb as u64 * 1024 * 1024;
+        self.cpu_count >= requested_resources.cpu_ms_per_sec / 1000 &&
+            self.memory_bytes >= memory_bytes &&
+            self.disk_bytes >= disk_bytes &&
+            self.gpu.as_ref().map_or(true, |gpu| {
+                // TODO: Match functions to GPU models according to prioritized order in
+                // gpu_configs.
+                requested_resources
+                    .gpu_configs
+                    .iter()
+                    .any(|g| gpu.can_handle(g))
+            })
+    }
+
+    pub fn consume(&mut self, requested_resources: &NodeResources) -> Result<()> {
+        let memory_bytes = requested_resources.memory_mb as u64 * 1024 * 1024;
+        let disk_bytes = requested_resources.ephemeral_disk_mb as u64 * 1024 * 1024;
+        if self.cpu_count < requested_resources.cpu_ms_per_sec / 1000 {
+            return Err(anyhow!(
+                "Not enough CPU resources, {} < {}",
+                self.cpu_count,
+                requested_resources.cpu_ms_per_sec / 1000
+            ));
+        }
+        if self.memory_bytes < memory_bytes {
+            return Err(anyhow!(
+                "Not enough memory resources, {} < {}",
+                self.memory_bytes,
+                requested_resources.memory_mb * 1024 * 1024
+            ));
+        }
+        if self.disk_bytes < disk_bytes {
+            return Err(anyhow!("Not enough disk resources"));
+        }
+        self.cpu_count -= requested_resources.cpu_ms_per_sec / 1000;
+        self.disk_bytes -= disk_bytes;
+        self.memory_bytes -= memory_bytes;
+        if let Some(gpu) = &mut self.gpu {
+            for gpu_config in requested_resources.gpu_configs.iter() {
+                if gpu.model == gpu_config.model {
+                    if gpu.count < gpu_config.count {
+                        return Err(anyhow!(
+                            "Not enough GPU resources, {} < {}",
+                            gpu.count,
+                            gpu_config.count
+                        ));
+                    }
+                    gpu.count -= gpu_config.count;
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn free(&mut self, requested_resources: &NodeResources) -> Result<()> {
+        self.cpu_count += requested_resources.cpu_ms_per_sec / 1000;
+        self.memory_bytes += (requested_resources.memory_mb * 1024 * 1024) as u64;
+        self.disk_bytes += (requested_resources.ephemeral_disk_mb * 1024 * 1024) as u64;
+        if let Some(gpu) = &mut self.gpu {
+            for gpu_config in requested_resources.gpu_configs.iter() {
+                if gpu.model == gpu_config.model {
+                    gpu.count += gpu_config.count;
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1392,7 +1529,19 @@ impl Default for FunctionExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Default,
+    strum::AsRefStr,
+    Display,
+    Eq,
+    Hash,
+)]
 pub enum FunctionExecutorState {
     #[default]
     Unknown,
@@ -1401,46 +1550,47 @@ pub enum FunctionExecutorState {
     Terminated,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
-pub enum FunctionExecutorStatus {
-    #[default]
-    Unknown,
-    StartingUp,
-    StartupFailedCustomerError,
-    StartupFailedPlatformError,
-    Idle,
-    RunningTask,
-    Unhealthy,
-    Stopping,
-    Stopped,
-    Shutdown,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph_name: Option<String>,
+    pub compute_fn_name: Option<String>,
+    pub version: Option<GraphVersion>,
 }
 
-impl FunctionExecutorStatus {
-    pub fn as_state(&self) -> FunctionExecutorState {
-        self.clone().into()
+impl FunctionAllowlist {
+    pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &function_executor.namespace) &&
+            self.compute_graph_name.as_ref().map_or(true, |cg_name| {
+                cg_name == &function_executor.compute_graph_name
+            }) &&
+            self.compute_fn_name.as_ref().map_or(true, |fn_name| {
+                fn_name == &function_executor.compute_fn_name
+            }) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &function_executor.version)
+    }
+
+    pub fn matches_task(&self, task: &Task) -> bool {
+        self.namespace
+            .as_ref()
+            .map_or(true, |ns| ns == &task.namespace) &&
+            self.compute_graph_name
+                .as_ref()
+                .map_or(true, |cg_name| cg_name == &task.compute_graph_name) &&
+            self.compute_fn_name
+                .as_ref()
+                .map_or(true, |fn_name| fn_name == &task.compute_fn_name) &&
+            self.version
+                .as_ref()
+                .map_or(true, |version| version == &task.graph_version)
     }
 }
 
-impl Into<FunctionExecutorState> for FunctionExecutorStatus {
-    fn into(self) -> FunctionExecutorState {
-        match self {
-            FunctionExecutorStatus::Unknown => FunctionExecutorState::Unknown,
-            FunctionExecutorStatus::StartingUp => FunctionExecutorState::Pending,
-            FunctionExecutorStatus::Idle | FunctionExecutorStatus::RunningTask => {
-                FunctionExecutorState::Running
-            }
-            FunctionExecutorStatus::StartupFailedCustomerError |
-            FunctionExecutorStatus::StartupFailedPlatformError |
-            FunctionExecutorStatus::Unhealthy |
-            FunctionExecutorStatus::Stopping |
-            FunctionExecutorStatus::Stopped |
-            FunctionExecutorStatus::Shutdown => FunctionExecutorState::Terminated,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
@@ -1448,7 +1598,21 @@ pub struct FunctionExecutor {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: GraphVersion,
-    pub status: FunctionExecutorStatus,
+    pub state: FunctionExecutorState,
+}
+
+impl PartialEq for FunctionExecutor {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for FunctionExecutor {}
+
+impl Hash for FunctionExecutor {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 impl FunctionExecutor {
@@ -1474,7 +1638,7 @@ impl FunctionExecutor {
         // If the basic fields match, then check the version
         if basic_match {
             // If the URI version is None, it matches any version
-            uri.version.as_ref().map_or(true, |v| self.version == *v)
+            uri.version == self.version
         } else {
             false
         }
@@ -1513,38 +1677,74 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
-            status,
+            state,
         })
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Builder)]
+#[builder(build_fn(skip))]
+pub struct ExecutorServerMetadata {
+    pub executor_id: ExecutorId,
+    pub function_executors: im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    pub free_resources: HostResources,
+}
+
+impl Eq for ExecutorServerMetadata {}
+
+impl PartialEq for ExecutorServerMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.executor_id == other.executor_id
+    }
+}
+
+impl Hash for ExecutorServerMetadata {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.executor_id.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executor: FunctionExecutor,
-    pub last_allocation_at: Option<SystemTime>,
     pub desired_state: FunctionExecutorState,
 }
+
+impl Eq for FunctionExecutorServerMetadata {}
+
+impl PartialEq for FunctionExecutorServerMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.executor_id == other.executor_id &&
+            self.function_executor.id == other.function_executor.id
+    }
+}
+
+impl Hash for FunctionExecutorServerMetadata {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.executor_id.hash(state);
+        self.function_executor.id.hash(state);
+    }
+}
+
 impl FunctionExecutorServerMetadata {
     pub fn new(
         executor_id: ExecutorId,
         function_executor: FunctionExecutor,
         desired_state: FunctionExecutorState,
-        last_allocation_at: Option<SystemTime>,
     ) -> Self {
         Self {
             executor_id,
             function_executor,
             desired_state,
-            last_allocation_at,
         }
     }
 
@@ -1558,14 +1758,13 @@ impl FunctionExecutorServerMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
-    pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
     pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
@@ -1574,6 +1773,26 @@ pub struct ExecutorMetadata {
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
+}
+
+impl ExecutorMetadata {
+    pub fn is_task_allowed(&self, task: &Task) -> bool {
+        if let Some(function_allowlist) = &self.function_allowlist {
+            function_allowlist
+                .iter()
+                .any(|allowlist| allowlist.matches_task(task))
+        } else {
+            true
+        }
+    }
+
+    pub fn update(&mut self, update: ExecutorMetadata) {
+        self.function_allowlist = update.function_allowlist;
+        self.function_executors = update.function_executors;
+        self.state = update.state;
+        self.state_hash = update.state_hash;
+        self.clock = update.clock;
+    }
 }
 
 impl ExecutorMetadataBuilder {
@@ -1602,16 +1821,11 @@ impl ExecutorMetadataBuilder {
             .state_hash
             .clone()
             .ok_or(anyhow!("state_hash is required"))?;
-        let development_mode = self
-            .development_mode
-            .clone()
-            .ok_or(anyhow!("dev_mode is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
         let clock = self.clock.unwrap_or(0);
         Ok(ExecutorMetadata {
             id,
             executor_version,
-            development_mode,
             function_allowlist,
             addr,
             labels,
@@ -1653,12 +1867,13 @@ impl fmt::Display for TaskFinalizedEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TaskOutputsIngestedEvent {
+pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
+    pub node_output_key: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -1692,7 +1907,7 @@ pub struct ExecutorAddedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    TaskOutputsIngested(TaskOutputsIngestedEvent),
+    AllocationOutputsIngested(AllocationOutputIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorAddedEvent),
@@ -1710,7 +1925,7 @@ impl fmt::Display for ChangeType {
                     ev.namespace, ev.invocation_id, ev.compute_graph
                 )
             }
-            ChangeType::TaskOutputsIngested(ev) => write!(
+            ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
                 "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",
                 ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,

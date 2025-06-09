@@ -15,7 +15,6 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from ..downloader import serialized_object_from_http_response
 from .metrics.invocation_state_client import (
     metric_request_read_errors,
     metric_server_get_state_request_errors,
@@ -78,11 +77,18 @@ class InvocationStateClient:
         If a request is not comming from the task ID that was added here then it will
         be rejected. It's caller's responsibility to only add task IDs that are being
         executed by the Function Executor so the Function Executor can't get access to
-        invocation state of tasks it doesn't run."""
+        invocation state of tasks it doesn't run.
+
+        Doesn't raise any exceptions.
+        """
         self._task_id_to_invocation_id[task_id] = invocation_id
 
     def remove_task_to_invocation_id_entry(self, task_id: str) -> None:
-        del self._task_id_to_invocation_id[task_id]
+        """Removes a task ID to invocation ID entry from the client's internal state.
+
+        Doesn't raise any exceptions.
+        """
+        self._task_id_to_invocation_id.pop(task_id, None)
 
     async def destroy(self) -> None:
         if self._request_loop_task is not None:
@@ -257,3 +263,19 @@ class InvocationStateClient:
             )
         else:
             raise ValueError("unknown request type")
+
+
+def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
+    # We're hardcoding the content type currently used by Python SDK. It might change in the future.
+    # There's no other way for now to determine if the response is a bytes or string.
+    if response.headers["content-type"] in [
+        "application/octet-stream",
+        "application/pickle",
+    ]:
+        return SerializedObject(
+            bytes=response.content, content_type=response.headers["content-type"]
+        )
+    else:
+        return SerializedObject(
+            string=response.text, content_type=response.headers["content-type"]
+        )

@@ -37,18 +37,20 @@ class ExecutorProcessContextManager:
     def __init__(
         self,
         args: List[str],
-        with_dedicated_executor_cache: bool = True,
         keep_std_outputs: bool = True,
         extra_env: Optional[dict] = None,
     ):
-        self._args = ["indexify-cli", "executor"]
-        self._args.extend(args)
-        self._args.extend(["--enable-grpc-state-reconciler"])
-        self._with_dedicated_executor_cache = with_dedicated_executor_cache
         self._keep_std_outputs = keep_std_outputs
         self._extra_env = extra_env
+        self._temp_dir = tempfile.mkdtemp(prefix="executor_cache_")
         self._process: Optional[subprocess.Popen] = None
-        self._temp_dir: Optional[str] = None
+        self._args = [
+            "indexify-cli",
+            "executor",
+            "--executor-cache-path",
+            self._temp_dir,
+        ]
+        self._args.extend(args)
 
     def __enter__(self) -> subprocess.Popen:
         kwargs = {}
@@ -58,9 +60,6 @@ class ExecutorProcessContextManager:
         if self._extra_env is not None:
             kwargs["env"] = os.environ.copy()
             kwargs["env"].update(self._extra_env)
-        if self._with_dedicated_executor_cache:
-            self._temp_dir = tempfile.mkdtemp(prefix="executor_cache_")
-            self._args.extend(["--executor-cache", self._temp_dir])
         self._process = subprocess.Popen(self._args, **kwargs)
         return self._process
 
@@ -113,6 +112,9 @@ def function_executor_id() -> str:
 def wait_function_output(graph: RemoteGraph, invocation_id: str, func_name: str) -> Any:
     while True:
         try:
+            print(
+                f"Waiting for output of graph: {graph._name} function '{func_name}' with invocation ID '{invocation_id}'"
+            )
             return graph.output(invocation_id, func_name)
         except GraphStillProcessing:
             time.sleep(1)

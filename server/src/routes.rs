@@ -41,18 +41,21 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{Invocation, InvocationStatus, StateChangesResponse, UnallocatedTasks};
+use crate::http_objects::{
+    from_data_model_executor_metadata,
+    FnOutput,
+    Invocation,
+    InvocationStatus,
+    StateChangesResponse,
+    UnallocatedTasks,
+};
 
 mod download;
 mod internal_ingest;
 mod invoke;
 mod logs;
-use download::{
-    download_fn_output_by_key,
-    download_fn_output_payload,
-    download_invocation_payload,
-};
-use internal_ingest::{ingest_files_from_executor, ingest_fn_outputs};
+use download::{download_fn_output_payload, download_invocation_payload};
+use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
 use logs::download_task_logs;
 
@@ -61,6 +64,7 @@ use crate::{
     executors::ExecutorManager,
     http_objects::{
         Allocation,
+        CacheKey,
         ComputeFn,
         ComputeGraph,
         ComputeGraphsList,
@@ -116,6 +120,7 @@ use crate::{
                 ComputeGraph,
                 Node,
                 DynamicRouter,
+		CacheKey,
                 ComputeFn,
                 ListParams,
                 ComputeGraphCreateType,
@@ -139,7 +144,7 @@ use crate::{
         )
     )]
 
-struct ApiDoc;
+pub struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
@@ -182,10 +187,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(get_versioned_code).with_state(route_state.clone()),
         )
         .route(
-            "/internal/ingest_files",
-            post(ingest_files_from_executor).with_state(route_state.clone()),
-        )
-        .route(
             "/internal/ingest_fn_outputs",
             post(ingest_fn_outputs).with_state(route_state.clone()),
         )
@@ -204,10 +205,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unprocessed_state_changes",
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/fn_outputs/{input_key}",
-            get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
@@ -693,7 +690,30 @@ async fn list_executors(
         .list_executors()
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    let http_executors = executors.into_iter().map(|e| e.into()).collect();
+    let executor_server_metadata = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .executor_states
+        .clone();
+
+    let mut http_executors = vec![];
+    for executor in executors {
+        if let Some(fe_server_metadata) = executor_server_metadata.get(&executor.id) {
+            http_executors.push(from_data_model_executor_metadata(
+                executor,
+                fe_server_metadata.free_resources.clone(),
+                fe_server_metadata
+                    .function_executors
+                    .clone()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.clone()))
+                    .collect(),
+            ));
+        }
+    }
+
     Ok(Json(http_executors))
 }
 
@@ -862,7 +882,16 @@ async fn list_outputs(
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
-    let outputs = outputs.into_iter().map(Into::into).collect();
+    let mut http_outputs = vec![];
+    for output in outputs {
+        for (idx, _payload) in output.payloads.iter().enumerate() {
+            http_outputs.push(FnOutput {
+                id: format!("{}|{}", output.id, idx),
+                compute_fn: output.compute_fn_name.clone(),
+                created_at: output.created_at,
+            });
+        }
+    }
 
     let status = if invocation_ctx.completed {
         InvocationStatus::Finalized
@@ -878,7 +907,7 @@ async fn list_outputs(
     Ok(Json(FnOutputs {
         status,
         outcome: invocation_ctx.outcome.into(),
-        outputs,
+        outputs: http_outputs,
         cursor,
     }))
 }

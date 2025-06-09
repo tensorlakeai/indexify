@@ -5,17 +5,18 @@ pub mod executor_api_pb {
 
 use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
+use anyhow::Result;
 use data_model::{
     DataPayload,
     ExecutorId,
     ExecutorMetadata,
     ExecutorMetadataBuilder,
+    FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
-    FunctionURI,
     GraphVersion,
     NodeOutputBuilder,
-    OutputPayload,
+    Routing,
     TaskDiagnostics,
     TaskOutcome,
     TaskOutputsIngestionStatus,
@@ -33,11 +34,9 @@ use executor_api_pb::{
     FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
     HostResources,
-    OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
-    ReportTaskOutcomeRequest,
-    ReportTaskOutcomeResponse,
+    TaskResult,
 };
 use metrics::api_io_stats;
 use state_store::{
@@ -51,24 +50,15 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::executors::ExecutorManager;
 
-impl TryFrom<AllowedFunction> for FunctionURI {
+impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let namespace = allowed_function
-            .namespace
-            .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = allowed_function
-            .graph_name
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = allowed_function
-            .function_name
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
         let version = allowed_function.graph_version.map(|v| GraphVersion(v));
-        Ok(FunctionURI {
-            namespace,
-            compute_graph_name,
-            compute_fn_name,
+        Ok(FunctionAllowlist {
+            namespace: allowed_function.namespace,
+            compute_graph_name: allowed_function.graph_name,
+            compute_fn_name: allowed_function.function_name,
             version,
         })
     }
@@ -147,6 +137,9 @@ impl TryFrom<data_model::GpuResources> for executor_api_pb::GpuResources {
             data_model::GPU_MODEL_NVIDIA_A100_40GB => Ok(executor_api_pb::GpuModel::NvidiaA10040gb),
             data_model::GPU_MODEL_NVIDIA_A100_80GB => Ok(executor_api_pb::GpuModel::NvidiaA10080gb),
             data_model::GPU_MODEL_NVIDIA_H100_80GB => Ok(executor_api_pb::GpuModel::NvidiaH10080gb),
+            data_model::GPU_MODEL_NVIDIA_TESLA_T4 => Ok(executor_api_pb::GpuModel::NvidiaTeslaT4),
+            data_model::GPU_MODEL_NVIDIA_A6000 => Ok(executor_api_pb::GpuModel::NvidiaA6000),
+            data_model::GPU_MODEL_NVIDIA_A10 => Ok(executor_api_pb::GpuModel::NvidiaA10),
             _ => Err(anyhow::anyhow!("unknown data_model gpu_resources.model")),
         }?;
         Ok(executor_api_pb::GpuResources {
@@ -171,6 +164,8 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
             executor_api_pb::GpuModel::NvidiaA10080gb => Ok(data_model::GPU_MODEL_NVIDIA_A100_80GB),
             executor_api_pb::GpuModel::NvidiaH10080gb => Ok(data_model::GPU_MODEL_NVIDIA_H100_80GB),
             executor_api_pb::GpuModel::NvidiaTeslaT4 => Ok(data_model::GPU_MODEL_NVIDIA_TESLA_T4),
+            executor_api_pb::GpuModel::NvidiaA6000 => Ok(data_model::GPU_MODEL_NVIDIA_A6000),
+            executor_api_pb::GpuModel::NvidiaA10 => Ok(data_model::GPU_MODEL_NVIDIA_A10),
         }?;
         Ok(data_model::GpuResources {
             count: gpu_resources.count(),
@@ -179,23 +174,13 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
     }
 }
 
-impl From<FunctionExecutorStatus> for data_model::FunctionExecutorStatus {
+impl From<FunctionExecutorStatus> for data_model::FunctionExecutorState {
     fn from(status: FunctionExecutorStatus) -> Self {
         match status {
-            FunctionExecutorStatus::StartingUp => data_model::FunctionExecutorStatus::StartingUp,
-            FunctionExecutorStatus::StartupFailedCustomerError => {
-                data_model::FunctionExecutorStatus::StartupFailedCustomerError
-            }
-            FunctionExecutorStatus::StartupFailedPlatformError => {
-                data_model::FunctionExecutorStatus::StartupFailedPlatformError
-            }
-            FunctionExecutorStatus::Idle => data_model::FunctionExecutorStatus::Idle,
-            FunctionExecutorStatus::RunningTask => data_model::FunctionExecutorStatus::RunningTask,
-            FunctionExecutorStatus::Stopping => data_model::FunctionExecutorStatus::Stopping,
-            FunctionExecutorStatus::Stopped => data_model::FunctionExecutorStatus::Stopped,
-            FunctionExecutorStatus::Unhealthy => data_model::FunctionExecutorStatus::Unhealthy,
-            FunctionExecutorStatus::Shutdown => data_model::FunctionExecutorStatus::Shutdown,
-            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorStatus::Unknown,
+            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
+            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
+            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
+            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated,
         }
     }
 }
@@ -227,8 +212,8 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let _gpu_count = from.gpu_count.unwrap_or(0);
         Ok(data_model::NodeResources {
             cpu_ms_per_sec,
-            memory_mb: (memory_bytes / 1024 / 1024) as u32,
-            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u32,
+            memory_mb: (memory_bytes / 1024 / 1024) as u64,
+            ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u64,
             gpu_configs: vec![], // TODO: add GPU mapping support
         })
     }
@@ -259,21 +244,15 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             .ok_or(anyhow::anyhow!("executor_id is required"))?;
         executor_metadata.id(executor_id.clone());
         executor_metadata.state(executor_state.status().into());
-        executor_metadata.development_mode(
-            executor_state
-                .development_mode
-                .ok_or(anyhow::anyhow!("development_mode is required"))?,
-        );
         if let Some(state_hash) = executor_state.state_hash.clone() {
             executor_metadata.state_hash(state_hash);
         }
-        // FIXME: ignoring Executor flavor for now.
         if let Some(executor_version) = executor_state.version {
             executor_metadata.executor_version(executor_version);
         }
         let mut allowed_functions = Vec::new();
         for function in executor_state.allowed_functions {
-            allowed_functions.push(FunctionURI::try_from(function)?);
+            allowed_functions.push(FunctionAllowlist::try_from(function)?);
         }
         if allowed_functions.is_empty() {
             executor_metadata.function_allowlist(None);
@@ -295,7 +274,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
                 .clone()
                 .ok_or(anyhow::anyhow!("description is required"))?;
             let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
-            function_executor.status = function_executor_state.status().into();
+            function_executor.state = function_executor_state.status().into();
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.function_executors(function_executors);
@@ -361,7 +340,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             compute_fn_name,
             version,
             // is set when the parent proto message FunctionExecutorStatus is converted
-            status: data_model::FunctionExecutorStatus::Unknown,
+            state: data_model::FunctionExecutorState::Unknown,
         })
     }
 }
@@ -386,6 +365,229 @@ impl ExecutorAPIService {
             api_metrics,
             blob_storage,
         }
+    }
+
+    pub async fn handle_task_outcomes(
+        &self,
+        executor_id: ExecutorId,
+        task_results: Vec<TaskResult>,
+    ) -> Result<()> {
+        let mut requests = Vec::new();
+        for task_result in task_results {
+            self.api_metrics
+                .fn_outputs
+                .add(task_result.function_outputs.len() as u64, &[]);
+            let task_id = task_result
+                .task_id
+                .clone()
+                .ok_or(Status::invalid_argument("task_id is required"))?;
+            let outcome_code =
+                executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
+                    .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let namespace = task_result
+                .namespace
+                .clone()
+                .ok_or(Status::invalid_argument("namespace is required"))?;
+            let compute_graph = task_result
+                .graph_name
+                .clone()
+                .ok_or(Status::invalid_argument("compute_graph is required"))?;
+            let compute_fn = task_result
+                .function_name
+                .clone()
+                .ok_or(Status::invalid_argument("compute_fn is required"))?;
+            let invocation_id = task_result
+                .graph_invocation_id
+                .clone()
+                .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
+            let allocation_id = task_result
+                .allocation_id
+                .clone()
+                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+            let Some(mut task) = self
+                .indexify_state
+                .reader()
+                .get_task(
+                    &namespace,
+                    &compute_graph,
+                    &invocation_id,
+                    &compute_fn,
+                    &task_id,
+                )
+                .map_err(|e| Status::internal(e.to_string()))?
+            else {
+                warn!("Task not found for task_id: {}", task_id);
+                continue;
+            };
+
+            let Some(compute_graph) = self.indexify_state.reader().get_compute_graph_version(
+                &namespace,
+                &compute_graph,
+                &task.graph_version,
+            )?
+            else {
+                warn!("Compute graph version not found for task_id: {}", task_id);
+                continue;
+            };
+
+            let Some(compute_fn_node) = compute_graph.nodes.get(&compute_fn) else {
+                warn!("Compute fn node not found for task_id: {}", task_id);
+                continue;
+            };
+            match outcome_code {
+                executor_api_pb::TaskOutcomeCode::Success => {
+                    task.outcome = TaskOutcome::Success;
+                }
+                executor_api_pb::TaskOutcomeCode::Failure => {
+                    // TODO: Handle all the failure reasons.
+                    task.outcome = TaskOutcome::Failure;
+                }
+                executor_api_pb::TaskOutcomeCode::Unknown => {
+                    task.outcome = TaskOutcome::Unknown;
+                }
+            }
+            task.output_status = TaskOutputsIngestionStatus::Ingested;
+            task.status = TaskStatus::Completed;
+
+            let mut payloads = Vec::new();
+            let mut encoding_str = String::new();
+            for output in task_result.function_outputs.clone() {
+                let url = output
+                    .uri
+                    .ok_or(Status::invalid_argument("uri is required"))?;
+
+                let path = blob_store_url_to_path(
+                    &url,
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                );
+                let size = output
+                    .size
+                    .ok_or(Status::invalid_argument("size is required"))?;
+                let sha256_hash = output
+                    .sha256_hash
+                    .ok_or(Status::invalid_argument("sha256_hash is required"))?;
+                let data_payload = DataPayload {
+                    path,
+                    size,
+                    sha256_hash,
+                };
+                encoding_str = match output.encoding {
+                    Some(value) => {
+                        let output_encoding = DataPayloadEncoding::try_from(value)
+                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                        match output_encoding {
+                            DataPayloadEncoding::Utf8Json => Ok("application/json"),
+                            DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
+                            DataPayloadEncoding::Utf8Text => Ok("text/plain"),
+                            DataPayloadEncoding::Unknown => {
+                                Err(Status::invalid_argument("unknown data payload encoding"))
+                            }
+                        }
+                    }
+                    None => Err(Status::invalid_argument(
+                        "data payload encoding is required",
+                    )),
+                }?
+                .to_string();
+                payloads.push(data_payload);
+            }
+
+            // Figure out the routing to use.
+            //
+            // The `next_functions` field has a special-case edge
+            // behavior: iff it's empty, we use the routing specified
+            // by the graph itself.  We're replacing this with a
+            // `routing` field which, if present, overrides
+            // `next_functions` entirely; it has its own
+            // `next_functions`, defined as being the complete route
+            // list (if empty, there are no routes, and this part of
+            // the graph is complete).
+            let routing = match task_result.routing.as_ref() {
+                Some(r) => Routing::Edges(r.next_functions.clone()),
+                None => {
+                    if task_result.next_functions.len() > 0 {
+                        Routing::Edges(task_result.next_functions.clone())
+                    } else {
+                        Routing::UseGraphEdges
+                    }
+                }
+            };
+
+            let mut node_output = NodeOutputBuilder::default()
+                .namespace(namespace.to_string())
+                .compute_graph_name(compute_graph.compute_graph_name.clone())
+                .invocation_id(invocation_id.to_string())
+                .compute_fn_name(compute_fn.to_string())
+                .payloads(payloads)
+                .routing(routing)
+                .encoding(encoding_str.to_string())
+                .allocation_id(allocation_id.clone())
+                .reducer_output(compute_fn_node.reducer())
+                .build()
+                .map_err(|e| Status::internal(e.to_string()))?;
+
+            if task_result.next_functions.len() > 0 && node_output.payloads.len() == 0 {
+                // Get the outputs of the function which was upstream of the router
+                // and set its payloads as the payloads of the router node so that task creator
+                // can create the downstream tasks with the same payloads.
+                // This won't be needed when we merge the router and compute function nodes.
+
+                // TODO: WE WILL FIX THIS WHEN WE MERGE THE ROUTER AND COMPUTE FUNCTION NODES.
+
+                node_output = NodeOutputBuilder::default()
+                    .namespace(namespace.to_string())
+                    .compute_graph_name(compute_graph.compute_graph_name.clone())
+                    .invocation_id(invocation_id.to_string())
+                    .compute_fn_name(compute_fn.to_string())
+                    .routing(node_output.routing)
+                    .payloads(vec![task.input.clone()])
+                    .encoding(encoding_str.to_string())
+                    .allocation_id(allocation_id.clone())
+                    .build()
+                    .map_err(|e| Status::internal(e.to_string()))?;
+            }
+            let task_diagnostic = TaskDiagnostics {
+                stdout: prepare_data_payload(
+                    task_result.stdout.clone(),
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                ),
+                stderr: prepare_data_payload(
+                    task_result.stderr.clone(),
+                    &self.blob_storage.get_url_scheme(),
+                    &self.blob_storage.get_url(),
+                ),
+            };
+            task.diagnostics = Some(task_diagnostic.clone());
+            let allocation_id = task_result
+                .allocation_id
+                .clone()
+                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+
+            let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
+                namespace: namespace.to_string(),
+                compute_graph: compute_graph.compute_graph_name.clone(),
+                compute_fn: compute_fn.to_string(),
+                invocation_id: invocation_id.to_string(),
+                task: task.clone(),
+                node_output,
+                executor_id: executor_id.clone(),
+                allocation_id,
+            });
+
+            requests.push(request);
+        }
+        for request in requests {
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: request,
+                    processed_state_changes: vec![],
+                })
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+        }
+        Ok(())
     }
 }
 
@@ -418,6 +620,11 @@ impl ExecutorApi for ExecutorAPIService {
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.executor_manager
             .heartbeat(executor_metadata)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let task_results = request.get_ref().task_results.clone();
+        self.handle_task_outcomes(executor_id, task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ReportExecutorStateResponse {}))
@@ -510,196 +717,6 @@ impl ExecutorApi for ExecutorAPIService {
             Box::pin(output_stream) as Self::get_desired_executor_statesStream
         ))
     }
-
-    async fn report_task_outcome(
-        &self,
-        request: Request<ReportTaskOutcomeRequest>,
-    ) -> Result<Response<ReportTaskOutcomeResponse>, Status> {
-        self.api_metrics
-            .fn_outputs
-            .add(request.get_ref().fn_outputs.len() as u64, &[]);
-
-        let task_id = request
-            .get_ref()
-            .task_id
-            .clone()
-            .ok_or(Status::invalid_argument("task_id is required"))?;
-
-        let task_outcome =
-            executor_api_pb::TaskOutcome::try_from(request.get_ref().outcome.unwrap_or(0))
-                .map_err(|e| Status::invalid_argument(e.to_string()))?;
-
-        let executor_id = request
-            .get_ref()
-            .executor_id
-            .clone()
-            .ok_or(Status::invalid_argument("executor_id is required"))?;
-        let namespace = request
-            .get_ref()
-            .namespace
-            .clone()
-            .ok_or(Status::invalid_argument("namespace is required"))?;
-        let compute_graph = request
-            .get_ref()
-            .graph_name
-            .clone()
-            .ok_or(Status::invalid_argument("compute_graph is required"))?;
-        let compute_fn = request
-            .get_ref()
-            .function_name
-            .clone()
-            .ok_or(Status::invalid_argument("compute_fn is required"))?;
-        let invocation_id = request
-            .get_ref()
-            .graph_invocation_id
-            .clone()
-            .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
-        let task = self
-            .indexify_state
-            .reader()
-            .get_task(
-                &namespace,
-                &compute_graph,
-                &invocation_id,
-                &compute_fn,
-                &task_id,
-            )
-            .map_err(|e| Status::internal(e.to_string()))?;
-        if task.is_none() {
-            warn!("Task not found for task_id: {}", task_id);
-            return Ok(Response::new(ReportTaskOutcomeResponse {}));
-        }
-        let mut task = task.unwrap();
-        match task_outcome {
-            executor_api_pb::TaskOutcome::Success => {
-                task.outcome = TaskOutcome::Success;
-            }
-            executor_api_pb::TaskOutcome::Failure => {
-                task.outcome = TaskOutcome::Failure;
-            }
-            executor_api_pb::TaskOutcome::Unknown => {
-                task.outcome = TaskOutcome::Unknown;
-            }
-        }
-        task.output_status = TaskOutputsIngestionStatus::Ingested;
-        task.status = TaskStatus::Completed;
-
-        let mut node_outputs = Vec::new();
-        for output in request.get_ref().fn_outputs.clone() {
-            let path = output
-                .path
-                .or(output.uri)
-                .ok_or(Status::invalid_argument("path or uri is required"))?;
-
-            let path = blob_store_url_to_path(
-                &path,
-                &self.blob_storage.get_url_scheme(),
-                &self.blob_storage.get_url(),
-            );
-            let size = output
-                .size
-                .ok_or(Status::invalid_argument("size is required"))?;
-            let sha256_hash = output
-                .sha256_hash
-                .ok_or(Status::invalid_argument("sha256_hash is required"))?;
-            let data_payload = DataPayload {
-                path,
-                size,
-                sha256_hash,
-            };
-            let encoding_str = match output.encoding {
-                Some(value) => {
-                    let output_encoding = DataPayloadEncoding::try_from(value)
-                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                    match output_encoding {
-                        DataPayloadEncoding::Utf8Json => Ok("application/json"),
-                        DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
-                        DataPayloadEncoding::Utf8Text => Ok("text/plain"),
-                        DataPayloadEncoding::Unknown => {
-                            Err(Status::invalid_argument("unknown data payload encoding"))
-                        }
-                    }
-                }
-                // Fallback to the deprecated request encoding if not set
-                None => match request.get_ref().output_encoding {
-                    Some(value) => {
-                        let output_encoding = OutputEncoding::try_from(value)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                        match output_encoding {
-                            OutputEncoding::Json => Ok("application/json"),
-                            OutputEncoding::Pickle => Ok("application/octet-stream"),
-                            OutputEncoding::Binary => Ok("application/octet-stream"),
-                            OutputEncoding::Unknown => {
-                                Err(Status::invalid_argument("unknown request output encoding"))
-                            }
-                        }
-                    }
-                    None => Err(Status::invalid_argument(
-                        "data payload encoding or request output encoding is required",
-                    )),
-                },
-            }?;
-
-            let node_output = NodeOutputBuilder::default()
-                .namespace(namespace.to_string())
-                .compute_graph_name(compute_graph.to_string())
-                .invocation_id(invocation_id.to_string())
-                .compute_fn_name(compute_fn.to_string())
-                .payload(OutputPayload::Fn(data_payload))
-                .encoding(encoding_str.to_string())
-                .reduced_state(request.get_ref().reducer.unwrap_or(false))
-                .build()
-                .map_err(|e| Status::internal(e.to_string()))?;
-            node_outputs.push(node_output);
-        }
-
-        if request.get_ref().next_functions.len() > 0 {
-            let node_output = NodeOutputBuilder::default()
-                .namespace(namespace.to_string())
-                .compute_graph_name(compute_graph.to_string())
-                .invocation_id(invocation_id.to_string())
-                .compute_fn_name(compute_fn.to_string())
-                .payload(OutputPayload::Router(data_model::RouterOutput {
-                    edges: request.get_ref().next_functions.clone(),
-                }))
-                .build()
-                .map_err(|e| Status::internal(e.to_string()))?;
-            node_outputs.push(node_output);
-        }
-        let task_diagnostic = TaskDiagnostics {
-            stdout: prepare_data_payload(
-                request.get_ref().stdout.clone(),
-                &self.blob_storage.get_url_scheme(),
-                &self.blob_storage.get_url(),
-            ),
-            stderr: prepare_data_payload(
-                request.get_ref().stderr.clone(),
-                &self.blob_storage.get_url_scheme(),
-                &self.blob_storage.get_url(),
-            ),
-        };
-        task.diagnostics = Some(task_diagnostic.clone());
-        let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
-            namespace: namespace.to_string(),
-            compute_graph: compute_graph.to_string(),
-            compute_fn: compute_fn.to_string(),
-            invocation_id: invocation_id.to_string(),
-            task: task.clone(),
-            node_outputs,
-            executor_id: ExecutorId::new(executor_id.clone()),
-        });
-
-        let sm_req = StateMachineUpdateRequest {
-            payload: request,
-            processed_state_changes: vec![],
-        };
-
-        self.indexify_state
-            .write(sm_req)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-        Ok(Response::new(ReportTaskOutcomeResponse {}))
-    }
 }
 
 fn prepare_data_payload(
@@ -711,7 +728,7 @@ fn prepare_data_payload(
         return None;
     }
     let msg = msg.unwrap();
-    if msg.uri.is_none() && msg.path.is_none() {
+    if msg.uri.is_none() {
         return None;
     }
     if msg.size.as_ref().is_none() {
@@ -721,10 +738,8 @@ fn prepare_data_payload(
         return None;
     }
 
-    // Fallback to deprecated path if uri is not set.
-    let path = msg.uri.or(msg.path).unwrap();
     Some(data_model::DataPayload {
-        path: blob_store_url_to_path(&path, blob_store_url_scheme, blob_store_url),
+        path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
         size: msg.size.unwrap(),
         sha256_hash: msg.sha256_hash.unwrap(),
     })

@@ -127,7 +127,7 @@ jobs:
         with:
           run: |
             cd indexify
-            poetry run indexify-cli executor --grpc-server-addr localhost:8901 --dev --enable-grpc-state-reconciler &
+            poetry run indexify-cli executor &
             echo $! > /tmp/indexify-executor.pid &
 
           wait-on: |
@@ -177,5 +177,6 @@ jobs:
         run: |
           if pgrep -f indexify; then
             echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
             exit 1
           fi

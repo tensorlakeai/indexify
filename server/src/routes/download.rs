@@ -69,10 +69,22 @@ pub async fn download_fn_output_payload(
     )>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
+    // The ID will be node_output_id|index
+    let (node_output_id, index) = id
+        .split_once('|')
+        .map(|(id, index)| (id, index.parse::<usize>().unwrap_or(0)))
+        .unwrap_or((id.as_str(), 0));
+
     let output = state
         .indexify_state
         .reader()
-        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &id)
+        .fn_output_payload(
+            &namespace,
+            &compute_graph,
+            &invocation_id,
+            &fn_name,
+            &node_output_id,
+        )
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
                 "failed to download invocation payload: {}",
@@ -81,22 +93,15 @@ pub async fn download_fn_output_payload(
         })?
         .ok_or(IndexifyAPIError::not_found(
             format!(
-                "fn output not found: {}/{}/{}/{}/{}",
-                namespace, compute_graph, invocation_id, fn_name, id
+                "fn output not found: {}/{}/{}/{}",
+                namespace, compute_graph, invocation_id, fn_name
             )
             .as_str(),
         ))?;
+
     let encoding = output.encoding.clone();
 
-    let payload = match output.payload {
-        data_model::OutputPayload::Fn(payload) => payload,
-        _ => {
-            return Err(IndexifyAPIError::internal_error(anyhow!(
-                "expected fn output payload, got {:?}",
-                output.payload
-            )))
-        }
-    };
+    let payload = &output.payloads[index];
     let storage_reader = state
         .blob_storage
         .get(&payload.path)
@@ -113,63 +118,15 @@ pub async fn download_fn_output_payload(
 
         return Response::builder()
             .header("Content-Type", encoding)
+            .header("Content-Hash", payload.sha256_hash.clone())
+            .header("Content-Length", payload.size.to_string())
             .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     Response::builder()
         .header("Content-Type", encoding)
         .header("Content-Length", payload.size.to_string())
-        .body(Body::from_stream(storage_reader))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
-}
-
-pub async fn download_fn_output_by_key(
-    Path(output_key): Path<String>,
-    State(state): State<RouteState>,
-) -> Result<Response<Body>, IndexifyAPIError> {
-    let output = state
-        .indexify_state
-        .reader()
-        .fn_output_payload_by_key(&output_key)
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
-                e
-            ))
-        })?;
-    let payload = match output.payload {
-        data_model::OutputPayload::Fn(payload) => payload,
-        _ => {
-            return Err(IndexifyAPIError::internal_error(anyhow!(
-                "expected fn output payload, got {:?}",
-                output.payload
-            )))
-        }
-    };
-
-    let encoding = output.encoding.clone();
-
-    let storage_reader = state
-        .blob_storage
-        .get(&payload.path)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    if encoding == "application/json" {
-        let json_bytes = storage_reader
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
-            .await
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
-
-        return Response::builder()
-            .header("Content-Type", encoding)
-            .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
-    }
-    Response::builder()
-        .header("Content-Type", encoding)
-        .header("Content-Length", payload.size.to_string())
+        .header("Content-Hash", payload.sha256_hash.clone())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

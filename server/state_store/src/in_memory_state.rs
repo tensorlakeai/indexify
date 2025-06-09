@@ -1,16 +1,23 @@
-use std::{cmp::Ordering, collections::HashSet, sync::Arc, time::SystemTime};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{
     Allocation,
     ComputeGraph,
     ComputeGraphVersion,
+    DataPayload,
     ExecutorId,
     ExecutorMetadata,
+    ExecutorServerMetadata,
+    FunctionExecutor,
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
+    FunctionExecutorState,
+    FunctionURI,
     GraphInvocationCtx,
     GraphVersion,
+    NodeResources,
+    NodeRetryPolicy,
     ReduceTask,
     Task,
     TaskStatus,
@@ -22,13 +29,38 @@ use opentelemetry::{
     KeyValue,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::{
-    requests::{RequestPayload, StateMachineUpdateRequest},
+    requests::RequestPayload,
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };
+
+#[derive(Debug, Clone)]
+pub struct DesiredStateTask {
+    pub task: Box<Task>,
+    pub allocation_id: String,
+    pub timeout_ms: u32,
+    pub retry_policy: NodeRetryPolicy,
+}
+
+pub struct DesiredStateFunctionExecutor {
+    pub function_executor: Box<FunctionExecutorServerMetadata>,
+    pub resources: NodeResources,
+    pub image_uri: String,
+    pub secret_names: std::vec::Vec<String>,
+    pub customer_code_timeout_ms: u32,
+    pub code_payload: DataPayload,
+    pub task_timeout_ms: u32,
+}
+
+pub struct DesiredExecutorState {
+    pub function_executors: std::vec::Vec<Box<DesiredStateFunctionExecutor>>,
+    pub task_allocations:
+        std::collections::HashMap<FunctionExecutorId, Box<std::vec::Vec<DesiredStateTask>>>,
+    pub clock: u64,
+}
 
 /// UnallocatedTaskId is a unique identifier for a task that has not been
 /// allocated to an executor. It is used to order tasks in the unallocated_tasks
@@ -67,6 +99,11 @@ impl Ord for UnallocatedTaskId {
     }
 }
 
+pub struct CandidateFunctionExecutors {
+    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub num_pending_function_executors: usize,
+}
+
 pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
@@ -80,13 +117,15 @@ pub struct InMemoryState {
     pub compute_graph_versions: im::OrdMap<String, Box<ComputeGraphVersion>>,
 
     // ExecutorId -> ExecutorMetadata
+    // This is the metadata that executor is sending us, not the **Desired** state
+    // from the perspective of the state store.
     pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
 
     // ExecutorId -> (FE ID -> List of Function Executors)
-    pub function_executors_by_executor: im::HashMap<
-        ExecutorId,
-        im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
-    >,
+    pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+
+    pub function_executors_by_fn_uri:
+        im::HashMap<FunctionURI, im::HashSet<Box<FunctionExecutorServerMetadata>>>,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
@@ -481,7 +520,8 @@ impl InMemoryState {
             queued_reduction_tasks,
             allocations_by_executor,
             // function executors by executor are not known at startup
-            function_executors_by_executor: im::HashMap::new(),
+            executor_states: im::HashMap::new(),
+            function_executors_by_fn_uri: im::HashMap::new(),
             // metrics
             task_pending_latency,
             task_running_latency,
@@ -562,7 +602,8 @@ impl InMemoryState {
     pub fn update_state(
         &mut self,
         new_clock: u64,
-        state_machine_update_request: &StateMachineUpdateRequest,
+        state_machine_update_request: &RequestPayload,
+        _ctx: &str,
     ) -> Result<HashSet<ExecutorId>> {
         // keep track of what clock we are at for this update state
         self.clock = new_clock;
@@ -570,7 +611,7 @@ impl InMemoryState {
         // Collect all executors that are being changed to notify them.
         let mut changed_executors = HashSet::new();
 
-        match &state_machine_update_request.payload {
+        match state_machine_update_request {
             RequestPayload::InvokeComputeGraph(req) => {
                 self.invocation_ctx
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
@@ -593,14 +634,6 @@ impl InMemoryState {
 
                 // Remove the allocation
                 {
-                    let allocation_id = Allocation::id(
-                        &req.executor_id,
-                        &req.task.id,
-                        &req.namespace,
-                        &req.compute_graph,
-                        &req.compute_fn,
-                        &req.invocation_id,
-                    );
                     self.allocations_by_executor
                         .entry(req.executor_id.clone())
                         .and_modify(|allocation_map| {
@@ -608,7 +641,7 @@ impl InMemoryState {
                             //       we should measure the overhead.
                             allocation_map.iter_mut().for_each(|(_, allocations)| {
                                 if let Some(index) =
-                                    allocations.iter().position(|a| a.id == allocation_id)
+                                    allocations.iter().position(|a| a.id == req.allocation_id)
                                 {
                                     let allocation = &allocations[index];
                                     // Record metrics
@@ -770,31 +803,25 @@ impl InMemoryState {
                     }
                 }
 
-                for mut fe_meta in req.new_function_executors.clone() {
-                    let has_allocations = self
-                        .allocations_by_executor
-                        .get(&fe_meta.executor_id)
-                        .map(|allocation_map| {
-                            allocation_map
-                                .get(&fe_meta.function_executor.id)
-                                .map(|allocations| !allocations.is_empty())
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false);
-
-                    fe_meta.last_allocation_at = if has_allocations {
-                        Some(SystemTime::now())
-                    } else {
-                        None
-                    };
-
-                    self.function_executors_by_executor
-                        .entry(fe_meta.executor_id.clone())
-                        .or_default()
-                        .insert(
-                            fe_meta.function_executor.id.clone(),
-                            Box::new(fe_meta.clone()),
+                for fe_meta in req.new_function_executors.clone() {
+                    let Some(executor_state) = self.executor_states.get_mut(&fe_meta.executor_id)
+                    else {
+                        error!(
+                            executor_id = fe_meta.executor_id.get(),
+                            "executor not found for new function executor"
                         );
+                        continue;
+                    };
+                    executor_state.function_executors.insert(
+                        fe_meta.function_executor.id.clone(),
+                        Box::new(fe_meta.clone()),
+                    );
+
+                    let fn_uri = FunctionURI::from(fe_meta.clone());
+                    self.function_executors_by_fn_uri
+                        .entry(fn_uri)
+                        .or_default()
+                        .insert(Box::new(fe_meta.clone()));
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
@@ -831,15 +858,6 @@ impl InMemoryState {
                             .or_default()
                             .push_back(Box::new(allocation.clone()));
 
-                        // Update the function executor's last allocation time
-                        self.function_executors_by_executor
-                            .get_mut(&allocation.executor_id)
-                            .map(|fe_map| {
-                                if let Some(fe) = fe_map.get_mut(&allocation.function_executor_id) {
-                                    fe.last_allocation_at = Some(SystemTime::now());
-                                }
-                            });
-
                         // Record metrics
                         self.task_pending_latency.record(
                             get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
@@ -867,26 +885,62 @@ impl InMemoryState {
                         .and_then(|allocation_map| {
                             allocation_map.remove(&function_executor.function_executor_id)
                         });
-                    self.function_executors_by_executor
+                    let fe = self
+                        .executor_states
                         .get_mut(&function_executor.executor_id)
-                        .and_then(|fe_map| fe_map.remove(&function_executor.function_executor_id));
+                        .and_then(|executor_state| {
+                            executor_state
+                                .function_executors
+                                .remove(&function_executor.function_executor_id)
+                        });
 
-                    // Executor has a removed function executor
+                    if let Some(fe) = fe {
+                        let fn_uri = FunctionURI::from(fe.clone());
+                        self.function_executors_by_fn_uri
+                            .get_mut(&fn_uri)
+                            .and_then(|fe_set| fe_set.remove(&fe));
+                    }
                     changed_executors.insert(function_executor.executor_id.clone());
                 }
 
                 for executor_id in &req.remove_executors {
                     self.executors.remove(executor_id);
                     self.allocations_by_executor.remove(executor_id);
-                    self.function_executors_by_executor.remove(executor_id);
+                    self.executor_states.remove(executor_id);
 
                     // Executor is removed
                     changed_executors.insert(executor_id.clone());
+                }
+
+                for (executor_id, host_resources) in &req.updated_executor_resources {
+                    if let Some(executor) = self.executor_states.get_mut(executor_id) {
+                        executor.free_resources = host_resources.clone();
+                    }
+                    // } else {
+                    //     self.executor_states.insert(
+                    //         executor_id.clone(),
+                    //         Box::new(ExecutorServerMetadata {
+                    //             executor_id: executor_id.clone(),
+                    //             function_executors: im::HashMap::new(),
+                    //             free_resources: host_resources.clone(),
+                    //         }),
+                    //     );
+                    // }
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
                 self.executors
                     .insert(req.executor.id.clone(), Box::new(req.executor.clone()));
+                if self.executor_states.get(&req.executor.id).is_none() {
+                    self.executor_states.insert(
+                        req.executor.id.clone(),
+                        Box::new(ExecutorServerMetadata {
+                            executor_id: req.executor.id.clone(),
+                            function_executors: im::HashMap::new(),
+                            free_resources: req.executor.host_resources.clone(),
+                        }),
+                    );
+                }
             }
             RequestPayload::DeregisterExecutor(req) => {
                 let executor = self.executors.get_mut(&req.executor_id);
@@ -898,6 +952,83 @@ impl InMemoryState {
         }
 
         Ok(changed_executors)
+    }
+
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
+        let compute_graph = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.graph_version,
+            ))
+            .ok_or(anyhow!("Compute graph version not found"))?;
+        let compute_fn = compute_graph
+            .nodes
+            .get(&task.compute_fn_name)
+            .ok_or(anyhow!("Compute function not found"))?;
+        let mut candidates = Vec::new();
+        for (_, executor_state) in &self.executor_states {
+            let Some(executor) = self.executors.get(&executor_state.executor_id) else {
+                error!(
+                    executor_id = executor_state.executor_id.get(),
+                    "executor not found for candidate executors but was found in executor_states"
+                );
+                continue;
+            };
+            if executor.tombstoned || !executor.is_task_allowed(task) {
+                continue;
+            }
+            if executor_state
+                .free_resources
+                .can_handle(&compute_fn.resources())
+            {
+                let mut candidate = executor_state.clone();
+                candidate.free_resources.consume(&compute_fn.resources())?;
+                candidates.push(candidate);
+            }
+        }
+        Ok(candidates)
+    }
+
+    pub fn candidate_function_executors(
+        &self,
+        task: &Task,
+        capacity_threshold: usize,
+    ) -> Result<CandidateFunctionExecutors> {
+        let mut candidates = Vec::new();
+        let fn_uri = FunctionURI::from(task);
+        let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
+        let mut num_pending_function_executors = 0;
+        if let Some(function_executors) = function_executors {
+            for function_executor in function_executors.iter() {
+                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
+                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+                {
+                    num_pending_function_executors += 1;
+                }
+                if function_executor.desired_state == FunctionExecutorState::Terminated ||
+                    function_executor.function_executor.state ==
+                        FunctionExecutorState::Terminated
+                {
+                    continue;
+                }
+                // FIXME - Create a reverse index of fe_id -> # active allocations
+                let allocation_count = self
+                    .allocations_by_executor
+                    .get(&function_executor.executor_id)
+                    .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
+                    .map(|allocs| allocs.len())
+                    .unwrap_or(0);
+                if allocation_count < capacity_threshold {
+                    candidates.push(function_executor.clone());
+                }
+            }
+        }
+        Ok(CandidateFunctionExecutors {
+            function_executors: candidates,
+            num_pending_function_executors,
+        })
     }
 
     pub fn next_reduction_task(
@@ -927,6 +1058,21 @@ impl InMemoryState {
                 allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
             }
         }
+    }
+
+    pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<NodeResources> {
+        let cg_version = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &fe.namespace,
+                &fe.compute_graph_name,
+                &fe.version,
+            ))
+            .cloned()?;
+        cg_version
+            .nodes
+            .get(&fe.compute_fn_name)
+            .map(|node| node.resources())
     }
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
@@ -962,8 +1108,214 @@ impl InMemoryState {
         }
     }
 
-    pub fn clone(&self) -> Box<Self> {
-        Box::new(InMemoryState {
+    pub fn unallocated_tasks(&self) -> Vec<Box<Task>> {
+        let unallocated_task_ids = self
+            .unallocated_tasks
+            .iter()
+            .map(|task| task.task_key.clone())
+            .collect::<Vec<_>>();
+        let mut tasks = Vec::new();
+        for task_id in unallocated_task_ids {
+            if let Some(task) = self.tasks.get(&task_id) {
+                tasks.push(task.clone());
+            } else {
+                error!(task_key = task_id, "task not found for unallocated task");
+            }
+        }
+        tasks
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn vacuum_function_executors_candidates(
+        &self,
+    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+        let mut function_executors_to_remove: Vec<Box<FunctionExecutorServerMetadata>> = Vec::new();
+
+        // For each executor in the system
+        for (executor_id, executor) in &self.executors {
+            if executor.tombstoned {
+                continue;
+            }
+
+            // Get function executors for this executor from our in-memory state
+            let function_executors = self
+                .executor_states
+                .get(executor_id)
+                .cloned()
+                .map(|executor_state| {
+                    executor_state
+                        .function_executors
+                        .values()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            // Process each function executor based on allowlist and version status
+            for fe_metadata in function_executors.iter() {
+                // Skip if the FE is already marked for termination
+                if fe_metadata.desired_state == FunctionExecutorState::Terminated {
+                    continue;
+                }
+
+                let fe = &fe_metadata.function_executor;
+                let Some(executor) = self.executors.get(executor_id) else {
+                    // If the executor is not found, we can remove the FE
+                    // since it's not running any more
+                    function_executors_to_remove.push(fe_metadata.clone());
+                    continue;
+                };
+
+                let Some(latest_cg_version) = self
+                    .compute_graphs
+                    .get(&ComputeGraph::key_from(
+                        &fe.namespace,
+                        &fe.compute_graph_name,
+                    ))
+                    .map(|cg| cg.version.clone())
+                else {
+                    // If the compute graph is not found, we can remove the FE
+                    // since it's not running any more
+                    function_executors_to_remove.push(fe_metadata.clone());
+                    continue;
+                };
+
+                // Check if this FE has any pending invocations with its current version
+                let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
+
+                if !has_pending_invocations {
+                    // Can remove this outdated FE since it has no active invocations,
+                    // and running on an outdated version of the allowed compute graph
+                    let mut found_allowlist_match = false;
+                    if let Some(allowlist) = executor.function_allowlist.as_ref() {
+                        for allowlist_entry in allowlist.iter() {
+                            if allowlist_entry.matches_function_executor(fe) &&
+                                fe.version == latest_cg_version
+                            {
+                                // This FE is allowed and up to date, so we don't need to remove it
+                                found_allowlist_match = true;
+                            }
+                        }
+                    }
+                    if found_allowlist_match {
+                        continue;
+                    }
+                    debug!(
+                    "Removing outdated function executor {} from executor {} (version {} < latest {})",
+                    fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                );
+                    function_executors_to_remove.push(fe_metadata.clone());
+                }
+            }
+        }
+
+        Ok(function_executors_to_remove)
+    }
+
+    fn has_pending_invocations(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+        // Check if there are any allocations for this FE with pending tasks
+        if let Some(allocations_by_fe) = self.allocations_by_executor.get(&fe_meta.executor_id) {
+            if let Some(allocations) = allocations_by_fe.get(&fe_meta.function_executor.id) {
+                for allocation in allocations {
+                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
+                        if !task.outcome.is_terminal() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn desired_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
+        let active_function_executors = self
+            .executor_states
+            .get(executor_id)
+            .cloned()
+            .map(|executor_state| executor_state.function_executors.clone())
+            .unwrap_or_default()
+            .values()
+            .filter(|fe_meta| fe_meta.desired_state != FunctionExecutorState::Terminated)
+            .map(|fe_meta| fe_meta.clone())
+            .collect::<Vec<_>>();
+
+        let mut function_executors = Vec::new();
+        let mut task_allocations = std::collections::HashMap::new();
+        for fe_meta in active_function_executors.iter() {
+            let fe = &fe_meta.function_executor;
+            let Some(cg_version) = self
+                .compute_graph_versions
+                .get(&ComputeGraphVersion::key_from(
+                    &fe.namespace,
+                    &fe.compute_graph_name,
+                    &fe.version,
+                ))
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(cg_node) = cg_version.nodes.get(&fe.compute_fn_name) else {
+                continue;
+            };
+            function_executors.push(Box::new(DesiredStateFunctionExecutor {
+                function_executor: fe_meta.clone(),
+                resources: cg_node.resources(),
+                image_uri: cg_node.image_uri().unwrap_or_default(),
+                secret_names: cg_node.secret_names(),
+                customer_code_timeout_ms: cg_node.timeout().0,
+                code_payload: DataPayload {
+                    path: cg_version.code.path.clone(),
+                    size: cg_version.code.size,
+                    sha256_hash: cg_version.code.sha256_hash.clone(),
+                },
+                task_timeout_ms: cg_node.timeout().0,
+            }));
+
+            let allocations = self
+                .allocations_by_executor
+                .get(executor_id)
+                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
+                .unwrap_or(&im::Vector::new())
+                .clone();
+            let mut desired_state_tasks = std::vec::Vec::new();
+            for allocation in allocations.iter() {
+                let Some(task) = self.tasks.get(&allocation.task_key()) else {
+                    error!(
+                        task_key = allocation.task_key(),
+                        task_id = allocation.task_id.get(),
+                        namespace = allocation.namespace,
+                        compute_graph = allocation.compute_graph,
+                        compute_fn = allocation.compute_fn,
+                        invocation_id = allocation.invocation_id,
+                        "task not found for allocation, shouldn't happen"
+                    );
+                    continue;
+                };
+                let desired_state_task = DesiredStateTask {
+                    task: task.clone(),
+                    allocation_id: allocation.id.clone(),
+                    timeout_ms: cg_node.timeout().0,
+                    retry_policy: cg_node.retry_policy(),
+                };
+                desired_state_tasks.push(desired_state_task);
+            }
+            task_allocations.insert(
+                fe_meta.function_executor.id.clone(),
+                Box::new(desired_state_tasks),
+            );
+        }
+
+        DesiredExecutorState {
+            function_executors,
+            task_allocations,
+            clock: self.clock,
+        }
+    }
+
+    pub fn clone(&self) -> Arc<std::sync::RwLock<Self>> {
+        Arc::new(std::sync::RwLock::new(InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),
@@ -974,12 +1326,13 @@ impl InMemoryState {
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
-            function_executors_by_executor: self.function_executors_by_executor.clone(),
+            executor_states: self.executor_states.clone(),
+            function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
-        })
+        }))
     }
 }
 

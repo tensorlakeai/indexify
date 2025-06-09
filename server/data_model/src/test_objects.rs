@@ -10,6 +10,7 @@ pub mod tests {
         Node,
         Node::Compute,
         NodeOutput,
+        Routing,
         RuntimeInformation,
     };
     use crate::{
@@ -35,16 +36,15 @@ pub mod tests {
     pub fn create_mock_task(
         cg: &ComputeGraph,
         cg_fn: &str,
-        node_output_key: &str,
+        payload: DataPayload,
         inv_id: &str,
     ) -> Task {
         TaskBuilder::default()
             .namespace(cg.namespace.to_string())
             .compute_fn_name(cg_fn.to_string())
             .compute_graph_name(cg.name.to_string())
-            .input_node_output_key(node_output_key.to_string())
+            .input(payload)
             .invocation_id(inv_id.to_string())
-            .reducer_output_id(None)
             .graph_version(Default::default())
             .build()
             .unwrap()
@@ -75,8 +75,17 @@ pub mod tests {
         invocation_id: &str,
         graph: &str,
         reducer_fn: Option<String>,
+        num_outputs: usize,
+        allocation_id: String,
     ) -> NodeOutput {
-        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn)
+        mock_node_fn_output(
+            invocation_id,
+            graph,
+            "fn_a",
+            reducer_fn,
+            num_outputs,
+            allocation_id,
+        )
     }
 
     pub fn mock_node_fn_output(
@@ -84,6 +93,8 @@ pub mod tests {
         graph: &str,
         compute_fn_name: &str,
         reducer_fn: Option<String>,
+        num_outputs: usize,
+        allocation_id: String,
     ) -> NodeOutput {
         let mut path = rand::rng()
             .sample_iter(rand::distr::Alphanumeric)
@@ -99,11 +110,17 @@ pub mod tests {
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .payload(crate::OutputPayload::Fn(DataPayload {
-                sha256_hash: "3433".to_string(),
-                path,
-                size: 12,
-            }))
+            .allocation_id(allocation_id)
+            .payloads(
+                (0..num_outputs)
+                    .map(|_| DataPayload {
+                        sha256_hash: "3433".to_string(),
+                        path: path.clone(),
+                        size: 12,
+                    })
+                    .collect(),
+            )
+            .routing(Routing::UseGraphEdges)
             .build()
             .unwrap()
     }
@@ -114,9 +131,7 @@ pub mod tests {
             .compute_fn_name("router_x".to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .payload(crate::OutputPayload::Router(crate::RouterOutput {
-                edges: vec!["fn_c".to_string()],
-            }))
+            .routing(Routing::Edges(vec!["fn_c".to_string()]))
             .build()
             .unwrap()
     }
@@ -308,15 +323,20 @@ pub mod tests {
         ExecutorId::new(TEST_EXECUTOR_ID.to_string())
     }
 
-    pub fn mock_dev_executor(id: ExecutorId) -> ExecutorMetadata {
+    pub fn mock_executor(id: ExecutorId) -> ExecutorMetadata {
         ExecutorMetadata {
             id,
             executor_version: "1.0.0".to_string(),
-            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
-            host_resources: Default::default(),
+            // Executor must have resources to be schedulable.
+            host_resources: crate::HostResources {
+                cpu_count: 8,
+                memory_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bytes: 100 * 1024 * 1024 * 1024,
+                gpu: None,
+            },
             state: Default::default(),
             function_executors: Default::default(),
             tombstoned: false,

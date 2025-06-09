@@ -25,23 +25,50 @@ class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GPU_MODEL_NVIDIA_A100_80GB: _ClassVar[GPUModel]
     GPU_MODEL_NVIDIA_H100_80GB: _ClassVar[GPUModel]
     GPU_MODEL_NVIDIA_TESLA_T4: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A6000: _ClassVar[GPUModel]
+    GPU_MODEL_NVIDIA_A10: _ClassVar[GPUModel]
 
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FUNCTION_EXECUTOR_STATUS_UNKNOWN: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STARTING_UP: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: _ClassVar[
-        FunctionExecutorStatus
+    FUNCTION_EXECUTOR_STATUS_PENDING: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_RUNNING: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_TERMINATED: _ClassVar[FunctionExecutorStatus]
+
+class FunctionExecutorTerminationReason(
+    int, metaclass=_enum_type_wrapper.EnumTypeWrapper
+):
+    __slots__ = ()
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: _ClassVar[
+        FunctionExecutorTerminationReason
     ]
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: _ClassVar[
-        FunctionExecutorStatus
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
     ]
-    FUNCTION_EXECUTOR_STATUS_IDLE: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STOPPING: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STOPPED: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_SHUTDOWN: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
 
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -52,24 +79,20 @@ class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_STATUS_STOPPING: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_STOPPED: _ClassVar[ExecutorStatus]
 
-class ExecutorFlavor(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class TaskOutcomeCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    EXECUTOR_FLAVOR_UNKNOWN: _ClassVar[ExecutorFlavor]
-    EXECUTOR_FLAVOR_OSS: _ClassVar[ExecutorFlavor]
-    EXECUTOR_FLAVOR_PLATFORM: _ClassVar[ExecutorFlavor]
+    TASK_OUTCOME_CODE_UNKNOWN: _ClassVar[TaskOutcomeCode]
+    TASK_OUTCOME_CODE_SUCCESS: _ClassVar[TaskOutcomeCode]
+    TASK_OUTCOME_CODE_FAILURE: _ClassVar[TaskOutcomeCode]
 
-class TaskOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    TASK_OUTCOME_UNKNOWN: _ClassVar[TaskOutcome]
-    TASK_OUTCOME_SUCCESS: _ClassVar[TaskOutcome]
-    TASK_OUTCOME_FAILURE: _ClassVar[TaskOutcome]
-
-class OutputEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    OUTPUT_ENCODING_UNKNOWN: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_JSON: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_PICKLE: _ClassVar[OutputEncoding]
-    OUTPUT_ENCODING_BINARY: _ClassVar[OutputEncoding]
+    TASK_FAILURE_REASON_UNKNOWN: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -80,42 +103,57 @@ GPU_MODEL_NVIDIA_A100_40GB: GPUModel
 GPU_MODEL_NVIDIA_A100_80GB: GPUModel
 GPU_MODEL_NVIDIA_H100_80GB: GPUModel
 GPU_MODEL_NVIDIA_TESLA_T4: GPUModel
+GPU_MODEL_NVIDIA_A6000: GPUModel
+GPU_MODEL_NVIDIA_A10: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_IDLE: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_UNHEALTHY: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STOPPING: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STOPPED: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_SHUTDOWN: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_PENDING: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_RUNNING: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_TERMINATED: FunctionExecutorStatus
+FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: (
+    FunctionExecutorTerminationReason
+)
+FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: FunctionExecutorTerminationReason
+FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: (
+    FunctionExecutorTerminationReason
+)
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
 EXECUTOR_STATUS_DRAINED: ExecutorStatus
 EXECUTOR_STATUS_STOPPING: ExecutorStatus
 EXECUTOR_STATUS_STOPPED: ExecutorStatus
-EXECUTOR_FLAVOR_UNKNOWN: ExecutorFlavor
-EXECUTOR_FLAVOR_OSS: ExecutorFlavor
-EXECUTOR_FLAVOR_PLATFORM: ExecutorFlavor
-TASK_OUTCOME_UNKNOWN: TaskOutcome
-TASK_OUTCOME_SUCCESS: TaskOutcome
-TASK_OUTCOME_FAILURE: TaskOutcome
-OUTPUT_ENCODING_UNKNOWN: OutputEncoding
-OUTPUT_ENCODING_JSON: OutputEncoding
-OUTPUT_ENCODING_PICKLE: OutputEncoding
-OUTPUT_ENCODING_BINARY: OutputEncoding
+TASK_OUTCOME_CODE_UNKNOWN: TaskOutcomeCode
+TASK_OUTCOME_CODE_SUCCESS: TaskOutcomeCode
+TASK_OUTCOME_CODE_FAILURE: TaskOutcomeCode
+TASK_FAILURE_REASON_UNKNOWN: TaskFailureReason
+TASK_FAILURE_REASON_INTERNAL_ERROR: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
+TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
+TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 
 class DataPayload(_message.Message):
-    __slots__ = ("path", "size", "sha256_hash", "uri", "encoding", "encoding_version")
-    PATH_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")
     SIZE_FIELD_NUMBER: _ClassVar[int]
     SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
     URI_FIELD_NUMBER: _ClassVar[int]
     ENCODING_FIELD_NUMBER: _ClassVar[int]
     ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
-    path: str
     size: int
     sha256_hash: str
     uri: str
@@ -123,7 +161,6 @@ class DataPayload(_message.Message):
     encoding_version: int
     def __init__(
         self,
-        path: _Optional[str] = ...,
         size: _Optional[int] = ...,
         sha256_hash: _Optional[str] = ...,
         uri: _Optional[str] = ...,
@@ -204,7 +241,6 @@ class FunctionExecutorDescription(_message.Message):
         "function_name",
         "image_uri",
         "secret_names",
-        "resource_limits",
         "customer_code_timeout_ms",
         "graph",
         "resources",
@@ -216,7 +252,6 @@ class FunctionExecutorDescription(_message.Message):
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
-    RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
@@ -227,7 +262,6 @@ class FunctionExecutorDescription(_message.Message):
     function_name: str
     image_uri: str
     secret_names: _containers.RepeatedScalarFieldContainer[str]
-    resource_limits: HostResources
     customer_code_timeout_ms: int
     graph: DataPayload
     resources: FunctionExecutorResources
@@ -240,30 +274,32 @@ class FunctionExecutorDescription(_message.Message):
         function_name: _Optional[str] = ...,
         image_uri: _Optional[str] = ...,
         secret_names: _Optional[_Iterable[str]] = ...,
-        resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status")
+    __slots__ = ("description", "status", "termination_reason")
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
+    TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
+    termination_reason: FunctionExecutorTerminationReason
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
         status: _Optional[_Union[FunctionExecutorStatus, str]] = ...,
+        termination_reason: _Optional[
+            _Union[FunctionExecutorTerminationReason, str]
+        ] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):
     __slots__ = (
         "executor_id",
-        "development_mode",
         "hostname",
-        "flavor",
         "version",
         "status",
         "total_resources",
@@ -286,9 +322,7 @@ class ExecutorState(_message.Message):
         ) -> None: ...
 
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
-    DEVELOPMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     HOSTNAME_FIELD_NUMBER: _ClassVar[int]
-    FLAVOR_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TOTAL_RESOURCES_FIELD_NUMBER: _ClassVar[int]
@@ -299,9 +333,7 @@ class ExecutorState(_message.Message):
     STATE_HASH_FIELD_NUMBER: _ClassVar[int]
     SERVER_CLOCK_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
-    development_mode: bool
     hostname: str
-    flavor: ExecutorFlavor
     version: str
     status: ExecutorStatus
     total_resources: HostResources
@@ -316,9 +348,7 @@ class ExecutorState(_message.Message):
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
-        development_mode: bool = ...,
         hostname: _Optional[str] = ...,
-        flavor: _Optional[_Union[ExecutorFlavor, str]] = ...,
         version: _Optional[str] = ...,
         status: _Optional[_Union[ExecutorStatus, str]] = ...,
         total_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
@@ -337,11 +367,15 @@ class ExecutorState(_message.Message):
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state",)
+    __slots__ = ("executor_state", "task_results")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
+    TASK_RESULTS_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
+    task_results: _containers.RepeatedCompositeFieldContainer[TaskResult]
     def __init__(
-        self, executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...
+        self,
+        executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
+        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -374,8 +408,6 @@ class Task(_message.Message):
         "graph_version",
         "function_name",
         "graph_invocation_id",
-        "input_key",
-        "reducer_output_key",
         "timeout_ms",
         "input",
         "reducer_input",
@@ -388,8 +420,6 @@ class Task(_message.Message):
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
-    REDUCER_OUTPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     INPUT_FIELD_NUMBER: _ClassVar[int]
     REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
@@ -401,8 +431,6 @@ class Task(_message.Message):
     graph_version: str
     function_name: str
     graph_invocation_id: str
-    input_key: str
-    reducer_output_key: str
     timeout_ms: int
     input: DataPayload
     reducer_input: DataPayload
@@ -416,8 +444,6 @@ class Task(_message.Message):
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
-        input_key: _Optional[str] = ...,
-        reducer_output_key: _Optional[str] = ...,
         timeout_ms: _Optional[int] = ...,
         input: _Optional[_Union[DataPayload, _Mapping]] = ...,
         reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
@@ -426,15 +452,18 @@ class Task(_message.Message):
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
-    __slots__ = ("function_executor_id", "task")
+    __slots__ = ("function_executor_id", "task", "allocation_id")
     FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     function_executor_id: str
     task: Task
+    allocation_id: str
     def __init__(
         self,
         function_executor_id: _Optional[str] = ...,
         task: _Optional[_Union[Task, _Mapping]] = ...,
+        allocation_id: _Optional[str] = ...,
     ) -> None: ...
 
 class GetDesiredExecutorStatesRequest(_message.Message):
@@ -462,54 +491,57 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
-class ReportTaskOutcomeRequest(_message.Message):
+class ResultRouting(_message.Message):
+    __slots__ = ("next_functions",)
+    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    next_functions: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, next_functions: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
         "namespace",
         "graph_name",
         "function_name",
         "graph_invocation_id",
-        "outcome",
-        "invocation_id",
-        "executor_id",
         "reducer",
+        "outcome_code",
+        "failure_reason",
         "next_functions",
-        "fn_outputs",
+        "function_outputs",
         "stdout",
         "stderr",
-        "output_encoding",
-        "output_encoding_version",
+        "allocation_id",
+        "routing",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
     GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    OUTCOME_FIELD_NUMBER: _ClassVar[int]
-    INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     REDUCER_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
-    FN_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_ENCODING_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    ROUTING_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
     function_name: str
     graph_invocation_id: str
-    outcome: TaskOutcome
-    invocation_id: str
-    executor_id: str
     reducer: bool
+    outcome_code: TaskOutcomeCode
+    failure_reason: TaskFailureReason
     next_functions: _containers.RepeatedScalarFieldContainer[str]
-    fn_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
-    output_encoding: OutputEncoding
-    output_encoding_version: int
+    allocation_id: str
+    routing: ResultRouting
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -517,18 +549,13 @@ class ReportTaskOutcomeRequest(_message.Message):
         graph_name: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
-        outcome: _Optional[_Union[TaskOutcome, str]] = ...,
-        invocation_id: _Optional[str] = ...,
-        executor_id: _Optional[str] = ...,
         reducer: bool = ...,
+        outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
+        failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
-        fn_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        output_encoding: _Optional[_Union[OutputEncoding, str]] = ...,
-        output_encoding_version: _Optional[int] = ...,
+        allocation_id: _Optional[str] = ...,
+        routing: _Optional[_Union[ResultRouting, _Mapping]] = ...,
     ) -> None: ...
-
-class ReportTaskOutcomeResponse(_message.Message):
-    __slots__ = ()
-    def __init__(self) -> None: ...

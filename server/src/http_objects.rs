@@ -4,7 +4,14 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
+use data_model::{
+    ComputeGraphCode,
+    FunctionExecutorId,
+    FunctionExecutorServerMetadata,
+    FunctionExecutorState,
+    GraphInvocationCtx,
+    GraphInvocationOutcome,
+};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -193,17 +200,17 @@ pub struct NodeGPUConfig {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeResources {
     pub cpus: f64,
-    pub memory_mb: u32,
-    pub ephemeral_disk_mb: u32,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<NodeGPUConfig>,
 }
 
 impl NodeResources {
     fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        if self.cpus < 0.1 {
+        if self.cpus < 1.0 {
             return Err(IndexifyAPIError::bad_request(
-                "CPU shares must be greater than 0.1",
+                "CPU shares must be greater or equal to 1.0",
             ));
         }
         if self.cpus > executor_config.max_cpus_per_function as f64 {
@@ -212,18 +219,18 @@ impl NodeResources {
                 executor_config.max_cpus_per_function
             )));
         }
-        if self.memory_mb < 128 {
+        if self.memory_mb < 1024 {
             return Err(IndexifyAPIError::bad_request(
-                "Memory must be greater than 128 MB",
+                "Memory must be greater than or equal to 1 GB",
             ));
         }
-        if self.memory_mb > executor_config.max_memory_gb_per_function * 1024 {
+        if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Memory must be less than or equal to {} GB",
                 executor_config.max_memory_gb_per_function
             )));
         }
-        if self.ephemeral_disk_mb > executor_config.max_disk_gb_per_function * 1024 {
+        if self.ephemeral_disk_mb > (executor_config.max_disk_gb_per_function * 1024) as u64 {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Ephemeral disk must be less than or equal to {} GB",
                 executor_config.max_disk_gb_per_function
@@ -366,6 +373,33 @@ fn default_encoder() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct CacheKey(String);
+
+impl CacheKey {
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<CacheKey> for data_model::CacheKey {
+    fn from(val: CacheKey) -> Self {
+        data_model::CacheKey::from(val.get())
+    }
+}
+
+impl From<&str> for CacheKey {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl From<data_model::CacheKey> for CacheKey {
+    fn from(val: data_model::CacheKey) -> Self {
+        CacheKey::from(val.get())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
@@ -384,6 +418,8 @@ pub struct ComputeFn {
     pub resources: NodeResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
+    #[serde(rename = "cache_key")]
+    pub cache_key: Option<CacheKey>,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -401,6 +437,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             timeout: val.timeout.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
+            cache_key: val.cache_key.and_then(|v| Some(v.into())),
         }
     }
 }
@@ -419,6 +456,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             timeout: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
+            cache_key: c.cache_key.and_then(|v| Some(v.into())),
         }
     }
 }
@@ -783,7 +821,16 @@ pub struct DataPayload {
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
-    pub content_type: String,
+}
+
+impl From<data_model::DataPayload> for DataPayload {
+    fn from(payload: data_model::DataPayload) -> Self {
+        Self {
+            path: payload.path,
+            size: payload.size,
+            sha256_hash: payload.sha256_hash,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -793,10 +840,10 @@ pub struct Task {
     pub compute_fn: String,
     pub compute_graph: String,
     pub invocation_id: String,
-    pub input_key: String,
+    pub input: DataPayload,
+    pub acc_input: Option<DataPayload>,
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub image_uri: Option<String>,
     pub secret_names: Vec<String>,
@@ -817,10 +864,10 @@ impl From<data_model::Task> for Task {
             compute_fn: task.compute_fn_name,
             compute_graph: task.compute_graph_name,
             invocation_id: task.invocation_id,
-            input_key: task.input_node_output_key,
+            input: task.input.into(),
+            acc_input: task.acc_input.map(|input| input.into()),
             outcome: task.outcome.into(),
             status: task.status.into(),
-            reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
             image_uri: None,
             secret_names: Default::default(),
@@ -843,19 +890,9 @@ pub struct Tasks {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutput {
-    pub compute_fn: String,
     pub id: String,
+    pub compute_fn: String,
     pub created_at: u64,
-}
-
-impl From<data_model::NodeOutput> for FnOutput {
-    fn from(output: data_model::NodeOutput) -> Self {
-        Self {
-            compute_fn: output.compute_fn_name,
-            id: output.id.to_string(),
-            created_at: output.created_at,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -948,10 +985,10 @@ pub struct TaskAnalytics {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionURI {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+pub struct FunctionAllowlist {
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub compute_fn: Option<String>,
 
     // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
@@ -961,54 +998,121 @@ pub struct FunctionURI {
     pub version: Option<GraphVersion>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct GpuResources {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct HostResources {
+    pub cpu_count: u32,
+    pub memory_bytes: u64,
+    pub disk_bytes: u64,
+    // Not all Executors have GPUs.
+    pub gpu: Option<GpuResources>,
+}
+
+impl From<data_model::HostResources> for HostResources {
+    fn from(host_resources: data_model::HostResources) -> Self {
+        Self {
+            cpu_count: host_resources.cpu_count,
+            memory_bytes: host_resources.memory_bytes,
+            disk_bytes: host_resources.disk_bytes,
+            gpu: host_resources.gpu.map(|gpu| GpuResources {
+                count: gpu.count,
+                model: gpu.model,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FunctionExecutorMetadata {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub version: String,
+    pub state: String,
+    pub desired_state: String,
+}
+
+pub fn from_data_model_function_executor(
+    fe: data_model::FunctionExecutor,
+    desired_state: FunctionExecutorState,
+) -> FunctionExecutorMetadata {
+    FunctionExecutorMetadata {
+        id: fe.id.get().to_string(),
+        namespace: fe.namespace,
+        compute_graph_name: fe.compute_graph_name,
+        compute_fn_name: fe.compute_fn_name,
+        version: fe.version.to_string(),
+        state: fe.state.to_string(),
+        desired_state: desired_state.to_string(),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
-    pub development_mode: bool,
-    pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
-    pub function_executors: Vec<serde_json::Value>,
-    pub host_resources: serde_json::Value,
+    pub function_executors: Vec<FunctionExecutorMetadata>,
+    pub host_resources: HostResources,
+    pub free_resources: HostResources,
     pub state: String,
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
 }
 
-impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
-    fn from(executor: data_model::ExecutorMetadata) -> Self {
-        let function_allowlist = executor.function_allowlist.map(|allowlist| {
-            allowlist
-                .iter()
-                .map(|fn_uri| FunctionURI {
-                    namespace: fn_uri.namespace.clone(),
-                    compute_graph: fn_uri.compute_graph_name.clone(),
-                    compute_fn: fn_uri.compute_fn_name.clone(),
-                    version: fn_uri.version.clone().map(|v| v.into()),
-                })
-                .collect()
-        });
-        Self {
-            id: executor.id.to_string(),
-            executor_version: executor.executor_version,
-            addr: executor.addr,
-            function_allowlist,
-            labels: executor.labels,
-            development_mode: executor.development_mode,
-            function_executors: executor
-                .function_executors
-                .values()
-                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
-                .collect(),
-            host_resources: serde_json::to_value(executor.host_resources)
-                .unwrap_or(serde_json::Value::Null),
-            state: executor.state.as_ref().to_string(),
-            tombstoned: executor.tombstoned,
-            state_hash: executor.state_hash,
-            clock: executor.clock,
+pub fn from_data_model_executor_metadata(
+    executor: data_model::ExecutorMetadata,
+    free_resources: data_model::HostResources,
+    function_executor_server_metadata: HashMap<
+        FunctionExecutorId,
+        Box<FunctionExecutorServerMetadata>,
+    >,
+) -> ExecutorMetadata {
+    let function_allowlist = executor.function_allowlist.map(|allowlist| {
+        allowlist
+            .iter()
+            .map(|fn_uri| FunctionAllowlist {
+                namespace: fn_uri.namespace.clone(),
+                compute_graph: fn_uri.compute_graph_name.clone(),
+                compute_fn: fn_uri.compute_fn_name.clone(),
+                version: fn_uri.version.clone().map(|v| v.into()),
+            })
+            .collect()
+    });
+    let mut function_executors = Vec::new();
+    for (fe_id, fe) in executor.function_executors.iter() {
+        if let Some(fe_server_metadata) = function_executor_server_metadata.get(fe_id) {
+            let desired_state = fe_server_metadata.desired_state.clone();
+            function_executors.push(from_data_model_function_executor(fe.clone(), desired_state));
+        } else {
+            function_executors.push(from_data_model_function_executor(
+                fe.clone(),
+                FunctionExecutorState::Unknown,
+            ));
         }
+    }
+    ExecutorMetadata {
+        id: executor.id.to_string(),
+        executor_version: executor.executor_version,
+        addr: executor.addr,
+        function_allowlist,
+        labels: executor.labels,
+        function_executors,
+        host_resources: executor.host_resources.into(),
+        free_resources: free_resources.into(),
+        state: executor.state.as_ref().to_string(),
+        tombstoned: executor.tombstoned,
+        state_hash: executor.state_hash,
+        clock: executor.clock,
     }
 }
 
@@ -1078,7 +1182,7 @@ pub struct FnExecutor {
     pub count: usize,
     pub function_executor_id: String,
     pub fn_uri: String,
-    pub status: String,
+    pub state: String,
     pub desired_state: String,
     pub allocations: Vec<Allocation>,
 }

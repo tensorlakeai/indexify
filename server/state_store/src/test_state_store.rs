@@ -13,7 +13,6 @@ use data_model::{
         TEST_NAMESPACE,
     },
     ExecutorId,
-    NodeOutput,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -59,6 +58,7 @@ impl TestStateStore {
         num_outputs: usize,
         task_outcome: TaskOutcome,
         reducer: bool,
+        allocation_id: String,
     ) -> Result<()> {
         finalize_task(
             &self.indexify_state,
@@ -66,16 +66,27 @@ impl TestStateStore {
             num_outputs,
             task_outcome,
             reducer,
+            allocation_id,
         )
         .await
     }
 
-    pub async fn finalize_task_graph_b(&self, invocation_id: &str, task: &Task) -> Result<()> {
-        finalize_task_graph_b(&self.indexify_state, invocation_id, task).await
+    pub async fn finalize_task_graph_b(
+        &self,
+        invocation_id: &str,
+        task: &Task,
+        allocation_id: String,
+    ) -> Result<()> {
+        finalize_task_graph_b(&self.indexify_state, invocation_id, task, allocation_id).await
     }
 
-    pub async fn finalize_router_x(&self, invocation_id: &str, task: &Task) -> Result<()> {
-        finalize_router_x(&self.indexify_state, invocation_id, task).await
+    pub async fn finalize_router_x(
+        &self,
+        invocation_id: &str,
+        task: &Task,
+        allocation_id: String,
+    ) -> Result<()> {
+        finalize_router_x(&self.indexify_state, invocation_id, task, allocation_id).await
     }
 }
 
@@ -188,21 +199,20 @@ pub async fn finalize_task(
     num_outputs: usize,
     task_outcome: TaskOutcome,
     reducer: bool,
+    allocation_id: String,
 ) -> Result<()> {
     let compute_fn_for_reducer = if reducer {
         Some(task.compute_fn_name.to_string())
     } else {
         None
     };
-    let node_outputs: Vec<NodeOutput> = (0..num_outputs)
-        .map(|_| {
-            mock_node_fn_output_fn_a(
-                &task.invocation_id,
-                &task.compute_graph_name,
-                compute_fn_for_reducer.clone(),
-            )
-        })
-        .collect();
+    let node_output = mock_node_fn_output_fn_a(
+        &task.invocation_id,
+        &task.compute_graph_name,
+        compute_fn_for_reducer.clone(),
+        num_outputs,
+        allocation_id.clone(),
+    );
 
     let mut task = task.clone();
     task.outcome = task_outcome.clone();
@@ -214,8 +224,9 @@ pub async fn finalize_task(
         compute_fn: task.compute_fn_name.to_string(),
         invocation_id: task.invocation_id.to_string(),
         task: task.clone(),
-        node_outputs,
+        node_output,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+        allocation_id,
     };
 
     indexify_state
@@ -230,6 +241,7 @@ pub async fn finalize_task_graph_b(
     indexify_state: &IndexifyState,
     invocation_id: &str,
     task: &Task,
+    allocation_id: String,
 ) -> Result<()> {
     let mut task = task.clone();
     task.outcome = TaskOutcome::Success;
@@ -241,8 +253,15 @@ pub async fn finalize_task_graph_b(
         compute_fn: "fn_a".to_string(),
         invocation_id: invocation_id.to_string(),
         task: task.clone(),
-        node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B", None)],
+        node_output: mock_node_fn_output_fn_a(
+            &invocation_id,
+            "graph_B",
+            None,
+            1,
+            allocation_id.clone(),
+        ),
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+        allocation_id,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -256,6 +275,7 @@ pub async fn finalize_router_x(
     indexify_state: &IndexifyState,
     invocation_id: &str,
     task: &Task,
+    allocation_id: String,
 ) -> Result<()> {
     let mut task = task.clone();
     task.outcome = TaskOutcome::Success;
@@ -267,8 +287,9 @@ pub async fn finalize_router_x(
         compute_fn: "router_x".to_string(),
         invocation_id: invocation_id.to_string(),
         task: task.clone(),
-        node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
+        node_output: mock_node_router_output_x(&invocation_id, "graph_B"),
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+        allocation_id,
     };
     indexify_state
         .write(StateMachineUpdateRequest {

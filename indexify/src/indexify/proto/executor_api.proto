@@ -15,7 +15,6 @@ enum DataPayloadEncoding {
 }
 
 message DataPayload {
-    optional string path = 1; // deprecated, TODO: remove when URI us used everywhere
     optional uint64 size = 2;
     optional string sha256_hash = 3;
     // URI of the data.
@@ -33,13 +32,14 @@ enum GPUModel {
     GPU_MODEL_NVIDIA_A100_80GB = 2;
     GPU_MODEL_NVIDIA_H100_80GB = 3;
     GPU_MODEL_NVIDIA_TESLA_T4 = 4;
+    GPU_MODEL_NVIDIA_A6000 = 5;
+    GPU_MODEL_NVIDIA_A10 = 6;
 }
 
 // Free GPUs available at the Executor.
 message GPUResources {
     optional uint32 count = 1;
     optional GPUModel model = 2;
-    reserved 3;
 }
 
 // Resources that we're currently tracking and limiting on Executor.
@@ -62,17 +62,29 @@ message AllowedFunction {
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    FUNCTION_EXECUTOR_STATUS_STARTING_UP = 1;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR = 2;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR = 3;
-    FUNCTION_EXECUTOR_STATUS_IDLE = 4;
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 5;
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 6;
-    FUNCTION_EXECUTOR_STATUS_STOPPING = 7;
-    // FE is stopped but can be started up.
-    FUNCTION_EXECUTOR_STATUS_STOPPED = 8;
-    // FE is stopped forever, all resources are freed.
-    FUNCTION_EXECUTOR_STATUS_SHUTDOWN = 9;
+    // Function Executor is being created.
+    FUNCTION_EXECUTOR_STATUS_PENDING = 1;
+    // Function Executor is running and ready to accept tasks.
+    FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
+    // Function Executor is terminated, all resources are freed.
+    FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
+}
+
+enum FunctionExecutorTerminationReason {
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR = 1;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR = 2;
+    // Timeout on FE startup while running the function constructor.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
+
+    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN = 10;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE = 11;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
+    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
+    // Timeout while running the function.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
+    // The running function allocation was removed from the desired state.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
 }
 
 // Immutable information that identifies and describes a Function Executor.
@@ -93,7 +105,6 @@ message FunctionExecutorDescription {
     optional string function_name = 5;
     optional string image_uri = 6;
     repeated string secret_names = 7;
-    optional HostResources resource_limits = 8;
     // Timeout for customer code duration during FE creation.
     optional uint32 customer_code_timeout_ms = 9;
     optional DataPayload graph = 10;
@@ -103,7 +114,7 @@ message FunctionExecutorDescription {
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
-    reserved 3;
+    optional FunctionExecutorTerminationReason termination_reason = 3;
 }
 
 enum ExecutorStatus {
@@ -115,17 +126,9 @@ enum ExecutorStatus {
     EXECUTOR_STATUS_STOPPED = 5;
 }
 
-enum ExecutorFlavor {
-    EXECUTOR_FLAVOR_UNKNOWN = 0;
-    EXECUTOR_FLAVOR_OSS = 1;
-    EXECUTOR_FLAVOR_PLATFORM = 2;
-}
-
 message ExecutorState {
     optional string executor_id = 1;
-    optional bool development_mode = 2;
     optional string hostname = 3;
-    optional ExecutorFlavor flavor = 4;
     optional string version = 5;
     optional ExecutorStatus status = 6;
     // Total resources at the Executor.
@@ -146,6 +149,7 @@ message ExecutorState {
 // A message sent by Executor to report its up to date state to Server.
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
+    repeated TaskResult task_results = 2;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of Executor state.
@@ -168,8 +172,6 @@ message Task {
     optional string graph_version = 4;
     optional string function_name = 5;
     optional string graph_invocation_id = 6;
-    optional string input_key = 8; // deprecated. TODO: remove when input is used everywhere
-    optional string reducer_output_key = 9; // deprecated. TODO: remove when reducer_input is used everywhere
     optional uint32 timeout_ms = 10;
     optional DataPayload input = 11;
     optional DataPayload reducer_input = 12;
@@ -183,6 +185,7 @@ message Task {
 message TaskAllocation {
     optional string function_executor_id = 1;
     optional Task task = 2;
+    optional string allocation_id = 3;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -201,46 +204,57 @@ message DesiredExecutorState {
 }
 
 // ===== report_task_outcome RPC =====
-enum TaskOutcome {
-    TASK_OUTCOME_UNKNOWN = 0;
-    TASK_OUTCOME_SUCCESS = 1;
-    TASK_OUTCOME_FAILURE = 2;
+enum TaskOutcomeCode {
+    TASK_OUTCOME_CODE_UNKNOWN = 0;
+    TASK_OUTCOME_CODE_SUCCESS = 1;
+    TASK_OUTCOME_CODE_FAILURE = 2;
 }
 
-enum OutputEncoding {
-    OUTPUT_ENCODING_UNKNOWN = 0;
-    OUTPUT_ENCODING_JSON = 1;
-    OUTPUT_ENCODING_PICKLE = 2;
-    OUTPUT_ENCODING_BINARY = 3;
+enum TaskFailureReason {
+    TASK_FAILURE_REASON_UNKNOWN = 0;
+    TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    TASK_FAILURE_REASON_TASK_CANCELLED = 4;
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 5;
 }
 
-message ReportTaskOutcomeRequest {
+message ResultRouting {
+    // The list of next functions.
+    // NB: An empty list indicates that no routing should be performed.
+    repeated string next_functions = 1;
+}
+
+message TaskResult {
     optional string task_id = 1;
     optional string namespace = 2;
     optional string graph_name = 3;
     optional string function_name = 4;
-    optional string graph_invocation_id = 6;
-    optional TaskOutcome outcome = 7;
-    optional string invocation_id = 8; // deprecated. TODO: remove when graph_invocation_id is used everywhere
-    optional string executor_id = 9;
-    optional bool reducer = 10;
-
+    optional string graph_invocation_id = 5;
+    optional bool reducer = 6;
+    optional TaskOutcomeCode outcome_code = 7;
+    optional TaskFailureReason failure_reason = 8;
     // Edges that the function wants the invocation to be routed to.
     // Previously called router_edges.
-    repeated string next_functions = 11;
-    // Outputs of the function.
-    repeated DataPayload fn_outputs = 12;
+    // NB: An empty list indicates that the graph's route definitions should be used,
+    // unless this field is overridden by the presence of the `routing` field.
+    repeated string next_functions = 9;
+    repeated DataPayload function_outputs = 10;
     // Standard output and error streams of the function.
-    optional DataPayload stdout = 14;
-    optional DataPayload stderr = 15;
-    // Output encoding of all the outputs of a function have to be same.
-    optional OutputEncoding output_encoding = 13; // deprecated. TODO: remove when DataPayload.encoding is used everywhere
-    // This allows us to change how we encode the output from functions
-    // and serialize them into storage.
-    optional uint64 output_encoding_version = 5;  // deprecated. TODO: remove when DataPayload.encoding_version is used everywhere
-}
+    optional DataPayload stdout = 11;
+    optional DataPayload stderr = 12;
 
-message ReportTaskOutcomeResponse {
+    optional string allocation_id = 13;
+
+    // Indicates how the results should be routed.
+    // If this is present, it replaces `next_functions`.
+    //
+    // If absent, `next_functions` will be used; note that if no
+    // routes are defined in `next_functions`, this will use the
+    // graph's routing.  The long-term goal is to deprecate
+    // `next_functions`, so that if `routing` is not present, the
+    // graph's routing definitions will always be used.
+    ResultRouting routing = 14;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
@@ -260,7 +274,4 @@ service ExecutorAPI {
     //
     // Deprecated HTTP API is used to download the serialized graph and task inputs.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
-
-    // Report the outcome of a task.
-    rpc report_task_outcome(ReportTaskOutcomeRequest) returns (ReportTaskOutcomeResponse) {}
 }
