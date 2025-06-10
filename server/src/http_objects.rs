@@ -191,8 +191,8 @@ impl Default for NodeTimeoutSeconds {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct NodeGPUConfig {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct GPUResources {
     pub count: u32,
     pub model: String,
 }
@@ -203,7 +203,7 @@ pub struct NodeResources {
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
-    pub gpu_configs: Vec<NodeGPUConfig>,
+    pub gpu_configs: Vec<GPUResources>,
 }
 
 impl NodeResources {
@@ -271,7 +271,7 @@ impl From<NodeResources> for data_model::NodeResources {
             gpu_configs: value
                 .gpu_configs
                 .into_iter()
-                .map(|gpu| data_model::NodeGPUConfig {
+                .map(|gpu| data_model::GPUResources {
                     count: gpu.count,
                     model: gpu.model,
                 })
@@ -289,7 +289,7 @@ impl From<data_model::NodeResources> for NodeResources {
             gpu_configs: value
                 .gpu_configs
                 .into_iter()
-                .map(|gpu| NodeGPUConfig {
+                .map(|gpu| GPUResources {
                     count: gpu.count,
                     model: gpu.model,
                 })
@@ -999,27 +999,23 @@ pub struct FunctionAllowlist {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
-pub struct GpuResources {
-    pub count: u32,
-    pub model: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct HostResources {
     pub cpu_count: u32,
     pub memory_bytes: u64,
     pub disk_bytes: u64,
     // Not all Executors have GPUs.
-    pub gpu: Option<GpuResources>,
+    pub gpu: Option<GPUResources>,
 }
 
 impl From<data_model::HostResources> for HostResources {
     fn from(host_resources: data_model::HostResources) -> Self {
         Self {
-            cpu_count: host_resources.cpu_count,
+            // int division is okay because cpu_ms_per_sec derived from host CPU cores is always a
+            // multiple of 1000
+            cpu_count: host_resources.cpu_ms_per_sec / 1000,
             memory_bytes: host_resources.memory_bytes,
             disk_bytes: host_resources.disk_bytes,
-            gpu: host_resources.gpu.map(|gpu| GpuResources {
+            gpu: host_resources.gpu.map(|gpu| GPUResources {
                 count: gpu.count,
                 model: gpu.model,
             }),
