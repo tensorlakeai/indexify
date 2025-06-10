@@ -40,10 +40,17 @@ class NvidiaGPUAllocator:
         allocated_gpus: List[NvidiaGPUInfo] = []
         for _ in range(count):
             allocated_gpus.append(self._free_gpus.pop())
+
+        if len(allocated_gpus) > 0:
+            logger.bind(module=__name__).info("allocated GPUs:", gpus=allocated_gpus)
+
         return allocated_gpus
 
-    def deallocate(self, gpus: List[NvidiaGPUInfo]) -> None:
+    def deallocate(self, gpus: List[NvidiaGPUInfo], logger: Any) -> None:
         self._free_gpus.extend(gpus)
+
+        if len(gpus) > 0:
+            logger.bind(module=__name__).info("deallocated GPUs:", gpus=gpus)
 
     def list_all(self) -> List[NvidiaGPUInfo]:
         return list(self._all_gpus)  # Return a copy to avoid external modification
