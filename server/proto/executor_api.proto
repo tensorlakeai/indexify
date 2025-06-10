@@ -94,7 +94,7 @@ message FunctionExecutorResources {
     optional uint32 cpu_ms_per_sec = 1;
     optional uint64 memory_bytes = 2;
     optional uint64 disk_bytes = 3;
-    optional uint32 gpu_count = 4;
+    optional GPUResources gpu = 4;
 }
 
 message FunctionExecutorDescription {

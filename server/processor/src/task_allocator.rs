@@ -197,6 +197,15 @@ impl<'a> TaskAllocationProcessor<'a> {
                 &task.graph_version,
             )
             .ok_or(anyhow!("failed to get function executor resources"))?;
+
+        let fe_resources = candidate
+            .free_resources
+            .consume_node_resources(&node_resources)?;
+        // Consume resources from executor
+        update
+            .updated_executor_resources
+            .insert(executor_id.clone(), candidate.free_resources.clone());
+
         // Create a new function executor
         let function_executor = FunctionExecutorBuilder::default()
             .namespace(task.namespace.clone())
@@ -204,7 +213,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .compute_fn_name(task.compute_fn_name.clone())
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
-            .resources(node_resources.clone())
+            .resources(fe_resources.clone())
             .termination_reason(FunctionExecutorTerminationReason::Unknown)
             .build()?;
 
@@ -217,6 +226,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             function_executor = function_executor.id.get(),
             "created function executor"
         );
+
         // Create with current timestamp for last_allocation_at
         let fe_server_metadata = FunctionExecutorServerMetadata::new(
             executor_id.clone(),
@@ -224,13 +234,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             FunctionExecutorState::Running, // Start with Running state
         );
         update.new_function_executors.push(fe_server_metadata);
-
-        candidate.free_resources.consume(&node_resources)?;
-
-        // Consume resources from executor
-        update
-            .updated_executor_resources
-            .insert(executor_id.clone(), candidate.free_resources.clone());
 
         self.in_memory_state.update_state(
             self.clock,
@@ -377,7 +380,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             if fe.state != FunctionExecutorState::Terminated &&
                 executor_server_metadata
                     .free_resources
-                    .can_handle(&fe.resources)
+                    .can_handle_fe_resources(&fe.resources)
             {
                 new_function_executors.push(FunctionExecutorServerMetadata::new(
                     executor.id.clone(),
@@ -386,7 +389,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 ));
                 executor_server_metadata
                     .free_resources
-                    .consume(&fe.resources)?;
+                    .consume_fe_resources(&fe.resources)?;
                 update.updated_executor_resources.insert(
                     executor.id.clone(),
                     executor_server_metadata.free_resources.clone(),
@@ -511,13 +514,10 @@ impl<'a> TaskAllocationProcessor<'a> {
             .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
 
         for fe in function_executors_to_remove {
-            if executor_server_metadata
-                .resource_claims
-                .contains_key(&fe.id)
-            {
+            if let Some(fe_resource_claim) = executor_server_metadata.resource_claims.get(&fe.id) {
                 executor_server_metadata
                     .free_resources
-                    .free(&fe.resources)?;
+                    .free(fe_resource_claim)?;
                 update.updated_executor_resources.insert(
                     executor_server_metadata.executor_id.clone(),
                     executor_server_metadata.free_resources.clone(),

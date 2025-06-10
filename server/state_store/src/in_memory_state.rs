@@ -15,6 +15,7 @@ use data_model::{
     ExecutorServerMetadata,
     FunctionExecutor,
     FunctionExecutorId,
+    FunctionExecutorResources,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionURI,
@@ -51,7 +52,7 @@ pub struct DesiredStateTask {
 
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
-    pub resources: NodeResources,
+    pub resources: FunctionExecutorResources,
     pub image_uri: String,
     pub secret_names: std::vec::Vec<String>,
     pub customer_code_timeout_ms: u32,
@@ -995,9 +996,11 @@ impl InMemoryState {
             if executor.tombstoned || !executor.is_task_allowed(task) {
                 continue;
             }
+            // TODO: Match functions to GPU models according to prioritized order in
+            // gpu_configs.
             if executor_state
                 .free_resources
-                .can_handle(&compute_fn.resources())
+                .can_handle_node_resources(&compute_fn.resources())
             {
                 candidates.push(executor_state.clone());
             }
@@ -1289,7 +1292,7 @@ impl InMemoryState {
             };
             function_executors.push(Box::new(DesiredStateFunctionExecutor {
                 function_executor: fe_meta.clone(),
-                resources: cg_node.resources(),
+                resources: fe.resources.clone(),
                 image_uri: cg_node.image_uri().unwrap_or_default(),
                 secret_names: cg_node.secret_names(),
                 customer_code_timeout_ms: cg_node.timeout().0,

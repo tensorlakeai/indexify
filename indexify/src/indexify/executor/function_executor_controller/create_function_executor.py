@@ -105,6 +105,10 @@ async def _create_function_executor(
         logger=logger,
     )
 
+    gpu_count: int = 0
+    if function_executor_description.resources.HasField("gpu"):
+        gpu_count = function_executor_description.resources.gpu.count
+
     config: FunctionExecutorServerConfiguration = FunctionExecutorServerConfiguration(
         executor_id=executor_id,
         function_executor_id=function_executor_description.id,
@@ -117,7 +121,7 @@ async def _create_function_executor(
         cpu_ms_per_sec=function_executor_description.resources.cpu_ms_per_sec,
         memory_bytes=function_executor_description.resources.memory_bytes,
         disk_bytes=function_executor_description.resources.disk_bytes,
-        gpu_count=function_executor_description.resources.gpu_count,
+        gpu_count=gpu_count,
     )
     if function_executor_description.HasField("image_uri"):
         config.image_uri = function_executor_description.image_uri

@@ -32,7 +32,11 @@ def validate_function_executor_description(
     validator.required_field("cpu_ms_per_sec")
     validator.required_field("memory_bytes")
     validator.required_field("disk_bytes")
-    validator.required_field("gpu_count")
+
+    if function_executor_description.resources.HasField("gpu"):
+        validator = MessageValidator(function_executor_description.resources.gpu)
+        validator.required_field("count")
+        validator.required_field("model")
 
 
 def validate_task(task: Task) -> None:

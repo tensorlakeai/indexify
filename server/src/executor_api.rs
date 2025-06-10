@@ -14,9 +14,9 @@ use data_model::{
     FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
+    GPUResources,
     GraphVersion,
     NodeOutputBuilder,
-    NodeResources,
     Routing,
     TaskDiagnostics,
     TaskOutcome,
@@ -72,7 +72,9 @@ impl TryFrom<data_model::HostResources> for HostResources {
 
     fn try_from(from: data_model::HostResources) -> Result<Self, Self::Error> {
         Ok(HostResources {
-            cpu_count: Some(from.cpu_count),
+            // int division is okay because cpu_ms_per_sec derived from host hardware CPU cores is
+            // always a multiple of 1000.
+            cpu_count: Some(from.cpu_ms_per_sec / 1000),
             memory_bytes: Some(from.memory_bytes),
             disk_bytes: Some(from.disk_bytes),
             gpu: from.gpu.map(|g| g.try_into()).transpose()?,
@@ -95,7 +97,7 @@ impl TryFrom<HostResources> for data_model::HostResources {
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
         let gpu = from.gpu.map(|g| g.try_into()).transpose()?;
         Ok(data_model::HostResources {
-            cpu_count: cpu,
+            cpu_ms_per_sec: cpu * 1000,
             memory_bytes: memory,
             disk_bytes: disk,
             gpu,
@@ -128,10 +130,10 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
     }
 }
 
-impl TryFrom<data_model::GpuResources> for executor_api_pb::GpuResources {
+impl TryFrom<data_model::GPUResources> for executor_api_pb::GpuResources {
     type Error = anyhow::Error;
 
-    fn try_from(gpu_resources: data_model::GpuResources) -> Result<Self, Self::Error> {
+    fn try_from(gpu_resources: data_model::GPUResources) -> Result<Self, Self::Error> {
         if gpu_resources.count == 0 {
             return Err(anyhow::anyhow!("data_model gpu_resources.count is 0"));
         }
@@ -151,7 +153,7 @@ impl TryFrom<data_model::GpuResources> for executor_api_pb::GpuResources {
     }
 }
 
-impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
+impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     type Error = anyhow::Error;
 
     fn try_from(gpu_resources: executor_api_pb::GpuResources) -> Result<Self, Self::Error> {
@@ -169,7 +171,7 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GpuResources {
             executor_api_pb::GpuModel::NvidiaA6000 => Ok(data_model::GPU_MODEL_NVIDIA_A6000),
             executor_api_pb::GpuModel::NvidiaA10 => Ok(data_model::GPU_MODEL_NVIDIA_A10),
         }?;
-        Ok(data_model::GpuResources {
+        Ok(data_model::GPUResources {
             count: gpu_resources.count(),
             model: str_model.into(),
         })
@@ -198,7 +200,7 @@ impl From<data_model::NodeRetryPolicy> for executor_api_pb::TaskRetryPolicy {
     }
 }
 
-impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
+impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResources {
     type Error = anyhow::Error;
 
     fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
@@ -211,25 +213,31 @@ impl TryFrom<FunctionExecutorResources> for data_model::NodeResources {
         let ephemeral_disk_bytes = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-        let _gpu_count = from.gpu_count.unwrap_or(0);
-        Ok(data_model::NodeResources {
+        Ok(data_model::FunctionExecutorResources {
             cpu_ms_per_sec,
+            // int division is okay because all the values were initially in MB and GB.
             memory_mb: (memory_bytes / 1024 / 1024) as u64,
             ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u64,
-            gpu_configs: vec![], // TODO: add GPU mapping support
+            gpu: from.gpu.map(|g| GPUResources::try_from(g)).transpose()?,
         })
     }
 }
 
-impl TryFrom<data_model::NodeResources> for FunctionExecutorResources {
+impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResources {
     type Error = anyhow::Error;
 
-    fn try_from(from: data_model::NodeResources) -> Result<Self, Self::Error> {
+    fn try_from(from: data_model::FunctionExecutorResources) -> Result<Self, Self::Error> {
         Ok(FunctionExecutorResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
             memory_bytes: Some(from.memory_mb as u64 * 1024 * 1024),
             disk_bytes: Some(from.ephemeral_disk_mb as u64 * 1024 * 1024),
-            gpu_count: Some(from.gpu_configs.len() as u32),
+            gpu: from
+                .gpu
+                .map(|g| {
+                    g.try_into()
+                        .map_err(|e| anyhow::anyhow!("failed to convert GPU resources: {}", e))
+                })
+                .transpose()?,
         })
     }
 }
@@ -293,7 +301,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
                 None => None,
             };
             executor_metadata.host_resources(data_model::HostResources {
-                cpu_count: cpu,
+                cpu_ms_per_sec: cpu * 1000,
                 memory_bytes: memory,
                 disk_bytes: disk,
                 gpu,
@@ -391,7 +399,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .map(|description| description.resources.clone())
             .flatten()
             .ok_or(anyhow::anyhow!("resources is required"))?;
-        let node_resources = NodeResources::try_from(resources.clone())?;
+        let resources = data_model::FunctionExecutorResources::try_from(resources.clone())?;
         Ok(FunctionExecutor {
             id: FunctionExecutorId::new(id.clone()),
             namespace: namespace.clone(),
@@ -400,7 +408,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             version: GraphVersion(version.clone()),
             state: function_executor_state.status().into(),
             termination_reason,
-            resources: node_resources,
+            resources,
         })
     }
 }

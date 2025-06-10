@@ -332,7 +332,7 @@ pub mod tests {
             labels: Default::default(),
             // Executor must have resources to be schedulable.
             host_resources: crate::HostResources {
-                cpu_count: 8,
+                cpu_ms_per_sec: 8 * 1000, // 8 cores
                 memory_bytes: 16 * 1024 * 1024 * 1024,
                 disk_bytes: 100 * 1024 * 1024 * 1024,
                 gpu: None,
