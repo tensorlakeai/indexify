@@ -339,7 +339,7 @@ impl IndexifyState {
                 }
 
                 for (_, task) in &sched_update.updated_tasks {
-                    if sched_update.cached_task_outputs.contains_key(&task.id) {
+                    if sched_update.cached_task_outputs.contains_key(&task.key()) {
                         let _ =
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::TaskMatchedCache(

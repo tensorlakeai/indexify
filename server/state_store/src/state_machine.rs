@@ -713,33 +713,42 @@ pub(crate) fn handle_scheduler_update(
 
     let mut state_changes = vec![];
 
-    for (task_id, cached_output) in &request.cached_task_outputs {
-        let serialized_output = JsonEncoder::encode(&cached_output.node_output)?;
+    for (task_key, node_output) in &request.cached_task_outputs {
+        let serialized_output = JsonEncoder::encode(&node_output)?;
         // Create an output key
-        let output_key = cached_output.node_output.key();
+        let output_key = node_output.key();
         txn.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
             &output_key,
             serialized_output,
         )?;
 
+        let task = txn.get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), task_key)?;
+
+        let Some(task) = task else {
+            error!(task_key = task_key, "Task not found in tasks database");
+            continue;
+        };
+
+        let task = JsonEncoder::decode::<Task>(&task)?;
+
         let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
         let event = StateChangeBuilder::default()
-            .namespace(Some(cached_output.namespace.clone()))
-            .compute_graph(Some(cached_output.compute_graph_name.clone()))
-            .invocation(Some(cached_output.invocation_id.clone()))
+            .namespace(Some(task.namespace.clone()))
+            .compute_graph(Some(task.compute_graph_name.clone()))
+            .invocation(Some(task.invocation_id.clone()))
             .change_type(data_model::ChangeType::AllocationOutputsIngested(
                 AllocationOutputIngestedEvent {
-                    namespace: cached_output.namespace.clone(),
-                    compute_graph: cached_output.compute_graph_name.clone(),
-                    compute_fn: cached_output.compute_fn_name.clone(),
-                    invocation_id: cached_output.invocation_id.clone(),
-                    task_id: task_id.clone(),
+                    namespace: task.namespace.clone(),
+                    compute_graph: task.compute_graph_name.clone(),
+                    compute_fn: task.compute_fn_name.clone(),
+                    invocation_id: task.invocation_id.clone(),
+                    task_id: task.id.clone(),
                     node_output_key: output_key,
                 },
             ))
             .created_at(get_epoch_time_in_ms())
-            .object_id(task_id.clone().to_string())
+            .object_id(task.id.clone().to_string())
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()?;
