@@ -169,8 +169,6 @@ def _task_output_from_function_executor_response(
     if response.HasField("failure"):
         if response.failure.scope == FailureScope.FAILURE_SCOPE_INVOCATION:
             failure_reason = TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR
-        elif response.failure.scope == FailureScope.FAILURE_SCOPE_GRAPH:
-            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_GRAPH_ERROR
 
     output = TaskOutput(
         task=task,

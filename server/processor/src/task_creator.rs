@@ -15,12 +15,11 @@ use data_model::{
     ReduceTask,
     Routing,
     Task,
-    TaskFailureReason,
     TaskOutcome,
 };
 use state_store::{
     in_memory_state::InMemoryState,
-    requests::{GraphBreakRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest},
+    requests::{GraphBreakCheckRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest},
     IndexifyState,
 };
 use tracing::{error, info, trace};
@@ -31,7 +30,7 @@ pub struct TaskCreationResult {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
     pub invocation_ctx: Option<GraphInvocationCtx>,
-    pub break_graph: Option<GraphBreakRequest>,
+    pub graph_break_check: Option<GraphBreakCheckRequest>,
 }
 
 pub struct TaskCreator {
@@ -75,7 +74,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
-                    break_graphs: result.break_graph.into_iter().collect(),
+                    graph_break_check_requests: result.graph_break_check.into_iter().collect(),
                     ..Default::default()
                 };
                 self.in_memory_state.write().unwrap().update_state(
@@ -284,7 +283,7 @@ impl TaskCreator {
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
             invocation_ctx: Some(*invocation_ctx.clone()),
-            break_graph: None,
+            graph_break_check: None,
         })
     }
 
@@ -306,36 +305,36 @@ impl TaskCreator {
         let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
-        if let TaskOutcome::Failure(ref reason, ref details) = task.outcome {
+        if let TaskOutcome::Failure(reason, ref details) = task.outcome {
             trace!("task failed, stopping scheduling of child tasks");
             invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
-            let break_request = if *reason != TaskFailureReason::GraphError {
-                None
-            } else {
-                let (failure_cls, failure_msg, failure_trace) = match details {
-                    None => (None, None, None),
-                    Some(details) => (
+
+	    let graph_break_check = {
+		let (failure_cls, failure_msg, failure_trace) = match details {
+		    None => (None, None, None),
+		    Some(details) => (
                         Some(details.cls.clone()),
                         Some(details.msg.clone()),
                         Some(details.trace.clone()),
-                    ),
+		    ),
                 };
-                Some(GraphBreakRequest {
-                    compute_graph_name: compute_graph_version.compute_graph_name,
-                    namespace: compute_graph_version.namespace,
-                    details: ComputeGraphBreakDetails {
+                Some(GraphBreakCheckRequest {
+		    compute_graph_name: compute_graph_version.compute_graph_name,
+		    namespace: compute_graph_version.namespace,
+		    details: ComputeGraphBreakDetails {
+			reason,
                         failed_invocation_id: Some(invocation_ctx.invocation_id.clone()),
                         failed_compute_fn: Some(task.compute_fn_name.clone()),
                         failure_cls,
                         failure_msg,
                         failure_trace,
-                    },
+		    },
                 })
             };
             invocation_ctx.state = Some((task.compute_fn_name, task.outcome));
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
-                break_graph: break_request,
+                graph_break_check,
                 ..Default::default()
             });
         }
@@ -390,7 +389,7 @@ impl TaskCreator {
                     new_reduction_tasks: vec![],
                     processed_reduction_tasks: vec![reduction_task.key()],
                     invocation_ctx: Some(invocation_ctx),
-                    break_graph: None,
+                    graph_break_check: None,
                 });
             }
         }
@@ -482,7 +481,7 @@ impl TaskCreator {
             new_reduction_tasks,
             processed_reduction_tasks: vec![],
             invocation_ctx: Some(invocation_ctx),
-            break_graph: None,
+            graph_break_check: None,
         })
     }
 }

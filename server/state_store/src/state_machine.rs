@@ -8,20 +8,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    Allocation,
-    AllocationOutputIngestedEvent,
-    ComputeGraph,
-    ComputeGraphError,
-    ComputeGraphVersion,
-    GraphInvocationCtx,
-    InvocationPayload,
-    Namespace,
-    NodeOutput,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    Task,
-    TaskOutputsIngestionStatus,
+    Allocation, AllocationOutputIngestedEvent, ComputeGraph, ComputeGraphError, ComputeGraphVersion, GraphInvocationCtx, InvocationPayload, Namespace, NodeOutput, StateChange, StateChangeBuilder, StateChangeId, Task, TaskFailureReason, TaskOutputsIngestionStatus
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
 use rocksdb::{
@@ -779,17 +766,24 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    for req in &request.break_graphs {
+    for req in &request.graph_break_check_requests {
         info!(
             namespace = req.namespace,
             graph = req.compute_graph_name,
+	    reason = req.details.reason,
             failed_invocation_id = req.details.failed_invocation_id,
             failed_compute_fn = req.details.failed_compute_fn,
             failure_cls = req.details.failure_cls,
             failure_msg = req.details.failure_msg,
             failure_trace = req.details.failure_trace,
-            "breaking graph",
+            "graph break check",
         );
+	if req.details.reason == TaskFailureReason::InvocationError {
+	    // Invocation errors are a deliberate signal that a
+	    // particular invocation has a problem (e.g. invalid
+	    // inputs); we do not break the graph in this case.
+	    continue
+	}
         let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
         let cg = txn
             .get_for_update_cf(

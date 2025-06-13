@@ -822,7 +822,6 @@ impl From<data_model::TaskFailureReason> for TaskFailureReason {
                 TaskFailureReason::FunctionExecutorTerminated
             }
             data_model::TaskFailureReason::InvocationError => TaskFailureReason::InvocationError,
-            data_model::TaskFailureReason::GraphError => TaskFailureReason::GraphError,
         }
     }
 }

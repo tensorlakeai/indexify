@@ -31,7 +31,6 @@ pub enum TaskFailureReason {
     TaskCancelled,
     FunctionExecutorTerminated,
     InvocationError,
-    GraphError,
 }
 
 impl From<TaskFailureReason> for data_model::TaskFailureReason {
@@ -45,7 +44,6 @@ impl From<TaskFailureReason> for data_model::TaskFailureReason {
                 data_model::TaskFailureReason::FunctionExecutorTerminated
             }
             TaskFailureReason::InvocationError => data_model::TaskFailureReason::InvocationError,
-            TaskFailureReason::GraphError => data_model::TaskFailureReason::GraphError,
         }
     }
 }

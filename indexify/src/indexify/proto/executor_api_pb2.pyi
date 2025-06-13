@@ -93,7 +93,6 @@ class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_INVOCATION_ERROR: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_GRAPH_ERROR: _ClassVar[TaskFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -147,7 +146,6 @@ TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
 TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 TASK_FAILURE_REASON_INVOCATION_ERROR: TaskFailureReason
-TASK_FAILURE_REASON_GRAPH_ERROR: TaskFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")

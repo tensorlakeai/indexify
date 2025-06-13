@@ -504,6 +504,7 @@ pub struct RuntimeInformation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraphBreakDetails {
+    pub reason: TaskFailureReason,
     pub failed_invocation_id: Option<String>,
     pub failed_compute_fn: Option<String>,
     pub failure_cls: Option<String>,
@@ -1072,7 +1073,7 @@ impl TaskOutputsIngestionStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Copy)]
 pub enum TaskFailureReason {
     InternalError,
     FunctionError,
@@ -1080,7 +1081,6 @@ pub enum TaskFailureReason {
     TaskCancelled,
     FunctionExecutorTerminated,
     InvocationError,
-    GraphError,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
