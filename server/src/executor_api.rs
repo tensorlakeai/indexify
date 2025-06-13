@@ -3,9 +3,10 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
+use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
+use blob_store::BlobStorage;
 use data_model::{
     DataPayload,
     ExecutorId,
@@ -13,6 +14,7 @@ use data_model::{
     ExecutorMetadataBuilder,
     FunctionAllowlist,
     FunctionExecutor,
+    FunctionExecutorDiagnostics,
     FunctionExecutorId,
     GPUResources,
     GraphVersion,
@@ -411,6 +413,69 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
     }
 }
 
+fn to_function_executor_diagnostics(
+    function_executor_state: &executor_api_pb::FunctionExecutorState,
+    blob_storage: &BlobStorage,
+) -> Result<FunctionExecutorDiagnostics> {
+    let description = function_executor_state
+        .description
+        .as_ref()
+        .ok_or(anyhow::anyhow!("description is required"))?;
+    let id = description
+        .id
+        .clone()
+        .ok_or(anyhow::anyhow!("id is required"))?;
+    let namespace = description
+        .namespace
+        .clone()
+        .ok_or(anyhow::anyhow!("namespace is required"))?;
+    let graph_name = description
+        .graph_name
+        .clone()
+        .ok_or(anyhow::anyhow!("graph_name is required"))?;
+    let function_name = description
+        .function_name
+        .clone()
+        .ok_or(anyhow::anyhow!("function_name is required"))?;
+    let graph_version = description
+        .graph_version
+        .clone()
+        .ok_or(anyhow::anyhow!("graph_version is required"))?;
+    let startup_stdout = prepare_data_payload(
+        function_executor_state.startup_stdout.clone(),
+        &blob_storage.get_url_scheme(),
+        &blob_storage.get_url(),
+    );
+    let startup_stderr = prepare_data_payload(
+        function_executor_state.startup_stderr.clone(),
+        &blob_storage.get_url_scheme(),
+        &blob_storage.get_url(),
+    );
+
+    Ok(data_model::FunctionExecutorDiagnostics {
+        id: FunctionExecutorId::new(id.to_string()),
+        namespace,
+        graph_name,
+        function_name,
+        graph_version: GraphVersion(graph_version),
+        startup_stdout,
+        startup_stderr,
+    })
+}
+
+fn to_function_executor_diagnostics_vector(
+    executor_state: &executor_api_pb::ExecutorState,
+    blob_storage: &BlobStorage,
+) -> Result<Vec<FunctionExecutorDiagnostics>> {
+    executor_state
+        .function_executor_states
+        .iter()
+        .map(|function_executor_state| {
+            to_function_executor_diagnostics(function_executor_state, blob_storage)
+        })
+        .collect()
+}
+
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
@@ -647,6 +712,7 @@ impl ExecutorApi for ExecutorAPIService {
         &self,
         request: Request<ReportExecutorStateRequest>,
     ) -> Result<Response<ReportExecutorStateResponse>, Status> {
+        let start = Instant::now();
         let executor_state = request
             .get_ref()
             .executor_state
@@ -662,17 +728,29 @@ impl ExecutorApi for ExecutorAPIService {
             executor_id = executor_id.get(),
             "Got report_executor_state request"
         );
+        let function_executor_diagnostics =
+            to_function_executor_diagnostics_vector(&executor_state, &self.blob_storage)
+                .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.executor_manager
-            .heartbeat(executor_metadata)
+            .heartbeat(executor_metadata, function_executor_diagnostics)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let task_results = request.get_ref().task_results.clone();
-        self.handle_task_outcomes(executor_id, task_results)
+        self.handle_task_outcomes(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        let duration_sec = start.elapsed().as_secs_f64();
+        if duration_sec >= 1.0 {
+            warn!(
+                executor_id = executor_id.get(),
+                "report_executor_state took {} secs", duration_sec
+            );
+        }
+
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 

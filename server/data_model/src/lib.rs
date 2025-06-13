@@ -1594,6 +1594,45 @@ impl FunctionAllowlist {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
+// Stores historical information about a Function Executor. It is persisted in
+// state store so it's available after FE termination.
+pub struct FunctionExecutorDiagnostics {
+    pub id: FunctionExecutorId,
+    pub namespace: String,
+    pub graph_name: String,
+    pub function_name: String,
+    pub graph_version: GraphVersion,
+    pub startup_stdout: Option<DataPayload>,
+    pub startup_stderr: Option<DataPayload>,
+}
+
+impl FunctionExecutorDiagnostics {
+    pub fn key(&self) -> String {
+        Self::key_from(
+            &self.namespace,
+            &self.graph_name,
+            &self.function_name,
+            &self.graph_version.0,
+            &self.id.get(),
+        )
+    }
+
+    pub fn key_from(
+        namespace: &str,
+        graph_name: &str,
+        function_name: &str,
+        graph_version: &str,
+        function_executor_id: &str,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            namespace, graph_name, function_name, graph_version, function_executor_id
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutorResources {

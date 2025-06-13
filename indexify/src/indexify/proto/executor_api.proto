@@ -109,12 +109,18 @@ message FunctionExecutorDescription {
     optional uint32 customer_code_timeout_ms = 9;
     optional DataPayload graph = 10;
     optional FunctionExecutorResources resources = 11;
+    // URI prefix for the startup output payloads.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    optional string output_payload_uri_prefix = 12;
 }
 
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
+    optional DataPayload startup_stdout = 4;
+    optional DataPayload startup_stderr = 5;
 }
 
 enum ExecutorStatus {

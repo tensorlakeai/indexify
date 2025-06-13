@@ -116,7 +116,4 @@ class TaskOutput:
             allocation_id=allocation_id,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
-            # TODO: add FE startup stdout, stderr to the task output if FE failed to startup.
-            stdout="",
-            stderr="Can't execute the function because its Function Executor terminated.",
         )

@@ -286,10 +286,11 @@ pub struct TestExecutor<'a> {
 
 impl TestExecutor<'_> {
     pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
+        let function_executor_diagnostics = vec![];
         self.test_service
             .service
             .executor_manager
-            .heartbeat(executor)
+            .heartbeat(executor, function_executor_diagnostics)
             .await?;
         Ok(())
     }
