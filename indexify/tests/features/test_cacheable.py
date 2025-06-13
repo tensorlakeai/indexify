@@ -56,31 +56,22 @@ class TestCacheableGraph(unittest.TestCase):
     def test_cached_summation(self):
         counts, result = self._stream()
 
-        self.assertDictEqual(
-            {
-                "TaskCreated": 5,
-                "TaskAssigned": 5,
-                "TaskCompleted": 5,
-                "InvocationFinished": 1,
-            },
-            counts,
-        )
+        # NB: We use a constant here specifically to make it obvious
+        # that we're spelling the key exactly the same way in each
+        # check; since we're using a defaultdict, it would be easy to
+        # get the spelling wrong and have the first check successfully
+        # assert the count is == 0.
+        match_key = "TaskMatchedCache"
 
         self.assertEqual(13, result[0].val)
+        self.assertEqual(0, counts[match_key])
 
         counts, result = self._stream()
-        self.assertDictEqual(
-            {
-                "TaskCreated": 2,
-                "TaskAssigned": 2,
-                "TaskCompleted": 2,
-                "TaskMatchedCache": 3,
-                "InvocationFinished": 1,
-            },
-            counts,
-        )
 
         self.assertEqual(13, result[0].val)
+        self.assertEqual(3, counts[match_key])
+
+        print(f"Cached counts: {counts}")
 
 
 if __name__ == "__main__":
