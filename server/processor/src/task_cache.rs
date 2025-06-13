@@ -14,7 +14,7 @@ use data_model::{
 };
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
-    requests::SchedulerUpdateRequest,
+    requests::{CachedOutput, SchedulerUpdateRequest},
     IndexifyState,
 };
 use tracing::{debug, span};
@@ -140,9 +140,16 @@ impl TaskCache {
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
             task.output_status = TaskOutputsIngestionStatus::Ingested;
-            result
-                .cached_task_outputs
-                .insert(task.id.clone(), outputs.clone());
+            result.cached_task_outputs.insert(
+                task.id.clone(),
+                CachedOutput {
+                    node_output: outputs.clone(),
+                    namespace: task.namespace.clone(),
+                    compute_graph_name: task.compute_graph_name.clone(),
+                    invocation_id: task.invocation_id.clone(),
+                    compute_fn_name: task.compute_fn_name.clone(),
+                },
+            );
             result.updated_tasks.insert(task.id.clone(), task);
             state.cache_hits += 1;
         }

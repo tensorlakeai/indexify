@@ -40,12 +40,21 @@ pub enum RequestPayload {
     Noop,
 }
 
+#[derive(Debug, Clone)]
+pub struct CachedOutput {
+    pub node_output: NodeOutput,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub invocation_id: String,
+    pub compute_fn_name: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub remove_allocations: Vec<Allocation>,
     pub updated_tasks: HashMap<TaskId, Task>,
-    pub cached_task_outputs: HashMap<TaskId, NodeOutput>,
+    pub cached_task_outputs: HashMap<TaskId, CachedOutput>,
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
