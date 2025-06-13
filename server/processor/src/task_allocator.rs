@@ -13,11 +13,13 @@ use data_model::{
     ExecutorServerMetadata,
     FunctionExecutor,
     FunctionExecutorBuilder,
+    FunctionExecutorDiagnostics,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionExecutorTerminationReason,
     GraphInvocationCtx,
     Task,
+    TaskDiagnostics,
     TaskOutcome,
     TaskStatus,
 };
@@ -214,6 +216,10 @@ impl<'a> TaskAllocationProcessor<'a> {
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(fe_resources.clone())
+            .diagnostics(FunctionExecutorDiagnostics {
+                startup_stdout: None,
+                startup_stderr: None,
+            })
             .termination_reason(FunctionExecutorTerminationReason::Unknown)
             .build()?;
 
@@ -468,6 +474,13 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
+                    task.diagnostics = Some(TaskDiagnostics {
+                        stdout: fe.diagnostics.startup_stdout.clone(),
+                        stderr: fe.diagnostics.startup_stderr.clone(),
+                    });
+                    // TODO: even though the task is completed and stdout and
+                    // err are correct why don't we get them
+                    // in sdk client and the test fails?
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
                 {
                     task.status = TaskStatus::Pending;

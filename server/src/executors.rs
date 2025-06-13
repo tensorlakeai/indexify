@@ -412,6 +412,8 @@ impl ExecutorManager {
                 encoding_version: None,
             };
             let fe = &desired_state_fe.function_executor.function_executor;
+            let fe_output_payload_uri_prefix =
+                format!("{}/function_executors", self.blob_store_url,);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 namespace: Some(fe.namespace.clone()),
@@ -423,6 +425,7 @@ impl ExecutorManager {
                 customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms.clone()),
                 graph: Some(code_payload_pb),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
+                output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
             };
             function_executors_pb.push(fe_description_pb);
         }

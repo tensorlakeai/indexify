@@ -11,7 +11,7 @@ async def destroy_function_executor(
     termination_reason: FunctionExecutorTerminationReason,
     logger: Any,
 ) -> FunctionExecutorDestroyed:
-    """Destroys a function executor.
+    """Destroys a function executor if it's not None.
 
     Doesn't raise any exceptions.
     """

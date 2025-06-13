@@ -1,4 +1,6 @@
 import asyncio
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 import grpc
@@ -56,12 +58,19 @@ from .server.function_executor_server_factory import (
 )
 
 
-class FunctionError(RuntimeError):
-    pass
+class FunctionExecutorInitializationError(Enum):
+    FUNCTION_TIMEOUT = 1
+    FUNCTION_ERROR = 2
 
 
-class FunctionTimeoutError(FunctionError):
-    pass
+@dataclass
+class FunctionExecutorInitializationResult:
+    """Result of FunctionExecutor initialization."""
+
+    # None error means success.
+    error: Optional[FunctionExecutorInitializationError] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
 
 
 class FunctionExecutor:
@@ -83,7 +92,6 @@ class FunctionExecutor:
         self._channel: Optional[grpc.aio.Channel] = None
         self._invocation_state_client: Optional[InvocationStateClient] = None
         self._health_checker: Optional[HealthChecker] = None
-        self._initialized = False
         metric_function_executors_count.inc()
 
     async def initialize(
@@ -93,10 +101,9 @@ class FunctionExecutor:
         base_url: str,
         config_path: Optional[str],
         customer_code_timeout_sec: Optional[float] = None,
-    ):
+    ) -> FunctionExecutorInitializationResult:
         """Creates and initializes a FunctionExecutorServer and all resources associated with it.
 
-        Raises FunctionError if the server failed to initialize due to an error in customer owned code or data.
         Raises an Exception if an internal error occured."""
         try:
             with (
@@ -108,9 +115,6 @@ class FunctionExecutor:
                 await self._establish_channel()
                 stub: FunctionExecutorStub = FunctionExecutorStub(self._channel)
                 await _collect_server_info(stub)
-                await _initialize_server(
-                    stub, initialize_request, customer_code_timeout_sec
-                )
                 await self._create_invocation_state_client(
                     stub=stub,
                     base_url=base_url,
@@ -118,21 +122,21 @@ class FunctionExecutor:
                     initialize_request=initialize_request,
                 )
                 await self._create_health_checker(self._channel, stub)
-                self._initialized = True
+
+                return await _initialize_server(
+                    stub, initialize_request, customer_code_timeout_sec
+                )
         except Exception:
             await self.destroy()
             raise
 
     def channel(self) -> grpc.aio.Channel:
-        self._check_initialized()
         return self._channel
 
     def invocation_state_client(self) -> InvocationStateClient:
-        self._check_initialized()
         return self._invocation_state_client
 
     def health_checker(self) -> HealthChecker:
-        self._check_initialized()
         return self._health_checker
 
     async def destroy(self):
@@ -157,10 +161,6 @@ class FunctionExecutor:
                 "exception from a Function Executor destroy step, some destroy steps are not executed, this is a resource leak",
                 exc_info=e,
             )
-
-    def _check_initialized(self) -> None:
-        if not self._initialized:
-            raise RuntimeError("FunctionExecutor is not initialized")
 
     async def _create_server(self, config: FunctionExecutorServerConfiguration) -> None:
         with (
@@ -305,7 +305,7 @@ async def _initialize_server(
     stub: FunctionExecutorStub,
     initialize_request: InitializeRequest,
     customer_code_timeout_sec: Optional[float],
-) -> None:
+) -> FunctionExecutorInitializationResult:
     with (
         metric_initialize_rpc_errors.count_exceptions(),
         metric_initialize_rpc_latency.time(),
@@ -315,15 +315,20 @@ async def _initialize_server(
                 initialize_request,
                 timeout=customer_code_timeout_sec,
             )
+            # TODO: set real stdout and stderr when their proper capturing on FE initialization is implemented.
             if initialize_response.success:
-                return
-            if initialize_response.HasField("customer_error"):
-                raise FunctionError(initialize_response.customer_error)
+                return FunctionExecutorInitializationResult()
+            elif initialize_response.HasField("customer_error"):
+                return FunctionExecutorInitializationResult(
+                    error=FunctionExecutorInitializationError.FUNCTION_ERROR,
+                    stderr=initialize_response.customer_error,
+                )
             else:
                 raise Exception("initialize RPC failed at function executor server")
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                raise FunctionTimeoutError(
-                    f"Function initialization exceeded its configured timeout of {customer_code_timeout_sec:.3f} sec."
-                ) from e
+                return FunctionExecutorInitializationResult(
+                    error=FunctionExecutorInitializationError.FUNCTION_TIMEOUT,
+                    stderr=f"Function initialization exceeded its configured timeout of {customer_code_timeout_sec:.3f} sec.",
+                )
             raise

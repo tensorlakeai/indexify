@@ -127,7 +127,7 @@ async def _upload_to_blob_store(
         output.uploaded_stdout = DataPayload(
             uri=stdout_url,
             size=len(stdout_bytes),
-            sha256_hash=_compute_hash(stdout_bytes),
+            sha256_hash=compute_hash(stdout_bytes),
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
@@ -141,7 +141,7 @@ async def _upload_to_blob_store(
         output.uploaded_stderr = DataPayload(
             uri=stderr_url,
             size=len(stderr_bytes),
-            sha256_hash=_compute_hash(stderr_bytes),
+            sha256_hash=compute_hash(stderr_bytes),
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
@@ -164,7 +164,7 @@ async def _upload_to_blob_store(
                 DataPayload(
                     uri=output_url,
                     size=len(output_bytes),
-                    sha256_hash=_compute_hash(output_bytes),
+                    sha256_hash=compute_hash(output_bytes),
                     encoding=_to_grpc_data_payload_encoding(output),
                     encoding_version=0,
                 )
@@ -214,7 +214,7 @@ def _to_grpc_data_payload_encoding(task_output: TaskOutput) -> DataPayloadEncodi
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
 
 
-def _compute_hash(data: bytes) -> str:
+def compute_hash(data: bytes) -> str:
     hasher = hashlib.sha256(usedforsecurity=False)
     hasher.update(data)
     return hasher.hexdigest()

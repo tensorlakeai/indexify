@@ -42,8 +42,13 @@ class TestFunctionTimeouts(unittest.TestCase):
         graph = RemoteGraph.deploy(
             graph=graph, code_dir_path=graph_code_dir_path(__file__)
         )
-        start_time = time.monotonic()
-        invocation_id = graph.run(block_until_done=True)
+        # We don't have a public SDK API to read a functions' stderr
+        # so we rely on internal SDK behavior where it prints a failed function's
+        # stderr to the current stdout.
+        sdk_stdout: io.StringIO = io.StringIO()
+        with redirect_stdout(sdk_stdout):
+            start_time = time.monotonic()
+            invocation_id = graph.run(block_until_done=True)
         duration_sec = time.monotonic() - start_time
         self.assertLess(
             duration_sec,
@@ -55,6 +60,12 @@ class TestFunctionTimeouts(unittest.TestCase):
             invocation_id, "FunctionThatSleepsForeverOnInitialization"
         )
         self.assertEqual(len(output), 0)
+
+        # Use regex to ignore console formatting characters
+        self.assertRegex(
+            sdk_stdout.getvalue(),
+            r"Function initialization exceeded its configured timeout of of.*2.000.*sec",
+        )
 
     def test_run(self):
         graph = Graph(

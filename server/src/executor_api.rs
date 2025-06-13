@@ -6,6 +6,7 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc, vec};
 
 use anyhow::Result;
+use blob_store::BlobStorage;
 use data_model::{
     DataPayload,
     ExecutorId,
@@ -242,77 +243,76 @@ impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResource
     }
 }
 
-impl TryFrom<ExecutorState> for ExecutorMetadata {
-    type Error = anyhow::Error;
-
-    fn try_from(executor_state: ExecutorState) -> Result<Self, Self::Error> {
-        let mut executor_metadata = ExecutorMetadataBuilder::default();
-        let executor_id = executor_state
-            .executor_id
-            .clone()
-            .map(ExecutorId::new)
-            .ok_or(anyhow::anyhow!("executor_id is required"))?;
-        executor_metadata.id(executor_id.clone());
-        executor_metadata.state(executor_state.status().into());
-        if let Some(state_hash) = executor_state.state_hash.clone() {
-            executor_metadata.state_hash(state_hash);
-        }
-        if let Some(executor_version) = executor_state.version {
-            executor_metadata.executor_version(executor_version);
-        }
-        let mut allowed_functions = Vec::new();
-        for function in executor_state.allowed_functions {
-            allowed_functions.push(FunctionAllowlist::try_from(function)?);
-        }
-        if allowed_functions.is_empty() {
-            executor_metadata.function_allowlist(None);
-        } else {
-            executor_metadata.function_allowlist(Some(allowed_functions));
-        }
-        if let Some(addr) = executor_state.hostname {
-            executor_metadata.addr(addr);
-        }
-        let mut labels = HashMap::new();
-        for (key, value) in executor_state.labels {
-            labels.insert(key, serde_json::Value::String(value));
-        }
-        executor_metadata.labels(labels);
-        let mut function_executors = HashMap::new();
-        for function_executor_state in executor_state.function_executor_states {
-            let function_executor =
-                data_model::FunctionExecutor::try_from(function_executor_state)?;
-            function_executors.insert(function_executor.id.clone(), function_executor);
-        }
-        executor_metadata.function_executors(function_executors);
-        if let Some(host_resources) = executor_state.total_function_executor_resources {
-            let cpu = host_resources
-                .cpu_count
-                .ok_or(anyhow::anyhow!("cpu_count is required"))?;
-            let memory = host_resources
-                .memory_bytes
-                .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
-            let disk = host_resources
-                .disk_bytes
-                .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-            // Ignore errors during conversion as they are expected e.g. if Executor GPU
-            // model is unknown.
-            let gpu = match host_resources.gpu {
-                Some(gpu_resources) => gpu_resources.try_into().ok(),
-                None => None,
-            };
-            executor_metadata.host_resources(data_model::HostResources {
-                cpu_ms_per_sec: cpu * 1000,
-                memory_bytes: memory,
-                disk_bytes: disk,
-                gpu,
-            });
-            executor_metadata.host_resources(host_resources.try_into()?);
-        }
-        if let Some(server_clock) = executor_state.server_clock {
-            executor_metadata.clock(server_clock);
-        }
-        Ok(executor_metadata.build()?)
+fn executor_state_to_data_model(
+    executor_state: ExecutorState,
+    blob_storage: &BlobStorage,
+) -> Result<ExecutorMetadata> {
+    let mut executor_metadata = ExecutorMetadataBuilder::default();
+    let executor_id = executor_state
+        .executor_id
+        .clone()
+        .map(ExecutorId::new)
+        .ok_or(anyhow::anyhow!("executor_id is required"))?;
+    executor_metadata.id(executor_id.clone());
+    executor_metadata.state(executor_state.status().into());
+    if let Some(state_hash) = executor_state.state_hash.clone() {
+        executor_metadata.state_hash(state_hash);
     }
+    if let Some(executor_version) = executor_state.version {
+        executor_metadata.executor_version(executor_version);
+    }
+    let mut allowed_functions = Vec::new();
+    for function in executor_state.allowed_functions {
+        allowed_functions.push(FunctionAllowlist::try_from(function)?);
+    }
+    if allowed_functions.is_empty() {
+        executor_metadata.function_allowlist(None);
+    } else {
+        executor_metadata.function_allowlist(Some(allowed_functions));
+    }
+    if let Some(addr) = executor_state.hostname {
+        executor_metadata.addr(addr);
+    }
+    let mut labels = HashMap::new();
+    for (key, value) in executor_state.labels {
+        labels.insert(key, serde_json::Value::String(value));
+    }
+    executor_metadata.labels(labels);
+    let mut function_executors = HashMap::new();
+    for function_executor_state in executor_state.function_executor_states {
+        let function_executor =
+            function_executor_state_to_data_model(function_executor_state, blob_storage)?;
+        function_executors.insert(function_executor.id.clone(), function_executor);
+    }
+    executor_metadata.function_executors(function_executors);
+    if let Some(host_resources) = executor_state.total_function_executor_resources {
+        let cpu = host_resources
+            .cpu_count
+            .ok_or(anyhow::anyhow!("cpu_count is required"))?;
+        let memory = host_resources
+            .memory_bytes
+            .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
+        let disk = host_resources
+            .disk_bytes
+            .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+        // Ignore errors during conversion as they are expected e.g. if Executor GPU
+        // model is unknown.
+        let gpu = match host_resources.gpu {
+            Some(gpu_resources) => gpu_resources.try_into().ok(),
+            None => None,
+        };
+        executor_metadata.host_resources(data_model::HostResources {
+            cpu_ms_per_sec: cpu * 1000,
+            memory_bytes: memory,
+            disk_bytes: disk,
+            gpu,
+        });
+        executor_metadata.host_resources(host_resources.try_into()?);
+    }
+    if let Some(server_clock) = executor_state.server_clock {
+        executor_metadata.clock(server_clock);
+    }
+    Ok(executor_metadata.build()?)
 }
 
 impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutorTerminationReason {
@@ -356,61 +356,73 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
     }
 }
 
-impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
-    type Error = anyhow::Error;
-
-    fn try_from(function_executor_state: FunctionExecutorState) -> Result<Self, Self::Error> {
-        let termination_reason = data_model::FunctionExecutorTerminationReason::try_from(
-            function_executor_state.termination_reason(),
-        )?;
-        let id = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.id.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("id is required"))?;
-        let namespace = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.namespace.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.graph_name.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.function_name.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
-        let version = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.graph_version.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("version is required"))?;
-        let resources = function_executor_state
-            .description
-            .as_ref()
-            .map(|description| description.resources.clone())
-            .flatten()
-            .ok_or(anyhow::anyhow!("resources is required"))?;
-        let resources = data_model::FunctionExecutorResources::try_from(resources.clone())?;
-        Ok(FunctionExecutor {
-            id: FunctionExecutorId::new(id.clone()),
-            namespace: namespace.clone(),
-            compute_graph_name: compute_graph_name.clone(),
-            compute_fn_name: compute_fn_name.clone(),
-            version: GraphVersion(version.clone()),
-            state: function_executor_state.status().into(),
-            termination_reason,
-            resources,
-        })
-    }
+fn function_executor_state_to_data_model(
+    function_executor_state: FunctionExecutorState,
+    blob_storage: &blob_store::BlobStorage,
+) -> Result<FunctionExecutor> {
+    let termination_reason = data_model::FunctionExecutorTerminationReason::try_from(
+        function_executor_state.termination_reason(),
+    )?;
+    let id = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.id.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("id is required"))?;
+    let namespace = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.namespace.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("namespace is required"))?;
+    let compute_graph_name = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.graph_name.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
+    let compute_fn_name = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.function_name.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
+    let version = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.graph_version.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("version is required"))?;
+    let resources = function_executor_state
+        .description
+        .as_ref()
+        .map(|description| description.resources.clone())
+        .flatten()
+        .ok_or(anyhow::anyhow!("resources is required"))?;
+    let resources = data_model::FunctionExecutorResources::try_from(resources.clone())?;
+    let function_executor_diagnostics = data_model::FunctionExecutorDiagnostics {
+        startup_stdout: prepare_data_payload(
+            function_executor_state.startup_stdout.clone(),
+            &blob_storage.get_url_scheme(),
+            &blob_storage.get_url(),
+        ),
+        startup_stderr: prepare_data_payload(
+            function_executor_state.startup_stderr.clone(),
+            &blob_storage.get_url_scheme(),
+            &blob_storage.get_url(),
+        ),
+    };
+    Ok(FunctionExecutor {
+        id: FunctionExecutorId::new(id.clone()),
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph_name.clone(),
+        compute_fn_name: compute_fn_name.clone(),
+        version: GraphVersion(version.clone()),
+        state: function_executor_state.status().into(),
+        termination_reason,
+        diagnostics: function_executor_diagnostics,
+        resources,
+    })
 }
 
 pub struct ExecutorAPIService {
@@ -684,7 +696,7 @@ impl ExecutorApi for ExecutorAPIService {
             executor_id = executor_id.get(),
             "Got report_executor_state request"
         );
-        let executor_metadata = ExecutorMetadata::try_from(executor_state)
+        let executor_metadata = executor_state_to_data_model(executor_state, &self.blob_storage)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.executor_manager
             .heartbeat(executor_metadata)

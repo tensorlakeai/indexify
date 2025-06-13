@@ -242,6 +242,7 @@ class FunctionExecutorDescription(_message.Message):
         "customer_code_timeout_ms",
         "graph",
         "resources",
+        "output_payload_uri_prefix",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -253,6 +254,7 @@ class FunctionExecutorDescription(_message.Message):
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -263,6 +265,7 @@ class FunctionExecutorDescription(_message.Message):
     customer_code_timeout_ms: int
     graph: DataPayload
     resources: FunctionExecutorResources
+    output_payload_uri_prefix: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -275,16 +278,27 @@ class FunctionExecutorDescription(_message.Message):
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
+        output_payload_uri_prefix: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status", "termination_reason")
+    __slots__ = (
+        "description",
+        "status",
+        "termination_reason",
+        "startup_stdout",
+        "startup_stderr",
+    )
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
+    STARTUP_STDOUT_FIELD_NUMBER: _ClassVar[int]
+    STARTUP_STDERR_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
     termination_reason: FunctionExecutorTerminationReason
+    startup_stdout: DataPayload
+    startup_stderr: DataPayload
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
@@ -292,6 +306,8 @@ class FunctionExecutorState(_message.Message):
         termination_reason: _Optional[
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
+        startup_stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        startup_stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):

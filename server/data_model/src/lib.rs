@@ -1691,6 +1691,13 @@ impl FunctionAllowlist {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
+pub struct FunctionExecutorDiagnostics {
+    pub startup_stdout: Option<DataPayload>,
+    pub startup_stderr: Option<DataPayload>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutorResources {
@@ -1710,6 +1717,7 @@ pub struct FunctionExecutor {
     pub version: GraphVersion,
     pub state: FunctionExecutorState,
     pub termination_reason: FunctionExecutorTerminationReason,
+    pub diagnostics: FunctionExecutorDiagnostics,
     pub resources: FunctionExecutorResources,
 }
 
@@ -1798,6 +1806,10 @@ impl FunctionExecutorBuilder {
             .termination_reason
             .clone()
             .ok_or(anyhow!("termination_reason is required"))?;
+        let diagnostics = self
+            .diagnostics
+            .clone()
+            .ok_or(anyhow!("diagnostics is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -1806,6 +1818,7 @@ impl FunctionExecutorBuilder {
             version,
             state,
             termination_reason,
+            diagnostics,
             resources,
         })
     }

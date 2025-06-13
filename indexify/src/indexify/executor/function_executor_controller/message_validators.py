@@ -25,6 +25,7 @@ def validate_function_executor_description(
     validator.required_field("customer_code_timeout_ms")
     validator.required_field("graph")
     validator.required_field("resources")
+    validator.required_field("output_payload_uri_prefix")
 
     _validate_data_payload(function_executor_description.graph)
 
