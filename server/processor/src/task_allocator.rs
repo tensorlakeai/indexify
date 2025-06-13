@@ -18,6 +18,7 @@ use data_model::{
     FunctionExecutorTerminationReason,
     GraphInvocationCtx,
     Task,
+    TaskFailureReason,
     TaskOutcome,
     TaskStatus,
 };
@@ -467,7 +468,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 };
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
+                    task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError, None);
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
                 {
                     task.status = TaskStatus::Pending;

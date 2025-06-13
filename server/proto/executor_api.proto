@@ -216,12 +216,20 @@ enum TaskFailureReason {
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
     TASK_FAILURE_REASON_TASK_CANCELLED = 4;
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 5;
+    TASK_FAILURE_REASON_INVOCATION_ERROR = 6;
+    TASK_FAILURE_REASON_GRAPH_ERROR = 7;
 }
 
 message ResultRouting {
     // The list of next functions.
     // NB: An empty list indicates that no routing should be performed.
     repeated string next_functions = 1;
+}
+
+message FailureInfo {
+    optional string cls = 1;
+    optional string msg = 2;
+    optional string trace = 3;
 }
 
 message TaskResult {
@@ -254,6 +262,8 @@ message TaskResult {
     // `next_functions`, so that if `routing` is not present, the
     // graph's routing definitions will always be used.
     ResultRouting routing = 14;
+
+    optional FailureInfo failure = 15;  // Human-readable diagnostic info
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

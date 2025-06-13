@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FailureScope,
     RunTaskRequest,
     RunTaskResponse,
 )
@@ -15,6 +16,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
 from indexify.proto.executor_api_pb2 import (
+    FailureInfo,
     FunctionExecutorTerminationReason,
     Task,
     TaskFailureReason,
@@ -161,6 +163,15 @@ def _task_output_from_function_executor_response(
         metrics.counters = dict(response.metrics.counters)
         metrics.timers = dict(response.metrics.timers)
 
+    failure_reason = None
+    if not response.success:
+        failure_reason = TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+    if response.HasField("failure"):
+        if response.failure.scope == FailureScope.FAILURE_SCOPE_INVOCATION:
+            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR
+        elif response.failure.scope == FailureScope.FAILURE_SCOPE_GRAPH:
+            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_GRAPH_ERROR
+
     output = TaskOutput(
         task=task,
         allocation_id=allocation_id,
@@ -169,11 +180,7 @@ def _task_output_from_function_executor_response(
             if response.success
             else TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
         ),
-        failure_reason=(
-            None
-            if response.success
-            else TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
-        ),
+        failure_reason=failure_reason,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,
@@ -184,6 +191,12 @@ def _task_output_from_function_executor_response(
         output.function_output = response.function_output
     if response.HasField("router_output"):
         output.router_output = response.router_output
+    if response.HasField("failure"):
+        output.failure = FailureInfo(
+            cls=response.failure.cls,
+            msg=response.failure.msg,
+            trace=response.failure.trace,
+        )
 
     return output
 

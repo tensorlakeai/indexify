@@ -779,6 +779,39 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
+    for req in &request.break_graphs {
+        info!(
+            namespace = req.namespace,
+            graph = req.compute_graph_name,
+            failed_invocation_id = req.details.failed_invocation_id,
+            failed_compute_fn = req.details.failed_compute_fn,
+            failure_cls = req.details.failure_cls,
+            failure_msg = req.details.failure_msg,
+            failure_trace = req.details.failure_trace,
+            "breaking graph",
+        );
+        let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
+        let cg = txn
+            .get_for_update_cf(
+                &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                &compute_graph_key,
+                true,
+            )?
+            .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+        let mut cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+        if cg.tombstoned {
+            return Err(anyhow::anyhow!("Compute graph is tombstoned"));
+        }
+        cg.break_details = Some(req.details.clone());
+        cg.tombstoned = true;
+        let serialized_cg = JsonEncoder::encode(&cg)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            compute_graph_key,
+            &serialized_cg,
+        )?;
+    }
+
     Ok(state_changes)
 }
 

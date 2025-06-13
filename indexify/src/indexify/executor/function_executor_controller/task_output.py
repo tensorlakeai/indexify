@@ -7,6 +7,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
+    FailureInfo,
     Task,
     TaskFailureReason,
     TaskOutcomeCode,
@@ -41,6 +42,7 @@ class TaskOutput:
         uploaded_data_payloads: List[DataPayload] = [],
         uploaded_stdout: Optional[DataPayload] = None,
         uploaded_stderr: Optional[DataPayload] = None,
+        failure: Optional[FailureInfo] = None,
     ):
         self.task = task
         self.allocation_id = allocation_id
@@ -56,6 +58,7 @@ class TaskOutput:
         self.uploaded_data_payloads = uploaded_data_payloads
         self.uploaded_stdout = uploaded_stdout
         self.uploaded_stderr = uploaded_stderr
+        self.failure = failure
 
     @classmethod
     def internal_error(

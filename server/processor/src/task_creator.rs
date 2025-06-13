@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use data_model::{
     AllocationOutputIngestedEvent,
     ChangeType,
+    ComputeGraphBreakDetails,
     ComputeGraphVersion,
     GraphInvocationCtx,
     GraphInvocationOutcome,
@@ -14,11 +15,12 @@ use data_model::{
     ReduceTask,
     Routing,
     Task,
+    TaskFailureReason,
     TaskOutcome,
 };
 use state_store::{
     in_memory_state::InMemoryState,
-    requests::{ReductionTasks, RequestPayload, SchedulerUpdateRequest},
+    requests::{GraphBreakRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest},
     IndexifyState,
 };
 use tracing::{error, info, trace};
@@ -29,6 +31,7 @@ pub struct TaskCreationResult {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
     pub invocation_ctx: Option<GraphInvocationCtx>,
+    pub break_graph: Option<GraphBreakRequest>,
 }
 
 pub struct TaskCreator {
@@ -72,6 +75,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
+                    break_graphs: result.break_graph.into_iter().collect(),
                     ..Default::default()
                 };
                 self.in_memory_state.write().unwrap().update_state(
@@ -280,6 +284,7 @@ impl TaskCreator {
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
             invocation_ctx: Some(*invocation_ctx.clone()),
+            break_graph: None,
         })
     }
 
@@ -301,11 +306,36 @@ impl TaskCreator {
         let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
-        if task.outcome == TaskOutcome::Failure {
+        if let TaskOutcome::Failure(ref reason, ref details) = task.outcome {
             trace!("task failed, stopping scheduling of child tasks");
             invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
+            let break_request = if *reason != TaskFailureReason::GraphError {
+                None
+            } else {
+                let (failure_cls, failure_msg, failure_trace) = match details {
+                    None => (None, None, None),
+                    Some(details) => (
+                        Some(details.cls.clone()),
+                        Some(details.msg.clone()),
+                        Some(details.trace.clone()),
+                    ),
+                };
+                Some(GraphBreakRequest {
+                    compute_graph_name: compute_graph_version.compute_graph_name,
+                    namespace: compute_graph_version.namespace,
+                    details: ComputeGraphBreakDetails {
+                        failed_invocation_id: Some(invocation_ctx.invocation_id.clone()),
+                        failed_compute_fn: Some(task.compute_fn_name.clone()),
+                        failure_cls,
+                        failure_msg,
+                        failure_trace,
+                    },
+                })
+            };
+            invocation_ctx.state = Some((task.compute_fn_name, task.outcome));
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
+                break_graph: break_request,
                 ..Default::default()
             });
         }
@@ -360,6 +390,7 @@ impl TaskCreator {
                     new_reduction_tasks: vec![],
                     processed_reduction_tasks: vec![reduction_task.key()],
                     invocation_ctx: Some(invocation_ctx),
+                    break_graph: None,
                 });
             }
         }
@@ -451,6 +482,7 @@ impl TaskCreator {
             new_reduction_tasks,
             processed_reduction_tasks: vec![],
             invocation_ctx: Some(invocation_ctx),
+            break_graph: None,
         })
     }
 }

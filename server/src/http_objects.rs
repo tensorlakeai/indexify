@@ -631,6 +631,35 @@ impl From<data_model::RuntimeInformation> for RuntimeInformation {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Default)]
+pub struct ComputeGraphState {
+    pub status: String,
+    pub failed_invocation_id: Option<String>,
+    pub failed_compute_fn: Option<String>,
+    pub failure_cls: Option<String>,
+    pub failure_msg: Option<String>,
+    pub failure_trace: Option<String>,
+}
+
+impl From<Option<data_model::ComputeGraphBreakDetails>> for ComputeGraphState {
+    fn from(value: Option<data_model::ComputeGraphBreakDetails>) -> Self {
+        match value {
+            None => Self {
+                status: "Ready".to_owned(),
+                ..Default::default()
+            },
+            Some(br) => Self {
+                status: "Broken".to_owned(),
+                failed_invocation_id: br.failed_invocation_id,
+                failed_compute_fn: br.failed_compute_fn,
+                failure_cls: br.failure_cls,
+                failure_msg: br.failure_msg,
+                failure_trace: br.failure_trace,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {
     pub name: String,
@@ -649,6 +678,8 @@ pub struct ComputeGraph {
     pub runtime_information: RuntimeInformation,
     #[serde(skip_deserializing)]
     pub replaying: bool,
+    #[serde(default)]
+    pub state: Option<ComputeGraphState>,
 }
 
 impl ComputeGraph {
@@ -684,6 +715,7 @@ impl ComputeGraph {
             runtime_information: self.runtime_information.into(),
             replaying: false,
             tombstoned: self.tombstoned,
+            break_details: None,
         };
         Ok(compute_graph)
     }
@@ -712,6 +744,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             runtime_information: compute_graph.runtime_information.into(),
             replaying: compute_graph.replaying,
             tombstoned: compute_graph.tombstoned,
+            state: Some(compute_graph.break_details.into()),
         }
     }
 }
@@ -768,10 +801,54 @@ pub struct GraphInputFile {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum TaskFailureReason {
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    TaskCancelled,
+    FunctionExecutorTerminated,
+    InvocationError,
+    GraphError,
+}
+
+impl From<data_model::TaskFailureReason> for TaskFailureReason {
+    fn from(val: data_model::TaskFailureReason) -> Self {
+        match val {
+            data_model::TaskFailureReason::InternalError => TaskFailureReason::InternalError,
+            data_model::TaskFailureReason::FunctionError => TaskFailureReason::FunctionError,
+            data_model::TaskFailureReason::FunctionTimeout => TaskFailureReason::FunctionTimeout,
+            data_model::TaskFailureReason::TaskCancelled => TaskFailureReason::TaskCancelled,
+            data_model::TaskFailureReason::FunctionExecutorTerminated => {
+                TaskFailureReason::FunctionExecutorTerminated
+            }
+            data_model::TaskFailureReason::InvocationError => TaskFailureReason::InvocationError,
+            data_model::TaskFailureReason::GraphError => TaskFailureReason::GraphError,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FailureDetails {
+    pub cls: String,
+    pub msg: String,
+    pub trace: String,
+}
+
+impl From<data_model::FailureDetails> for FailureDetails {
+    fn from(val: data_model::FailureDetails) -> Self {
+        Self {
+            cls: val.cls,
+            msg: val.msg,
+            trace: val.trace,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub enum TaskOutcome {
     Undefined,
     Success,
-    Failure,
+    Failure(TaskFailureReason, Option<FailureDetails>),
 }
 
 impl From<data_model::TaskOutcome> for TaskOutcome {
@@ -779,7 +856,9 @@ impl From<data_model::TaskOutcome> for TaskOutcome {
         match outcome {
             data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
             data_model::TaskOutcome::Success => TaskOutcome::Success,
-            data_model::TaskOutcome::Failure => TaskOutcome::Failure,
+            data_model::TaskOutcome::Failure(reason, details) => {
+                TaskOutcome::Failure(reason.into(), details.map(|d| d.into()))
+            }
         }
     }
 }
@@ -932,6 +1011,46 @@ pub struct InvocationId {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Default)]
+pub struct InvocationState {
+    pub status: String,
+    pub failed_compute_fn: Option<String>,
+    pub failure_cls: Option<String>,
+    pub failure_msg: Option<String>,
+    pub failure_trace: Option<String>,
+}
+
+impl From<Option<(String, data_model::TaskOutcome)>> for InvocationState {
+    fn from(value: Option<(String, data_model::TaskOutcome)>) -> Self {
+        match value {
+            None => Self {
+                status: "Running".to_owned(),
+                ..Default::default()
+            },
+            Some((_, data_model::TaskOutcome::Unknown)) => Self {
+                status: "Failed".to_owned(),
+                ..Default::default()
+            },
+            Some((_, data_model::TaskOutcome::Success)) => Self {
+                status: "Success".to_owned(),
+                ..Default::default()
+            },
+            Some((compute_fn, data_model::TaskOutcome::Failure(_, None))) => Self {
+                status: "Failed".to_owned(),
+                failed_compute_fn: Some(compute_fn),
+                ..Default::default()
+            },
+            Some((compute_fn, data_model::TaskOutcome::Failure(_, Some(details)))) => Self {
+                status: "Failed".to_owned(),
+                failed_compute_fn: Some(compute_fn),
+                failure_cls: Some(details.cls),
+                failure_msg: Some(details.msg),
+                failure_trace: Some(details.trace),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Invocation {
     pub id: String,
@@ -942,6 +1061,7 @@ pub struct Invocation {
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
     pub created_at: u64,
+    pub state: InvocationState,
 }
 
 impl From<GraphInvocationCtx> for Invocation {
@@ -973,6 +1093,7 @@ impl From<GraphInvocationCtx> for Invocation {
             task_analytics,
             graph_version: value.graph_version.0,
             created_at: value.created_at,
+            state: value.state.into(),
         }
     }
 }

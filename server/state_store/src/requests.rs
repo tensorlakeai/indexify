@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use data_model::{
     Allocation,
     ComputeGraph,
+    ComputeGraphBreakDetails,
     ExecutorId,
     ExecutorMetadata,
     FunctionExecutorId,
@@ -40,6 +41,13 @@ pub enum RequestPayload {
     Noop,
 }
 
+#[derive(Debug, Clone)]
+pub struct GraphBreakRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub details: ComputeGraphBreakDetails,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
@@ -52,6 +60,7 @@ pub struct SchedulerUpdateRequest {
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
+    pub break_graphs: Vec<GraphBreakRequest>,
 }
 
 impl SchedulerUpdateRequest {
@@ -77,7 +86,8 @@ impl SchedulerUpdateRequest {
         self.remove_function_executors
             .extend(other.remove_function_executors);
         self.updated_executor_resources
-            .extend(other.updated_executor_resources)
+            .extend(other.updated_executor_resources);
+        self.break_graphs.extend(other.break_graphs);
     }
 }
 

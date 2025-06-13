@@ -339,6 +339,7 @@ def _to_task_result_protos(task_outputs: List[TaskOutput]) -> List[TaskResult]:
             outcome_code=output.outcome_code,
             next_functions=(output.router_output.edges if output.router_output else []),
             function_outputs=output.uploaded_data_payloads,
+            failure=output.failure,
         )
         if output.failure_reason is not None:
             task_result.failure_reason = output.failure_reason

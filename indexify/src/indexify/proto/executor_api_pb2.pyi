@@ -92,6 +92,8 @@ class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_INVOCATION_ERROR: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_GRAPH_ERROR: _ClassVar[TaskFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -144,6 +146,8 @@ TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
 TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
+TASK_FAILURE_REASON_INVOCATION_ERROR: TaskFailureReason
+TASK_FAILURE_REASON_GRAPH_ERROR: TaskFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")
@@ -495,6 +499,21 @@ class ResultRouting(_message.Message):
     next_functions: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, next_functions: _Optional[_Iterable[str]] = ...) -> None: ...
 
+class FailureInfo(_message.Message):
+    __slots__ = ("cls", "msg", "trace")
+    CLS_FIELD_NUMBER: _ClassVar[int]
+    MSG_FIELD_NUMBER: _ClassVar[int]
+    TRACE_FIELD_NUMBER: _ClassVar[int]
+    cls: str
+    msg: str
+    trace: str
+    def __init__(
+        self,
+        cls: _Optional[str] = ...,
+        msg: _Optional[str] = ...,
+        trace: _Optional[str] = ...,
+    ) -> None: ...
+
 class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
@@ -511,6 +530,7 @@ class TaskResult(_message.Message):
         "stderr",
         "allocation_id",
         "routing",
+        "failure",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -526,6 +546,7 @@ class TaskResult(_message.Message):
     STDERR_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     ROUTING_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     namespace: str
     graph_name: str
@@ -540,6 +561,7 @@ class TaskResult(_message.Message):
     stderr: DataPayload
     allocation_id: str
     routing: ResultRouting
+    failure: FailureInfo
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -556,4 +578,5 @@ class TaskResult(_message.Message):
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
         routing: _Optional[_Union[ResultRouting, _Mapping]] = ...,
+        failure: _Optional[_Union[FailureInfo, _Mapping]] = ...,
     ) -> None: ...

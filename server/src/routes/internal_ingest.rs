@@ -24,18 +24,64 @@ pub enum TaskOutput {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum TaskFailureReason {
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    TaskCancelled,
+    FunctionExecutorTerminated,
+    InvocationError,
+    GraphError,
+}
+
+impl From<TaskFailureReason> for data_model::TaskFailureReason {
+    fn from(val: TaskFailureReason) -> Self {
+        match val {
+            TaskFailureReason::InternalError => data_model::TaskFailureReason::InternalError,
+            TaskFailureReason::FunctionError => data_model::TaskFailureReason::FunctionError,
+            TaskFailureReason::FunctionTimeout => data_model::TaskFailureReason::FunctionTimeout,
+            TaskFailureReason::TaskCancelled => data_model::TaskFailureReason::TaskCancelled,
+            TaskFailureReason::FunctionExecutorTerminated => {
+                data_model::TaskFailureReason::FunctionExecutorTerminated
+            }
+            TaskFailureReason::InvocationError => data_model::TaskFailureReason::InvocationError,
+            TaskFailureReason::GraphError => data_model::TaskFailureReason::GraphError,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FailureDetails {
+    pub cls: String,
+    pub msg: String,
+    pub trace: String,
+}
+
+impl From<FailureDetails> for data_model::FailureDetails {
+    fn from(val: FailureDetails) -> Self {
+        Self {
+            cls: val.cls,
+            msg: val.msg,
+            trace: val.trace,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TaskOutcome {
     #[serde(rename = "success")]
     Success,
     #[serde(rename = "failure")]
-    Failure,
+    Failure(TaskFailureReason, Option<FailureDetails>),
 }
 
 impl From<TaskOutcome> for data_model::TaskOutcome {
     fn from(val: TaskOutcome) -> Self {
         match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
-            TaskOutcome::Failure => data_model::TaskOutcome::Failure,
+            TaskOutcome::Failure(reason, details) => {
+                data_model::TaskOutcome::Failure(reason.into(), details.map(|d| d.into()))
+            }
         }
     }
 }

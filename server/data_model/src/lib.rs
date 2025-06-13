@@ -503,6 +503,15 @@ pub struct RuntimeInformation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphBreakDetails {
+    pub failed_invocation_id: Option<String>,
+    pub failed_compute_fn: Option<String>,
+    pub failure_cls: Option<String>,
+    pub failure_msg: Option<String>,
+    pub failure_trace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
@@ -513,6 +522,7 @@ pub struct ComputeGraph {
     #[serde(default)]
     pub replaying: bool,
     pub created_at: u64,
+    pub break_details: Option<ComputeGraphBreakDetails>,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
@@ -835,7 +845,7 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
     fn from(outcome: TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
-            TaskOutcome::Failure => GraphInvocationOutcome::Failure,
+            TaskOutcome::Failure(..) => GraphInvocationOutcome::Failure,
             TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
         }
     }
@@ -867,6 +877,7 @@ pub struct GraphInvocationCtx {
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
+    pub state: Option<(String, TaskOutcome)>,
 }
 
 impl GraphInvocationCtx {
@@ -898,7 +909,7 @@ impl GraphInvocationCtx {
                     analytics.success();
                     self.outstanding_tasks -= 1;
                 }
-                TaskOutcome::Failure => {
+                TaskOutcome::Failure(..) => {
                     analytics.fail();
                     self.outstanding_tasks -= 1;
                 }
@@ -994,6 +1005,7 @@ impl GraphInvocationCtxBuilder {
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
         let created_at = self.created_at.unwrap_or_else(|| get_epoch_time_in_ms());
+
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
@@ -1005,6 +1017,7 @@ impl GraphInvocationCtxBuilder {
             outstanding_tasks: 0,
             outstanding_reducer_tasks: 0,
             created_at,
+            state: None,
         })
     }
 }
@@ -1060,15 +1073,33 @@ impl TaskOutputsIngestionStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TaskFailureReason {
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    TaskCancelled,
+    FunctionExecutorTerminated,
+    InvocationError,
+    GraphError,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FailureDetails {
+    pub cls: String,
+    pub msg: String,
+    pub trace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
-    Failure,
+    Failure(TaskFailureReason, Option<FailureDetails>),
 }
 
 impl TaskOutcome {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Success | Self::Failure)
+        matches!(self, Self::Success | Self::Failure(_, _))
     }
 }
 
@@ -1076,7 +1107,7 @@ impl Display for TaskOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             TaskOutcome::Success => "Success",
-            TaskOutcome::Failure => "Failure",
+            TaskOutcome::Failure(..) => "Failure",
             TaskOutcome::Unknown => "Unknown",
         };
         write!(f, "{}", str_val)

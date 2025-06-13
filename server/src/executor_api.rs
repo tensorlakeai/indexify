@@ -11,6 +11,7 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     ExecutorMetadataBuilder,
+    FailureDetails,
     FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
@@ -19,6 +20,7 @@ use data_model::{
     NodeOutputBuilder,
     Routing,
     TaskDiagnostics,
+    TaskFailureReason,
     TaskOutcome,
     TaskOutputsIngestionStatus,
     TaskStatus,
@@ -442,6 +444,7 @@ impl ExecutorAPIService {
     ) -> Result<()> {
         let mut requests = Vec::new();
         for task_result in task_results {
+            debug!("Received task result: {:#?}", task_result);
             self.api_metrics
                 .fn_outputs
                 .add(task_result.function_outputs.len() as u64, &[]);
@@ -452,6 +455,10 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let failure_reason = executor_api_pb::TaskFailureReason::try_from(
+                task_result.failure_reason.unwrap_or(0),
+            )
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
             let namespace = task_result
                 .namespace
                 .clone()
@@ -507,8 +514,38 @@ impl ExecutorAPIService {
                     task.outcome = TaskOutcome::Success;
                 }
                 executor_api_pb::TaskOutcomeCode::Failure => {
-                    // TODO: Handle all the failure reasons.
-                    task.outcome = TaskOutcome::Failure;
+                    let reason = match failure_reason {
+                        executor_api_pb::TaskFailureReason::Unknown => {
+                            TaskFailureReason::InternalError
+                        }
+                        executor_api_pb::TaskFailureReason::InternalError => {
+                            TaskFailureReason::InternalError
+                        }
+                        executor_api_pb::TaskFailureReason::FunctionError => {
+                            TaskFailureReason::FunctionError
+                        }
+                        executor_api_pb::TaskFailureReason::FunctionTimeout => {
+                            TaskFailureReason::FunctionTimeout
+                        }
+                        executor_api_pb::TaskFailureReason::TaskCancelled => {
+                            TaskFailureReason::TaskCancelled
+                        }
+                        executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
+                            TaskFailureReason::FunctionExecutorTerminated
+                        }
+                        executor_api_pb::TaskFailureReason::InvocationError => {
+                            TaskFailureReason::InvocationError
+                        }
+                        executor_api_pb::TaskFailureReason::GraphError => {
+                            TaskFailureReason::GraphError
+                        }
+                    };
+                    let details = task_result.failure.map(|fi| FailureDetails {
+                        cls: fi.cls.unwrap_or_default(),
+                        msg: fi.msg.unwrap_or_default(),
+                        trace: fi.trace.unwrap_or_default(),
+                    });
+                    task.outcome = TaskOutcome::Failure(reason, details);
                 }
                 executor_api_pb::TaskOutcomeCode::Unknown => {
                     task.outcome = TaskOutcome::Unknown;
