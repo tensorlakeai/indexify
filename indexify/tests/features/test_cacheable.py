@@ -58,8 +58,8 @@ class TestCacheableGraph(unittest.TestCase):
 
         self.assertDictEqual(
             {
-                "TaskCreated": 7,
-                "TaskAssigned": 6,
+                "TaskCreated": 5,
+                "TaskAssigned": 5,
                 "TaskCompleted": 5,
                 "InvocationFinished": 1,
             },
