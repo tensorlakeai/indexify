@@ -101,6 +101,7 @@ mod tests {
                     outstanding_reducer_tasks: 0,
                     fn_task_analytics: HashMap::new(),
                     created_at: get_epoch_time_in_ms(),
+		    state: None,
                 })?,
             )?;
 

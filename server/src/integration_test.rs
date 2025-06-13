@@ -7,6 +7,7 @@ mod tests {
         test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
         ExecutorId,
         Task,
+	TaskFailureReason::FunctionError,
         TaskOutcome,
     };
     use rocksdb::{IteratorMode, TransactionDB};
@@ -22,7 +23,7 @@ mod tests {
         testing::{self, FinalizeTaskArgs, TaskStateAssertions},
     };
 
-    fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
+        fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
         if !asserts.contains_key(IndexifyObjectsColumns::StateMachineMetadata.as_ref()) {
             asserts.insert(
                 IndexifyObjectsColumns::StateMachineMetadata
@@ -523,7 +524,7 @@ mod tests {
                 .finalize_task(
                     task_allocation,
                     FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
-                        .task_outcome(TaskOutcome::Failure),
+                        .task_outcome(TaskOutcome::Failure(FunctionError, None)),
                 )
                 .await?;
 
