@@ -11,9 +11,12 @@ use data_model::{
     Allocation,
     AllocationOutputIngestedEvent,
     ComputeGraph,
+    ComputeGraphBreakDetails,
     ComputeGraphError,
     ComputeGraphVersion,
     GraphInvocationCtx,
+    GraphInvocationFailure,
+    GraphInvocationOutcome,
     InvocationPayload,
     Namespace,
     NodeOutput,
@@ -21,6 +24,7 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
+    TaskFailureReason,
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
@@ -777,6 +781,71 @@ pub(crate) fn handle_scheduler_update(
             invocation_ctx.key(),
             &serialized_graph_ctx,
         )?;
+
+        if invocation_ctx.completed {
+            // Determine whether to break this compute graph due to
+            // too many failing invocations.
+            if let GraphInvocationOutcome::Failure(GraphInvocationFailure {
+                reason: TaskFailureReason::InvocationError,
+                ..
+            }) = invocation_ctx.outcome
+            {
+                // Failure due to an explicit InvocationError does
+                // *not* count towards either success or failure.
+                continue;
+            }
+
+            let compute_graph_key = ComputeGraph::key_from(
+                &invocation_ctx.namespace,
+                &invocation_ctx.compute_graph_name,
+            );
+            let cg = txn
+                .get_for_update_cf(
+                    &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                    &compute_graph_key,
+                    true,
+                )?
+                .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+            let mut cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+            if cg.break_details.is_some() {
+                // The graph is already broken.
+                continue;
+            }
+
+            let Some(ref mut gauge) = cg.failure_gauge else {
+                continue;
+            };
+
+            match &invocation_ctx.outcome {
+                GraphInvocationOutcome::Undefined => {}
+                GraphInvocationOutcome::Success => {
+                    gauge.consecutive_failure_count = 0;
+                }
+                GraphInvocationOutcome::Failure(failure) => {
+                    if gauge.consecutive_failure_count < gauge.consecutive_failure_max {
+                        gauge.consecutive_failure_count += 1;
+                    }
+                    if gauge.consecutive_failure_max <= gauge.consecutive_failure_count {
+                        cg.break_details = Some(ComputeGraphBreakDetails {
+                            reason: failure.reason,
+                            failed_invocation_id: Some(invocation_ctx.invocation_id.clone()),
+                            failed_compute_fn: failure.compute_fn_name.clone(),
+                            failure_cls: failure.cls.clone(),
+                            failure_msg: failure.msg.clone(),
+                            failure_trace: failure.trace.clone(),
+                        });
+                        cg.tombstoned = true;
+                    }
+                }
+            }
+
+            let cg = JsonEncoder::encode(&cg)?;
+            txn.put_cf(
+                &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                compute_graph_key,
+                &cg,
+            )?;
+        }
     }
 
     Ok(state_changes)

@@ -77,7 +77,7 @@ impl SchedulerUpdateRequest {
         self.remove_function_executors
             .extend(other.remove_function_executors);
         self.updated_executor_resources
-            .extend(other.updated_executor_resources)
+            .extend(other.updated_executor_resources);
     }
 }
 

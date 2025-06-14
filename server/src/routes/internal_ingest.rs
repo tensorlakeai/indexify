@@ -24,18 +24,62 @@ pub enum TaskOutput {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum TaskFailureReason {
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    TaskCancelled,
+    FunctionExecutorTerminated,
+    InvocationError,
+}
+
+impl From<TaskFailureReason> for data_model::TaskFailureReason {
+    fn from(val: TaskFailureReason) -> Self {
+        match val {
+            TaskFailureReason::InternalError => data_model::TaskFailureReason::InternalError,
+            TaskFailureReason::FunctionError => data_model::TaskFailureReason::FunctionError,
+            TaskFailureReason::FunctionTimeout => data_model::TaskFailureReason::FunctionTimeout,
+            TaskFailureReason::TaskCancelled => data_model::TaskFailureReason::TaskCancelled,
+            TaskFailureReason::FunctionExecutorTerminated => {
+                data_model::TaskFailureReason::FunctionExecutorTerminated
+            }
+            TaskFailureReason::InvocationError => data_model::TaskFailureReason::InvocationError,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TaskFailure {
+    pub reason: TaskFailureReason,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
+}
+
+impl From<TaskFailure> for data_model::TaskFailure {
+    fn from(val: TaskFailure) -> Self {
+        Self {
+            reason: val.reason.into(),
+            cls: val.cls,
+            msg: val.msg,
+            trace: val.trace,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TaskOutcome {
     #[serde(rename = "success")]
     Success,
     #[serde(rename = "failure")]
-    Failure,
+    Failure(TaskFailure),
 }
 
 impl From<TaskOutcome> for data_model::TaskOutcome {
     fn from(val: TaskOutcome) -> Self {
         match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
-            TaskOutcome::Failure => data_model::TaskOutcome::Failure,
+            TaskOutcome::Failure(failure) => data_model::TaskOutcome::Failure(failure.into()),
         }
     }
 }

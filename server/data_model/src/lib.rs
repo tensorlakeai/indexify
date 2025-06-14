@@ -502,6 +502,22 @@ pub struct RuntimeInformation {
     pub sdk_version: String,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphBreakDetails {
+    pub reason: TaskFailureReason,
+    pub failed_invocation_id: Option<String>,
+    pub failed_compute_fn: Option<String>,
+    pub failure_cls: Option<String>,
+    pub failure_msg: Option<String>,
+    pub failure_trace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphFailureGauge {
+    pub consecutive_failure_max: usize,
+    pub consecutive_failure_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
@@ -513,6 +529,8 @@ pub struct ComputeGraph {
     #[serde(default)]
     pub replaying: bool,
     pub created_at: u64,
+    pub failure_gauge: Option<ComputeGraphFailureGauge>,
+    pub break_details: Option<ComputeGraphBreakDetails>,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
@@ -818,11 +836,20 @@ impl InvocationPayloadBuilder {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GraphInvocationFailure {
+    pub reason: TaskFailureReason,
+    pub compute_fn_name: Option<String>,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GraphInvocationOutcome {
     Undefined,
     Success,
-    Failure,
+    Failure(GraphInvocationFailure),
 }
 
 impl Default for GraphInvocationOutcome {
@@ -831,11 +858,19 @@ impl Default for GraphInvocationOutcome {
     }
 }
 
-impl From<TaskOutcome> for GraphInvocationOutcome {
-    fn from(outcome: TaskOutcome) -> Self {
+impl GraphInvocationOutcome {
+    pub fn from(compute_fn_name: String, outcome: TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
-            TaskOutcome::Failure => GraphInvocationOutcome::Failure,
+            TaskOutcome::Failure(details) => {
+                GraphInvocationOutcome::Failure(GraphInvocationFailure {
+                    reason: details.reason,
+                    compute_fn_name: Some(compute_fn_name),
+                    cls: details.cls,
+                    msg: details.msg,
+                    trace: details.trace,
+                })
+            }
             TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
         }
     }
@@ -845,7 +880,7 @@ impl Display for GraphInvocationOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             GraphInvocationOutcome::Success => "Success",
-            GraphInvocationOutcome::Failure => "Failure",
+            GraphInvocationOutcome::Failure(..) => "Failure",
             GraphInvocationOutcome::Undefined => "Undefined",
         };
         write!(f, "{}", str_val)
@@ -898,7 +933,7 @@ impl GraphInvocationCtx {
                     analytics.success();
                     self.outstanding_tasks -= 1;
                 }
-                TaskOutcome::Failure => {
+                TaskOutcome::Failure(..) => {
                     analytics.fail();
                     self.outstanding_tasks -= 1;
                 }
@@ -994,6 +1029,7 @@ impl GraphInvocationCtxBuilder {
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
         let created_at = self.created_at.unwrap_or_else(|| get_epoch_time_in_ms());
+
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
@@ -1059,16 +1095,35 @@ impl TaskOutputsIngestionStatus {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Copy)]
+pub enum TaskFailureReason {
+    #[default]
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    TaskCancelled,
+    FunctionExecutorTerminated,
+    InvocationError,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskFailure {
+    pub reason: TaskFailureReason,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
-    Failure,
+    Failure(TaskFailure),
 }
 
 impl TaskOutcome {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Success | Self::Failure)
+        matches!(self, Self::Success | Self::Failure(..))
     }
 }
 
@@ -1076,7 +1131,7 @@ impl Display for TaskOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             TaskOutcome::Success => "Success",
-            TaskOutcome::Failure => "Failure",
+            TaskOutcome::Failure(..) => "Failure",
             TaskOutcome::Unknown => "Unknown",
         };
         write!(f, "{}", str_val)
@@ -2198,6 +2253,8 @@ mod tests {
                 sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
+            break_details: None,
+            failure_gauge: None,
         };
 
         struct TestCase {

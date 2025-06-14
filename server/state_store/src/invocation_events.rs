@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use data_model::{TaskAnalytics, TaskOutcome};
+use data_model::{TaskAnalytics, TaskFailure, TaskFailureReason, TaskOutcome};
 use serde::{Deserialize, Serialize};
 
 use crate::requests::IngestTaskOutputsRequest;
@@ -16,11 +16,23 @@ pub enum InvocationStateChangeEvent {
 
 impl InvocationStateChangeEvent {
     pub fn from_task_finished(event: IngestTaskOutputsRequest) -> Self {
+        let (outcome, reason, failure) = match event.task.outcome {
+            TaskOutcome::Unknown => ("Failure".to_owned(), None, None),
+            TaskOutcome::Success => ("Success".to_owned(), None, None),
+            TaskOutcome::Failure(failure) => (
+                "Failure".to_owned(),
+                Some(failure.reason),
+                Some(failure.into()),
+            ),
+        };
+
         Self::TaskCompleted(TaskCompleted {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.task.id.to_string(),
-            outcome: event.task.outcome,
+            outcome,
+            reason,
+            failure,
         })
     }
 
@@ -73,11 +85,30 @@ pub struct TaskAssigned {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TaskFailureDetails {
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
+}
+
+impl From<TaskFailure> for TaskFailureDetails {
+    fn from(failure: TaskFailure) -> Self {
+        Self {
+            cls: failure.cls,
+            msg: failure.msg,
+            trace: failure.trace,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCompleted {
     pub invocation_id: String,
     pub fn_name: String,
     pub task_id: String,
-    pub outcome: TaskOutcome,
+    pub outcome: String,
+    pub reason: Option<TaskFailureReason>,
+    pub failure: Option<TaskFailureDetails>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
