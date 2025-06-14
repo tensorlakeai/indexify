@@ -471,7 +471,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure(TaskFailure {
-                        reason: TaskFailureReason::FunctionError,
+                        reason: TaskFailureReason::InvocationInitError,
                         ..Default::default()
                     });
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError

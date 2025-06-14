@@ -30,7 +30,7 @@ pub enum TaskFailureReason {
     FunctionTimeout,
     TaskCancelled,
     FunctionExecutorTerminated,
-    InvocationError,
+    InvocationArgumentError,
 }
 
 impl From<TaskFailureReason> for data_model::TaskFailureReason {
@@ -43,7 +43,9 @@ impl From<TaskFailureReason> for data_model::TaskFailureReason {
             TaskFailureReason::FunctionExecutorTerminated => {
                 data_model::TaskFailureReason::FunctionExecutorTerminated
             }
-            TaskFailureReason::InvocationError => data_model::TaskFailureReason::InvocationError,
+            TaskFailureReason::InvocationArgumentError => {
+                data_model::TaskFailureReason::InvocationArgumentError
+            }
         }
     }
 }

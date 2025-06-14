@@ -167,8 +167,13 @@ def _task_output_from_function_executor_response(
     if not response.success:
         failure_reason = TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
     try:
-        if response.failure.scope == fe_pb2.FailureScope.FAILURE_SCOPE_INVOCATION:
-            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR
+        if (
+            response.failure.scope
+            == fe_pb2.FailureScope.FAILURE_SCOPE_INVOCATION_ARGUMENT
+        ):
+            failure_reason = (
+                TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ARGUMENT_ERROR
+            )
     except AttributeError:
         # Older versions of the response proto don't define the failure field.
         # TODO: Move all uses of this proto into the same component, so that a given

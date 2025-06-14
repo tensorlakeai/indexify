@@ -766,10 +766,10 @@ pub(crate) fn handle_scheduler_update(
     for invocation_ctx in &request.updated_invocations_states {
         if invocation_ctx.completed {
             info!(
-                invocation_id = invocation_ctx.invocation_id.to_string(),
+                invocation_id = ?invocation_ctx.invocation_id,
                 namespace = invocation_ctx.namespace,
                 compute_graph = invocation_ctx.compute_graph_name,
-                outcome = invocation_ctx.outcome.to_string(),
+                outcome = ?invocation_ctx.outcome,
                 duration_secs =
                     get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"
@@ -785,14 +785,17 @@ pub(crate) fn handle_scheduler_update(
         if invocation_ctx.completed {
             // Determine whether to break this compute graph due to
             // too many failing invocations.
-            if let GraphInvocationOutcome::Failure(GraphInvocationFailure {
-                reason: TaskFailureReason::InvocationError,
-                ..
-            }) = invocation_ctx.outcome
+            if let GraphInvocationOutcome::Failure(GraphInvocationFailure { reason, .. }) =
+                invocation_ctx.outcome
             {
-                // Failure due to an explicit InvocationError does
-                // *not* count towards either success or failure.
-                continue;
+                if reason == TaskFailureReason::InvocationArgumentError ||
+                    reason == TaskFailureReason::FunctionError
+                {
+                    // Failure due to an explicit
+                    // InvocationArgumentError or FunctionError does
+                    // *not* count towards either success or failure.
+                    continue;
+                }
             }
 
             let compute_graph_key = ComputeGraph::key_from(

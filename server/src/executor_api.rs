@@ -428,8 +428,8 @@ impl From<executor_api_pb::TaskFailureReason> for TaskFailureReason {
             executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
                 TaskFailureReason::FunctionExecutorTerminated
             }
-            executor_api_pb::TaskFailureReason::InvocationError => {
-                TaskFailureReason::InvocationError
+            executor_api_pb::TaskFailureReason::InvocationArgumentError => {
+                TaskFailureReason::InvocationArgumentError
             }
         }
     }

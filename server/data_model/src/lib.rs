@@ -1103,7 +1103,8 @@ pub enum TaskFailureReason {
     FunctionTimeout,
     TaskCancelled,
     FunctionExecutorTerminated,
-    InvocationError,
+    InvocationArgumentError,
+    InvocationInitError,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
