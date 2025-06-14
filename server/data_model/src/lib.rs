@@ -2253,6 +2253,8 @@ mod tests {
                 sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
+            break_details: None,
+            failure_gauge: None,
         };
 
         struct TestCase {
