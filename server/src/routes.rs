@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::ComputeGraphError;
+use data_model::{ComputeGraphError, GraphInvocationOutcome};
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -45,6 +45,7 @@ use crate::http_objects::{
     from_data_model_executor_metadata,
     FnOutput,
     Invocation,
+    InvocationOutcome,
     InvocationStatus,
     StateChangesResponse,
     UnallocatedTasks,
@@ -906,7 +907,11 @@ async fn list_outputs(
     // partial results.
     Ok(Json(FnOutputs {
         status,
-        outcome: invocation_ctx.outcome.into(),
+        outcome: match invocation_ctx.outcome {
+            GraphInvocationOutcome::Undefined => InvocationOutcome::Undefined,
+            GraphInvocationOutcome::Success => InvocationOutcome::Success,
+            GraphInvocationOutcome::Failure(..) => InvocationOutcome::Failure,
+        },
         outputs: http_outputs,
         cursor,
     }))

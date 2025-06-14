@@ -301,9 +301,12 @@ impl TaskCreator {
         let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
-        if task.outcome == TaskOutcome::Failure {
+        if let TaskOutcome::Failure(..) = task.outcome {
             trace!("task failed, stopping scheduling of child tasks");
-            invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
+            invocation_ctx.complete_invocation(
+                true,
+                GraphInvocationOutcome::from(task.compute_fn_name.clone(), task.outcome.clone()),
+            );
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
                 ..Default::default()

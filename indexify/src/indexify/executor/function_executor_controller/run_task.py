@@ -3,6 +3,7 @@ import time
 from typing import Any, Optional
 
 import grpc
+import tensorlake.function_executor.proto.function_executor_pb2 as fe_pb2
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,
     RunTaskResponse,
@@ -15,6 +16,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
 from indexify.proto.executor_api_pb2 import (
+    FailureInfo,
     FunctionExecutorTerminationReason,
     Task,
     TaskFailureReason,
@@ -161,6 +163,23 @@ def _task_output_from_function_executor_response(
         metrics.counters = dict(response.metrics.counters)
         metrics.timers = dict(response.metrics.timers)
 
+    failure_reason = None
+    if not response.success:
+        failure_reason = TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+    try:
+        if (
+            response.failure.scope
+            == fe_pb2.FailureScope.FAILURE_SCOPE_INVOCATION_ARGUMENT
+        ):
+            failure_reason = (
+                TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ARGUMENT_ERROR
+            )
+    except AttributeError:
+        # Older versions of the response proto don't define the failure field.
+        # TODO: Move all uses of this proto into the same component, so that a given
+        #       install always has a consistent version of the proto.
+        pass
+
     output = TaskOutput(
         task=task,
         allocation_id=allocation_id,
@@ -169,11 +188,7 @@ def _task_output_from_function_executor_response(
             if response.success
             else TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
         ),
-        failure_reason=(
-            None
-            if response.success
-            else TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
-        ),
+        failure_reason=failure_reason,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,
@@ -184,6 +199,16 @@ def _task_output_from_function_executor_response(
         output.function_output = response.function_output
     if response.HasField("router_output"):
         output.router_output = response.router_output
+    try:
+        if response.HasField("failure"):
+            output.failure = FailureInfo(
+                cls=response.failure.cls,
+                msg=response.failure.msg,
+                trace=response.failure.trace,
+            )
+    except ValueError:
+        # As above: older versions of the response proto don't define the failure field.
+        pass
 
     return output
 

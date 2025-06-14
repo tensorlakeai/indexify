@@ -218,6 +218,8 @@ pub mod tests {
                 sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
+            failure_gauge: None,
+            break_details: None,
         }
     }
 
@@ -277,6 +279,8 @@ pub mod tests {
                 sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
+            failure_gauge: None,
+            break_details: None,
         }
     }
 
@@ -316,6 +320,8 @@ pub mod tests {
                 sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
+            failure_gauge: None,
+            break_details: None,
         }
     }
 
