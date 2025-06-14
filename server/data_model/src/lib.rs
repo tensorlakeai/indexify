@@ -502,7 +502,7 @@ pub struct RuntimeInformation {
     pub sdk_version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraphBreakDetails {
     pub reason: TaskFailureReason,
     pub failed_invocation_id: Option<String>,
@@ -510,6 +510,12 @@ pub struct ComputeGraphBreakDetails {
     pub failure_cls: Option<String>,
     pub failure_msg: Option<String>,
     pub failure_trace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphFailureGauge {
+    pub consecutive_failure_max: usize,
+    pub consecutive_failure_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -523,6 +529,7 @@ pub struct ComputeGraph {
     #[serde(default)]
     pub replaying: bool,
     pub created_at: u64,
+    pub failure_gauge: Option<ComputeGraphFailureGauge>,
     pub break_details: Option<ComputeGraphBreakDetails>,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
@@ -829,11 +836,20 @@ impl InvocationPayloadBuilder {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GraphInvocationFailure {
+    pub reason: TaskFailureReason,
+    pub compute_fn_name: Option<String>,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GraphInvocationOutcome {
     Undefined,
     Success,
-    Failure,
+    Failure(GraphInvocationFailure),
 }
 
 impl Default for GraphInvocationOutcome {
@@ -842,11 +858,19 @@ impl Default for GraphInvocationOutcome {
     }
 }
 
-impl From<TaskOutcome> for GraphInvocationOutcome {
-    fn from(outcome: TaskOutcome) -> Self {
+impl GraphInvocationOutcome {
+    pub fn from(compute_fn_name: String, outcome: TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
-            TaskOutcome::Failure(..) => GraphInvocationOutcome::Failure,
+            TaskOutcome::Failure(details) => {
+                GraphInvocationOutcome::Failure(GraphInvocationFailure {
+                    reason: details.reason,
+                    compute_fn_name: Some(compute_fn_name),
+                    cls: details.cls,
+                    msg: details.msg,
+                    trace: details.trace,
+                })
+            }
             TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
         }
     }
@@ -856,7 +880,7 @@ impl Display for GraphInvocationOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             GraphInvocationOutcome::Success => "Success",
-            GraphInvocationOutcome::Failure => "Failure",
+            GraphInvocationOutcome::Failure(..) => "Failure",
             GraphInvocationOutcome::Undefined => "Undefined",
         };
         write!(f, "{}", str_val)
@@ -878,7 +902,6 @@ pub struct GraphInvocationCtx {
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
-    pub state: Option<(String, TaskOutcome)>,
 }
 
 impl GraphInvocationCtx {
@@ -1018,7 +1041,6 @@ impl GraphInvocationCtxBuilder {
             outstanding_tasks: 0,
             outstanding_reducer_tasks: 0,
             created_at,
-            state: None,
         })
     }
 }
@@ -1073,8 +1095,9 @@ impl TaskOutputsIngestionStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Copy)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Copy)]
 pub enum TaskFailureReason {
+    #[default]
     InternalError,
     FunctionError,
     FunctionTimeout,
@@ -1083,23 +1106,24 @@ pub enum TaskFailureReason {
     InvocationError,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FailureDetails {
-    pub cls: String,
-    pub msg: String,
-    pub trace: String,
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskFailure {
+    pub reason: TaskFailureReason,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
-    Failure(TaskFailureReason, Option<FailureDetails>),
+    Failure(TaskFailure),
 }
 
 impl TaskOutcome {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Success | Self::Failure(_, _))
+        matches!(self, Self::Success | Self::Failure(..))
     }
 }
 

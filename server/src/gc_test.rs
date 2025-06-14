@@ -7,6 +7,7 @@ mod tests {
     use data_model::{
         test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
         GraphInvocationCtx,
+        GraphInvocationFailure,
         InvocationPayload,
         NodeOutput,
     };
@@ -96,12 +97,14 @@ mod tests {
                     namespace: TEST_NAMESPACE.to_string(),
                     graph_version: compute_graph.version.clone(),
                     completed: false,
-                    outcome: data_model::GraphInvocationOutcome::Failure,
+                    outcome: data_model::GraphInvocationOutcome::Failure(GraphInvocationFailure {
+                        reason: data_model::TaskFailureReason::FunctionError,
+                        ..Default::default()
+                    }),
                     outstanding_tasks: 0,
                     outstanding_reducer_tasks: 0,
                     fn_task_analytics: HashMap::new(),
                     created_at: get_epoch_time_in_ms(),
-		    state: None,
                 })?,
             )?;
 

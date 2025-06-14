@@ -8,7 +8,24 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    Allocation, AllocationOutputIngestedEvent, ComputeGraph, ComputeGraphError, ComputeGraphVersion, GraphInvocationCtx, InvocationPayload, Namespace, NodeOutput, StateChange, StateChangeBuilder, StateChangeId, Task, TaskFailureReason, TaskOutputsIngestionStatus
+    Allocation,
+    AllocationOutputIngestedEvent,
+    ComputeGraph,
+    ComputeGraphBreakDetails,
+    ComputeGraphError,
+    ComputeGraphVersion,
+    GraphInvocationCtx,
+    GraphInvocationFailure,
+    GraphInvocationOutcome,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+    Task,
+    TaskFailureReason,
+    TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
 use rocksdb::{
@@ -764,46 +781,71 @@ pub(crate) fn handle_scheduler_update(
             invocation_ctx.key(),
             &serialized_graph_ctx,
         )?;
-    }
 
-    for req in &request.graph_break_check_requests {
-        info!(
-            namespace = req.namespace,
-            graph = req.compute_graph_name,
-	    reason = req.details.reason,
-            failed_invocation_id = req.details.failed_invocation_id,
-            failed_compute_fn = req.details.failed_compute_fn,
-            failure_cls = req.details.failure_cls,
-            failure_msg = req.details.failure_msg,
-            failure_trace = req.details.failure_trace,
-            "graph break check",
-        );
-	if req.details.reason == TaskFailureReason::InvocationError {
-	    // Invocation errors are a deliberate signal that a
-	    // particular invocation has a problem (e.g. invalid
-	    // inputs); we do not break the graph in this case.
-	    continue
-	}
-        let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
-        let cg = txn
-            .get_for_update_cf(
+        if invocation_ctx.completed {
+            // Determine whether to break this compute graph due to
+            // too many failing invocations.
+            if let GraphInvocationOutcome::Failure(GraphInvocationFailure {
+                reason: TaskFailureReason::InvocationError,
+                ..
+            }) = invocation_ctx.outcome
+            {
+                // Failure due to an explicit InvocationError does
+                // *not* count towards either success or failure.
+                continue;
+            }
+
+            let compute_graph_key = ComputeGraph::key_from(
+                &invocation_ctx.namespace,
+                &invocation_ctx.compute_graph_name,
+            );
+            let cg = txn
+                .get_for_update_cf(
+                    &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                    &compute_graph_key,
+                    true,
+                )?
+                .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+            let mut cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+            if cg.break_details.is_some() {
+                // The graph is already broken.
+                continue;
+            }
+
+            let Some(ref mut gauge) = cg.failure_gauge else {
+                continue;
+            };
+
+            match &invocation_ctx.outcome {
+                GraphInvocationOutcome::Undefined => {}
+                GraphInvocationOutcome::Success => {
+                    gauge.consecutive_failure_count = 0;
+                }
+                GraphInvocationOutcome::Failure(failure) => {
+                    if gauge.consecutive_failure_count < gauge.consecutive_failure_max {
+                        gauge.consecutive_failure_count += 1;
+                    }
+                    if gauge.consecutive_failure_max <= gauge.consecutive_failure_count {
+                        cg.break_details = Some(ComputeGraphBreakDetails {
+                            reason: failure.reason,
+                            failed_invocation_id: Some(invocation_ctx.invocation_id.clone()),
+                            failed_compute_fn: failure.compute_fn_name.clone(),
+                            failure_cls: failure.cls.clone(),
+                            failure_msg: failure.msg.clone(),
+                            failure_trace: failure.trace.clone(),
+                        });
+                        cg.tombstoned = true;
+                    }
+                }
+            }
+
+            let cg = JsonEncoder::encode(&cg)?;
+            txn.put_cf(
                 &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-                &compute_graph_key,
-                true,
-            )?
-            .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-        let mut cg: ComputeGraph = JsonEncoder::decode(&cg)?;
-        if cg.tombstoned {
-            return Err(anyhow::anyhow!("Compute graph is tombstoned"));
+                compute_graph_key,
+                &cg,
+            )?;
         }
-        cg.break_details = Some(req.details.clone());
-        cg.tombstoned = true;
-        let serialized_cg = JsonEncoder::encode(&cg)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-            compute_graph_key,
-            &serialized_cg,
-        )?;
     }
 
     Ok(state_changes)

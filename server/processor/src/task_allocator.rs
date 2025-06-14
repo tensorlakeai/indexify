@@ -17,7 +17,9 @@ use data_model::{
     FunctionExecutorState,
     FunctionExecutorTerminationReason,
     GraphInvocationCtx,
+    GraphInvocationOutcome,
     Task,
+    TaskFailure,
     TaskFailureReason,
     TaskOutcome,
     TaskStatus,
@@ -468,7 +470,10 @@ impl<'a> TaskAllocationProcessor<'a> {
                 };
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError, None);
+                    task.outcome = TaskOutcome::Failure(TaskFailure {
+                        reason: TaskFailureReason::FunctionError,
+                        ..Default::default()
+                    });
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
                 {
                     task.status = TaskStatus::Pending;
@@ -493,8 +498,13 @@ impl<'a> TaskAllocationProcessor<'a> {
                 {
                     if task.status == TaskStatus::Completed {
                         let mut invocation_ctx = invocation_ctx.clone();
-                        invocation_ctx.completed = true;
-                        invocation_ctx.outcome = task.outcome.into();
+                        invocation_ctx.complete_invocation(
+                            true,
+                            GraphInvocationOutcome::from(
+                                task.compute_fn_name.clone(),
+                                task.outcome.clone(),
+                            ),
+                        );
                         update.updated_invocations_states.push(*invocation_ctx);
                     }
                 }

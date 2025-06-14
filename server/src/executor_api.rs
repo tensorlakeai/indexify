@@ -11,7 +11,6 @@ use data_model::{
     ExecutorId,
     ExecutorMetadata,
     ExecutorMetadataBuilder,
-    FailureDetails,
     FunctionAllowlist,
     FunctionExecutor,
     FunctionExecutorId,
@@ -20,6 +19,7 @@ use data_model::{
     NodeOutputBuilder,
     Routing,
     TaskDiagnostics,
+    TaskFailure,
     TaskFailureReason,
     TaskOutcome,
     TaskOutputsIngestionStatus,
@@ -417,29 +417,21 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
 
 impl From<executor_api_pb::TaskFailureReason> for TaskFailureReason {
     fn from(value: executor_api_pb::TaskFailureReason) -> Self {
-	match value {
-            executor_api_pb::TaskFailureReason::Unknown => {
-                TaskFailureReason::InternalError
-            }
-            executor_api_pb::TaskFailureReason::InternalError => {
-                TaskFailureReason::InternalError
-            }
-            executor_api_pb::TaskFailureReason::FunctionError => {
-                TaskFailureReason::FunctionError
-            }
+        match value {
+            executor_api_pb::TaskFailureReason::Unknown => TaskFailureReason::InternalError,
+            executor_api_pb::TaskFailureReason::InternalError => TaskFailureReason::InternalError,
+            executor_api_pb::TaskFailureReason::FunctionError => TaskFailureReason::FunctionError,
             executor_api_pb::TaskFailureReason::FunctionTimeout => {
                 TaskFailureReason::FunctionTimeout
             }
-            executor_api_pb::TaskFailureReason::TaskCancelled => {
-                TaskFailureReason::TaskCancelled
-            }
+            executor_api_pb::TaskFailureReason::TaskCancelled => TaskFailureReason::TaskCancelled,
             executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
                 TaskFailureReason::FunctionExecutorTerminated
             }
             executor_api_pb::TaskFailureReason::InvocationError => {
                 TaskFailureReason::InvocationError
             }
-	}
+        }
     }
 }
 
@@ -542,12 +534,16 @@ impl ExecutorAPIService {
                     task.outcome = TaskOutcome::Success;
                 }
                 executor_api_pb::TaskOutcomeCode::Failure => {
-                    let details = task_result.failure.map(|fi| FailureDetails {
-                        cls: fi.cls.unwrap_or_default(),
-                        msg: fi.msg.unwrap_or_default(),
-                        trace: fi.trace.unwrap_or_default(),
+                    let (cls, msg, trace) = match task_result.failure {
+                        None => (None, None, None),
+                        Some(fi) => (fi.cls, fi.msg, fi.trace),
+                    };
+                    task.outcome = TaskOutcome::Failure(TaskFailure {
+                        reason: failure_reason.into(),
+                        cls,
+                        msg,
+                        trace,
                     });
-                    task.outcome = TaskOutcome::Failure(failure_reason.into(), details);
                 }
                 executor_api_pb::TaskOutcomeCode::Unknown => {
                     task.outcome = TaskOutcome::Unknown;

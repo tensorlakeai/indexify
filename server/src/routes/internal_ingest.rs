@@ -49,15 +49,17 @@ impl From<TaskFailureReason> for data_model::TaskFailureReason {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct FailureDetails {
-    pub cls: String,
-    pub msg: String,
-    pub trace: String,
+pub struct TaskFailure {
+    pub reason: TaskFailureReason,
+    pub cls: Option<String>,
+    pub msg: Option<String>,
+    pub trace: Option<String>,
 }
 
-impl From<FailureDetails> for data_model::FailureDetails {
-    fn from(val: FailureDetails) -> Self {
+impl From<TaskFailure> for data_model::TaskFailure {
+    fn from(val: TaskFailure) -> Self {
         Self {
+            reason: val.reason.into(),
             cls: val.cls,
             msg: val.msg,
             trace: val.trace,
@@ -70,16 +72,14 @@ pub enum TaskOutcome {
     #[serde(rename = "success")]
     Success,
     #[serde(rename = "failure")]
-    Failure(TaskFailureReason, Option<FailureDetails>),
+    Failure(TaskFailure),
 }
 
 impl From<TaskOutcome> for data_model::TaskOutcome {
     fn from(val: TaskOutcome) -> Self {
         match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
-            TaskOutcome::Failure(reason, details) => {
-                data_model::TaskOutcome::Failure(reason.into(), details.map(|d| d.into()))
-            }
+            TaskOutcome::Failure(failure) => data_model::TaskOutcome::Failure(failure.into()),
         }
     }
 }
