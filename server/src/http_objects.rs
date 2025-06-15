@@ -480,129 +480,6 @@ impl ComputeFn {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct DynamicRouter {
-    pub name: String,
-    pub source_fn: String,
-    pub description: String,
-    pub target_fns: Vec<String>,
-    #[serde(default = "default_encoder")]
-    pub input_encoder: String,
-    #[serde(default = "default_encoder")]
-    pub output_encoder: String,
-    pub image_information: ImageInformation,
-    #[serde(default)]
-    pub secret_names: Vec<String>,
-    #[serde(default, rename = "timeout_sec")]
-    pub timeout: NodeTimeoutSeconds,
-    #[serde(default)]
-    pub resources: NodeResources,
-    #[serde(default)]
-    pub retry_policy: NodeRetryPolicy,
-}
-
-impl DynamicRouter {
-    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        if self.name.is_empty() {
-            return Err(IndexifyAPIError::bad_request(
-                "DynamicRouter name cannot be empty",
-            ));
-        }
-        if self.source_fn.is_empty() {
-            return Err(IndexifyAPIError::bad_request(
-                "DynamicRouter source_fn cannot be empty",
-            ));
-        }
-        if self.target_fns.is_empty() {
-            return Err(IndexifyAPIError::bad_request(
-                "DynamicRouter must have at least one target_fn",
-            ));
-        }
-        self.timeout.validate()?;
-        self.resources.validate(executor_config)?;
-        self.retry_policy.validate()?;
-        Ok(())
-    }
-}
-
-impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
-    fn from(val: DynamicRouter) -> Self {
-        data_model::DynamicEdgeRouter {
-            name: val.name.clone(),
-            source_fn: val.source_fn.clone(),
-            description: val.description.clone(),
-            target_functions: val.target_fns.clone(),
-            input_encoder: val.input_encoder.clone(),
-            output_encoder: val.output_encoder.clone(),
-            image_information: val.image_information.clone().into(),
-            secret_names: Some(val.secret_names),
-            timeout: val.timeout.into(),
-            resources: val.resources.into(),
-            retry_policy: val.retry_policy.into(),
-        }
-    }
-}
-
-impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
-    fn from(d: data_model::DynamicEdgeRouter) -> Self {
-        Self {
-            name: d.name,
-            source_fn: d.source_fn,
-            description: d.description,
-            target_fns: d.target_functions,
-            input_encoder: d.input_encoder,
-            output_encoder: d.output_encoder,
-            image_information: d.image_information.into(),
-            secret_names: d.secret_names.unwrap_or(vec![]),
-            timeout: d.timeout.into(),
-            resources: d.resources.into(),
-            retry_policy: d.retry_policy.into(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum Node {
-    #[serde(rename = "dynamic_router")]
-    DynamicRouter(DynamicRouter),
-    #[serde(rename = "compute_fn")]
-    ComputeFn(ComputeFn),
-}
-
-impl Node {
-    pub fn name(&self) -> String {
-        match self {
-            Node::DynamicRouter(d) => d.name.clone(),
-            Node::ComputeFn(c) => c.name.clone(),
-        }
-    }
-
-    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        match self {
-            Node::DynamicRouter(d) => d.validate(executor_config),
-            Node::ComputeFn(c) => c.validate(executor_config),
-        }
-    }
-}
-
-impl From<Node> for data_model::Node {
-    fn from(val: Node) -> Self {
-        match val {
-            Node::DynamicRouter(d) => data_model::Node::Router(d.into()),
-            Node::ComputeFn(c) => data_model::Node::Compute(c.into()),
-        }
-    }
-}
-
-impl From<data_model::Node> for Node {
-    fn from(node: data_model::Node) -> Self {
-        match node {
-            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
-            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeInformation {
     pub major_version: u8,
@@ -638,11 +515,11 @@ pub struct ComputeGraph {
     pub description: String,
     #[serde(default)]
     pub tombstoned: bool,
-    pub start_node: Node,
+    pub start_node: ComputeFn,
     pub version: GraphVersion,
     #[serde(default)]
     pub tags: Option<HashMap<String, String>>,
-    pub nodes: HashMap<String, Node>,
+    pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
@@ -664,7 +541,7 @@ impl ComputeGraph {
             node.validate(executor_config)?;
             nodes.insert(name, node.into());
         }
-        let start_fn: data_model::Node = self.start_node.into();
+        let start_fn: data_model::ComputeFn = self.start_node.into();
 
         let compute_graph = data_model::ComputeGraph {
             name: self.name,
@@ -691,10 +568,7 @@ impl ComputeGraph {
 
 impl From<data_model::ComputeGraph> for ComputeGraph {
     fn from(compute_graph: data_model::ComputeGraph) -> Self {
-        let start_fn = match compute_graph.start_fn {
-            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
-            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
-        };
+        let start_fn = compute_graph.start_fn.into();
         let mut nodes = HashMap::new();
         for (k, v) in compute_graph.nodes.into_iter() {
             nodes.insert(k, v.into());
@@ -1222,22 +1096,14 @@ pub struct InvocationQueryParams {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::{ComputeFn, DynamicRouter};
+    use crate::http_objects::ComputeFn;
 
     #[test]
     fn test_compute_graph_deserialization() {
         // Don't delete this. It makes it easier
         // to test the deserialization of the ComputeGraph struct
         // from the python side
-        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle","image_name": "default_image"}},"extractor_b":{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]},"runtime_information": {"major_version": 3, "minor_version": 10, "sdk_version": "1.2.3"}, "version": "1.2.3"}"#;
-        let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
-        json_value["namespace"] = serde_json::Value::String("test".to_string());
-        let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
-    }
-
-    #[test]
-    fn test_compute_graph_with_router_deserialization() {
-        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"], "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]},"runtime_information": {"major_version": 3, "minor_version": 10, "sdk_version": "1.2.3"}, "version": "1.2.3"}"#;
+        let json = r#"{"name":"test","description":"test","start_node":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"},"nodes":{"extractor_a":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle","image_name": "default_image"},"extractor_b":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"},"extractor_c":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]},"runtime_information": {"major_version": 3, "minor_version": 10, "sdk_version": "1.2.3"}, "version": "1.2.3"}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
@@ -1248,12 +1114,5 @@ mod tests {
         let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         println!("{:?}", compute_fn);
-    }
-
-    #[test]
-    fn test_router_deserialization() {
-        let json = r#"{"name": "one", "source_fn": "two", "description": "desc", "target_fns": ["one", "two", "three"], "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "encoder": "clouds"}"#;
-        let dynamic_router: DynamicRouter = serde_json::from_str(json).unwrap();
-        println!("{:?}", dynamic_router);
     }
 }

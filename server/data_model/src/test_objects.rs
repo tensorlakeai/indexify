@@ -7,15 +7,12 @@ pub mod tests {
         ComputeFn,
         ComputeGraph,
         ComputeGraphCode,
-        Node,
-        Node::Compute,
         NodeOutput,
         Routing,
         RuntimeInformation,
     };
     use crate::{
         DataPayload,
-        DynamicEdgeRouter,
         ExecutorId,
         ExecutorMetadata,
         GraphInvocationCtx,
@@ -195,9 +192,9 @@ pub mod tests {
             ]),
             tombstoned: false,
             nodes: HashMap::from([
-                ("fn_b".to_string(), Node::Compute(fn_b)),
-                ("fn_c".to_string(), Node::Compute(fn_c)),
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                ("fn_b".to_string(), fn_b),
+                ("fn_c".to_string(), fn_c),
+                ("fn_a".to_string(), fn_a.clone()),
             ]),
             version: crate::GraphVersion::from("1"),
             edges: HashMap::from([(
@@ -211,7 +208,7 @@ pub mod tests {
                 sha256_hash: "hash123".to_string(),
             },
             created_at: 5,
-            start_fn: Compute(fn_a),
+            start_fn: fn_a,
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
@@ -223,11 +220,9 @@ pub mod tests {
 
     pub fn mock_graph_b() -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", "image_hash".to_string());
-        let router_x = DynamicEdgeRouter {
+        let router_x = ComputeFn {
             name: "router_x".to_string(),
             description: "description router_x".to_string(),
-            source_fn: "fn_a".to_string(),
-            target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             input_encoder: "cloudpickle".to_string(),
             output_encoder: "cloudpickle".to_string(),
             image_information: ImageInformation {
@@ -256,10 +251,10 @@ pub mod tests {
             ]),
             tombstoned: false,
             nodes: HashMap::from([
-                ("fn_b".to_string(), Node::Compute(fn_b)),
-                ("fn_c".to_string(), Node::Compute(fn_c)),
-                ("router_x".to_string(), Node::Router(router_x)),
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                ("fn_b".to_string(), fn_b),
+                ("fn_c".to_string(), fn_c),
+                ("router_x".to_string(), router_x),
+                ("fn_a".to_string(), fn_a.clone()),
             ]),
             version: crate::GraphVersion::from("1"),
             edges: HashMap::from([("fn_a".to_string(), vec!["router_x".to_string()])]),
@@ -270,7 +265,7 @@ pub mod tests {
                 sha256_hash: "hash123".to_string(),
             },
             created_at: 5,
-            start_fn: Compute(fn_a),
+            start_fn: fn_a,
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
@@ -293,9 +288,9 @@ pub mod tests {
             ]),
             tombstoned: false,
             nodes: HashMap::from([
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                ("fn_b".to_string(), Node::Compute(fn_b)),
-                ("fn_c".to_string(), Node::Compute(fn_c)),
+                ("fn_a".to_string(), fn_a.clone()),
+                ("fn_b".to_string(), fn_b),
+                ("fn_c".to_string(), fn_c),
             ]),
             edges: HashMap::from([
                 ("fn_a".to_string(), vec!["fn_b".to_string()]),
@@ -309,7 +304,7 @@ pub mod tests {
             },
             version: crate::GraphVersion::from("1"),
             created_at: 5,
-            start_fn: Compute(fn_a),
+            start_fn: fn_a,
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,

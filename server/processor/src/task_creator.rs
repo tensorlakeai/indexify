@@ -381,7 +381,7 @@ impl TaskCreator {
             );
             return Ok(TaskCreationResult::default());
         };
-        if compute_node.reducer() {
+        if compute_node.reducer {
             let reduction_task = in_memory_state.next_reduction_task(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -436,7 +436,7 @@ impl TaskCreator {
                 .ok_or(anyhow!("compute node not found: {:?}", edge))?;
 
             for output in &node_output.payloads {
-                if edge_compute_node.reducer() {
+                if edge_compute_node.reducer {
                     // 1. Create a new reduction task with the output of the current task
                     // 2. If there are no more outstanding tasks of the current node, then create a
                     //    new task for the reducer
@@ -446,7 +446,7 @@ impl TaskCreator {
                         namespace: task.namespace.clone(),
                         compute_graph_name: task.compute_graph_name.clone(),
                         invocation_id: task.invocation_id.clone(),
-                        compute_fn_name: edge_compute_node.name().to_string(),
+                        compute_fn_name: edge_compute_node.name.clone(),
                         input: output.clone(),
                         id: nanoid::nanoid!(),
                     };

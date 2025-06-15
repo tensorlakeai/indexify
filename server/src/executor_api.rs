@@ -575,7 +575,7 @@ impl ExecutorAPIService {
                 .routing(routing)
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
-                .reducer_output(compute_fn_node.reducer())
+                .reducer_output(compute_fn_node.reducer)
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
 

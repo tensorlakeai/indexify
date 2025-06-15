@@ -469,9 +469,9 @@ mod tests {
         assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
         let nodes = &compute_graphs[0].nodes;
-        assert_eq!(nodes["fn_a"].image_hash(), "Old Hash");
-        assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
-        assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
+        assert_eq!(nodes["fn_a"].image_information.image_hash, "Old Hash");
+        assert_eq!(nodes["fn_b"].image_information.image_hash, "Old Hash");
+        assert_eq!(nodes["fn_c"].image_information.image_hash, "Old Hash");
 
         for i in 2..4 {
             // Update the graph
@@ -489,9 +489,9 @@ mod tests {
             // println!("compute graph {:?}", compute_graphs[0]);
             assert_eq!(compute_graphs[0].version, GraphVersion(i.to_string()));
             let nodes = &compute_graphs[0].nodes;
-            assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
-            assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
-            assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
+            assert_eq!(nodes["fn_a"].image_information.image_hash, new_hash.clone());
+            assert_eq!(nodes["fn_b"].image_information.image_hash, new_hash.clone());
+            assert_eq!(nodes["fn_c"].image_information.image_hash, new_hash.clone());
         }
 
         Ok(())

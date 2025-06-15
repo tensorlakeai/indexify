@@ -1002,7 +1002,7 @@ impl InMemoryState {
             // gpu_configs.
             if executor_state
                 .free_resources
-                .can_handle_node_resources(&compute_fn.resources())
+                .can_handle_node_resources(&compute_fn.resources)
             {
                 candidates.push(executor_state.clone());
             }
@@ -1090,7 +1090,10 @@ impl InMemoryState {
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(ns, cg, version))
             .cloned()?;
-        cg_version.nodes.get(fn_name).map(|node| node.resources())
+        cg_version
+            .nodes
+            .get(fn_name)
+            .map(|node| node.resources.clone())
     }
 
     pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<NodeResources> {
@@ -1105,7 +1108,7 @@ impl InMemoryState {
         cg_version
             .nodes
             .get(&fe.compute_fn_name)
-            .map(|node| node.resources())
+            .map(|node| node.resources.clone())
     }
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
@@ -1295,15 +1298,19 @@ impl InMemoryState {
             function_executors.push(Box::new(DesiredStateFunctionExecutor {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
-                image_uri: cg_node.image_uri().unwrap_or_default(),
-                secret_names: cg_node.secret_names(),
-                customer_code_timeout_ms: cg_node.timeout().0,
+                image_uri: cg_node
+                    .image_information
+                    .image_uri
+                    .clone()
+                    .unwrap_or_default(),
+                secret_names: cg_node.secret_names.clone().unwrap_or_default(),
+                customer_code_timeout_ms: cg_node.timeout.0,
                 code_payload: DataPayload {
                     path: cg_version.code.path.clone(),
                     size: cg_version.code.size,
                     sha256_hash: cg_version.code.sha256_hash.clone(),
                 },
-                task_timeout_ms: cg_node.timeout().0,
+                task_timeout_ms: cg_node.timeout.0,
             }));
 
             let allocations = self
@@ -1329,8 +1336,8 @@ impl InMemoryState {
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
                     allocation_id: allocation.key(),
-                    timeout_ms: cg_node.timeout().0,
-                    retry_policy: cg_node.retry_policy(),
+                    timeout_ms: cg_node.timeout.0,
+                    retry_policy: cg_node.retry_policy.clone(),
                 };
                 desired_state_tasks.push(desired_state_task);
             }
