@@ -566,7 +566,7 @@ impl ExecutorAPIService {
                 }
             };
 
-            let mut node_output = NodeOutputBuilder::default()
+            let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
                 .compute_graph_name(compute_graph.compute_graph_name.clone())
                 .invocation_id(invocation_id.to_string())
@@ -579,26 +579,6 @@ impl ExecutorAPIService {
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
 
-            if task_result.next_functions.len() > 0 && node_output.payloads.len() == 0 {
-                // Get the outputs of the function which was upstream of the router
-                // and set its payloads as the payloads of the router node so that task creator
-                // can create the downstream tasks with the same payloads.
-                // This won't be needed when we merge the router and compute function nodes.
-
-                // TODO: WE WILL FIX THIS WHEN WE MERGE THE ROUTER AND COMPUTE FUNCTION NODES.
-
-                node_output = NodeOutputBuilder::default()
-                    .namespace(namespace.to_string())
-                    .compute_graph_name(compute_graph.compute_graph_name.clone())
-                    .invocation_id(invocation_id.to_string())
-                    .compute_fn_name(compute_fn.to_string())
-                    .routing(node_output.routing)
-                    .payloads(vec![task.input.clone()])
-                    .encoding(encoding_str.to_string())
-                    .allocation_id(allocation_id.clone())
-                    .build()
-                    .map_err(|e| Status::internal(e.to_string()))?;
-            }
             let task_diagnostic = TaskDiagnostics {
                 stdout: prepare_data_payload(
                     task_result.stdout.clone(),
