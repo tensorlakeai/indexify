@@ -302,26 +302,6 @@ fn default_data_encoder() -> String {
     "cloudpickle".to_string()
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
-pub struct DynamicEdgeRouter {
-    pub name: String,
-    pub description: String,
-    pub source_fn: String,
-    pub target_functions: Vec<String>,
-    #[serde(default = "default_data_encoder")]
-    pub input_encoder: String,
-    #[serde(default = "default_data_encoder")]
-    pub output_encoder: String,
-    pub image_information: ImageInformation,
-    pub secret_names: Option<Vec<String>>,
-    #[serde(default)]
-    pub timeout: NodeTimeoutMS,
-    #[serde(default)]
-    pub resources: NodeResources,
-    #[serde(default)]
-    pub retry_policy: NodeRetryPolicy,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
 pub struct CacheKey(String);
 
@@ -359,78 +339,7 @@ pub struct ComputeFn {
     pub cache_key: Option<CacheKey>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Node {
-    Router(DynamicEdgeRouter),
-    Compute(ComputeFn),
-}
-
-impl Node {
-    pub fn name(&self) -> &str {
-        match self {
-            Node::Router(router) => &router.name,
-            Node::Compute(compute) => &compute.name,
-        }
-    }
-
-    pub fn image_name(&self) -> &str {
-        match self {
-            Node::Router(router) => &router.image_information.image_name,
-            Node::Compute(compute) => &compute.image_information.image_name,
-        }
-    }
-
-    pub fn image_hash(&self) -> &str {
-        match self {
-            Node::Router(router) => &router.image_information.image_hash,
-            Node::Compute(compute) => &compute.image_information.image_hash,
-        }
-    }
-
-    pub fn image_uri(&self) -> Option<String> {
-        match self {
-            Node::Router(router) => router.image_information.image_uri.clone(),
-            Node::Compute(compute) => compute.image_information.image_uri.clone(),
-        }
-    }
-
-    pub fn reducer(&self) -> bool {
-        match self {
-            Node::Router(_) => false,
-            Node::Compute(compute) => compute.reducer,
-        }
-    }
-
-    pub fn secret_names(&self) -> Vec<String> {
-        match self {
-            Node::Router(router) => router.secret_names.clone().unwrap_or_default(),
-            Node::Compute(compute) => compute.secret_names.clone().unwrap_or_default(),
-        }
-    }
-
-    pub fn timeout(&self) -> NodeTimeoutMS {
-        match self {
-            Node::Router(router) => router.timeout.clone(),
-            Node::Compute(compute) => compute.timeout.clone(),
-        }
-    }
-
-    pub fn resources(&self) -> NodeResources {
-        match self {
-            Node::Router(router) => router.resources.clone(),
-            Node::Compute(compute) => compute.resources.clone(),
-        }
-    }
-
-    pub fn retry_policy(&self) -> NodeRetryPolicy {
-        match self {
-            Node::Router(router) => router.retry_policy.clone(),
-            Node::Compute(compute) => compute.retry_policy.clone(),
-        }
-    }
-}
-
-impl Node {
+impl ComputeFn {
     pub fn create_task(
         &self,
         namespace: &str,
@@ -440,14 +349,8 @@ impl Node {
         acc_input: Option<DataPayload>,
         graph_version: &GraphVersion,
     ) -> Result<Task> {
-        let name = match self {
-            Node::Router(router) => router.name.clone(),
-            Node::Compute(compute) => compute.name.clone(),
-        };
-        let cache_key = match self {
-            Node::Router(_) => None,
-            Node::Compute(compute) => compute.cache_key.as_ref().and_then(|v| Some(v.clone())),
-        };
+        let name = self.name.clone();
+        let cache_key = self.cache_key.clone();
         let task = TaskBuilder::default()
             .namespace(namespace.to_string())
             .compute_fn_name(name)
@@ -529,8 +432,8 @@ pub struct ComputeGraph {
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
-    pub start_fn: Node,
-    pub nodes: HashMap<String, Node>,
+    pub start_fn: ComputeFn,
+    pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
 }
@@ -598,8 +501,8 @@ pub struct ComputeGraphVersion {
     pub created_at: u64,
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
-    pub start_fn: Node,
-    pub nodes: HashMap<String, Node>,
+    pub start_fn: ComputeFn,
+    pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
 }
@@ -625,8 +528,7 @@ impl ComputeGraphVersion {
             .map(|(parent, _)| parent.as_str())
             // Filter for compute node parent, traversing through routers
             .flat_map(|parent_name| match self.nodes.get(parent_name) {
-                Some(Node::Compute(_)) => vec![parent_name.to_string()],
-                Some(Node::Router(_)) => self.get_compute_parent_nodes(parent_name),
+                Some(_) => vec![parent_name.to_string()],
                 None => vec![],
             })
             .collect()
@@ -2177,9 +2079,7 @@ mod tests {
         ComputeGraph,
         ComputeGraphCode,
         ComputeGraphVersion,
-        DynamicEdgeRouter,
         GraphVersion,
-        Node,
         RuntimeInformation,
     };
 
@@ -2196,9 +2096,9 @@ mod tests {
             description: "description1".to_string(),
             tags: HashMap::new(),
             nodes: HashMap::from([
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                ("fn_a".to_string(), fn_a.clone()),
+                ("fn_b".to_string(), fn_b.clone()),
+                ("fn_c".to_string(), fn_c.clone()),
             ]),
             version: crate::GraphVersion::from("1"),
             edges: HashMap::from([(
@@ -2211,7 +2111,7 @@ mod tests {
                 sha256_hash: "hash_code".to_string(),
             },
             created_at: 5,
-            start_fn: Node::Compute(fn_a.clone()),
+            start_fn: fn_a.clone(),
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
@@ -2357,17 +2257,17 @@ mod tests {
                 description: "changing start function with version change should change start function",
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
-                    start_fn: Node::Compute(fn_b.clone()), // different
+                    start_fn: fn_b.clone(), // different
                     ..original_graph.clone()
                 },
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
-                    start_fn: Node::Compute(fn_b.clone()),
+                    start_fn: fn_b.clone(),
                     ..original_graph.clone()
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
-                    start_fn: Node::Compute(fn_b.clone()),
+                    start_fn: fn_b.clone(),
                     ..original_graph.into_version()
                 },
             },
@@ -2377,30 +2277,30 @@ mod tests {
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                        ("fn_d".to_string(), Node::Compute(test_compute_fn("fn_d", "some_hash_fn_d".to_string()))), // added
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
                     ]),
                     ..original_graph.clone()
                 },
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                        ("fn_d".to_string(), Node::Compute(test_compute_fn("fn_d", "some_hash_fn_d".to_string()))), // added
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
                     ]),
                     ..original_graph.clone()
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                        ("fn_d".to_string(), Node::Compute(test_compute_fn("fn_d", "some_hash_fn_d".to_string()))), // added
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
                     ]),
                     ..original_graph.into_version()
                 },
@@ -2411,8 +2311,8 @@ mod tests {
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
                         // "fn_c" removed
                     ]),
                     ..original_graph.clone()
@@ -2420,16 +2320,16 @@ mod tests {
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
                     ]),
                     ..original_graph.clone()
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                        ("fn_a".to_string(), fn_a.clone()),
+                        ("fn_b".to_string(), fn_b.clone()),
                     ]),
                     ..original_graph.into_version()
                 },
@@ -2440,27 +2340,27 @@ mod tests {
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string()))), // different
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())), // different
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
                     ]),
                     ..original_graph.clone()
                 },
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string()))),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())),
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
                     ]),
                     ..original_graph.clone()
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string()))),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())),
+                        ("fn_b".to_string(), fn_b.clone()),
+                        ("fn_c".to_string(), fn_c.clone()),
                     ]),
                     ..original_graph.into_version()
                 },
@@ -2501,7 +2401,7 @@ mod tests {
                     size: 0,
                     sha256_hash: String::new(),
                 },
-                start_fn: Node::Compute(fn_a),
+                start_fn: fn_a,
                 nodes: HashMap::new(),
                 edges: HashMap::new(),
                 runtime_information: RuntimeInformation {
@@ -2529,27 +2429,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                    test_compute_fn("compute1", "image_hash".to_string()),
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
-                ),
-            ]);
-        });
-        check_compute_parent("router2", vec!["compute4"], |graph| {
-            graph.edges = HashMap::from([("compute4".to_string(), vec!["router2".to_string()])]);
-            graph.nodes = HashMap::from([
-                (
-                    "compute4".to_string(),
-                    Node::Compute(test_compute_fn("compute4", "image_hash".to_string())),
-                ),
-                (
-                    "router2".to_string(),
-                    Node::Router(DynamicEdgeRouter {
-                        name: "router2".to_string(),
-                        ..Default::default()
-                    }),
+                    test_compute_fn("compute2", "image_hash".to_string()),
                 ),
             ]);
         });
@@ -2557,73 +2441,43 @@ mod tests {
 
         // More complex routing scenarios
         check_compute_parent("compute2", vec!["compute1"], |graph| {
-            graph.edges = HashMap::from([
-                ("compute1".to_string(), vec!["router1".to_string()]),
-                ("router1".to_string(), vec!["compute2".to_string()]),
-            ]);
+            graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
-                ),
-                (
-                    "router1".to_string(),
-                    Node::Router(DynamicEdgeRouter {
-                        name: "router1".to_string(),
-                        ..Default::default()
-                    }),
+                    test_compute_fn("compute1", "image_hash".to_string()),
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
+                    test_compute_fn("compute2", "image_hash".to_string()),
                 ),
             ]);
         });
 
         check_compute_parent("compute2", vec!["compute3"], |graph| {
-            graph.edges = HashMap::from([
-                ("compute3".to_string(), vec!["router1".to_string()]),
-                ("router1".to_string(), vec!["compute2".to_string()]),
-            ]);
+            graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    Node::Compute(test_compute_fn("compute3", "image_hash".to_string())),
-                ),
-                (
-                    "router1".to_string(),
-                    Node::Router(DynamicEdgeRouter {
-                        name: "router1".to_string(),
-                        ..Default::default()
-                    }),
+                    test_compute_fn("compute3", "image_hash".to_string()),
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
+                    test_compute_fn("compute2", "image_hash".to_string()),
                 ),
             ]);
         });
 
         check_compute_parent("compute2", vec!["compute3"], |graph| {
-            graph.edges = HashMap::from([
-                ("compute3".to_string(), vec!["router1".to_string()]),
-                ("router1".to_string(), vec!["compute2".to_string()]),
-            ]);
+            graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    Node::Compute(test_compute_fn("compute3", "image_hash".to_string())),
-                ),
-                (
-                    "router1".to_string(),
-                    Node::Router(DynamicEdgeRouter {
-                        name: "router1".to_string(),
-                        ..Default::default()
-                    }),
+                    test_compute_fn("compute3", "image_hash".to_string()),
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
+                    test_compute_fn("compute2", "image_hash".to_string()),
                 ),
             ]);
         });
@@ -2642,27 +2496,27 @@ mod tests {
                 graph.nodes = HashMap::from([
                     (
                         "compute1".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                     (
                         "compute2".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                     (
                         "compute3".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                     (
                         "compute4".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                     (
                         "compute5".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                     (
                         "compute6".to_string(),
-                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
+                        test_compute_fn("compute1", "image_hash".to_string()),
                     ),
                 ]);
             },
