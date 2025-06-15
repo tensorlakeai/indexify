@@ -229,22 +229,6 @@ pub(crate) fn delete_invocation(
             task_id = &task.id.get(),
             "deleting task",
         );
-        match task.diagnostics {
-            Some(diagnostic) => {
-                [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
-                    .iter()
-                    .flatten()
-                    .try_for_each(|data| -> Result<()> {
-                        txn.put_cf(
-                            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                            data.path.as_bytes(),
-                            [],
-                        )?;
-                        Ok(())
-                    })?;
-            }
-            None => {}
-        }
     }
 
     let allocation_prefix = Allocation::key_prefix_from_invocation(

@@ -57,7 +57,7 @@ mod logs;
 use download::{download_fn_output_payload, download_invocation_payload};
 use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
-use logs::download_task_logs;
+use logs::download_allocation_logs;
 
 use crate::{
     config::ServerConfig,
@@ -104,7 +104,7 @@ use crate::{
             list_tasks,
             list_outputs,
             delete_invocation,
-            logs::download_task_logs,
+            logs::download_allocation_logs,
             list_executors,
             list_allocations,
             list_unallocated_tasks,
@@ -313,7 +313,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
-        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))
+        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}", get(download_allocation_logs).with_state(route_state.clone()))
         .layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
 }
 
