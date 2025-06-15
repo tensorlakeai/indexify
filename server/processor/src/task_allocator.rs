@@ -287,7 +287,6 @@ impl<'a> TaskAllocationProcessor<'a> {
         let fe_id = candidate.function_executor.id.clone();
         let mut updated_task = task.clone();
         updated_task.status = TaskStatus::Running;
-        updated_task.retry_number = task.retry_number + 1;
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
@@ -296,7 +295,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             .task_id(task.id.clone())
             .executor_id(candidate.executor_id.clone())
             .function_executor_id(fe_id.clone())
-            .retry_number(updated_task.retry_number)
+            .attempt_number(updated_task.attempt_number)
+            .outcome(TaskOutcome::Unknown)
             .build()?;
 
         info!(
@@ -468,15 +468,13 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
-                {
-                    task.status = TaskStatus::Pending;
-                    task.retry_number = task.retry_number + 1;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
+                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
+                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
                     fe.termination_reason ==
                         FunctionExecutorTerminationReason::DesiredStateRemoved
                 {
                     task.status = TaskStatus::Pending;
+                    task.attempt_number = task.attempt_number + 1;
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(

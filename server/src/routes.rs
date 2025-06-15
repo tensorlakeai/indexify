@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -57,7 +57,7 @@ mod logs;
 use download::{download_fn_output_payload, download_invocation_payload};
 use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
-use logs::download_task_logs;
+use logs::download_allocation_logs;
 
 use crate::{
     config::ServerConfig,
@@ -104,7 +104,7 @@ use crate::{
             list_tasks,
             list_outputs,
             delete_invocation,
-            logs::download_task_logs,
+            logs::download_allocation_logs,
             list_executors,
             list_allocations,
             list_unallocated_tasks,
@@ -313,7 +313,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
-        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))
+        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}", get(download_allocation_logs).with_state(route_state.clone()))
         .layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
 }
 
@@ -776,7 +776,7 @@ async fn list_unallocated_tasks(
         .clone()
         .iter()
         .filter_map(|unallocated_task_id| state.tasks.get(&unallocated_task_id.task_key))
-        .map(|t| (**t).clone().into())
+        .map(|t| Task::from_data_model_task(*t.clone(), vec![]))
         .collect();
 
     Ok(Json(UnallocatedTasks {
@@ -818,9 +818,32 @@ async fn list_tasks(
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
-    let tasks = tasks.into_iter().map(Into::into).collect();
+    let allocations = state
+        .indexify_state
+        .reader()
+        .get_allocations_by_invocation(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?;
+    let mut allocations_by_task_id: HashMap<String, Vec<Allocation>> = HashMap::new();
+    for allocation in allocations {
+        allocations_by_task_id
+            .entry(allocation.task_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(allocation.into());
+    }
+    let mut http_tasks = vec![];
+    for task in tasks {
+        let allocations = allocations_by_task_id
+            .get(task.id.get())
+            .map(|a| a.clone())
+            .clone()
+            .unwrap_or_default();
+        http_tasks.push(Task::from_data_model_task(task, allocations));
+    }
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
-    Ok(Json(Tasks { tasks, cursor }))
+    Ok(Json(Tasks {
+        tasks: http_tasks,
+        cursor,
+    }))
 }
 
 /// Get accounting information for a compute graph invocation

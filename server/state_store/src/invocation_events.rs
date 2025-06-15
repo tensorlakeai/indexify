@@ -20,7 +20,8 @@ impl InvocationStateChangeEvent {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.task.id.to_string(),
-            outcome: event.task.outcome,
+            outcome: event.allocation.outcome,
+            allocation_id: event.allocation.id.to_string(),
         })
     }
 
@@ -69,6 +70,7 @@ pub struct TaskAssigned {
     pub invocation_id: String,
     pub fn_name: String,
     pub task_id: String,
+    pub allocation_id: String,
     pub executor_id: String,
 }
 
@@ -77,6 +79,7 @@ pub struct TaskCompleted {
     pub invocation_id: String,
     pub fn_name: String,
     pub task_id: String,
+    pub allocation_id: String,
     pub outcome: TaskOutcome,
 }
 

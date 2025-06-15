@@ -334,6 +334,7 @@ impl IndexifyState {
                                 fn_name: allocation.compute_fn.clone(),
                                 task_id: allocation.task_id.get().to_string(),
                                 executor_id: allocation.executor_id.get().to_string(),
+                                allocation_id: allocation.id.to_string(),
                             },
                         ));
                 }

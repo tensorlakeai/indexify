@@ -10,16 +10,15 @@ use crate::http_objects::IndexifyAPIError;
 
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}",
     tag = "operations",
     responses(
-        (status = 200, description = "Log file for a given task"),
+        (status = 200, description = "Log file for a given allocation"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-pub async fn download_task_logs(
-    Path((namespace, compute_graph, invocation_id, fn_name, task_id, file)): Path<(
-        String,
+pub async fn download_allocation_logs(
+    Path((namespace, compute_graph, invocation_id, allocation_id, file)): Path<(
         String,
         String,
         String,
@@ -35,8 +34,7 @@ pub async fn download_task_logs(
             &namespace,
             &compute_graph,
             &invocation_id,
-            &fn_name,
-            &task_id,
+            &allocation_id,
             &file,
         )
         .map_err(|e| {

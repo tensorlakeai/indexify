@@ -150,8 +150,8 @@ pub struct InMemoryState {
 
     // Histogram metrics for task latency measurements for direct recording
     task_pending_latency: Histogram<f64>,
-    task_running_latency: Histogram<f64>,
-    task_completion_latency: Histogram<f64>,
+    allocation_running_latency: Histogram<f64>,
+    allocation_completion_latency: Histogram<f64>,
 }
 
 /// InMemoryMetrics manages observable metrics for the InMemoryState
@@ -390,15 +390,15 @@ impl InMemoryState {
             .with_description("Time tasks spend from creation to running")
             .build();
 
-        let task_running_latency = meter
-            .f64_histogram("task_running_latency")
+        let allocation_running_latency = meter
+            .f64_histogram("allocation_running_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from running to completion")
             .build();
 
-        let task_completion_latency = meter
-            .f64_histogram("task_completion_latency")
+        let allocation_completion_latency = meter
+            .f64_histogram("allocation_completion_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from creation to completion")
@@ -442,6 +442,9 @@ impl InMemoryState {
                 None,
             )?;
             for allocation in allocations {
+                if allocation.is_terminal() {
+                    continue;
+                }
                 allocations_by_executor
                     .entry(allocation.executor_id.clone())
                     .or_default()
@@ -529,8 +532,8 @@ impl InMemoryState {
             function_executors_by_fn_uri: im::HashMap::new(),
             // metrics
             task_pending_latency,
-            task_running_latency,
-            task_completion_latency,
+            allocation_running_latency,
+            allocation_completion_latency,
         };
 
         Ok(in_memory_state)
@@ -623,34 +626,33 @@ impl InMemoryState {
             }
             RequestPayload::IngestTaskOutputs(req) => {
                 // Update task
-                {
-                    let invocation_ctx_key = GraphInvocationCtx::key_from(
-                        &req.task.namespace,
-                        &req.task.compute_graph_name,
-                        &req.task.invocation_id,
-                    );
-                    // Only update tasks for running invocations, this can happen if
-                    // the invocation failed with pending allocations on executors.
-                    if self.invocation_ctx.get(&invocation_ctx_key).is_some() {
-                        self.tasks
-                            .insert(req.task.key(), Box::new(req.task.clone()));
-                    }
+                let invocation_ctx_key = GraphInvocationCtx::key_from(
+                    &req.task.namespace,
+                    &req.task.compute_graph_name,
+                    &req.task.invocation_id,
+                );
+                // Only update tasks for running invocations, this can happen if
+                // the invocation failed with pending allocations on executors.
+                if self.invocation_ctx.get(&invocation_ctx_key).is_some() {
+                    self.tasks
+                        .insert(req.task.key(), Box::new(req.task.clone()));
                 }
 
                 // Remove the allocation
                 {
                     self.allocations_by_executor
                         .entry(req.executor_id.clone())
-                        .and_modify(|allocation_map| {
+                        .and_modify(|fe_allocations| {
                             // TODO: This can be optimized by keeping a new index of task_id to FE,
                             //       we should measure the overhead.
-                            allocation_map.iter_mut().for_each(|(_, allocations)| {
-                                if let Some(index) =
-                                    allocations.iter().position(|a| a.id == req.allocation_id)
+                            fe_allocations.iter_mut().for_each(|(_, allocations)| {
+                                if let Some(index) = allocations
+                                    .iter()
+                                    .position(|a| a.key() == req.allocation_key)
                                 {
                                     let allocation = &allocations[index];
                                     // Record metrics
-                                    self.task_running_latency.record(
+                                    self.allocation_running_latency.record(
                                         get_elapsed_time(
                                             allocation.created_at,
                                             TimeUnit::Milliseconds,
@@ -664,7 +666,7 @@ impl InMemoryState {
                             });
 
                             // Remove the function if no allocations left
-                            allocation_map.retain(|_, f| !f.is_empty());
+                            fe_allocations.retain(|_, f| !f.is_empty());
                         });
 
                     // Executor's allocation is removed
@@ -672,9 +674,9 @@ impl InMemoryState {
                 }
 
                 // Record metrics
-                self.task_completion_latency.record(
-                    get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
-                    &[KeyValue::new("outcome", req.task.outcome.to_string())],
+                self.allocation_completion_latency.record(
+                    get_elapsed_time(req.allocation.created_at, TimeUnit::Milliseconds),
+                    &[KeyValue::new("outcome", req.allocation.outcome.to_string())],
                 );
             }
             RequestPayload::CreateNameSpace(req) => {
@@ -1326,7 +1328,7 @@ impl InMemoryState {
                 };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
-                    allocation_id: allocation.id.clone(),
+                    allocation_id: allocation.key(),
                     timeout_ms: cg_node.timeout().0,
                     retry_policy: cg_node.retry_policy(),
                 };
@@ -1361,8 +1363,8 @@ impl InMemoryState {
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
-            task_running_latency: self.task_running_latency.clone(),
-            task_completion_latency: self.task_completion_latency.clone(),
+            allocation_running_latency: self.allocation_running_latency.clone(),
+            allocation_completion_latency: self.allocation_completion_latency.clone(),
         }))
     }
 }
