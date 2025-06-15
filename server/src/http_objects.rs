@@ -767,7 +767,7 @@ pub struct GraphInputFile {
     pub size: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum TaskOutcome {
     Undefined,
     Success,
@@ -854,10 +854,11 @@ pub struct Task {
     pub timeout: NodeTimeoutSeconds,
     pub resources: NodeResources,
     pub retry_policy: NodeRetryPolicy,
+    pub allocations: Vec<Allocation>,
 }
 
-impl From<data_model::Task> for Task {
-    fn from(task: data_model::Task) -> Self {
+impl Task {
+    pub fn from_data_model_task(task: data_model::Task, allocations: Vec<Allocation>) -> Self {
         Self {
             id: task.id.to_string(),
             namespace: task.namespace,
@@ -878,6 +879,7 @@ impl From<data_model::Task> for Task {
             input_payload: None,
             reducer_input_payload: None,
             output_payload_uri_prefix: None,
+            allocations,
         }
     }
 }
@@ -1124,8 +1126,9 @@ pub fn from_data_model_executor_metadata(
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct Allocation {
+    pub id: String,
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -1133,11 +1136,14 @@ pub struct Allocation {
     pub task_id: String,
     pub invocation_id: String,
     pub created_at: u128,
+    pub outcome: TaskOutcome,
+    pub attempt_number: u32,
 }
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
         Self {
+            id: allocation.id.to_string(),
             namespace: allocation.namespace,
             compute_graph: allocation.compute_graph,
             compute_fn: allocation.compute_fn,
@@ -1145,6 +1151,8 @@ impl From<data_model::Allocation> for Allocation {
             task_id: allocation.task_id.to_string(),
             invocation_id: allocation.invocation_id.to_string(),
             created_at: allocation.created_at,
+            outcome: allocation.outcome.into(),
+            attempt_number: allocation.attempt_number,
         }
     }
 }

@@ -112,6 +112,7 @@ pub fn task_outputs_ingested(
                 invocation_id: request.invocation_id.clone(),
                 task_id: request.task.id.clone(),
                 node_output_key: request.node_output.key(),
+                allocation_key: Some(request.allocation_key.clone()),
             },
         ))
         .created_at(get_epoch_time_in_ms())

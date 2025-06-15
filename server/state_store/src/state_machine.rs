@@ -657,6 +657,7 @@ pub(crate) fn handle_scheduler_update(
     request: &SchedulerUpdateRequest,
     last_state_change_id: &AtomicU64,
 ) -> Result<Vec<StateChange>> {
+    last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -745,6 +746,7 @@ pub(crate) fn handle_scheduler_update(
                     invocation_id: task.invocation_id.clone(),
                     task_id: task.id.clone(),
                     node_output_key: output_key,
+                    allocation_key: None,
                 },
             ))
             .created_at(get_epoch_time_in_ms())
@@ -854,14 +856,11 @@ pub fn ingest_task_outputs(
     }
     let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
 
-    txn.delete_cf(
+    let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
+    txn.put_cf(
         &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        Allocation::key_from(
-            &req.namespace,
-            &req.compute_graph,
-            &req.invocation_id,
-            &req.allocation_id,
-        ),
+        &req.allocation_key,
+        &serialized_allocation,
     )?;
 
     // Skip finalize task if it's invocation is already completed

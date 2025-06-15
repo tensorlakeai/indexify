@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, RwLock},
     vec,
 };
@@ -15,6 +16,7 @@ use data_model::{
     Routing,
     Task,
     TaskOutcome,
+    TaskStatus,
 };
 use state_store::{
     in_memory_state::InMemoryState,
@@ -56,24 +58,7 @@ impl TaskCreator {
     pub async fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::AllocationOutputsIngested(ev) => {
-                let result = self.handle_task_finished_inner(ev).await?;
-                let scheduler_update = SchedulerUpdateRequest {
-                    updated_tasks: result
-                        .tasks
-                        .into_iter()
-                        .map(|t| (t.id.clone(), t))
-                        .collect(),
-                    updated_invocations_states: result
-                        .invocation_ctx
-                        .map(|ctx| ctx.clone())
-                        .into_iter()
-                        .collect(),
-                    reduction_tasks: ReductionTasks {
-                        new_reduction_tasks: result.new_reduction_tasks,
-                        processed_reduction_tasks: result.processed_reduction_tasks,
-                    },
-                    ..Default::default()
-                };
+                let scheduler_update = self.handle_allocation_ingestion(ev).await?;
                 self.in_memory_state.write().unwrap().update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
@@ -121,37 +106,40 @@ impl TaskCreator {
     }
 
     #[tracing::instrument(skip(self, task_finished_event))]
-    pub async fn handle_task_finished_inner(
+    pub async fn handle_allocation_ingestion(
         &self,
         task_finished_event: &AllocationOutputIngestedEvent,
-    ) -> Result<TaskCreationResult> {
-        let in_memory_state = self.in_memory_state.read().unwrap();
-        let invocation_ctx = in_memory_state
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut in_memory_state = self.in_memory_state.write().unwrap();
+        let Some(invocation_ctx) = in_memory_state
             .invocation_ctx
             .get(&GraphInvocationCtx::key_from(
                 &task_finished_event.namespace,
                 &task_finished_event.compute_graph,
                 &task_finished_event.invocation_id,
-            ));
-
-        let Some(invocation_ctx) = invocation_ctx else {
+            ))
+            .cloned()
+        else {
             trace!("no invocation ctx, stopping scheduling of child tasks");
-            return Ok(TaskCreationResult::default());
+            return Ok(SchedulerUpdateRequest::default());
         };
 
         if invocation_ctx.completed {
             trace!("invocation already completed, stopping scheduling of child tasks");
-            return Ok(TaskCreationResult::default());
+            return Ok(SchedulerUpdateRequest::default());
         }
 
-        let task = in_memory_state.tasks.get(&Task::key_from(
-            &task_finished_event.namespace,
-            &task_finished_event.compute_graph,
-            &task_finished_event.invocation_id,
-            &task_finished_event.compute_fn,
-            &task_finished_event.task_id.to_string(),
-        ));
-        let Some(task) = task else {
+        let Some(mut task) = in_memory_state
+            .tasks
+            .get(&Task::key_from(
+                &task_finished_event.namespace,
+                &task_finished_event.compute_graph,
+                &task_finished_event.invocation_id,
+                &task_finished_event.compute_fn,
+                &task_finished_event.task_id.to_string(),
+            ))
+            .cloned()
+        else {
             error!(
                 task_id = task_finished_event.task_id.to_string(),
                 invocation_id = task_finished_event.invocation_id.to_string(),
@@ -160,7 +148,7 @@ impl TaskCreator {
                 compute_fn = task_finished_event.compute_fn,
                 "task not found for task finished event",
             );
-            return Ok(TaskCreationResult::default());
+            return Ok(SchedulerUpdateRequest::default());
         };
 
         let compute_graph_version = in_memory_state
@@ -176,21 +164,76 @@ impl TaskCreator {
                 compute_graph_version = task.graph_version.0,
                 "compute graph version not found",
             );
-            return Ok(TaskCreationResult::default());
+            return Ok(SchedulerUpdateRequest::default());
         }
-        let compute_graph_version = compute_graph_version.ok_or(anyhow!(
-            "compute graph version not found: {:?} {:?} {:?}",
-            task.namespace,
-            task.compute_graph_name,
-            task.graph_version.0
-        ))?;
-        self.handle_task_finished(
-            *invocation_ctx.clone(),
-            *task.clone(),
-            *compute_graph_version.clone(),
-            task_finished_event.node_output_key.clone(),
-        )
-        .await
+        let compute_graph_version = compute_graph_version
+            .ok_or(anyhow!(
+                "compute graph version not found: {:?} {:?} {:?}",
+                task.namespace,
+                task.compute_graph_name,
+                task.graph_version.0
+            ))?
+            .clone();
+
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        if let Some(allocation_key) = &task_finished_event.allocation_key {
+            let Some(allocation) = self
+                .indexify_state
+                .reader()
+                .get_allocation(&allocation_key)?
+            else {
+                error!(
+                    allocation_key = allocation_key,
+                    "allocation not found, stopping scheduling of child tasks",
+                );
+                return Ok(SchedulerUpdateRequest::default());
+            };
+
+            if allocation.outcome == TaskOutcome::Failure &&
+                compute_graph_version.should_retry_task(&task)
+            {
+                task.status = TaskStatus::Pending;
+                task.attempt_number += 1;
+                scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
+                return Ok(scheduler_update);
+            }
+            task.status = TaskStatus::Completed;
+            task.outcome = allocation.outcome;
+            scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                "task_creator",
+            )?;
+        }
+        let task_creation_result = self
+            .handle_task_finished(
+                &mut in_memory_state,
+                *invocation_ctx.clone(),
+                *task.clone(),
+                *compute_graph_version.clone(),
+                task_finished_event.node_output_key.clone(),
+            )
+            .await?;
+        let task_creator_update = SchedulerUpdateRequest {
+            updated_tasks: task_creation_result
+                .tasks
+                .into_iter()
+                .map(|t| (t.id.clone(), t))
+                .collect(),
+            updated_invocations_states: task_creation_result
+                .invocation_ctx
+                .map(|ctx| ctx.clone())
+                .into_iter()
+                .collect(),
+            reduction_tasks: ReductionTasks {
+                new_reduction_tasks: task_creation_result.new_reduction_tasks,
+                processed_reduction_tasks: task_creation_result.processed_reduction_tasks,
+            },
+            ..Default::default()
+        };
+        scheduler_update.extend(task_creator_update);
+        Ok(scheduler_update)
     }
 
     #[tracing::instrument(skip(self, event))]
@@ -285,6 +328,7 @@ impl TaskCreator {
 
     #[tracing::instrument(skip(
         self,
+        in_memory_state,
         invocation_ctx,
         task,
         compute_graph_version,
@@ -292,6 +336,7 @@ impl TaskCreator {
     ))]
     pub async fn handle_task_finished(
         &self,
+        in_memory_state: &mut InMemoryState,
         invocation_ctx: GraphInvocationCtx,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
@@ -337,7 +382,7 @@ impl TaskCreator {
             return Ok(TaskCreationResult::default());
         };
         if compute_node.reducer() {
-            let reduction_task = self.in_memory_state.read().unwrap().next_reduction_task(
+            let reduction_task = in_memory_state.next_reduction_task(
                 &task.namespace,
                 &task.compute_graph_name,
                 &task.invocation_id,

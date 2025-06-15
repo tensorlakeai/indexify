@@ -20,8 +20,6 @@ use data_model::{
     Routing,
     TaskDiagnostics,
     TaskOutcome,
-    TaskOutputsIngestionStatus,
-    TaskStatus,
 };
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
@@ -472,7 +470,7 @@ impl ExecutorAPIService {
                 .allocation_id
                 .clone()
                 .ok_or(anyhow::anyhow!("allocation_id is required"))?;
-            let Some(mut task) = self
+            let Some(task) = self
                 .indexify_state
                 .reader()
                 .get_task(
@@ -502,20 +500,6 @@ impl ExecutorAPIService {
                 warn!("Compute fn node not found for task_id: {}", task_id);
                 continue;
             };
-            match outcome_code {
-                executor_api_pb::TaskOutcomeCode::Success => {
-                    task.outcome = TaskOutcome::Success;
-                }
-                executor_api_pb::TaskOutcomeCode::Failure => {
-                    // TODO: Handle all the failure reasons.
-                    task.outcome = TaskOutcome::Failure;
-                }
-                executor_api_pb::TaskOutcomeCode::Unknown => {
-                    task.outcome = TaskOutcome::Unknown;
-                }
-            }
-            task.output_status = TaskOutputsIngestionStatus::Ingested;
-            task.status = TaskStatus::Completed;
 
             let mut payloads = Vec::new();
             let mut encoding_str = String::new();
@@ -627,11 +611,24 @@ impl ExecutorAPIService {
                     &self.blob_storage.get_url(),
                 ),
             };
-            task.diagnostics = Some(task_diagnostic.clone());
-            let allocation_id = task_result
+            let allocation_key = task_result
                 .allocation_id
                 .clone()
                 .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+
+            let mut allocation = self
+                .indexify_state
+                .reader()
+                .get_allocation(&allocation_key)
+                .map_err(|e| Status::internal(e.to_string()))?
+                .ok_or(anyhow::anyhow!("allocation not found"))?;
+            let task_outcome = match outcome_code {
+                executor_api_pb::TaskOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::TaskOutcomeCode::Failure => TaskOutcome::Failure,
+                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
+            };
+            allocation.outcome = task_outcome;
+            allocation.diagnostics = Some(task_diagnostic.clone());
 
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),
@@ -641,7 +638,8 @@ impl ExecutorAPIService {
                 task: task.clone(),
                 node_output,
                 executor_id: executor_id.clone(),
-                allocation_id,
+                allocation,
+                allocation_key,
             });
 
             requests.push(request);

@@ -697,6 +697,27 @@ impl StateReader {
         Ok(allocation)
     }
 
+    pub fn get_allocations_by_invocation(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> Result<Vec<Allocation>> {
+        let kvs = &[KeyValue::new("op", "get_allocations_by_task_id")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let prefix =
+            Allocation::key_prefix_from_invocation(namespace, compute_graph, invocation_id);
+
+        let (allocations, _) = self.get_rows_from_cf_with_limits::<Allocation>(
+            prefix.as_bytes(),
+            None,
+            IndexifyObjectsColumns::Allocations,
+            None,
+        )?;
+        Ok(allocations)
+    }
+
     pub fn list_outputs_by_compute_graph(
         &self,
         namespace: &str,

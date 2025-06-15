@@ -235,7 +235,7 @@ pub struct FinalizeTaskArgs {
     pub task_outcome: TaskOutcome,
     pub reducer_fn: Option<String>,
     pub diagnostics: Option<TaskDiagnostics>,
-    pub allocation_id: String,
+    pub allocation_key: String,
 }
 
 impl FinalizeTaskArgs {
@@ -245,7 +245,7 @@ impl FinalizeTaskArgs {
             task_outcome: TaskOutcome::Success,
             reducer_fn: None,
             diagnostics: None,
-            allocation_id,
+            allocation_key: allocation_id,
         }
     }
 
@@ -459,6 +459,15 @@ impl TestExecutor<'_> {
         task.status = TaskStatus::Completed;
         task.diagnostics = args.diagnostics.clone();
 
+        let allocation = self
+            .test_service
+            .service
+            .indexify_state
+            .reader()
+            .get_allocation(&args.allocation_key)
+            .unwrap()
+            .unwrap();
+
         self.test_service
             .service
             .indexify_state
@@ -471,7 +480,8 @@ impl TestExecutor<'_> {
                     node_output,
                     task,
                     executor_id: self.executor_id.clone(),
-                    allocation_id: args.allocation_id.clone(),
+                    allocation_key: args.allocation_key.clone(),
+                    allocation,
                 }),
                 processed_state_changes: vec![],
             })

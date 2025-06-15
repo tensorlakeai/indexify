@@ -77,7 +77,9 @@ pub struct Allocation {
     pub compute_fn: String,
     pub invocation_id: String,
     pub created_at: u128,
-    pub retry_number: u32,
+    pub outcome: TaskOutcome,
+    pub diagnostics: Option<TaskDiagnostics>,
+    pub attempt_number: u32,
 }
 
 impl Allocation {
@@ -118,6 +120,10 @@ impl Allocation {
             self.namespace, self.compute_graph, self.compute_fn
         )
     }
+
+    pub fn is_terminal(&self) -> bool {
+        self.outcome == TaskOutcome::Success || self.outcome == TaskOutcome::Failure
+    }
 }
 
 impl AllocationBuilder {
@@ -149,9 +155,9 @@ impl AllocationBuilder {
             .ok_or(anyhow!("executor_id is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
         let retry_number = self
-            .retry_number
+            .attempt_number
             .clone()
-            .ok_or(anyhow!("retry_number is required"))?;
+            .ok_or(anyhow!("attempt_number is required"))?;
 
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
@@ -163,6 +169,11 @@ impl AllocationBuilder {
         executor_id.get().hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
 
+        let outcome = self
+            .outcome
+            .clone()
+            .ok_or(anyhow!("allocation outcome is required"))?;
+
         Ok(Allocation {
             id,
             function_executor_id,
@@ -173,7 +184,9 @@ impl AllocationBuilder {
             compute_fn,
             invocation_id,
             created_at,
-            retry_number,
+            outcome,
+            diagnostics: None,
+            attempt_number: retry_number,
         })
     }
 }
@@ -617,6 +630,14 @@ impl ComputeGraphVersion {
                 None => vec![],
             })
             .collect()
+    }
+
+    pub fn should_retry_task(&self, task: &Task) -> bool {
+        let Some(node) = self.nodes.get(&task.compute_fn_name) else {
+            return false;
+        };
+        let retry_policy = node.retry_policy();
+        task.attempt_number < retry_policy.max_retries
     }
 }
 
@@ -1131,7 +1152,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
-    pub retry_number: u32,
+    pub attempt_number: u32,
 }
 
 impl Task {
@@ -1275,7 +1296,7 @@ impl TaskBuilder {
             graph_version,
             creation_time_ns,
             cache_key,
-            retry_number: 0,
+            attempt_number: 0,
         };
         Ok(task)
     }
@@ -1997,6 +2018,7 @@ pub struct AllocationOutputIngestedEvent {
     pub invocation_id: String,
     pub task_id: TaskId,
     pub node_output_key: String,
+    pub allocation_key: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
