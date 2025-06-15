@@ -270,6 +270,22 @@ pub(crate) fn delete_invocation(
                 "deleting allocation",
             );
             txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
+            match value.diagnostics {
+                Some(diagnostic) => {
+                    [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
+                        .iter()
+                        .flatten()
+                        .try_for_each(|data| -> Result<()> {
+                            txn.put_cf(
+                                &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                                data.path.as_bytes(),
+                                [],
+                            )?;
+                            Ok(())
+                        })?;
+                }
+                None => {}
+            }
         }
     }
 

@@ -440,7 +440,7 @@ impl TestExecutor<'_> {
         );
 
         // get the task from the state store
-        let mut task = self
+        let task = self
             .test_service
             .service
             .indexify_state
@@ -455,11 +455,7 @@ impl TestExecutor<'_> {
             .unwrap()
             .unwrap();
 
-        task.outcome = args.task_outcome.clone();
-        task.status = TaskStatus::Completed;
-        task.diagnostics = args.diagnostics.clone();
-
-        let allocation = self
+        let mut allocation = self
             .test_service
             .service
             .indexify_state
@@ -467,6 +463,9 @@ impl TestExecutor<'_> {
             .get_allocation(&args.allocation_key)
             .unwrap()
             .unwrap();
+
+        allocation.outcome = args.task_outcome.clone();
+        allocation.diagnostics = args.diagnostics.clone();
 
         self.test_service
             .service
