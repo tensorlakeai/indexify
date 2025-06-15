@@ -538,8 +538,7 @@ impl ComputeGraphVersion {
         let Some(node) = self.nodes.get(&task.compute_fn_name) else {
             return false;
         };
-        let retry_policy = node.retry_policy();
-        task.attempt_number < retry_policy.max_retries
+        task.attempt_number < node.retry_policy.max_retries
     }
 }
 
