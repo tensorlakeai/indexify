@@ -1,3 +1,5 @@
+import importlib
+
 import click
 from tensorlake.functions_sdk.image import Image
 from tensorlake.functions_sdk.workflow_module import (
@@ -35,6 +37,7 @@ def build_image(
         )
         raise click.Abort
 
+    indexify_version: str = importlib.metadata.version("indexify")
     for image in workflow_module_info.images.keys():
         image: Image
         if image_names is not None and image.image_name not in image_names:
@@ -44,6 +47,8 @@ def build_image(
             continue
 
         click.echo(f"Building image `{image.image_name}`")
+
+        image.run(f"pip install 'indexify=={indexify_version}'")
         built_image, generator = image.build()
         for output in generator:
             click.secho(output)
