@@ -13,11 +13,11 @@ mod tests {
     };
 
     #[test]
-    fn test_can_handle_node_resources() {
+    fn test_can_handle_function_resources() {
         struct Case {
             description: &'static str,
             host_resources: HostResources,
-            node_resources: FunctionResources,
+            func_resources: FunctionResources,
             expected_can_handle: bool,
         }
         let cases = vec![
@@ -29,7 +29,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -45,7 +45,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -61,7 +61,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 501,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -77,7 +77,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -93,7 +93,7 @@ mod tests {
                     disk_bytes: 512 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -112,7 +112,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -137,7 +137,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -163,7 +163,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -182,7 +182,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -204,7 +204,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -219,7 +219,8 @@ mod tests {
         for case in cases {
             assert_eq!(
                 case.host_resources
-                    .can_handle_node_resources(&case.node_resources),
+                    .can_handle_function_resources(&case.func_resources)
+                    .is_ok(),
                 case.expected_can_handle,
                 "case: {}",
                 case.description
@@ -228,11 +229,11 @@ mod tests {
     }
 
     #[test]
-    fn test_consume_node_resources() {
+    fn test_consume_function_resources() {
         struct Case {
             description: &'static str,
             host_resources: HostResources,
-            node_resources: FunctionResources,
+            func_resources: FunctionResources,
             expected_fe_resources: Option<FunctionExecutorResources>, // None means error expected
             expected_host_resources_after: Option<HostResources>,     /* None means no change
                                                                        * expected */
@@ -247,7 +248,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -274,7 +275,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -301,7 +302,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 501,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -318,7 +319,7 @@ mod tests {
                     disk_bytes: 2 * 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -335,7 +336,7 @@ mod tests {
                     disk_bytes: 512 * 1024 * 1024,
                     gpu: None,
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -355,7 +356,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -397,7 +398,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -440,7 +441,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -473,7 +474,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -496,7 +497,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }),
                 },
-                node_resources: FunctionResources {
+                func_resources: FunctionResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -514,7 +515,7 @@ mod tests {
             let host_resources_before = case.host_resources.clone();
             let consume_result = case
                 .host_resources
-                .consume_node_resources(&case.node_resources);
+                .consume_function_resources(&case.func_resources);
             if let Some(expected_fe_resources) = &case.expected_fe_resources {
                 assert!(
                     consume_result.is_ok(),

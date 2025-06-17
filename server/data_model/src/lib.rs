@@ -1346,63 +1346,40 @@ impl Default for HostResources {
 }
 
 impl HostResources {
-    fn can_handle_gpu(&self, requested_gpu: &Option<GPUResources>) -> bool {
-        if let Some(requested_gpu) = &requested_gpu {
-            if let Some(available_gpu) = &self.gpu {
-                return available_gpu.can_handle(requested_gpu);
-            } else {
-                return false;
-            }
-        } else {
-            return true;
+    // If can't handle, returns error that describes the reason why.
+    fn can_handle_gpu(&self, request: &Option<GPUResources>) -> Result<()> {
+        match request {
+            Some(requested_gpu) => match &self.gpu {
+                Some(available_gpu) => {
+                    if available_gpu.can_handle(requested_gpu) {
+                        Ok(())
+                    } else {
+                        Err(anyhow!(
+                            "Not enough GPU resources, available: {:?}, requested: {:?}",
+                            available_gpu,
+                            requested_gpu
+                        ))
+                    }
+                }
+                None => Err(anyhow!(
+                    "No GPU is available but a GPU is requested: {:?}",
+                    requested_gpu
+                )),
+            },
+            None => Ok(()),
         }
     }
 
-    pub fn can_handle_fe_resources(&self, requested_resources: &FunctionExecutorResources) -> bool {
-        let requested_memory_bytes = requested_resources.memory_mb as u64 * 1024 * 1024;
-        let requested_disk_bytes = requested_resources.ephemeral_disk_mb as u64 * 1024 * 1024;
+    // If can't handle, returns error that describes the reason why.
+    pub fn can_handle_fe_resources(&self, request: &FunctionExecutorResources) -> Result<()> {
+        let requested_memory_bytes = request.memory_mb as u64 * 1024 * 1024;
+        let requested_disk_bytes = request.ephemeral_disk_mb as u64 * 1024 * 1024;
 
-        if self.cpu_ms_per_sec < requested_resources.cpu_ms_per_sec ||
-            self.memory_bytes < requested_memory_bytes ||
-            self.disk_bytes < requested_disk_bytes
-        {
-            return false;
-        }
-
-        return self.can_handle_gpu(&requested_resources.gpu);
-    }
-
-    pub fn can_handle_node_resources(&self, requested_resources: &FunctionResources) -> bool {
-        let fe_resources_no_gpu = FunctionExecutorResources {
-            cpu_ms_per_sec: requested_resources.cpu_ms_per_sec,
-            memory_mb: requested_resources.memory_mb,
-            ephemeral_disk_mb: requested_resources.ephemeral_disk_mb,
-            gpu: None,
-        };
-
-        if requested_resources.gpu_configs.is_empty() {
-            self.can_handle_fe_resources(&fe_resources_no_gpu)
-        } else {
-            requested_resources.gpu_configs.iter().any(|gpu| {
-                let mut fe_resources_gpu = fe_resources_no_gpu.clone();
-                fe_resources_gpu.gpu = Some(gpu.clone());
-                self.can_handle_fe_resources(&fe_resources_gpu)
-            })
-        }
-    }
-
-    pub fn consume_fe_resources(
-        &mut self,
-        requested_resources: &FunctionExecutorResources,
-    ) -> Result<()> {
-        let requested_memory_bytes = requested_resources.memory_mb as u64 * 1024 * 1024;
-        let requested_disk_bytes = requested_resources.ephemeral_disk_mb as u64 * 1024 * 1024;
-
-        if self.cpu_ms_per_sec < requested_resources.cpu_ms_per_sec {
+        if self.cpu_ms_per_sec < request.cpu_ms_per_sec {
             return Err(anyhow!(
                 "Not enough CPU resources, {} < {}",
                 self.cpu_ms_per_sec,
-                requested_resources.cpu_ms_per_sec
+                request.cpu_ms_per_sec
             ));
         }
 
@@ -1422,20 +1399,41 @@ impl HostResources {
             ));
         }
 
-        if !self.can_handle_gpu(&requested_resources.gpu) {
-            return Err(anyhow!(
-                "Not enough GPU resources, {:?} < {:?}",
-                self.gpu,
-                requested_resources.gpu
-            ));
+        return self.can_handle_gpu(&request.gpu);
+    }
+
+    // If can't handle, returns error that describes the reason why.
+    pub fn can_handle_function_resources(&self, request: &FunctionResources) -> Result<()> {
+        let fe_resources_no_gpu = FunctionExecutorResources {
+            cpu_ms_per_sec: request.cpu_ms_per_sec,
+            memory_mb: request.memory_mb,
+            ephemeral_disk_mb: request.ephemeral_disk_mb,
+            gpu: None,
+        };
+
+        let mut result = self.can_handle_fe_resources(&fe_resources_no_gpu);
+
+        for gpu in &request.gpu_configs {
+            let mut fe_resources_gpu = fe_resources_no_gpu.clone();
+            fe_resources_gpu.gpu = Some(gpu.clone());
+            result = self.can_handle_fe_resources(&fe_resources_gpu);
+            if result.is_ok() {
+                return Ok(());
+            }
         }
 
+        result
+    }
+
+    pub fn consume_fe_resources(&mut self, request: &FunctionExecutorResources) -> Result<()> {
+        self.can_handle_fe_resources(request)?;
+
         // Allocate the resources only after all the checks passed to not leak anything
-        // on error.
-        self.cpu_ms_per_sec -= requested_resources.cpu_ms_per_sec;
-        self.memory_bytes -= requested_memory_bytes;
-        self.disk_bytes -= requested_disk_bytes;
-        if let Some(requested_gpu) = &requested_resources.gpu {
+        // on error. Callers rely on this behavior.
+        self.cpu_ms_per_sec -= request.cpu_ms_per_sec;
+        self.memory_bytes -= request.memory_mb as u64 * 1024 * 1024;
+        self.disk_bytes -= request.ephemeral_disk_mb as u64 * 1024 * 1024;
+        if let Some(requested_gpu) = &request.gpu {
             if let Some(available_gpu) = &mut self.gpu {
                 available_gpu.count -= requested_gpu.count;
             }
@@ -1444,46 +1442,35 @@ impl HostResources {
         Ok(())
     }
 
-    pub fn consume_node_resources(
+    pub fn consume_function_resources(
         &mut self,
-        requested_resources: &FunctionResources,
+        request: &FunctionResources,
     ) -> Result<FunctionExecutorResources> {
-        let mut fe_resources = FunctionExecutorResources {
-            cpu_ms_per_sec: requested_resources.cpu_ms_per_sec,
-            memory_mb: requested_resources.memory_mb,
-            ephemeral_disk_mb: requested_resources.ephemeral_disk_mb,
+        let fe_resources_no_gpu = FunctionExecutorResources {
+            cpu_ms_per_sec: request.cpu_ms_per_sec,
+            memory_mb: request.memory_mb,
+            ephemeral_disk_mb: request.ephemeral_disk_mb,
             gpu: None,
         };
 
-        if !requested_resources.gpu_configs.is_empty() {
-            let fe_gpu_asks: HashMap<String, u32> = requested_resources
-                .gpu_configs
-                .iter()
-                .map(|gpu| (gpu.model.to_string(), gpu.count))
-                .collect();
-            let Some(available_gpu) = &self.gpu else {
-                return Err(anyhow!("No GPU available on the Executor"));
-            };
-            for (model, count) in &fe_gpu_asks {
-                if available_gpu.model == *model && available_gpu.count >= *count {
-                    fe_resources.gpu = Some(GPUResources {
-                        model: model.clone(),
-                        count: *count,
-                    });
-                    break;
-                }
-            }
-            if fe_resources.gpu.is_none() {
-                return Err(anyhow!(
-                    "Function asked for GPUs {:?} but executor only has {:?}",
-                    fe_gpu_asks,
-                    available_gpu
-                ));
+        if request.gpu_configs.is_empty() {
+            self.consume_fe_resources(&fe_resources_no_gpu)?;
+            return Ok(fe_resources_no_gpu);
+        }
+
+        for gpu in &request.gpu_configs {
+            let mut fe_resources_gpu = fe_resources_no_gpu.clone();
+            fe_resources_gpu.gpu = Some(gpu.clone());
+            if self.consume_fe_resources(&fe_resources_gpu).is_ok() {
+                return Ok(fe_resources_gpu);
             }
         }
 
-        self.consume_fe_resources(&fe_resources)?;
-        return Ok(fe_resources);
+        return Err(anyhow!(
+            "Function asked for GPUs {:?} but executor only has {:?}",
+            request.gpu_configs,
+            self.gpu
+        ));
     }
 
     pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {

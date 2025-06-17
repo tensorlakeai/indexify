@@ -1002,7 +1002,8 @@ impl InMemoryState {
             // gpu_configs.
             if executor_state
                 .free_resources
-                .can_handle_node_resources(&compute_fn.resources)
+                .can_handle_function_resources(&compute_fn.resources)
+                .is_ok()
             {
                 candidates.push(executor_state.clone());
             }
