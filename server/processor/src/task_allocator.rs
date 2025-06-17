@@ -200,7 +200,7 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         let fe_resources = candidate
             .free_resources
-            .consume_node_resources(&node_resources)?;
+            .consume_function_resources(&node_resources)?;
         // Consume resources from executor
         update
             .updated_executor_resources
@@ -381,6 +381,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
+                    .is_ok()
             {
                 new_function_executors.push(FunctionExecutorServerMetadata::new(
                     executor.id.clone(),
