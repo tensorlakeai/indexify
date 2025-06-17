@@ -257,7 +257,7 @@ pub struct GPUResources {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NodeResources {
+pub struct FunctionResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
     pub cpu_ms_per_sec: u32,
@@ -267,9 +267,9 @@ pub struct NodeResources {
     pub gpu_configs: Vec<GPUResources>,
 }
 
-impl Default for NodeResources {
+impl Default for FunctionResources {
     fn default() -> Self {
-        NodeResources {
+        FunctionResources {
             cpu_ms_per_sec: 1000,        // 1 full CPU core
             memory_mb: 1024,             // 1 GB
             ephemeral_disk_mb: 1 * 1024, // 1 GB
@@ -279,7 +279,7 @@ impl Default for NodeResources {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NodeRetryPolicy {
+pub struct FunctionRetryPolicy {
     pub max_retries: u32,
     pub initial_delay_ms: u32,
     pub max_delay_ms: u32,
@@ -287,9 +287,9 @@ pub struct NodeRetryPolicy {
     pub delay_multiplier: u32,
 }
 
-impl Default for NodeRetryPolicy {
+impl Default for FunctionRetryPolicy {
     fn default() -> Self {
-        NodeRetryPolicy {
+        FunctionRetryPolicy {
             max_retries: 0, // No retries by default
             initial_delay_ms: 1000,
             max_delay_ms: 1000,
@@ -333,9 +333,9 @@ pub struct ComputeFn {
     #[serde(default)]
     pub timeout: NodeTimeoutMS,
     #[serde(default)]
-    pub resources: NodeResources,
+    pub resources: FunctionResources,
     #[serde(default)]
-    pub retry_policy: NodeRetryPolicy,
+    pub retry_policy: FunctionRetryPolicy,
     pub cache_key: Option<CacheKey>,
 }
 
@@ -1372,7 +1372,7 @@ impl HostResources {
         return self.can_handle_gpu(&requested_resources.gpu);
     }
 
-    pub fn can_handle_node_resources(&self, requested_resources: &NodeResources) -> bool {
+    pub fn can_handle_node_resources(&self, requested_resources: &FunctionResources) -> bool {
         let fe_resources_no_gpu = FunctionExecutorResources {
             cpu_ms_per_sec: requested_resources.cpu_ms_per_sec,
             memory_mb: requested_resources.memory_mb,
@@ -1446,33 +1446,44 @@ impl HostResources {
 
     pub fn consume_node_resources(
         &mut self,
-        requested_resources: &NodeResources,
+        requested_resources: &FunctionResources,
     ) -> Result<FunctionExecutorResources> {
-        let fe_resources_no_gpu = FunctionExecutorResources {
+        let mut fe_resources = FunctionExecutorResources {
             cpu_ms_per_sec: requested_resources.cpu_ms_per_sec,
             memory_mb: requested_resources.memory_mb,
             ephemeral_disk_mb: requested_resources.ephemeral_disk_mb,
             gpu: None,
         };
 
-        if requested_resources.gpu_configs.is_empty() {
-            self.consume_fe_resources(&fe_resources_no_gpu)?;
-            return Ok(fe_resources_no_gpu);
-        }
-
-        let mut last_result = Err(anyhow!(
-            "Unexpected error while consuming node resources: no GPU configs provided"
-        ));
-        for gpu in &requested_resources.gpu_configs {
-            let mut fe_resources_gpu = fe_resources_no_gpu.clone();
-            fe_resources_gpu.gpu = Some(gpu.clone());
-            last_result = self.consume_fe_resources(&fe_resources_gpu);
-            if last_result.is_ok() {
-                return Ok(fe_resources_gpu);
+        if !requested_resources.gpu_configs.is_empty() {
+            let fe_gpu_asks: HashMap<String, u32> = requested_resources
+                .gpu_configs
+                .iter()
+                .map(|gpu| (gpu.model.to_string(), gpu.count))
+                .collect();
+            let Some(available_gpu) = &self.gpu else {
+                return Err(anyhow!("No GPU available on the Executor"));
+            };
+            for (model, count) in &fe_gpu_asks {
+                if available_gpu.model == *model && available_gpu.count >= *count {
+                    fe_resources.gpu = Some(GPUResources {
+                        model: model.clone(),
+                        count: *count,
+                    });
+                    break;
+                }
+            }
+            if fe_resources.gpu.is_none() {
+                return Err(anyhow!(
+                    "Function asked for GPUs {:?} but executor only has {:?}",
+                    fe_gpu_asks,
+                    available_gpu
+                ));
             }
         }
 
-        Err(last_result.unwrap_err())
+        self.consume_fe_resources(&fe_resources)?;
+        return Ok(fe_resources);
     }
 
     pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {

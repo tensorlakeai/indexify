@@ -18,11 +18,11 @@ use data_model::{
     FunctionExecutorResources,
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
+    FunctionResources,
+    FunctionRetryPolicy,
     FunctionURI,
     GraphInvocationCtx,
     GraphVersion,
-    NodeResources,
-    NodeRetryPolicy,
     ReduceTask,
     Task,
     TaskStatus,
@@ -47,7 +47,7 @@ pub struct DesiredStateTask {
     pub task: Box<Task>,
     pub allocation_id: String,
     pub timeout_ms: u32,
-    pub retry_policy: NodeRetryPolicy,
+    pub retry_policy: FunctionRetryPolicy,
 }
 
 pub struct DesiredStateFunctionExecutor {
@@ -1085,7 +1085,7 @@ impl InMemoryState {
         cg: &str,
         fn_name: &str,
         version: &GraphVersion,
-    ) -> Option<NodeResources> {
+    ) -> Option<FunctionResources> {
         let cg_version = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(ns, cg, version))
@@ -1096,7 +1096,7 @@ impl InMemoryState {
             .map(|node| node.resources.clone())
     }
 
-    pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<NodeResources> {
+    pub fn get_fe_resources(&self, fe: &FunctionExecutor) -> Option<FunctionResources> {
         let cg_version = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(

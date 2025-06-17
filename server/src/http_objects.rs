@@ -262,9 +262,9 @@ impl NodeResources {
     }
 }
 
-impl From<NodeResources> for data_model::NodeResources {
+impl From<NodeResources> for data_model::FunctionResources {
     fn from(value: NodeResources) -> Self {
-        data_model::NodeResources {
+        data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
@@ -280,8 +280,8 @@ impl From<NodeResources> for data_model::NodeResources {
     }
 }
 
-impl From<data_model::NodeResources> for NodeResources {
-    fn from(value: data_model::NodeResources) -> NodeResources {
+impl From<data_model::FunctionResources> for NodeResources {
+    fn from(value: data_model::FunctionResources) -> NodeResources {
         NodeResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
@@ -300,7 +300,7 @@ impl From<data_model::NodeResources> for NodeResources {
 
 impl Default for NodeResources {
     fn default() -> Self {
-        data_model::NodeResources::default().into()
+        data_model::FunctionResources::default().into()
     }
 }
 
@@ -340,9 +340,9 @@ impl NodeRetryPolicy {
     }
 }
 
-impl From<NodeRetryPolicy> for data_model::NodeRetryPolicy {
+impl From<NodeRetryPolicy> for data_model::FunctionRetryPolicy {
     fn from(value: NodeRetryPolicy) -> Self {
-        data_model::NodeRetryPolicy {
+        data_model::FunctionRetryPolicy {
             max_retries: value.max_retries,
             initial_delay_ms: (value.initial_delay_sec * 1000.0).ceil() as u32,
             max_delay_ms: (value.max_delay_sec * 1000.0).ceil() as u32,
@@ -351,8 +351,8 @@ impl From<NodeRetryPolicy> for data_model::NodeRetryPolicy {
     }
 }
 
-impl From<data_model::NodeRetryPolicy> for NodeRetryPolicy {
-    fn from(value: data_model::NodeRetryPolicy) -> Self {
+impl From<data_model::FunctionRetryPolicy> for NodeRetryPolicy {
+    fn from(value: data_model::FunctionRetryPolicy) -> Self {
         NodeRetryPolicy {
             max_retries: value.max_retries,
             initial_delay_sec: value.initial_delay_ms as f64 / 1000.0,
@@ -364,7 +364,7 @@ impl From<data_model::NodeRetryPolicy> for NodeRetryPolicy {
 
 impl Default for NodeRetryPolicy {
     fn default() -> Self {
-        data_model::NodeRetryPolicy::default().into()
+        data_model::FunctionRetryPolicy::default().into()
     }
 }
 

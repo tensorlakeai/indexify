@@ -187,8 +187,8 @@ impl From<FunctionExecutorStatus> for data_model::FunctionExecutorState {
     }
 }
 
-impl From<data_model::NodeRetryPolicy> for executor_api_pb::TaskRetryPolicy {
-    fn from(from: data_model::NodeRetryPolicy) -> Self {
+impl From<data_model::FunctionRetryPolicy> for executor_api_pb::TaskRetryPolicy {
+    fn from(from: data_model::FunctionRetryPolicy) -> Self {
         executor_api_pb::TaskRetryPolicy {
             max_retries: Some(from.max_retries),
             initial_delay_ms: Some(from.initial_delay_ms),
