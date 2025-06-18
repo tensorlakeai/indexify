@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import {
   Accordion,
@@ -25,6 +25,13 @@ import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import CopyText from '../CopyText'
 import CopyTextPopover from '../CopyTextPopover'
+import { formatTimestamp } from '../../utils/helpers'
+
+interface Output {
+  compute_fn: string
+  id: string
+  created_at: string
+}
 
 interface Task {
   id: string
@@ -74,6 +81,7 @@ export function InvocationTasksTable({
   computeGraph,
 }: InvocationTasksTableProps) {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [outputs, setOutputs] = useState<Output[]>([])
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({})
   const [filteredTasks, setFilteredTasks] = useState<Record<string, Task[]>>({})
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>(
@@ -86,12 +94,53 @@ export function InvocationTasksTable({
       const response = await axios.get<{ tasks: Task[] }>(url, {
         headers: { accept: 'application/json' },
       })
+      console.log(
+        'Fetched tasks:',
+        JSON.stringify(response.data.tasks, null, 2)
+      )
       setTasks(response.data.tasks)
+      const outputUrl = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`
+      const outputResponse = await axios.get<{ outputs: Output[] }>(outputUrl, {
+        headers: { accept: 'application/json' },
+      })
+      console.log(
+        'Fetched outputs:',
+        JSON.stringify(outputResponse.data.outputs, null, 2)
+      )
+      setOutputs(outputResponse.data.outputs)
     } catch (error) {
       console.error('Error fetching tasks:', error)
       toast.error('Failed to fetch tasks. Please try again later.')
     }
   }
+
+  const fetchFunctionOutputPayload = useCallback(
+    async (function_name: string, output_id: string) => {
+      try {
+        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${function_name}/output/${output_id}`
+        const response = await axios.get(url)
+        const content_type = response.headers['content-type']
+        const fileExtension =
+          content_type === 'application/json'
+            ? 'json'
+            : content_type === 'application/octet-stream'
+            ? 'bin'
+            : 'txt'
+        const blob = new Blob([response.data], { type: content_type })
+        const downloadLink = document.createElement('a')
+        downloadLink.href = URL.createObjectURL(blob)
+        downloadLink.download = `${function_name}_${output_id}_output.${fileExtension}`
+        document.body.appendChild(downloadLink)
+        downloadLink.click()
+        document.body.removeChild(downloadLink)
+      } catch (error) {
+        toast.error(
+          `Failed to fetch output for function: ${function_name} for output id: ${output_id}`
+        )
+      }
+    },
+    [indexifyServiceURL, invocationId, namespace, computeGraph]
+  )
 
   useEffect(() => {
     fetchTasks()
@@ -202,7 +251,7 @@ export function InvocationTasksTable({
 
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h4" gutterBottom>
         Tasks for Invocation
       </Typography>
       {Object.entries(filteredTasks).map(([computeFn, tasks], index) => (
@@ -225,7 +274,7 @@ export function InvocationTasksTable({
               }}
             >
               <CopyTextPopover text={computeFn}>
-                <Typography>
+                <Typography variant="h4">
                   {computeFn} ({tasks.length} tasks)
                 </Typography>
               </CopyTextPopover>
@@ -307,6 +356,57 @@ export function InvocationTasksTable({
                       </TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Typography sx={{ mt: 3, mb: 2 }}>Outputs</Typography>
+            <TableContainer
+              component={Paper}
+              sx={{
+                boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset',
+              }}
+              elevation={0}
+            >
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>ID</TableCell>
+                    <TableCell>Created At</TableCell>
+                    <TableCell>Output</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {outputs
+                    .filter((output) => output.compute_fn === computeFn)
+                    .map((output, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                            }}
+                          >
+                            {output.id}
+                            <CopyText text={output.id} />
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          {formatTimestamp(output.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            onClick={() =>
+                              fetchFunctionOutputPayload(computeFn, output.id)
+                            }
+                          >
+                            Download output
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </TableContainer>

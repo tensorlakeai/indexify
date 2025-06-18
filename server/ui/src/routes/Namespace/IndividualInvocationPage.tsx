@@ -1,28 +1,17 @@
-import {
-  Box,
-  Breadcrumbs,
-  Typography,
-  Stack,
-} from '@mui/material';
-import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
-import { Link, useLoaderData } from 'react-router-dom';
-import CopyText from '../../components/CopyText';
-import InvocationOutputTable from '../../components/tables/InvocationOutputTable';
-import InvocationTasksTable from '../../components/tables/InvocationTasksTable';
-import CopyTextPopover from '../../components/CopyTextPopover';
+import { Box, Breadcrumbs, Stack, Typography } from '@mui/material'
+import { TableDocument } from 'iconsax-react'
+import { Link, useLoaderData } from 'react-router-dom'
+import CopyText from '../../components/CopyText'
+import CopyTextPopover from '../../components/CopyTextPopover'
+import InvocationTasksTable from '../../components/tables/InvocationTasksTable'
 
 const IndividualInvocationPage = () => {
-  const {
-    indexifyServiceURL, 
-    invocationId,
-    computeGraph,
-    namespace
-   } =
+  const { indexifyServiceURL, invocationId, computeGraph, namespace } =
     useLoaderData() as {
       indexifyServiceURL: string
-      invocationId: string,
-      computeGraph: string,
+      invocationId: string
+      computeGraph: string
       namespace: string
     }
 
@@ -40,7 +29,10 @@ const IndividualInvocationPage = () => {
             <Typography color="text.primary">Compute Graphs</Typography>
           </CopyTextPopover>
         </Link>
-        <Link color="inherit" to={`/${namespace}/compute-graphs/${computeGraph}`}>
+        <Link
+          color="inherit"
+          to={`/${namespace}/compute-graphs/${computeGraph}`}
+        >
           <CopyTextPopover text={computeGraph}>
             <Typography color="text.primary">{computeGraph}</Typography>
           </CopyTextPopover>
@@ -53,18 +45,26 @@ const IndividualInvocationPage = () => {
         <Box sx={{ mb: 3 }}>
           <div className="content-table-header">
             <div className="heading-icon-container">
-              <TableDocument size="25" className="heading-icons" variant="Outline"/>
+              <TableDocument
+                size="25"
+                className="heading-icons"
+                variant="Outline"
+              />
             </div>
             <Typography variant="h4" display={'flex'} flexDirection={'row'}>
               Invocation - {invocationId} <CopyText text={invocationId} />
             </Typography>
           </div>
-          <InvocationOutputTable indexifyServiceURL={indexifyServiceURL} invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
         </Box>
-        <InvocationTasksTable indexifyServiceURL={indexifyServiceURL} invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
+        <InvocationTasksTable
+          indexifyServiceURL={indexifyServiceURL}
+          invocationId={invocationId}
+          namespace={namespace}
+          computeGraph={computeGraph}
+        />
       </Box>
     </Stack>
-  );
-};
+  )
+}
 
-export default IndividualInvocationPage;
+export default IndividualInvocationPage
