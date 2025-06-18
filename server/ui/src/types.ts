@@ -7,16 +7,7 @@ export interface ComputeFn {
   image_name: string
 }
 
-export interface DynamicRouter {
-  name: string
-  source_fn: string
-  description: string
-  target_fns: string[]
-  payload_encoder: string
-  image_name: string
-}
-
-export type Node = { dynamic_router: DynamicRouter } | { compute_fn: ComputeFn }
+export type Node = ComputeFn
 
 export interface ComputeGraph {
   name: string
