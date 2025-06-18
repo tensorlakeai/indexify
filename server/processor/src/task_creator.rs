@@ -151,6 +151,11 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
+        // We have already handled updating this task through the path of FE failures.
+        if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
+            return Ok(SchedulerUpdateRequest::default());
+        }
+
         let compute_graph_version = in_memory_state
             .compute_graph_versions
             .get(&task.key_compute_graph_version());
