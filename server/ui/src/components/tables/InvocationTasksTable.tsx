@@ -407,8 +407,16 @@ export function InvocationTasksTable({
                           </Box>
                         </TableCell>
                         <TableCell>
-                          {allocation.executor_id}
-                          <CopyText text={allocation.executor_id} />
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 1,
+                            }}
+                          >
+                            {allocation.executor_id}
+                            <CopyText text={allocation.executor_id} />
+                          </Box>
                         </TableCell>
                         <TableCell>{allocation.attempt_number}</TableCell>
                         <TableCell>
