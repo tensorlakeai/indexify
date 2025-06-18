@@ -108,19 +108,11 @@ export function InvocationTasksTable({
       const response = await axios.get<{ tasks: Task[] }>(url, {
         headers: { accept: 'application/json' },
       })
-      console.log(
-        'Fetched tasks:',
-        JSON.stringify(response.data.tasks, null, 2)
-      )
       setTasks(response.data.tasks)
       const outputUrl = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`
       const outputResponse = await axios.get<{ outputs: Output[] }>(outputUrl, {
         headers: { accept: 'application/json' },
       })
-      console.log(
-        'Fetched outputs:',
-        JSON.stringify(outputResponse.data.outputs, null, 2)
-      )
       setOutputs(outputResponse.data.outputs)
     } catch (error) {
       console.error('Error fetching tasks:', error)
