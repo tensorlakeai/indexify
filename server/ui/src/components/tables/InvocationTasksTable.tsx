@@ -1,31 +1,31 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import axios from 'axios'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import SearchIcon from '@mui/icons-material/Search'
 import {
   Accordion,
-  AccordionSummary,
   AccordionDetails,
+  AccordionSummary,
+  Alert,
+  Box,
+  Button,
+  Chip,
+  InputAdornment,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Typography,
-  Box,
-  Alert,
-  Chip,
   TextField,
-  InputAdornment,
-  Button,
+  Typography,
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import SearchIcon from '@mui/icons-material/Search'
+import axios from 'axios'
+import React, { useCallback, useEffect, useState } from 'react'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
+import { formatTimestamp } from '../../utils/helpers'
 import CopyText from '../CopyText'
 import CopyTextPopover from '../CopyTextPopover'
-import { formatTimestamp } from '../../utils/helpers'
 
 interface Output {
   compute_fn: string
@@ -42,6 +42,20 @@ interface Task {
   input_key: string
   outcome: string
   status: string
+  allocations: Allocation[]
+}
+
+export interface Allocation {
+  id: string
+  namespace: string
+  compute_graph: string
+  compute_fn: string
+  executor_id: string
+  task_id: string
+  invocation_id: string
+  created_at: number
+  outcome: string
+  attempt_number: number
 }
 
 interface InvocationTasksTableProps {
@@ -274,9 +288,7 @@ export function InvocationTasksTable({
               }}
             >
               <CopyTextPopover text={computeFn}>
-                <Typography variant="h4">
-                  {computeFn} ({tasks.length} tasks)
-                </Typography>
+                <Typography variant="h4">{computeFn}</Typography>
               </CopyTextPopover>
               <Box
                 sx={{ display: 'flex', alignItems: 'center' }}
@@ -304,6 +316,7 @@ export function InvocationTasksTable({
             </Box>
           </AccordionSummary>
           <AccordionDetails>
+            <Typography sx={{ mb: 2 }}>Tasks</Typography>
             <TableContainer
               component={Paper}
               sx={{
@@ -356,6 +369,58 @@ export function InvocationTasksTable({
                       </TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Typography sx={{ mt: 3, mb: 2 }}>Allocations</Typography>
+            <TableContainer
+              component={Paper}
+              sx={{
+                boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset',
+              }}
+              elevation={0}
+            >
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>ID</TableCell>
+                    <TableCell>Executor ID</TableCell>
+                    <TableCell>Retries</TableCell>
+                    <TableCell>Outcome</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {tasks.map((task) =>
+                    task.allocations.map((allocation) => (
+                      <TableRow key={allocation.id}>
+                        <TableCell>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                            }}
+                          >
+                            {allocation.id}
+                            <CopyText text={allocation.id} />
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          {allocation.executor_id}
+                          <CopyText text={allocation.executor_id} />
+                        </TableCell>
+                        <TableCell>{allocation.attempt_number}</TableCell>
+                        <TableCell>
+                          {/* TODO style like the other outcome and failures */}
+                          <Chip
+                            label={allocation.outcome}
+                            sx={getChipStyles(allocation.outcome)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
