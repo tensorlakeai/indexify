@@ -202,16 +202,19 @@ export function InvocationTasksTable({
       }
     }
 
-  const viewLogs = async (task: Task, logType: 'stdout' | 'stderr') => {
+  const viewLogs = async (
+    allocation: Allocation,
+    logType: 'stdout' | 'stderr'
+  ) => {
     try {
-      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${task.compute_fn}/tasks/${task.id}/logs/${logType}`
+      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/allocations/${allocation.id}/logs/${logType}`
       const { data: logContent } = await axios.get(url, {
         responseType: 'text',
         headers: { accept: 'text/plain' },
       })
 
       if (!logContent?.trim()) {
-        toast.info(`No ${logType} logs found for task ${task.id}.`)
+        toast.info(`No ${logType} logs found for allocation ${allocation.id}.`)
         return
       }
 
@@ -226,7 +229,7 @@ export function InvocationTasksTable({
       newWindow.document.write(`
         <html>
           <head>
-            <title>Task ${task.id} - ${logType} Log</title>
+            <title>Allocation ${allocation.id} - ${logType} Log</title>
             <style>body { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }</style>
           </head>
           <body>${logContent}</body>
@@ -235,10 +238,10 @@ export function InvocationTasksTable({
       newWindow.document.close()
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
-        toast.info(`No ${logType} logs found for task ${task.id}.`)
+        toast.info(`No ${logType} logs found for allocation ${allocation.id}.`)
       } else {
         toast.error(
-          `Failed to fetch ${logType} logs for task ${task.id}. Please try again later.`
+          `Failed to fetch ${logType} logs for allocation ${allocation.id}. Please try again later.`
         )
         console.error(`Error fetching ${logType} logs:`, error)
       }
@@ -330,7 +333,6 @@ export function InvocationTasksTable({
                     <TableCell>ID</TableCell>
                     <TableCell>Outcome</TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell>Logs</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -356,17 +358,6 @@ export function InvocationTasksTable({
                           sx={getChipStyles(task.status)}
                         />
                       </TableCell>
-                      <TableCell>
-                        <Button
-                          onClick={() => viewLogs(task, 'stdout')}
-                          sx={{ mr: 1 }}
-                        >
-                          View stdout
-                        </Button>
-                        <Button onClick={() => viewLogs(task, 'stderr')}>
-                          View stderr
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -388,6 +379,7 @@ export function InvocationTasksTable({
                     <TableCell>Executor ID</TableCell>
                     <TableCell>Retries</TableCell>
                     <TableCell>Outcome</TableCell>
+                    <TableCell>Logs</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -420,11 +412,23 @@ export function InvocationTasksTable({
                         </TableCell>
                         <TableCell>{allocation.attempt_number}</TableCell>
                         <TableCell>
-                          {/* TODO style like the other outcome and failures */}
                           <Chip
                             label={allocation.outcome}
                             sx={getChipStyles(allocation.outcome)}
                           />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            onClick={() => viewLogs(allocation, 'stdout')}
+                            sx={{ mr: 1 }}
+                          >
+                            View stdout
+                          </Button>
+                          <Button
+                            onClick={() => viewLogs(allocation, 'stderr')}
+                          >
+                            View stderr
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))
