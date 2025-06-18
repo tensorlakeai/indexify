@@ -466,6 +466,9 @@ impl<'a> TaskAllocationProcessor<'a> {
                 else {
                     continue;
                 };
+                if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
+                    continue;
+                }
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
