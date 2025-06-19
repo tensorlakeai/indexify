@@ -1,4 +1,5 @@
 import { TableCell, TableRow } from '@mui/material'
+import { stateColorMap } from '../../theme'
 import { FunctionExecutorMetadata } from '../../types'
 
 export function FunctionExecutorsContent({
@@ -7,8 +8,10 @@ export function FunctionExecutorsContent({
   functionExecutor: FunctionExecutorMetadata
 }) {
   return (
-    <TableRow>
-      <TableCell colSpan={2} sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}>
+    <TableRow sx={{ width: '100%' }}>
+      <TableCell
+        sx={{ verticalAlign: 'top', fontSize: '0.90rem', width: '50%' }}
+      >
         <p>
           <strong>ID:</strong> {functionExecutor.id}
         </p>
@@ -19,16 +22,33 @@ export function FunctionExecutorsContent({
           <strong>Compute Graph:</strong> {functionExecutor.compute_graph_name}
         </p>
       </TableCell>
-      <TableCell colSpan={2} sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}>
+      <TableCell
+        sx={{ verticalAlign: 'top', fontSize: '0.90rem', width: '50%' }}
+      >
         <p>
           <strong>Version:</strong> {functionExecutor.version}
         </p>
         <p>
-          {/* TODO: running green pill */}
-          <strong>State:</strong> {functionExecutor.state}
+          <strong>State:</strong>{' '}
+          <span
+            style={{
+              color: stateColorMap[functionExecutor.state],
+              fontWeight: 'bold',
+            }}
+          >
+            {functionExecutor.state}
+          </span>
         </p>
         <p>
-          <strong>Desired State:</strong> {functionExecutor.desired_state}
+          <strong>Desired State:</strong>{' '}
+          <span
+            style={{
+              color: stateColorMap[functionExecutor.desired_state],
+              fontWeight: 'bold',
+            }}
+          >
+            {functionExecutor.desired_state}
+          </span>
         </p>
       </TableCell>
     </TableRow>

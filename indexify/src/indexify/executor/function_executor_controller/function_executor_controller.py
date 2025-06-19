@@ -712,6 +712,9 @@ class FunctionExecutorController:
                     logger=self._logger,
                 )
             )
+        metric_function_executors_with_status.labels(
+            status=_to_fe_status_metric_label(self._status, self._logger)
+        ).dec()
 
         self._state_reporter.remove_function_executor_info(self.function_executor_id())
         self._state_reporter.schedule_state_report()
