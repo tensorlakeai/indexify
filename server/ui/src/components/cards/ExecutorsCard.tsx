@@ -1,6 +1,7 @@
 import {
   Alert,
   Chip,
+  Collapse,
   IconButton,
   Paper,
   Table,
@@ -12,7 +13,8 @@ import {
   Typography,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import { InfoCircle, Setting4 } from 'iconsax-react'
+import { ArrowDown2, ArrowUp2, InfoCircle, Setting4 } from 'iconsax-react'
+import { useState } from 'react'
 import { stateBackgroundColorMap, stateColorMap } from '../../theme'
 import { ExecutorMetadata } from '../../types'
 import DisplayResourceContent from './DisplayResourceContent'
@@ -23,6 +25,11 @@ interface ExecutorsCardProps {
 }
 
 function ExecutorsContent({ executors }: ExecutorsCardProps) {
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
+
+  const toggleRow = (id: string) =>
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }))
+
   if (!executors?.length)
     return (
       <Box mt={2} mb={2}>
@@ -181,55 +188,86 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         border: '1px solid #ccc',
                       }}
                     >
-                      <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                      <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
                         Function Allowlist
                       </TableCell>
-                    </TableRow>
-                    {executor.function_allowlist.map(
-                      (functionAllowListEntry) => (
-                        <TableRow
-                          key={
-                            functionAllowListEntry.compute_fn +
-                            functionAllowListEntry.compute_graph +
-                            functionAllowListEntry.namespace +
-                            '-allowlist'
-                          }
+                      <TableCell
+                        colSpan={1}
+                        sx={{ fontWeight: 'bold', textAlign: 'right' }}
+                      >
+                        <IconButton
+                          size="small"
+                          onClick={() => toggleRow(executor.id + '-allowlist')}
                         >
-                          <TableCell
-                            colSpan={1}
-                            sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
-                          >
-                            <p>
-                              <strong>Namespace:</strong>{' '}
-                              {functionAllowListEntry.namespace}
-                            </p>
-                            <p>
-                              <strong>Compute Function:</strong>{' '}
-                              {functionAllowListEntry.compute_fn}
-                            </p>
-                          </TableCell>
-                          <TableCell
-                            colSpan={1}
-                            sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
-                          >
-                            <p>
-                              <strong>Compute Graph:</strong>{' '}
-                              {functionAllowListEntry.compute_graph}
-                            </p>
-                            <p>
-                              <strong>Version:</strong>{' '}
-                              {functionAllowListEntry.version
-                                ? functionAllowListEntry.version
-                                : '-'}
-                            </p>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    )}
+                          {expandedRows[executor.id + '-allowlist'] ? (
+                            <ArrowUp2 size={16} />
+                          ) : (
+                            <ArrowDown2 size={16} />
+                          )}
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={2} sx={{ padding: 0 }}>
+                        <Collapse
+                          in={expandedRows[executor.id + '-allowlist']}
+                          timeout="auto"
+                          unmountOnExit
+                        >
+                          {executor.function_allowlist.map(
+                            (functionAllowListEntry) => (
+                              <TableRow
+                                key={
+                                  functionAllowListEntry.compute_fn +
+                                  functionAllowListEntry.compute_graph +
+                                  functionAllowListEntry.namespace +
+                                  '-allowlist'
+                                }
+                              >
+                                <TableCell
+                                  colSpan={1}
+                                  sx={{
+                                    verticalAlign: 'top',
+                                    fontSize: '0.90rem',
+                                  }}
+                                >
+                                  <p>
+                                    <strong>Namespace:</strong>{' '}
+                                    {functionAllowListEntry.namespace}
+                                  </p>
+                                  <p>
+                                    <strong>Compute Function:</strong>{' '}
+                                    {functionAllowListEntry.compute_fn}
+                                  </p>
+                                </TableCell>
+                                <TableCell
+                                  colSpan={1}
+                                  sx={{
+                                    verticalAlign: 'top',
+                                    fontSize: '0.90rem',
+                                  }}
+                                >
+                                  <p>
+                                    <strong>Compute Graph:</strong>{' '}
+                                    {functionAllowListEntry.compute_graph}
+                                  </p>
+                                  <p>
+                                    <strong>Version:</strong>{' '}
+                                    {functionAllowListEntry.version
+                                      ? functionAllowListEntry.version
+                                      : '-'}
+                                  </p>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          )}
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
                   </>
                 )}
 
-              {executor.function_executors.length > 0 && (
+              {executor.function_executors.length > 0 ? (
                 <>
                   <TableRow
                     sx={{
@@ -237,20 +275,56 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                       border: '1px solid #ccc',
                     }}
                   >
-                    <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
-                      Function Executors
+                    <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                      {executor.function_executors.length} Function Executors
+                    </TableCell>
+                    <TableCell
+                      colSpan={1}
+                      sx={{ fontWeight: 'bold', textAlign: 'right' }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleRow(executor.id)}
+                      >
+                        {expandedRows[executor.id] ? (
+                          <ArrowUp2 size={16} />
+                        ) : (
+                          <ArrowDown2 size={16} />
+                        )}
+                      </IconButton>
                     </TableCell>
                   </TableRow>
-                  {executor.function_executors.map((fnExecutor) => (
-                    <FunctionExecutorsContent
-                      key={fnExecutor.id}
-                      functionExecutor={fnExecutor}
-                    />
-                  ))}
+                  <TableRow>
+                    <TableCell colSpan={2} sx={{ padding: 0 }}>
+                      <Collapse
+                        in={expandedRows[executor.id]}
+                        timeout="auto"
+                        unmountOnExit
+                      >
+                        {executor.function_executors.map((fnExecutor) => (
+                          <FunctionExecutorsContent
+                            key={fnExecutor.id}
+                            functionExecutor={fnExecutor}
+                          />
+                        ))}
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
                 </>
+              ) : (
+                <TableRow
+                  sx={{
+                    backgroundColor: '#eeeeee',
+                    border: '1px solid #ccc',
+                  }}
+                >
+                  <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                    0 Function Executors
+                  </TableCell>
+                </TableRow>
               )}
 
-              {executor.server_only_function_executors.length > 0 && (
+              {executor.server_only_function_executors.length > 0 ? (
                 <>
                   <TableRow
                     sx={{
@@ -258,17 +332,56 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                       border: '1px solid #ccc',
                     }}
                   >
-                    <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
-                      Server Only Function Executors
+                    <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                      {executor.server_only_function_executors.length} Server
+                      Only Function Executors
+                    </TableCell>
+                    <TableCell
+                      colSpan={1}
+                      sx={{ fontWeight: 'bold', textAlign: 'right' }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleRow(executor.id + '-server')}
+                      >
+                        {expandedRows[executor.id + '-server'] ? (
+                          <ArrowUp2 size={16} />
+                        ) : (
+                          <ArrowDown2 size={16} />
+                        )}
+                      </IconButton>
                     </TableCell>
                   </TableRow>
-                  {executor.server_only_function_executors.map((fnExecutor) => (
-                    <FunctionExecutorsContent
-                      key={fnExecutor.id}
-                      functionExecutor={fnExecutor}
-                    />
-                  ))}
+                  <TableRow>
+                    <TableCell colSpan={2} sx={{ padding: 0 }}>
+                      <Collapse
+                        in={expandedRows[executor.id + '-server']}
+                        timeout="auto"
+                        unmountOnExit
+                      >
+                        {executor.server_only_function_executors.map(
+                          (fnExecutor) => (
+                            <FunctionExecutorsContent
+                              key={fnExecutor.id}
+                              functionExecutor={fnExecutor}
+                            />
+                          )
+                        )}
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
                 </>
+              ) : (
+                <TableRow
+                  sx={{
+                    backgroundColor: '#eeeeee',
+                    border: '1px solid #ccc',
+                  }}
+                >
+                  <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                    0 Server Only Function Executors
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>

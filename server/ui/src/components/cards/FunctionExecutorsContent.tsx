@@ -8,8 +8,10 @@ export function FunctionExecutorsContent({
   functionExecutor: FunctionExecutorMetadata
 }) {
   return (
-    <TableRow>
-      <TableCell colSpan={1} sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}>
+    <TableRow sx={{ width: '100%' }}>
+      <TableCell
+        sx={{ verticalAlign: 'top', fontSize: '0.90rem', width: '50%' }}
+      >
         <p>
           <strong>ID:</strong> {functionExecutor.id}
         </p>
@@ -20,7 +22,9 @@ export function FunctionExecutorsContent({
           <strong>Compute Graph:</strong> {functionExecutor.compute_graph_name}
         </p>
       </TableCell>
-      <TableCell colSpan={1} sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}>
+      <TableCell
+        sx={{ verticalAlign: 'top', fontSize: '0.90rem', width: '50%' }}
+      >
         <p>
           <strong>Version:</strong> {functionExecutor.version}
         </p>
