@@ -1040,6 +1040,7 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
+    pub cache_hit: bool,
     // Input to the function
     pub input: DataPayload,
     // Input to the reducer function
@@ -1196,6 +1197,7 @@ impl TaskBuilder {
             creation_time_ns,
             cache_key,
             attempt_number: 0,
+            cache_hit: false,
         };
         Ok(task)
     }
