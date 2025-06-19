@@ -63,50 +63,30 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
     )
 
   return (
-    <TableContainer component={Paper} sx={{ mt: 2 }} elevation={0}>
+    <TableContainer
+      component={Paper}
+      sx={{ boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset', mt: 2 }}
+      elevation={0}
+    >
       <Table sx={{ minWidth: 650 }} aria-label="executors table">
         <TableHead>
           <TableRow>
-            <TableCell padding="checkbox" />
             <TableCell>ID</TableCell>
             <TableCell>Address</TableCell>
-            <TableCell>Functions</TableCell>
             <TableCell>Labels</TableCell>
+            <TableCell>Version</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {executors.map((executor) => (
             <>
               <TableRow key={executor.id}>
-                <TableCell padding="checkbox">
-                  {executor.function_allowlist &&
-                  executor.function_allowlist.length > 0 ? (
-                    <IconButton
-                      size="small"
-                      onClick={() => toggleRow(executor.id)}
-                    >
-                      {expandedRows[executor.id] ? (
-                        <ArrowUp2 size={16} />
-                      ) : (
-                        <ArrowDown2 size={16} />
-                      )}
-                    </IconButton>
-                  ) : null}
-                </TableCell>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {executor.id}
                   </Box>
                 </TableCell>
                 <TableCell>{executor.addr}</TableCell>
-                <TableCell>
-                  <Typography noWrap>
-                    {executor.function_allowlist
-                      ? executor.function_allowlist.length
-                      : 0}{' '}
-                    functions
-                  </Typography>
-                </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {Object.entries(executor.labels).map(([key, value]) => (
@@ -129,6 +109,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                     ))}
                   </Box>
                 </TableCell>
+                <TableCell>{executor.executor_version}</TableCell>
               </TableRow>
               {executor.function_allowlist &&
                 executor.function_allowlist.length > 0 && (
@@ -208,6 +189,97 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                     </TableCell>
                   </TableRow>
                 )}
+              {executor.function_executors &&
+                executor.function_executors.length > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} sx={{ fontWeight: 'bold' }}>
+                      Function Executors
+                    </TableCell>
+                  </TableRow>
+                )}
+              {executor.function_executors &&
+                executor.function_executors.length > 0 &&
+                executor.function_executors.map((fnExecutor) => (
+                  <TableRow key={fnExecutor.id}>
+                    <TableCell
+                      colSpan={2}
+                      sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                    >
+                      <p>
+                        <strong>ID:</strong> {fnExecutor.id}
+                      </p>
+                      <p>
+                        <strong>Namespace:</strong> {fnExecutor.namespace}
+                      </p>
+                      <p>
+                        <strong>Compute Graph:</strong>{' '}
+                        {fnExecutor.compute_graph_name}
+                      </p>
+                    </TableCell>
+                    <TableCell
+                      colSpan={2}
+                      sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                    >
+                      <p>
+                        <strong>Version:</strong> {fnExecutor.version}
+                      </p>
+                      <p>
+                        {/* TODO: running green pill */}
+                        <strong>State:</strong> {fnExecutor.state}
+                      </p>
+                      <p>
+                        <strong>Desired State:</strong>{' '}
+                        {fnExecutor.desired_state}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+              {executor.server_only_function_executors &&
+                executor.server_only_function_executors.length > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} sx={{ fontWeight: 'bold' }}>
+                      Server Only Function Executors
+                    </TableCell>
+                  </TableRow>
+                )}
+              {executor.server_only_function_executors &&
+                executor.server_only_function_executors.length > 0 &&
+                executor.server_only_function_executors.map((fnExecutor) => (
+                  <TableRow key={fnExecutor.id}>
+                    <TableCell
+                      colSpan={2}
+                      sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                    >
+                      <p>
+                        <strong>ID:</strong> {fnExecutor.id}
+                      </p>
+                      <p>
+                        <strong>Namespace:</strong> {fnExecutor.namespace}
+                      </p>
+                      <p>
+                        <strong>Compute Graph:</strong>{' '}
+                        {fnExecutor.compute_graph_name}
+                      </p>
+                    </TableCell>
+                    <TableCell
+                      colSpan={2}
+                      sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                    >
+                      <p>
+                        <strong>Version:</strong> {fnExecutor.version}
+                      </p>
+                      <p>
+                        {/* TODO: running green pill */}
+                        <strong>State:</strong> {fnExecutor.state}
+                      </p>
+                      <p>
+                        <strong>Desired State:</strong>{' '}
+                        {fnExecutor.desired_state}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ))}
             </>
           ))}
         </TableBody>
