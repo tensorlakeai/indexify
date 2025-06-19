@@ -156,10 +156,10 @@ impl TaskCreator {
         // completed without any allocation ingestion. So we have to proceed and
         // create new tasks.
         println!("Diptanu cache hit: {:?}", task);
-        if task.status == TaskStatus::Pending ||
-            task.status == TaskStatus::Completed ||
+        if (task.status == TaskStatus::Pending || task.status == TaskStatus::Completed) &&
             !task.cache_hit
         {
+            println!("Diptanu  task creator returning early");
             return Ok(SchedulerUpdateRequest::default());
         }
 
