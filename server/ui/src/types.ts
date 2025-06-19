@@ -7,16 +7,7 @@ export interface ComputeFn {
   image_name: string
 }
 
-export interface DynamicRouter {
-  name: string
-  source_fn: string
-  description: string
-  target_fns: string[]
-  payload_encoder: string
-  image_name: string
-}
-
-export type Node = { dynamic_router: DynamicRouter } | { compute_fn: ComputeFn }
+export type Node = ComputeFn
 
 export interface ComputeGraph {
   name: string
@@ -109,6 +100,22 @@ export interface ComputeGraphCreateType {
   code: string
 }
 
+export interface ExecutorMetadata {
+  id: string
+  executor_version: string
+  function_allowlist: FunctionAllowlistEntry[] | null
+  addr: string
+  labels: Record<string, string>
+  function_executors: FunctionExecutorMetadata[]
+  server_only_function_executors: FunctionExecutorMetadata[]
+  host_resources: HostResources
+  free_resources: HostResources
+  state: string
+  tombstoned: boolean
+  state_hash: string
+  clock: number
+}
+
 interface FunctionAllowlistEntry {
   compute_fn: string
   compute_graph: string
@@ -116,10 +123,24 @@ interface FunctionAllowlistEntry {
   version: string | null
 }
 
-export interface ExecutorMetadata {
-  addr: string
-  executor_version: string
-  function_allowlist: FunctionAllowlistEntry[] | null
+export interface FunctionExecutorMetadata {
   id: string
-  labels: Record<string, string>
+  namespace: string
+  compute_graph_name: string
+  compute_fn_name: string
+  version: string
+  state: string
+  desired_state: string
+}
+
+export interface HostResources {
+  cpu_count: number
+  memory_bytes: number
+  disk_bytes: number
+  gpu: GPUResources | null
+}
+
+interface GPUResources {
+  count: number
+  model: string
 }
