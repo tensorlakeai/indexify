@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { InfoCircle, Setting4 } from 'iconsax-react'
+import { stateBackgroundColorMap, stateColorMap } from '../../theme'
 import { ExecutorMetadata } from '../../types'
 import DisplayResourceContent from './DisplayResourceContent'
 import { FunctionExecutorsContent } from './FunctionExecutorsContent'
@@ -38,14 +39,19 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
           component={Paper}
           sx={{
             boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset',
-            mt: 2,
+            mt: 3,
+            mb: 6,
           }}
           elevation={0}
+          key={executor.id}
         >
           <Table sx={{ minWidth: 650 }} aria-label="executors table">
             <TableHead>
               <TableRow
-                sx={{ backgroundColor: '#E2EDF7', border: '1px solid #ccc' }}
+                sx={{
+                  backgroundColor: stateBackgroundColorMap[executor.state],
+                  border: '1px solid #ccc',
+                }}
               >
                 <TableCell sx={{ fontWeight: 'bold' }} colSpan={2}>
                   Executor Details
@@ -53,10 +59,14 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
               </TableRow>
             </TableHead>
             <TableBody>
-              <TableRow key={executor.id}>
+              <TableRow>
                 <TableCell
                   colSpan={1}
-                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                  sx={{
+                    verticalAlign: 'top',
+                    fontSize: '0.90rem',
+                    width: '50%',
+                  }}
                 >
                   <p>
                     <strong>ID:</strong> {executor.id}
@@ -77,14 +87,17 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 </TableCell>
                 <TableCell
                   colSpan={1}
-                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                  sx={{
+                    verticalAlign: 'top',
+                    fontSize: '0.90rem',
+                    width: '50%',
+                  }}
                 >
                   <p>
                     <strong>State:</strong>{' '}
                     <span
                       style={{
-                        color:
-                          executor.state === 'Running' ? '#008000b8' : 'red',
+                        color: stateColorMap[executor.state],
                         fontWeight: 'bold',
                       }}
                     >
@@ -126,12 +139,45 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 </TableCell>
               </TableRow>
 
+              <TableRow
+                sx={{ backgroundColor: '#eeeeee', border: '1px solid #ccc' }}
+              >
+                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                  Host Resources
+                </TableCell>
+                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                  Free Resources
+                </TableCell>
+              </TableRow>
+              <TableRow key={executor.id + '-resources'}>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  {Object.entries(executor.host_resources).map(
+                    ([key, value]) => (
+                      <DisplayResourceContent keyName={key} value={value} />
+                    )
+                  )}
+                </TableCell>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  {Object.entries(executor.free_resources).map(
+                    ([key, value]) => (
+                      <DisplayResourceContent keyName={key} value={value} />
+                    )
+                  )}
+                </TableCell>
+              </TableRow>
+
               {Array.isArray(executor.function_allowlist) &&
                 executor.function_allowlist.length > 0 && (
                   <>
                     <TableRow
                       sx={{
-                        backgroundColor: '#F0F6FB',
+                        backgroundColor: '#eeeeee',
                         border: '1px solid #ccc',
                       }}
                     >
@@ -141,7 +187,14 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                     </TableRow>
                     {executor.function_allowlist.map(
                       (functionAllowListEntry) => (
-                        <TableRow key={functionAllowListEntry.compute_fn}>
+                        <TableRow
+                          key={
+                            functionAllowListEntry.compute_fn +
+                            functionAllowListEntry.compute_graph +
+                            functionAllowListEntry.namespace +
+                            '-allowlist'
+                          }
+                        >
                           <TableCell
                             colSpan={1}
                             sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
@@ -180,7 +233,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 <>
                   <TableRow
                     sx={{
-                      backgroundColor: '#F0F6FB',
+                      backgroundColor: '#eeeeee',
                       border: '1px solid #ccc',
                     }}
                   >
@@ -201,7 +254,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 <>
                   <TableRow
                     sx={{
-                      backgroundColor: '#F0F6FB',
+                      backgroundColor: '#eeeeee',
                       border: '1px solid #ccc',
                     }}
                   >
@@ -217,39 +270,6 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   ))}
                 </>
               )}
-
-              <TableRow
-                sx={{ backgroundColor: '#F0F6FB', border: '1px solid #ccc' }}
-              >
-                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
-                  Host Resources
-                </TableCell>
-                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
-                  Free Resources
-                </TableCell>
-              </TableRow>
-              <TableRow key={executor.id + '-resources'}>
-                <TableCell
-                  colSpan={1}
-                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
-                >
-                  {Object.entries(executor.host_resources).map(
-                    ([key, value]) => (
-                      <DisplayResourceContent keyName={key} value={value} />
-                    )
-                  )}
-                </TableCell>
-                <TableCell
-                  colSpan={1}
-                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
-                >
-                  {Object.entries(executor.free_resources).map(
-                    ([key, value]) => (
-                      <DisplayResourceContent keyName={key} value={value} />
-                    )
-                  )}
-                </TableCell>
-              </TableRow>
             </TableBody>
           </Table>
         </TableContainer>

@@ -1,4 +1,5 @@
 import { TableCell, TableRow } from '@mui/material'
+import { stateColorMap } from '../../theme'
 import { FunctionExecutorMetadata } from '../../types'
 
 export function FunctionExecutorsContent({
@@ -24,10 +25,26 @@ export function FunctionExecutorsContent({
           <strong>Version:</strong> {functionExecutor.version}
         </p>
         <p>
-          <strong>State:</strong> {functionExecutor.state}
+          <strong>State:</strong>{' '}
+          <span
+            style={{
+              color: stateColorMap[functionExecutor.state],
+              fontWeight: 'bold',
+            }}
+          >
+            {functionExecutor.state}
+          </span>
         </p>
         <p>
-          <strong>Desired State:</strong> {functionExecutor.desired_state}
+          <strong>Desired State:</strong>{' '}
+          <span
+            style={{
+              color: stateColorMap[functionExecutor.desired_state],
+              fontWeight: 'bold',
+            }}
+          >
+            {functionExecutor.desired_state}
+          </span>
         </p>
       </TableCell>
     </TableRow>
