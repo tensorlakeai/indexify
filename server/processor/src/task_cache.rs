@@ -140,6 +140,7 @@ impl TaskCache {
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
             task.output_status = TaskOutputsIngestionStatus::Ingested;
+            task.cache_hit = true;
             result
                 .cached_task_outputs
                 .insert(task.key(), outputs.clone());

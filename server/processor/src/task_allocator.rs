@@ -16,6 +16,7 @@ use data_model::{
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     FunctionExecutorTerminationReason,
+    FunctionResources,
     GraphInvocationCtx,
     Task,
     TaskOutcome,
@@ -124,11 +125,11 @@ impl<'a> TaskAllocationProcessor<'a> {
 
     // Vacuum phase - returns scheduler update for cleanup actions
     #[tracing::instrument(skip(self))]
-    fn vacuum(&self) -> Result<SchedulerUpdateRequest> {
+    fn vacuum(&self, fe_resource: &FunctionResources) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         let function_executors_to_mark = self
             .in_memory_state
-            .vacuum_function_executors_candidates()?;
+            .vacuum_function_executors_candidates(fe_resource)?;
         let function_executor_ids = function_executors_to_mark
             .iter()
             .map(|fe| fe.function_executor.id.get())
@@ -166,7 +167,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                 version = task.graph_version.to_string(),
                 "no candidates found for task, running vacuum"
             );
-            let vacuum_update = self.vacuum()?;
+            let fe_resource = self.in_memory_state.fe_resource_for_task(&task)?;
+            let vacuum_update = self.vacuum(&fe_resource)?;
             update.extend(vacuum_update);
             self.in_memory_state.update_state(
                 self.clock,
