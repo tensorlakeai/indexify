@@ -9,7 +9,6 @@ use data_model::{
     NodeOutput,
     Task,
     TaskOutcome,
-    TaskOutputsIngestionStatus,
     TaskStatus,
 };
 use state_store::{
@@ -139,7 +138,6 @@ impl TaskCache {
             let mut task = *(task.clone());
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
-            task.output_status = TaskOutputsIngestionStatus::Ingested;
             task.cache_hit = true;
             result
                 .cached_task_outputs

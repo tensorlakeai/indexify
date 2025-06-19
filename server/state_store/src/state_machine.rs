@@ -21,7 +21,6 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
-    TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
 use rocksdb::{
@@ -836,33 +835,6 @@ pub fn ingest_task_outputs(
             return Ok(false);
         }
     };
-
-    let existing_task = txn.get_for_update_cf(
-        &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        req.task.key(),
-        true,
-    )?;
-    if existing_task.is_none() {
-        info!(
-            namespace = &req.namespace,
-            compute_graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            compute_fn = &req.compute_fn,
-            task_id = req.task.id.get(),
-            "Task not found: {}",
-            req.task.key()
-        );
-        return Ok(false);
-    }
-    let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
-
-    let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        &req.allocation_key,
-        &serialized_allocation,
-    )?;
-
     // Skip finalize task if it's invocation is already completed
     if invocation.completed {
         warn!(
@@ -876,19 +848,43 @@ pub fn ingest_task_outputs(
         return Ok(false);
     }
 
+    let existing_allocation = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        &req.allocation_key,
+        true,
+    )?;
+    let Some(existing_allocation) = existing_allocation else {
+        info!(
+            namespace = &req.namespace,
+            compute_graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
+            compute_fn = &req.compute_fn,
+            task_id = req.task.id.get(),
+            "Allocation not found",
+        );
+        return Ok(false);
+    };
+    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
-    if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
+    if existing_allocation.is_terminal() {
         warn!(
             namespace = &req.namespace,
             compute_graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
             compute_fn = &req.compute_fn,
             task_id = req.task.id.get(),
-            "Task outputs already uploaded, skipping setting outputs",
+            "allocation already terminal, skipping setting outputs",
         );
         return Ok(false);
     }
+
+    let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        &req.allocation_key,
+        &serialized_allocation,
+    )?;
 
     let serialized_output = JsonEncoder::encode(&req.node_output)?;
 
