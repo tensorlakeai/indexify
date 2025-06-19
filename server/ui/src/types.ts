@@ -140,7 +140,7 @@ export interface HostResources {
   gpu: GPUResources | null
 }
 
-interface GPUResources {
+export interface GPUResources {
   count: number
   model: string
 }
