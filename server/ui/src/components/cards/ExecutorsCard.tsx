@@ -2,7 +2,6 @@ import {
   Alert,
   Chip,
   IconButton,
-  InputAdornment,
   Paper,
   Table,
   TableBody,
@@ -10,39 +9,19 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Typography,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import { InfoCircle, SearchNormal1, Setting4 } from 'iconsax-react'
-import { useState } from 'react'
+import { InfoCircle, Setting4 } from 'iconsax-react'
 import { ExecutorMetadata } from '../../types'
+import DisplayResourceContent from './DisplayResourceContent'
 import { FunctionExecutorsContent } from './FunctionExecutorsContent'
 
 interface ExecutorsCardProps {
   executors: ExecutorMetadata[]
 }
 
-interface FunctionAllowlistEntry {
-  compute_fn: string
-  compute_graph: string
-  namespace: string
-  version: string | null
-}
-
 function ExecutorsContent({ executors }: ExecutorsCardProps) {
-  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({})
-
-  const filterFunctions = (
-    functions: FunctionAllowlistEntry[],
-    searchTerm: string
-  ) =>
-    functions.filter((fn) =>
-      Object.values(fn).some((val) =>
-        val?.toString().toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    )
-
   if (!executors?.length)
     return (
       <Box mt={2} mb={2}>
@@ -65,153 +44,212 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
         >
           <Table sx={{ minWidth: 650 }} aria-label="executors table">
             <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>ID</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Address</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Labels</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Version</TableCell>
+              <TableRow
+                sx={{ backgroundColor: '#E2EDF7', border: '1px solid #ccc' }}
+              >
+                <TableCell sx={{ fontWeight: 'bold' }} colSpan={2}>
+                  Executor Details
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              <>
-                <TableRow key={executor.id}>
-                  <TableCell component="th" scope="row">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {executor.id}
-                    </Box>
-                  </TableCell>
-                  <TableCell>{executor.addr}</TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {Object.entries(executor.labels).map(([key, value]) => (
-                        <Chip
-                          key={key}
-                          label={`${key}: ${value}`}
-                          variant="outlined"
-                          size="small"
-                          sx={{
-                            height: '20px',
-                            '& .MuiChip-label': {
-                              padding: '0 6px',
-                              fontSize: '0.75rem',
-                            },
-                            backgroundColor: 'rgba(51, 132, 252, 0.1)',
-                            color: 'rgb(51, 132, 252)',
-                            borderColor: 'rgba(51, 132, 252, 0.3)',
-                          }}
-                        />
-                      ))}
-                    </Box>
-                  </TableCell>
-                  <TableCell>{executor.executor_version}</TableCell>
-                </TableRow>
-                {executor.function_allowlist &&
-                  executor.function_allowlist.length > 0 && (
-                    <TableRow>
-                      <TableCell
-                        style={{ paddingBottom: 0, paddingTop: 0 }}
-                        colSpan={5}
-                      >
-                        <Box sx={{ margin: 2 }}>
-                          <Box
-                            sx={{
-                              mb: 2,
-                              display: 'flex',
-                              justifyContent: 'flex-end',
-                            }}
-                          >
-                            <TextField
-                              size="small"
-                              placeholder="Search functions..."
-                              value={searchTerms[executor.id] || ''}
-                              onChange={(e) =>
-                                setSearchTerms((prev) => ({
-                                  ...prev,
-                                  [executor.id]: e.target.value,
-                                }))
-                              }
-                              InputProps={{
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <SearchNormal1 size={20} />
-                                  </InputAdornment>
-                                ),
-                              }}
-                            />
-                          </Box>
-                          <Table
-                            size="small"
-                            sx={{
-                              border: 1,
-                              borderColor: 'divider',
-                              borderRadius: 10,
-                              '& td, & th': {
-                                borderBottom: 1,
-                                borderColor: 'divider',
-                              },
-                            }}
-                          >
-                            <TableHead>
-                              <TableRow>
-                                <TableCell>Compute Function</TableCell>
-                                <TableCell>Compute Graph</TableCell>
-                                <TableCell>Namespace</TableCell>
-                                <TableCell>Version</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {filterFunctions(
-                                executor.function_allowlist,
-                                searchTerms[executor.id] || ''
-                              ).map((fn, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell>{fn.compute_fn}</TableCell>
-                                  <TableCell>{fn.compute_graph}</TableCell>
-                                  <TableCell>{fn.namespace}</TableCell>
-                                  <TableCell>{fn.version || '-'}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  )}
-
-                {executor.function_executors.length > 0 && (
-                  <>
-                    <TableRow>
-                      <TableCell colSpan={4} sx={{ fontWeight: 'bold' }}>
-                        Function Executors
-                      </TableCell>
-                    </TableRow>
-                    {executor.function_executors.map((fnExecutor) => (
-                      <FunctionExecutorsContent
-                        key={fnExecutor.id}
-                        functionExecutor={fnExecutor}
+              <TableRow key={executor.id}>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  <p>
+                    <strong>ID:</strong> {executor.id}
+                  </p>
+                  <p>
+                    <strong>Address:</strong> {executor.addr}
+                  </p>
+                  <p>
+                    <strong>Version:</strong> {executor.executor_version}
+                  </p>
+                  <p>
+                    <strong>Clock:</strong> {executor.clock}
+                  </p>
+                  <p>
+                    <strong>Tombstoned:</strong>{' '}
+                    {executor.tombstoned ? 'Yes' : 'No'}
+                  </p>
+                </TableCell>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  <p>
+                    <strong>State:</strong>{' '}
+                    <span
+                      style={{
+                        color:
+                          executor.state === 'Running' ? '#008000b8' : 'red',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {executor.state}
+                    </span>
+                  </p>
+                  <p>
+                    <strong>State Hash:</strong>
+                    <br />
+                    <span
+                      style={{ fontSize: '0.85rem', wordBreak: 'break-all' }}
+                    >
+                      {executor.state_hash}
+                    </span>
+                  </p>
+                  <p>
+                    <strong>Labels:</strong>
+                  </p>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {Object.entries(executor.labels).map(([key, value]) => (
+                      <Chip
+                        key={key}
+                        label={`${key}: ${value}`}
+                        variant="outlined"
+                        size="small"
+                        sx={{
+                          height: '20px',
+                          '& .MuiChip-label': {
+                            padding: '0 6px',
+                            fontSize: '0.75rem',
+                          },
+                          backgroundColor: 'rgba(51, 132, 252, 0.1)',
+                          color: 'rgb(51, 132, 252)',
+                          borderColor: 'rgba(51, 132, 252, 0.3)',
+                        }}
                       />
                     ))}
-                  </>
-                )}
+                  </Box>
+                </TableCell>
+              </TableRow>
 
-                {executor.server_only_function_executors.length > 0 && (
+              {Array.isArray(executor.function_allowlist) &&
+                executor.function_allowlist.length > 0 && (
                   <>
-                    <TableRow>
-                      <TableCell colSpan={4} sx={{ fontWeight: 'bold' }}>
-                        Server Only Function Executors
+                    <TableRow
+                      sx={{
+                        backgroundColor: '#F0F6FB',
+                        border: '1px solid #ccc',
+                      }}
+                    >
+                      <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                        Function Allowlist
                       </TableCell>
                     </TableRow>
-                    {executor.server_only_function_executors.map(
-                      (fnExecutor) => (
-                        <FunctionExecutorsContent
-                          key={fnExecutor.id}
-                          functionExecutor={fnExecutor}
-                        />
+                    {executor.function_allowlist.map(
+                      (functionAllowListEntry) => (
+                        <TableRow key={functionAllowListEntry.compute_fn}>
+                          <TableCell
+                            colSpan={1}
+                            sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                          >
+                            <p>
+                              <strong>Namespace:</strong>{' '}
+                              {functionAllowListEntry.namespace}
+                            </p>
+                            <p>
+                              <strong>Compute Function:</strong>{' '}
+                              {functionAllowListEntry.compute_fn}
+                            </p>
+                          </TableCell>
+                          <TableCell
+                            colSpan={1}
+                            sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                          >
+                            <p>
+                              <strong>Compute Graph:</strong>{' '}
+                              {functionAllowListEntry.compute_graph}
+                            </p>
+                            <p>
+                              <strong>Version:</strong>{' '}
+                              {functionAllowListEntry.version
+                                ? functionAllowListEntry.version
+                                : '-'}
+                            </p>
+                          </TableCell>
+                        </TableRow>
                       )
                     )}
                   </>
                 )}
-              </>
+
+              {executor.function_executors.length > 0 && (
+                <>
+                  <TableRow
+                    sx={{
+                      backgroundColor: '#F0F6FB',
+                      border: '1px solid #ccc',
+                    }}
+                  >
+                    <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                      Function Executors
+                    </TableCell>
+                  </TableRow>
+                  {executor.function_executors.map((fnExecutor) => (
+                    <FunctionExecutorsContent
+                      key={fnExecutor.id}
+                      functionExecutor={fnExecutor}
+                    />
+                  ))}
+                </>
+              )}
+
+              {executor.server_only_function_executors.length > 0 && (
+                <>
+                  <TableRow
+                    sx={{
+                      backgroundColor: '#F0F6FB',
+                      border: '1px solid #ccc',
+                    }}
+                  >
+                    <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>
+                      Server Only Function Executors
+                    </TableCell>
+                  </TableRow>
+                  {executor.server_only_function_executors.map((fnExecutor) => (
+                    <FunctionExecutorsContent
+                      key={fnExecutor.id}
+                      functionExecutor={fnExecutor}
+                    />
+                  ))}
+                </>
+              )}
+
+              <TableRow
+                sx={{ backgroundColor: '#F0F6FB', border: '1px solid #ccc' }}
+              >
+                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                  Host Resources
+                </TableCell>
+                <TableCell colSpan={1} sx={{ fontWeight: 'bold' }}>
+                  Free Resources
+                </TableCell>
+              </TableRow>
+              <TableRow key={executor.id + '-resources'}>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  {Object.entries(executor.host_resources).map(
+                    ([key, value]) => (
+                      <DisplayResourceContent keyName={key} value={value} />
+                    )
+                  )}
+                </TableCell>
+                <TableCell
+                  colSpan={1}
+                  sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
+                >
+                  {Object.entries(executor.free_resources).map(
+                    ([key, value]) => (
+                      <DisplayResourceContent keyName={key} value={value} />
+                    )
+                  )}
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </TableContainer>
