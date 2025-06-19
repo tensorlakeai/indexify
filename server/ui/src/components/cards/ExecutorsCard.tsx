@@ -296,6 +296,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         in={expandedRows[executor.id]}
                         timeout="auto"
                         unmountOnExit
+                        sx={{ width: '100%' }}
                       >
                         {executor.function_executors.map((fnExecutor) => (
                           <FunctionExecutorsContent
