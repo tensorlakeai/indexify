@@ -1327,7 +1327,7 @@ impl InMemoryState {
                         task_key = allocation.task_key(),
                         task_id = allocation.task_id.get(),
                         namespace = allocation.namespace,
-                        compute_graph = allocation.compute_graph,
+                        graph = allocation.compute_graph,
                         compute_fn = allocation.compute_fn,
                         invocation_id = allocation.invocation_id,
                         "task not found for allocation, shouldn't happen"

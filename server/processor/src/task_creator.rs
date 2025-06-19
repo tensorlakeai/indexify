@@ -144,7 +144,7 @@ impl TaskCreator {
                 task_id = task_finished_event.task_id.to_string(),
                 invocation_id = task_finished_event.invocation_id.to_string(),
                 namespace = task_finished_event.namespace,
-                compute_graph = task_finished_event.compute_graph,
+                graph = task_finished_event.compute_graph,
                 compute_fn = task_finished_event.compute_fn,
                 "task not found for task finished event",
             );
@@ -159,9 +159,9 @@ impl TaskCreator {
                 task_id = task.id.to_string(),
                 invocation_id = task.invocation_id.to_string(),
                 namespace = task.namespace,
-                compute_graph = task.compute_graph_name,
+                graph = task.compute_graph_name,
                 compute_fn = task.compute_fn_name,
-                compute_graph_version = task.graph_version.0,
+                graph_version = task.graph_version.0,
                 "compute graph version not found",
             );
             return Ok(SchedulerUpdateRequest::default());
@@ -463,7 +463,9 @@ impl TaskCreator {
                 )?;
                 info!(
                     task_key = new_task.key(),
-                    compute_fn_name = new_task.compute_fn_name,
+                    compute_fn = new_task.compute_fn_name,
+                    graph = new_task.compute_graph_name,
+                    invocation_id = new_task.invocation_id,
                     "Creating a standard task",
                 );
                 new_tasks.push(new_task);

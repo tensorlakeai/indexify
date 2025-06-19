@@ -58,7 +58,7 @@ async fn create_invocation_event_stream(
             Ok(None) => {
                 info!(
                     namespace = namespace,
-                    compute_graph = compute_graph,
+                    graph = compute_graph,
                     invocation_id=id,
                     "invocation not found, stopping stream");
                 return;
@@ -85,7 +85,7 @@ async fn create_invocation_event_stream(
                     Err(RecvError::Lagged(num)) => {
                         warn!(
                             namespace = namespace,
-                            compute_graph = compute_graph,
+                            graph = compute_graph,
                             invocation_id=id,
                             "lagging behind task event stream by {} events", num);
 
@@ -110,7 +110,7 @@ async fn create_invocation_event_stream(
                             Ok(None) => {
                                 error!(
                                     namespace = namespace,
-                                    compute_graph = compute_graph,
+                                    graph = compute_graph,
                                     invocation_id=id,
                                     "invocation not found");
                                 return;
@@ -118,7 +118,7 @@ async fn create_invocation_event_stream(
                             Err(e) => {
                                 error!(
                                     namespace = namespace,
-                                    compute_graph = compute_graph,
+                                    graph = compute_graph,
                                     invocation_id=id,
                                     "failed to get invocation context: {:?}", e);
                                 return;

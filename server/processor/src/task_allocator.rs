@@ -26,7 +26,7 @@ use state_store::{
     in_memory_state::InMemoryState,
     requests::{RequestPayload, SchedulerUpdateRequest},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, info_span, warn};
 
 // Maximum number of allocations per executor.
 //
@@ -134,7 +134,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .map(|fe| fe.function_executor.id.get())
             .collect::<Vec<_>>();
         info!(
-            function_executors = function_executor_ids.join(", "),
+            fn_executors = function_executor_ids.join(", "),
             num_function_executors = function_executors_to_mark.len(),
             "vacuum phase identified function executors to mark for termination",
         );
@@ -156,16 +156,19 @@ impl<'a> TaskAllocationProcessor<'a> {
     }
 
     fn create_function_executor(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
+        let span = info_span!(
+            "create_function_executor",
+            invocation_id = task.invocation_id,
+            graph = task.compute_graph_name,
+            compute_fn = task.compute_fn_name,
+            graph_version = task.graph_version.to_string(),
+        );
+        let _guard = span.enter();
+
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = self.in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
-            info!(
-                invocation_id = task.invocation_id,
-                compute_graph = task.compute_graph_name,
-                compute_fn = task.compute_fn_name,
-                version = task.graph_version.to_string(),
-                "no candidates found for task, running vacuum"
-            );
+            info!("no candidates found for task, running vacuum");
             let vacuum_update = self.vacuum()?;
             update.extend(vacuum_update);
             self.in_memory_state.update_state(
@@ -176,10 +179,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             candidates = self.in_memory_state.candidate_executors(task)?;
         }
         info!(
-            invocation_id = task.invocation_id,
-            compute_graph = task.compute_graph_name,
-            compute_fn = task.compute_fn_name,
-            version = task.graph_version.to_string(),
             "found {} candidates for creating function executor",
             candidates.len()
         );
@@ -218,12 +217,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             .build()?;
 
         info!(
-            invocation_id = task.invocation_id,
-            compute_graph = task.compute_graph_name,
-            compute_fn = task.compute_fn_name,
-            version = task.graph_version.to_string(),
             executor_id = executor_id.get(),
-            function_executor = function_executor.id.get(),
+            fn_executor = function_executor.id.get(),
             "created function executor"
         );
 
@@ -244,6 +239,15 @@ impl<'a> TaskAllocationProcessor<'a> {
     }
 
     fn create_allocation(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
+        let span = info_span!(
+            "delete_compute_graph",
+            invocation_id = task.invocation_id,
+            graph = task.compute_graph_name,
+            compute_fn = task.compute_fn_name,
+            graph_version = task.graph_version.to_string(),
+        );
+        let _guard = span.enter();
+
         let mut update = SchedulerUpdateRequest::default();
         let mut function_executors = self
             .in_memory_state
@@ -251,13 +255,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            info!(
-                invocation_id = task.invocation_id,
-                compute_graph = task.compute_graph_name,
-                compute_fn = task.compute_fn_name,
-                version = task.graph_version.to_string(),
-                "no function executors found for task, creating one"
-            );
+            info!("no function executors found for task, creating one");
             let fe_update = self.create_function_executor(task)?;
             update.extend(fe_update);
             self.in_memory_state.update_state(
@@ -270,10 +268,6 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
         }
         info!(
-            invocation_id = task.invocation_id,
-            compute_graph = task.compute_graph_name,
-            compute_fn = task.compute_fn_name,
-            version = task.graph_version.to_string(),
             "found {} function executors for task",
             function_executors.function_executors.len()
         );
@@ -299,14 +293,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .outcome(TaskOutcome::Unknown)
             .build()?;
 
-        info!(
-            invocation_id = task.invocation_id,
-            compute_graph = task.compute_graph_name,
-            compute_fn = task.compute_fn_name,
-            version = task.graph_version.to_string(),
-            allocation = allocation.id,
-            "created allocation"
-        );
+        info!(allocation = allocation.id, "created allocation");
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
@@ -441,7 +428,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         }
         info!(
             num_function_executors = function_executors_to_remove.len(),
-            function_executors = function_executors_to_remove
+            fn_executors = function_executors_to_remove
                 .iter()
                 .map(|fe| fe.id.get())
                 .collect::<Vec<_>>()
