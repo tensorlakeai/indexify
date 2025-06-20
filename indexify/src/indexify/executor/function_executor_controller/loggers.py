@@ -15,7 +15,7 @@ def function_executor_logger(
 
     The function assumes that the FE might be invalid."""
     return logger.bind(
-        function_executor_id=(
+        fn_executor_id=(
             function_executor_description.id
             if function_executor_description.HasField("id")
             else None
@@ -25,7 +25,7 @@ def function_executor_logger(
             if function_executor_description.HasField("namespace")
             else None
         ),
-        graph_name=(
+        graph=(
             function_executor_description.graph_name
             if function_executor_description.HasField("graph_name")
             else None
@@ -35,7 +35,7 @@ def function_executor_logger(
             if function_executor_description.HasField("graph_version")
             else None
         ),
-        function_name=(
+        fn=(
             function_executor_description.function_name
             if function_executor_description.HasField("function_name")
             else None
@@ -98,10 +98,10 @@ def _task_logger(task: Task, logger: Any) -> Any:
     return logger.bind(
         task_id=task.id if task.HasField("id") else None,
         namespace=task.namespace if task.HasField("namespace") else None,
-        graph_name=task.graph_name if task.HasField("graph_name") else None,
+        graph=task.graph_name if task.HasField("graph_name") else None,
         graph_version=task.graph_version if task.HasField("graph_version") else None,
-        function_name=task.function_name if task.HasField("function_name") else None,
-        graph_invocation_id=(
+        fn=task.function_name if task.HasField("function_name") else None,
+        invocation_id=(
             task.graph_invocation_id if task.HasField("graph_invocation_id") else None
         ),
     )

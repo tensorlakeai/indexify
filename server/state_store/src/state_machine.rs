@@ -33,7 +33,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, info_span, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -112,6 +112,14 @@ pub fn create_invocation(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
+    let span = info_span!(
+        "create_invocation",
+        namespace = req.namespace,
+        graph = req.compute_graph_name,
+        invocation_id = req.invocation_payload.id
+    );
+    let _guard = span.enter();
+
     let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
     let cg = txn
         .get_for_update_cf(
@@ -142,12 +150,8 @@ pub fn create_invocation(
     )?;
 
     info!(
-        namespace = req.namespace,
-        graph = req.compute_graph_name,
-        invocation_id = req.invocation_payload.id,
         "created invocation: namespace: {}, compute_graph: {}",
-        req.namespace,
-        req.compute_graph_name
+        req.namespace, req.compute_graph_name
     );
 
     Ok(())
@@ -160,13 +164,15 @@ pub(crate) fn delete_invocation(
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-
-    info!(
+    let span = info_span!(
+        "delete_invocation",
         namespace = req.namespace,
         graph = req.compute_graph,
         invocation_id = req.invocation_id,
-        "Deleting invocation",
     );
+    let _guard = span.enter();
+
+    info!("Deleting invocation",);
 
     // Check if the invocation was deleted before the task completes
     let invocation_ctx_key =
@@ -181,12 +187,8 @@ pub(crate) fn delete_invocation(
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
             info!(
-                namespace = &req.namespace,
-                compute_graph = &req.compute_graph,
-                invocation_id = &req.invocation_id,
                 invocation_ctx_key = &invocation_ctx_key,
-                "Invocation to delete not found: {}",
-                &req.invocation_id
+                "Invocation to delete not found: {}", &req.invocation_id
             );
             return Ok(());
         }
@@ -223,10 +225,8 @@ pub(crate) fn delete_invocation(
     // delete all tasks for this invocation
     for task in tasks_deleted {
         info!(
-            namespace = req.namespace,
-            graph = req.compute_graph,
-            invocation_id = req.invocation_id,
             task_id = &task.id.get(),
+            "fn" = &task.compute_fn_name,
             "deleting task",
         );
     }
@@ -247,12 +247,12 @@ pub(crate) fn delete_invocation(
         let value = JsonEncoder::decode::<Allocation>(&value)?;
         if value.invocation_id == req.invocation_id {
             info!(
-                namespace = req.namespace,
-                graph = req.compute_graph,
-                invocation_id = req.invocation_id,
                 allocation_id = value.id,
+                task_id = value.task_id.get(),
+                "fn" = value.compute_fn,
                 "deleting allocation",
             );
+
             txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
             match value.diagnostics {
                 Some(diagnostic) => {
@@ -315,6 +315,14 @@ fn update_task_versions_for_cg(
     txn: &Transaction<TransactionDB>,
     compute_graph: &ComputeGraph,
 ) -> Result<()> {
+    let span = info_span!(
+        "update_task_versions_for_cg",
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
+    );
+    let _guard = span.enter();
+
     let tasks_prefix =
         Task::key_prefix_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
     let mut read_options = ReadOptions::default();
@@ -332,10 +340,6 @@ fn update_task_versions_for_cg(
         let mut task: Task = JsonEncoder::decode(&val)?;
         if task.graph_version != compute_graph.version && !task.outcome.is_terminal() {
             info!(
-                namespace = compute_graph.namespace,
-                graph = compute_graph.name,
-                graph_version = compute_graph.version.0,
-                function = task.compute_fn_name,
                 invocation_id = task.invocation_id,
                 task_id = task.id.to_string(),
                 "updating task: {} from version: {} to version: {}",
@@ -348,9 +352,6 @@ fn update_task_versions_for_cg(
         }
     }
     info!(
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
         "upgrading tasks to latest version: {}",
         tasks_to_update.len()
     );
@@ -375,6 +376,14 @@ fn update_graph_invocations_for_cg(
         &compute_graph.name,
     );
 
+    let span = info_span!(
+        "update_graph_invocations_for_cg",
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
+    );
+    let _guard = span.enter();
+
     let iter = make_prefix_iterator(
         txn,
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -390,10 +399,7 @@ fn update_graph_invocations_for_cg(
             !graph_invocation_ctx.completed
         {
             info!(
-                namespace= graph_invocation_ctx.namespace,
                 invocation_id =  graph_invocation_ctx.invocation_id,
-                graph_version = graph_invocation_ctx.graph_version.0,
-                graph = graph_invocation_ctx.compute_graph_name,
                 "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
                 graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
             );
@@ -402,9 +408,6 @@ fn update_graph_invocations_for_cg(
         }
     }
     info!(
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
         "upgrading graph invocation ctxs: {}",
         graph_invocation_ctx_to_update.len()
     );
@@ -425,14 +428,17 @@ pub(crate) fn create_or_update_compute_graph(
     compute_graph: ComputeGraph,
     upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
-    info!(
+    let span = info_span!(
+        "create_or_update_compute_graph",
         namespace = compute_graph.namespace,
         graph = compute_graph.name,
         graph_version = compute_graph.version.0,
+    );
+    let _guard = span.enter();
+
+    info!(
         "creating compute graph: ns: {} name: {}, upgrade invocations: {}",
-        compute_graph.namespace,
-        compute_graph.name,
-        upgrade_existing_tasks_to_current_version
+        compute_graph.namespace, compute_graph.name, upgrade_existing_tasks_to_current_version
     );
     let existing_compute_graph = txn
         .get_for_update_cf(
@@ -456,9 +462,6 @@ pub(crate) fn create_or_update_compute_graph(
         None => Ok(compute_graph.into_version()),
     }?;
     info!(
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
         "new compute graph version: {}",
         &new_compute_graph_version.version.0
     );
@@ -480,13 +483,8 @@ pub(crate) fn create_or_update_compute_graph(
         update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
     }
     info!(
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
         "finished creating compute graph namespace: {} name: {}, version: {}",
-        compute_graph.namespace,
-        compute_graph.name,
-        compute_graph.version.0
+        compute_graph.namespace, compute_graph.name, compute_graph.version.0
     );
     Ok(())
 }
@@ -516,12 +514,16 @@ pub fn tombstone_compute_graph(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
-    info!(
+    let span = info_span!(
+        "tombstone_compute_graph",
         namespace = namespace,
         graph = name,
+    );
+    let _guard = span.enter();
+
+    info!(
         "tombstoning compute graph: namespace: {}, name: {}",
-        namespace,
-        name
+        namespace, name
     );
     let mut existing_compute_graph = txn
         .get_for_update_cf(
@@ -547,12 +549,12 @@ pub fn delete_compute_graph(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
+    let span = info_span!("delete_compute_graph", namespace = namespace, graph = name,);
+    let _guard = span.enter();
+
     info!(
-        namespace = namespace,
-        graph = name,
         "deleting compute graph: namespace: {}, name: {}",
-        namespace,
-        name
+        namespace, name
     );
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -664,10 +666,10 @@ pub(crate) fn handle_scheduler_update(
             namespace = alloc.namespace,
             graph = alloc.compute_graph,
             invocation_id = alloc.invocation_id,
-            function_name = alloc.compute_fn,
+            "fn" = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
             allocation_id = alloc.id,
-            function_executor_id = alloc.function_executor_id.get(),
+            fn_executor_id = alloc.function_executor_id.get(),
             executor_id = alloc.executor_id.get(),
             "add_allocation",
         );
@@ -684,11 +686,11 @@ pub(crate) fn handle_scheduler_update(
             namespace = task.namespace,
             graph = task.compute_graph_name,
             invocation_id = task.invocation_id,
-            function_name = task.compute_fn_name,
+            "fn" = task.compute_fn_name,
             task_id = task.id.to_string(),
             status = task.status.to_string(),
             outcome = task.outcome.to_string(),
-            duration_secs = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+            duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
             "updated task",
         );
 
@@ -754,9 +756,9 @@ pub(crate) fn handle_scheduler_update(
             info!(
                 invocation_id = invocation_ctx.invocation_id.to_string(),
                 namespace = invocation_ctx.namespace,
-                compute_graph = invocation_ctx.compute_graph_name,
+                graph = invocation_ctx.compute_graph_name,
                 outcome = invocation_ctx.outcome.to_string(),
-                duration_secs =
+                duration_sec =
                     get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"
             );
@@ -778,6 +780,16 @@ pub fn ingest_task_outputs(
     txn: &Transaction<TransactionDB>,
     req: IngestTaskOutputsRequest,
 ) -> Result<bool> {
+    let span = info_span!(
+        "ingest_task_outputs",
+        namespace = &req.namespace,
+        graph = &req.compute_graph,
+        invocation_id = &req.invocation_id,
+        "fn" = &req.compute_fn,
+        task_id = req.task.id.get(),
+    );
+    let _guard = span.enter();
+
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
     let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
@@ -788,15 +800,7 @@ pub fn ingest_task_outputs(
         )
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
-        info!(
-            namespace = &req.namespace,
-            compute_graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            compute_fn = &req.compute_fn,
-            task_id = req.task.id.get(),
-            "Compute graph not found: {}",
-            &req.compute_graph
-        );
+        info!("Compute graph not found: {}", &req.compute_graph);
         return Ok(false);
     }
 
@@ -812,28 +816,13 @@ pub fn ingest_task_outputs(
     let invocation = match invocation {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
-            info!(
-                namespace = &req.namespace,
-                compute_graph = &req.compute_graph,
-                invocation_id = &req.invocation_id,
-                compute_fn = &req.compute_fn,
-                task_id = req.task.id.get(),
-                "Invocation not found: {}",
-                &req.invocation_id
-            );
+            info!("Invocation not found: {}", &req.invocation_id);
             return Ok(false);
         }
     };
     // Skip finalize task if it's invocation is already completed
     if invocation.completed {
-        warn!(
-            namespace = &req.namespace,
-            compute_graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            compute_fn = &req.compute_fn,
-            task_id = req.task.id.get(),
-            "Invocation already completed, skipping setting outputs",
-        );
+        warn!("Invocation already completed, skipping setting outputs",);
         return Ok(false);
     }
 
@@ -843,28 +832,14 @@ pub fn ingest_task_outputs(
         true,
     )?;
     let Some(existing_allocation) = existing_allocation else {
-        info!(
-            namespace = &req.namespace,
-            compute_graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            compute_fn = &req.compute_fn,
-            task_id = req.task.id.get(),
-            "Allocation not found",
-        );
+        info!("Allocation not found",);
         return Ok(false);
     };
     let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
     if existing_allocation.is_terminal() {
-        warn!(
-            namespace = &req.namespace,
-            compute_graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            compute_fn = &req.compute_fn,
-            task_id = req.task.id.get(),
-            "allocation already terminal, skipping setting outputs",
-        );
+        warn!("allocation already terminal, skipping setting outputs",);
         return Ok(false);
     }
 

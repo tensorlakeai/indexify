@@ -596,7 +596,7 @@ impl InMemoryState {
                             task_key = allocation.task_key(),
                             namespace = allocation.namespace,
                             compute_graph = allocation.compute_graph,
-                            compute_fn = allocation.compute_fn,
+                            "fn" = allocation.compute_fn,
                             invocation_id = allocation.invocation_id,
                             "task not found for allocation"
                         );
@@ -863,7 +863,7 @@ impl InMemoryState {
                         error!(
                             namespace = &allocation.namespace,
                             compute_graph = &allocation.compute_graph,
-                            compute_fn = &allocation.compute_fn,
+                            "fn" = &allocation.compute_fn,
                             executor_id = allocation.executor_id.get(),
                             invocation_id = &allocation.invocation_id,
                             task_id = allocation.task_id.get(),
@@ -1331,8 +1331,8 @@ impl InMemoryState {
                         task_key = allocation.task_key(),
                         task_id = allocation.task_id.get(),
                         namespace = allocation.namespace,
-                        compute_graph = allocation.compute_graph,
-                        compute_fn = allocation.compute_fn,
+                        graph = allocation.compute_graph,
+                        "fn" = allocation.compute_fn,
                         invocation_id = allocation.invocation_id,
                         "task not found for allocation, shouldn't happen"
                     );

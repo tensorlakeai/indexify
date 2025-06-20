@@ -47,7 +47,7 @@ async def run_task_on_function_executor(
         function_name=task_info.allocation.task.function_name,
         graph_invocation_id=task_info.allocation.task.graph_invocation_id,
         task_id=task_info.allocation.task.id,
-        # TODO: Set task_info.allocation.allocation_id once RunTaskRequest.allocation_id field is added.
+        allocation_id=task_info.allocation.allocation_id,
         function_input=task_info.input,
     )
     # Don't keep the input in memory after we started running the task.
