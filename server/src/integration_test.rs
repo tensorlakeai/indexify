@@ -19,7 +19,7 @@ mod tests {
 
     use crate::{
         service::Service,
-        testing::{self, FinalizeTaskArgs, TaskStateAssertions},
+        testing::{self, allocation_key_from_proto, FinalizeTaskArgs, TaskStateAssertions},
     };
 
     fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
@@ -124,7 +124,7 @@ mod tests {
             executor
                 .finalize_task(
                     &task_allocation,
-                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                         .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
@@ -150,7 +150,7 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        FinalizeTaskArgs::new(allocation_key_from_proto(&task_allocation))
                             .task_outcome(TaskOutcome::Success),
                     )
                     .await?;
@@ -368,7 +368,7 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                         .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
@@ -399,7 +399,7 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                        FinalizeTaskArgs::new(allocation_key_from_proto(&task_allocation))
                             .task_outcome(TaskOutcome::Success)
                             .diagnostics(true, true),
                     )
@@ -522,7 +522,7 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                         .task_outcome(TaskOutcome::Failure),
                 )
                 .await?;

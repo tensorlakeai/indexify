@@ -5,6 +5,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    FunctionExecutorDiagnostics,
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
     GraphInvocationCtx,
@@ -43,7 +44,6 @@ pub enum RequestPayload {
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
-    pub remove_allocations: Vec<Allocation>,
     pub updated_tasks: HashMap<TaskId, Task>,
     pub cached_task_outputs: HashMap<String, NodeOutput>, // Keyed by task.key()
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
@@ -58,7 +58,6 @@ impl SchedulerUpdateRequest {
     /// Extends this SchedulerUpdateRequest with contents from another one
     pub fn extend(&mut self, other: SchedulerUpdateRequest) {
         self.new_allocations.extend(other.new_allocations);
-        self.remove_allocations.extend(other.remove_allocations);
         self.updated_tasks.extend(other.updated_tasks);
         self.cached_task_outputs.extend(other.cached_task_outputs);
         self.updated_invocations_states
@@ -142,6 +141,7 @@ pub struct DeleteInvocationRequest {
 #[derive(Debug, Clone)]
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
+    pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
 }
 
 #[derive(Debug, Clone)]

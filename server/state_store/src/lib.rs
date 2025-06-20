@@ -246,6 +246,14 @@ impl IndexifyState {
                     .entry(request.executor.id.clone())
                     .or_default();
 
+                for fe_diagnostics in &request.function_executor_diagnostics {
+                    state_machine::upsert_function_executor_diagnostics(
+                        self.db.clone(),
+                        &txn,
+                        fe_diagnostics,
+                    )?;
+                }
+
                 state_changes::register_executor(&self.last_state_change_id, &request)
                     .map_err(|e| anyhow!("error getting state changes {}", e))?
             }
@@ -524,6 +532,7 @@ mod tests {
             &indexify_state.last_state_change_id,
             &UpsertExecutorRequest {
                 executor: mock_executor(mock_executor_id()),
+                function_executor_diagnostics: vec![],
             },
         )
         .unwrap();

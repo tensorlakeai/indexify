@@ -839,25 +839,6 @@ impl InMemoryState {
                     changed_executors.insert(fe_meta.executor_id.clone());
                 }
 
-                for allocation in &req.remove_allocations {
-                    self.allocations_by_executor
-                        .get_mut(&allocation.executor_id)
-                        .map(|allocation_map| {
-                            allocation_map
-                                .get_mut(&allocation.function_executor_id)
-                                .map(|allocations| {
-                                    if let Some(index) =
-                                        allocations.iter().position(|a| a.id == allocation.id)
-                                    {
-                                        allocations.remove(index);
-                                    }
-                                });
-                        });
-
-                    // Executor has a removed allocation
-                    changed_executors.insert(allocation.executor_id.clone());
-                }
-
                 for allocation in &req.new_allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
                         self.unallocated_tasks
@@ -1359,7 +1340,7 @@ impl InMemoryState {
                 };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
-                    allocation_id: allocation.key(),
+                    allocation_id: allocation.id.clone(),
                     timeout_ms: cg_node.timeout.0,
                     retry_policy: cg_node.retry_policy.clone(),
                 };

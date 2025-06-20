@@ -4,6 +4,8 @@ use axum::{
     extract::{Path, State},
     http::Response,
 };
+use blob_store::BlobStorage;
+use data_model::DataPayload;
 
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
@@ -44,17 +46,57 @@ pub async fn download_allocation_logs(
             ))
         })?;
 
-    if payload.is_none() {
+    data_payload_response(payload, &state.blob_storage).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/compute_functions/{compute_function}/versions/{version}/function_executors/{function_executor_id}/startup_logs/{file}",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Log file for a given function executor"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+pub async fn download_function_executor_startup_logs(
+    Path((namespace, graph_name, function_name, graph_version, function_executor_id, file)): Path<
+        (String, String, String, String, String, String),
+    >,
+    State(state): State<RouteState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let payload = state
+        .indexify_state
+        .reader()
+        .get_function_executor_startup_diagnostic_payload(
+            &namespace,
+            &graph_name,
+            &function_name,
+            &graph_version,
+            &function_executor_id,
+            &file,
+        )
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "failed to download function executor diagnostic payload: {}",
+                e
+            ))
+        })?;
+    data_payload_response(payload, &state.blob_storage).await
+}
+
+async fn data_payload_response(
+    payload: Option<DataPayload>,
+    blob_storage: &BlobStorage,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let Some(payload) = payload else {
         return Response::builder()
             .header("Content-Type", "application/octet-stream")
             .header("Content-Length", 0)
             .body(Body::empty())
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
-    }
-    let payload = payload.unwrap();
+    };
 
-    let storage_reader = state
-        .blob_storage
+    let storage_reader = blob_storage
         .get(&payload.path)
         .await
         .map_err(IndexifyAPIError::internal_error)?;

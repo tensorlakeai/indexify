@@ -71,8 +71,9 @@ pub enum IndexifyObjectsColumns {
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
 
-    UnprocessedStateChanges, //  StateChangeId -> StateChange
-    Allocations,             // Allocation ID -> Allocation
+    UnprocessedStateChanges,     //  StateChangeId -> StateChange
+    Allocations,                 // Allocation ID -> Allocation
+    FunctionExecutorDiagnostics, // Function Executor ID -> FunctionExecutorDiagnostics
 
     GcUrls, // List of URLs pending deletion
 
@@ -659,6 +660,7 @@ pub(crate) fn handle_scheduler_update(
     last_state_change_id: &AtomicU64,
 ) -> Result<Vec<StateChange>> {
     last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+
     for alloc in &request.remove_allocations {
         info!(
             namespace = alloc.namespace,
@@ -671,6 +673,7 @@ pub(crate) fn handle_scheduler_update(
         );
         txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.key())?;
     }
+
 
     for alloc in &request.new_allocations {
         info!(
@@ -892,6 +895,20 @@ pub fn ingest_task_outputs(
     )?;
 
     Ok(true)
+}
+
+pub fn upsert_function_executor_diagnostics(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    fe_diagnostics: &data_model::FunctionExecutorDiagnostics,
+) -> Result<()> {
+    let serialized_fe_diagnostics = JsonEncoder::encode(fe_diagnostics)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::FunctionExecutorDiagnostics.cf_db(&db),
+        fe_diagnostics.key(),
+        serialized_fe_diagnostics,
+    )?;
+    Ok(())
 }
 
 pub(crate) fn save_state_changes(

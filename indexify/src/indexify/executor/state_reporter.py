@@ -9,7 +9,9 @@ from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
     ExecutorState,
     ExecutorStatus,
+    ExecutorUpdate,
     FunctionExecutorState,
+    FunctionExecutorUpdate,
     GPUModel,
     GPUResources,
 )
@@ -24,8 +26,7 @@ from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
 from .channel_manager import ChannelManager
 from .function_allowlist import FunctionURI
-from .function_executor_controller.loggers import task_logger
-from .function_executor_controller.task_output import TaskOutput
+from .function_executor_controller.loggers import task_result_logger
 from .host_resources.host_resources import HostResources, HostResourcesProvider
 from .host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .metrics.state_reporter import (
@@ -83,7 +84,8 @@ class ExecutorStateReporter:
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
-        self._completed_task_outputs: List[TaskOutput] = []
+        self._pending_task_results: List[TaskResult] = []
+        self._pending_fe_updates: List[FunctionExecutorUpdate] = []
         self._function_executor_states: Dict[str, FunctionExecutorState] = {}
 
     def update_executor_status(self, value: ExecutorStatus) -> None:
@@ -98,7 +100,7 @@ class ExecutorStateReporter:
     ) -> None:
         self._function_executor_states[state.description.id] = state
 
-    def remove_function_executor_info(self, function_executor_id: str) -> None:
+    def remove_function_executor_state(self, function_executor_id: str) -> None:
         if function_executor_id not in self._function_executor_states:
             self._logger.warning(
                 "attempted to remove non-existing function executor state",
@@ -108,8 +110,12 @@ class ExecutorStateReporter:
 
         self._function_executor_states.pop(function_executor_id)
 
-    def add_completed_task_output(self, task_output: TaskOutput) -> None:
-        self._completed_task_outputs.append(task_output)
+    def add_completed_task_result(self, task_result: TaskResult) -> None:
+        self._pending_task_results.append(task_result)
+
+    def add_function_executor_update(self, update: FunctionExecutorUpdate) -> None:
+        """Adds a function executor update to the list of updates to be reported."""
+        self._pending_fe_updates.append(update)
 
     def schedule_state_report(self) -> None:
         """Schedules a state report to be sent to the server asap.
@@ -212,19 +218,28 @@ class ExecutorStateReporter:
         ):
             metric_state_report_rpcs.inc()
             state: ExecutorState = self._current_executor_state()
-            task_outputs: List[TaskOutput] = self._remove_completed_tasks()
-            task_results: List[TaskResult] = _to_task_result_protos(task_outputs)
+            update: ExecutorUpdate = self._remove_pending_update()
+
+            for task_result in update.task_results:
+                task_result_logger(task_result, self._logger).info(
+                    "reporting task outcome",
+                    outcome_code=TaskOutcomeCode.Name(task_result.outcome_code),
+                    failure_reason=(
+                        TaskFailureReason.Name(task_result.failure_reason)
+                        if task_result.HasField("failure_reason")
+                        else "None"
+                    ),
+                )
 
             try:
                 await stub.report_executor_state(
                     ReportExecutorStateRequest(
-                        executor_state=state, task_results=task_results
+                        executor_state=state, executor_update=update
                     ),
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
             except Exception as e:
-                for task_output in task_outputs:
-                    self.add_completed_task_output(task_output)
+                self._add_to_pending_update(update)
                 raise
 
     def _current_executor_state(self) -> ExecutorState:
@@ -247,21 +262,26 @@ class ExecutorStateReporter:
         state.server_clock = self._last_server_clock
         return state
 
-    def _remove_completed_tasks(self) -> List[TaskOutput]:
-        task_outputs: List[TaskOutput] = []
-        while len(self._completed_task_outputs) > 0:
-            task_output = self._completed_task_outputs.pop()
-            task_outputs.append(task_output)
-            task_logger(task_output.task, self._logger).info(
-                "reporting task outcome",
-                outcome_code=TaskOutcomeCode.Name(task_output.outcome_code),
-                failure_reason=(
-                    "None"
-                    if task_output.failure_reason is None
-                    else TaskFailureReason.Name(task_output.failure_reason)
-                ),
-            )
-        return task_outputs
+    def _remove_pending_update(self) -> ExecutorUpdate:
+        """Removes all pending executor updates and returns them."""
+        # No races here cause we don't await.
+        task_results: List[TaskResult] = self._pending_task_results
+        self._pending_task_results = []
+
+        fe_updates: List[FunctionExecutorUpdate] = self._pending_fe_updates
+        self._pending_fe_updates = []
+
+        return ExecutorUpdate(
+            executor_id=self._executor_id,
+            task_results=task_results,
+            function_executor_updates=fe_updates,
+        )
+
+    def _add_to_pending_update(self, update: ExecutorUpdate) -> None:
+        for task_result in update.task_results:
+            self.add_completed_task_result(task_result)
+        for function_executor_update in update.function_executor_updates:
+            self.add_function_executor_update(function_executor_update)
 
 
 def _to_allowed_function_protos(
@@ -322,36 +342,6 @@ def _to_gpu_model_proto(nvidia_gpu_model: NVIDIA_GPU_MODEL) -> GPUModel:
         return GPUModel.GPU_MODEL_NVIDIA_A10
     else:
         return GPUModel.GPU_MODEL_UNKNOWN
-
-
-def _to_task_result_protos(task_outputs: List[TaskOutput]) -> List[TaskResult]:
-    task_results: List[TaskResult] = []
-
-    for output in task_outputs:
-        task_result = TaskResult(
-            task_id=output.task.id,
-            allocation_id=output.allocation_id,
-            namespace=output.task.namespace,
-            graph_name=output.task.graph_name,
-            function_name=output.task.function_name,
-            graph_invocation_id=output.task.graph_invocation_id,
-            reducer=output.reducer,
-            outcome_code=output.outcome_code,
-            next_functions=(output.router_output.edges if output.router_output else []),
-            function_outputs=output.uploaded_data_payloads,
-        )
-        if output.failure_reason is not None:
-            task_result.failure_reason = output.failure_reason
-        if output.uploaded_stdout is not None:
-            task_result.stdout.CopyFrom(output.uploaded_stdout)
-        if output.uploaded_stderr is not None:
-            task_result.stderr.CopyFrom(output.uploaded_stderr)
-        if output.router_output is not None:
-            task_result.routing.next_functions[:] = output.router_output.edges
-
-        task_results.append(task_result)
-
-    return task_results
 
 
 def _executor_labels() -> Dict[str, str]:

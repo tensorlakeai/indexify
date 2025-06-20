@@ -4,7 +4,7 @@ from typing import Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 
-from indexify.proto.executor_api_pb2 import Task
+from indexify.proto.executor_api_pb2 import TaskAllocation
 
 from .task_output import TaskOutput
 
@@ -13,8 +13,7 @@ from .task_output import TaskOutput
 class TaskInfo:
     """Object used to track a task during its full lifecycle in the FunctionExecutorController."""
 
-    task: Task
-    allocation_id: str
+    allocation: TaskAllocation
     # time.monotonic() timestamp
     start_time: float
     # time.monotonic() timestamp when the task was prepared for execution

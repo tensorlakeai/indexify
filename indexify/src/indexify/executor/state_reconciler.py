@@ -21,9 +21,9 @@ from .function_executor.server.function_executor_server_factory import (
 from .function_executor_controller import (
     FunctionExecutorController,
     function_executor_logger,
-    task_logger,
+    task_allocation_logger,
     validate_function_executor_description,
-    validate_task,
+    validate_task_allocation,
 )
 from .metrics.state_reconciler import (
     metric_state_reconciliation_errors,
@@ -376,31 +376,16 @@ class ExecutorStateReconciler:
             # Nothing to do, task already exists and it's immutable.
             return
 
-        function_executor_controller.add_task(
-            task=task_allocation.task,
-            allocation_id=task_allocation.allocation_id,
-        )
+        function_executor_controller.add_task_allocation(task_allocation)
 
     def _valid_task_allocations(self, task_allocations: Iterable[TaskAllocation]):
         valid_task_allocations: List[TaskAllocation] = []
         for task_allocation in task_allocations:
             task_allocation: TaskAllocation
-            logger = self._task_allocation_logger(task_allocation)
+            logger = task_allocation_logger(task_allocation, self._logger)
 
             try:
-                validate_task(task_allocation.task)
-            except ValueError as e:
-                # There's no way to report this error to Server so just log it.
-                logger.error(
-                    "received invalid TaskAllocation from Server, dropping it from desired state",
-                    exc_info=e,
-                )
-                continue
-
-            validator = MessageValidator(task_allocation)
-            try:
-                validator.required_field("function_executor_id")
-                validator.required_field("allocation_id")
+                validate_task_allocation(task_allocation)
             except ValueError as e:
                 # There's no way to report this error to Server so just log it.
                 logger.error(
@@ -423,16 +408,3 @@ class ExecutorStateReconciler:
             valid_task_allocations.append(task_allocation)
 
         return valid_task_allocations
-
-    def _task_allocation_logger(self, task_allocation: TaskAllocation) -> Any:
-        """Returns a logger for the given TaskAllocation.
-
-        Doesn't assume that the supplied TaskAllocation is valid.
-        """
-        return task_logger(task_allocation.task, self._logger).bind(
-            function_executor_id=(
-                task_allocation.function_executor_id
-                if task_allocation.HasField("function_executor_id")
-                else None
-            )
-        )

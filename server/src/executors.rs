@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Result;
-use data_model::{ExecutorId, ExecutorMetadata};
+use data_model::{ExecutorId, ExecutorMetadata, FunctionExecutorDiagnostics};
 use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
 use state_store::{
@@ -196,7 +196,11 @@ impl ExecutorManager {
     }
 
     /// Heartbeat an executor to keep it alive and update its metadata
-    pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
+    pub async fn heartbeat(
+        &self,
+        executor: ExecutorMetadata,
+        function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
+    ) -> Result<()> {
         let peeked_deadline = {
             // 1. Create new deadline, lapse a stopped executor immediately
             let timeout = if executor.state != data_model::ExecutorState::Stopped {
@@ -260,7 +264,10 @@ impl ExecutorManager {
                 }
             };
 
-            if let Err(e) = self.upsert_executor(executor.clone()).await {
+            if let Err(e) = self
+                .upsert_executor(executor.clone(), function_executor_diagnostics)
+                .await
+            {
                 error!(
                     executor_id = executor.id.get(),
                     "failed to register executor: {:?}", e
@@ -412,6 +419,8 @@ impl ExecutorManager {
                 encoding_version: None,
             };
             let fe = &desired_state_fe.function_executor.function_executor;
+            let fe_output_payload_uri_prefix =
+                format!("{}/function_executors", self.blob_store_url,);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 namespace: Some(fe.namespace.clone()),
@@ -423,6 +432,7 @@ impl ExecutorManager {
                 customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms.clone()),
                 graph: Some(code_payload_pb),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
+                output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
             };
             function_executors_pb.push(fe_description_pb);
         }
@@ -523,9 +533,16 @@ impl ExecutorManager {
         })
     }
 
-    pub async fn upsert_executor(&self, executor: ExecutorMetadata) -> Result<()> {
+    pub async fn upsert_executor(
+        &self,
+        executor: ExecutorMetadata,
+        function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
+    ) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest { executor }),
+            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
+                executor,
+                function_executor_diagnostics,
+            }),
             processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await
@@ -664,7 +681,10 @@ mod tests {
             state_hash: "state_hash".to_string(),
             clock: 0,
         };
-        executor_manager.upsert_executor(executor).await?;
+        let function_executor_diagnostics = vec![];
+        executor_manager
+            .upsert_executor(executor, function_executor_diagnostics)
+            .await?;
 
         let executors = indexify_state
             .in_memory_state
@@ -728,22 +748,36 @@ mod tests {
             clock: 0,
         };
 
+        let function_executor_diagnostics = vec![];
+
         // Pause time and send an initial heartbeats
         {
             time::pause();
 
-            executor_manager.heartbeat(executor1.clone()).await?;
-            executor_manager.heartbeat(executor2.clone()).await?;
-            executor_manager.heartbeat(executor3.clone()).await?;
+            executor_manager
+                .heartbeat(executor1.clone(), function_executor_diagnostics.clone())
+                .await?;
+            executor_manager
+                .heartbeat(executor2.clone(), function_executor_diagnostics.clone())
+                .await?;
+            executor_manager
+                .heartbeat(executor3.clone(), function_executor_diagnostics.clone())
+                .await?;
         }
 
         // Heartbeat the executors 5s later to reset their deadlines
         {
             time::advance(Duration::from_secs(5)).await;
 
-            executor_manager.heartbeat(executor1.clone()).await?;
-            executor_manager.heartbeat(executor2.clone()).await?;
-            executor_manager.heartbeat(executor3.clone()).await?;
+            executor_manager
+                .heartbeat(executor1.clone(), function_executor_diagnostics.clone())
+                .await?;
+            executor_manager
+                .heartbeat(executor2.clone(), function_executor_diagnostics.clone())
+                .await?;
+            executor_manager
+                .heartbeat(executor3.clone(), function_executor_diagnostics.clone())
+                .await?;
 
             executor_manager.process_lapsed_executors().await?;
             test_srv.process_all_state_changes().await?;
@@ -767,8 +801,12 @@ mod tests {
         {
             time::advance(Duration::from_secs(15)).await;
 
-            executor_manager.heartbeat(executor1.clone()).await?;
-            executor_manager.heartbeat(executor2.clone()).await?;
+            executor_manager
+                .heartbeat(executor1.clone(), function_executor_diagnostics.clone())
+                .await?;
+            executor_manager
+                .heartbeat(executor2.clone(), function_executor_diagnostics.clone())
+                .await?;
             // Executor 3 goes offline
             // executor_manager.heartbeat(executor3.clone()).await?;
 

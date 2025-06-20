@@ -109,12 +109,22 @@ message FunctionExecutorDescription {
     optional uint32 customer_code_timeout_ms = 9;
     optional DataPayload graph = 10;
     optional FunctionExecutorResources resources = 11;
+    // URI prefix for the startup output payloads.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    optional string output_payload_uri_prefix = 12;
 }
 
 message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
+}
+
+message FunctionExecutorUpdate {
+    optional FunctionExecutorDescription description = 1;
+    optional DataPayload startup_stdout = 2;
+    optional DataPayload startup_stderr = 3;
 }
 
 enum ExecutorStatus {
@@ -145,13 +155,20 @@ message ExecutorState {
     optional uint64 server_clock = 12;
 }
 
-// A message sent by Executor to report its up to date state to Server.
-message ReportExecutorStateRequest {
-    optional ExecutorState executor_state = 1;
+// Updates that Executor wants to report to Server. If report_executor_state RPC is successful
+// then the updates from it won't be included in the next RPC.
+message ExecutorUpdate {
+    optional string executor_id = 1;
     repeated TaskResult task_results = 2;
+    repeated FunctionExecutorUpdate function_executor_updates = 3;
 }
 
-// A message sent by Server to Executor to acknowledge the receipt of Executor state.
+message ReportExecutorStateRequest {
+    optional ExecutorState executor_state = 1;
+    optional ExecutorUpdate executor_update = 2;
+}
+
+// A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
 message ReportExecutorStateResponse {
 }
 
@@ -226,24 +243,24 @@ message ResultRouting {
 
 message TaskResult {
     optional string task_id = 1;
-    optional string namespace = 2;
-    optional string graph_name = 3;
-    optional string function_name = 4;
-    optional string graph_invocation_id = 5;
-    optional bool reducer = 6;
-    optional TaskOutcomeCode outcome_code = 7;
-    optional TaskFailureReason failure_reason = 8;
+    optional string allocation_id = 2;
+    optional string namespace = 3;
+    optional string graph_name = 4;
+    optional string graph_version = 5;
+    optional string function_name = 6;
+    optional string graph_invocation_id = 7;
+    optional bool reducer = 8;
+    optional TaskOutcomeCode outcome_code = 9;
+    optional TaskFailureReason failure_reason = 10;
     // Edges that the function wants the invocation to be routed to.
     // Previously called router_edges.
     // NB: An empty list indicates that the graph's route definitions should be used,
     // unless this field is overridden by the presence of the `routing` field.
-    repeated string next_functions = 9;
-    repeated DataPayload function_outputs = 10;
+    repeated string next_functions = 11;
+    repeated DataPayload function_outputs = 12;
     // Standard output and error streams of the function.
-    optional DataPayload stdout = 11;
-    optional DataPayload stderr = 12;
-
-    optional string allocation_id = 13;
+    optional DataPayload stdout = 13;
+    optional DataPayload stderr = 14;
 
     // Indicates how the results should be routed.
     // If this is present, it replaces `next_functions`.
@@ -253,7 +270,7 @@ message TaskResult {
     // graph's routing.  The long-term goal is to deprecate
     // `next_functions`, so that if `routing` is not present, the
     // graph's routing definitions will always be used.
-    ResultRouting routing = 14;
+    ResultRouting routing = 15;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

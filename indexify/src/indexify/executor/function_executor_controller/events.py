@@ -2,11 +2,11 @@ from enum import Enum
 from typing import Optional
 
 from indexify.executor.function_executor.function_executor import (
-    FunctionError,
     FunctionExecutor,
 )
 from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
 
+from .function_executor_startup_output import FunctionExecutorStartupOutput
 from .task_info import TaskInfo
 
 
@@ -37,21 +37,17 @@ class FunctionExecutorCreated(BaseEvent):
     """
     Event indicating that Function Executor got created or failed.
 
-    If the error is CustomerError, it indicates an error in customer code.
-    The function_executor field is None if any errors happened.
+    The function_executor field is None if the function executor was not created.
     """
 
     def __init__(
         self,
+        output: FunctionExecutorStartupOutput,
         function_executor: Optional[FunctionExecutor] = None,
-        function_error: Optional[FunctionError] = None,
-        termination_reason: FunctionExecutorTerminationReason = None,  # type: Optional[FunctionExecutorTerminationReason]
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_CREATED)
         self.function_executor: Optional[FunctionExecutor] = function_executor
-        self.function_error: Optional[FunctionError] = function_error
-        # Reason for FE termination if failed to create FE (.function_executor is None).
-        self.termination_reason = termination_reason
+        self.output: FunctionExecutorStartupOutput = output
 
 
 class FunctionExecutorDestroyed(BaseEvent):
@@ -107,8 +103,8 @@ class TaskPreparationFinished(BaseEvent):
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )
 
@@ -147,8 +143,8 @@ class TaskExecutionFinished(BaseEvent):
         )
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"function_executor_termination_reason={function_executor_termination_reason_str}"
         )
 
@@ -166,7 +162,7 @@ class TaskOutputUploadFinished(BaseEvent):
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )

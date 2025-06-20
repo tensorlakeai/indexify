@@ -428,8 +428,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             return Ok(update);
         }
 
+        let mut failed_tasks = 0;
         // Handle allocations for FEs to be removed and update tasks
-        let mut allocations_to_remove = Vec::new();
         for fe in function_executors_to_remove {
             info!(
                 fn_executor_id = fe.id.get(),
@@ -444,7 +444,6 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .and_then(|allocs_be_fe| allocs_be_fe.get(&fe.id))
                 .cloned()
                 .unwrap_or_default();
-            allocations_to_remove.extend(allocs.clone());
             for alloc in allocs {
                 let Some(mut task) = self.in_memory_state.tasks.get(&alloc.task_key()).cloned()
                 else {
@@ -456,6 +455,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
+                    failed_tasks += 1;
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
                     fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
                     fe.termination_reason ==
@@ -487,9 +487,9 @@ impl<'a> TaskAllocationProcessor<'a> {
         }
 
         info!(
-            num_allocations = allocations_to_remove.len(),
+            num_allocations = failed_tasks,
             executor_id = executor_server_metadata.executor_id.get(),
-            "removing allocations from executor",
+            "failed allocations on executor due to function executor terminations",
         );
 
         // Add function executors to remove list
