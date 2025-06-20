@@ -159,7 +159,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             "create_function_executor",
             invocation_id = task.invocation_id,
             graph = task.compute_graph_name,
-            fn_name = task.compute_fn_name,
+            "fn" = task.compute_fn_name,
             graph_version = task.graph_version.to_string(),
         );
         let _guard = span.enter();
@@ -243,7 +243,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             "delete_compute_graph",
             invocation_id = task.invocation_id,
             graph = task.compute_graph_name,
-            fn_name = task.compute_fn_name,
+            "fn" = task.compute_fn_name,
             graph_version = task.graph_version.to_string(),
         );
         let _guard = span.enter();

@@ -33,7 +33,7 @@ def function_executor_logger(
             if function_executor_description.HasField("graph_version")
             else None
         ),
-        fn_name=(
+        fn=(
             function_executor_description.function_name
             if function_executor_description.HasField("function_name")
             else None
@@ -50,7 +50,7 @@ def task_logger(task: Task, logger: Any) -> Any:
         namespace=task.namespace if task.HasField("namespace") else None,
         graph=task.graph_name if task.HasField("graph_name") else None,
         graph_version=task.graph_version if task.HasField("graph_version") else None,
-        fn_name=task.function_name if task.HasField("function_name") else None,
+        fn=task.function_name if task.HasField("function_name") else None,
         invocation_id=(
             task.graph_invocation_id if task.HasField("graph_invocation_id") else None
         ),
