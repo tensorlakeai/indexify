@@ -130,18 +130,11 @@ impl<'a> TaskAllocationProcessor<'a> {
         let function_executors_to_mark = self
             .in_memory_state
             .vacuum_function_executors_candidates(fe_resource)?;
-        let function_executor_ids = function_executors_to_mark
-            .iter()
-            .map(|fe| fe.function_executor.id.get())
-            .collect::<Vec<_>>();
 
-        for fn_id in function_executor_ids {
-            info!(
-                fn_executor_id = fn_id,
-                num_function_executors = function_executors_to_mark.len(),
-                "vacuum phase identified function executor to mark for termination",
-            );
-        }
+        info!(
+            num_function_executors = function_executors_to_mark.len(),
+            "vacuum phase identified function executors to mark for termination",
+        );
 
         // Mark FEs for termination (change desired state to Terminated)
         // but don't actually remove them - reconciliation will handle that
@@ -151,6 +144,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             update.new_function_executors.push(*update_fe);
 
             info!(
+                fn_executor_id = fe.function_executor.id.get(),
+                executor_id = fe.executor_id.get(),
                 "Marked function executor {} on executor {} for termination",
                 fe.function_executor.id.get(),
                 fe.executor_id.get()
@@ -434,12 +429,18 @@ impl<'a> TaskAllocationProcessor<'a> {
 
         for fn_executor in function_executors_to_remove {
             info!(
-                num_function_executors = function_executors_to_remove.len(),
                 fn_executor_id = fn_executor.id.get(),
                 executor_id = executor_server_metadata.executor_id.get(),
                 "Removing function executor from executor",
             );
         }
+
+        info!(
+            executor_id = executor_server_metadata.executor_id.get(),
+            "Removed {} function executors from executor {}",
+            function_executors_to_remove.len(),
+            executor_server_metadata.executor_id.get(),
+        );
 
         // Handle allocations for FEs to be removed and update tasks
         let mut allocations_to_remove = Vec::new();
