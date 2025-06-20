@@ -1192,7 +1192,27 @@ impl InMemoryState {
                 })
                 .unwrap_or_default();
 
-            // Process each function executor based on allowlist and version status
+            // Start with the current free resources on this executor
+            let mut available_resources = self
+                .executor_states
+                .get(executor_id)
+                .map(|executor_state| executor_state.free_resources.clone())
+                .unwrap_or_default();
+
+            // First, check if we can fit the new function without any vacuuming
+            if available_resources
+                .can_handle_function_resources(fe_resource)
+                .is_ok()
+            {
+                // This executor has enough space, no need to vacuum anything.
+                // We can return an empty list of candidates.
+                return Ok(Vec::new());
+            }
+
+            // If we can't fit, try to vacuum function executors to make space
+            let mut candidates_for_removal: Vec<Box<FunctionExecutorServerMetadata>> = Vec::new();
+
+            // Process each function executor to find candidates for removal
             for fe_metadata in function_executors.iter() {
                 // Skip if the FE is already marked for termination
                 if fe_metadata.desired_state == FunctionExecutorState::Terminated {
@@ -1203,7 +1223,7 @@ impl InMemoryState {
                 let Some(executor) = self.executors.get(executor_id) else {
                     // If the executor is not found, we can remove the FE
                     // since it's not running any more
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    candidates_for_removal.push(fe_metadata.clone());
                     continue;
                 };
 
@@ -1217,7 +1237,7 @@ impl InMemoryState {
                 else {
                     // If the compute graph is not found, we can remove the FE
                     // since it's not running any more
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    candidates_for_removal.push(fe_metadata.clone());
                     continue;
                 };
 
@@ -1238,18 +1258,55 @@ impl InMemoryState {
                             }
                         }
                     }
-                    if found_allowlist_match {
-                        continue;
+                    if !found_allowlist_match {
+                        debug!(
+                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
+                            fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                        );
+                        candidates_for_removal.push(fe_metadata.clone());
                     }
-                    debug!(
-                    "Removing outdated function executor {} from executor {} (version {} < latest {})",
-                    fe.id.get(), executor_id.get(), fe.version, latest_cg_version
-                );
-                    function_executors_to_remove.push(fe_metadata.clone());
                 }
             }
+
+            // Now try to remove candidates in order to make space for the new function
+            for candidate in candidates_for_removal {
+                // Simulate freeing the resources from this candidate
+                let mut simulated_resources = available_resources.clone();
+                if let Err(_) = simulated_resources.free(&candidate.function_executor.resources) {
+                    // If we can't free the resources (e.g., GPU model mismatch), skip this
+                    // candidate
+                    continue;
+                }
+
+                // Add this candidate to our removal list
+                function_executors_to_remove.push(candidate.clone());
+                available_resources = simulated_resources;
+
+                // Check if with this candidate removed, we can fit the new function
+                if available_resources
+                    .can_handle_function_resources(fe_resource)
+                    .is_ok()
+                {
+                    // We found enough space! Return the function executors we've collected so far
+                    debug!(
+                        "Found sufficient space on executor {} by removing {} function executors",
+                        executor_id.get(),
+                        function_executors_to_remove.len()
+                    );
+                    return Ok(function_executors_to_remove);
+                }
+            }
+
+            // If we couldn't find enough space on this executor even after vacuuming,
+            // clear our collection and move to the next executor
+            function_executors_to_remove.clear();
+            debug!(
+                "Could not find sufficient space on executor {} even after vacuuming",
+                executor_id.get()
+            );
         }
 
+        // If we get here, we couldn't find enough space on any executor
         Ok(function_executors_to_remove)
     }
 
