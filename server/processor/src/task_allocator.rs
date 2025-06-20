@@ -6,10 +6,21 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    AllocationBuilder, ChangeType, ExecutorId, ExecutorMetadata, ExecutorServerMetadata,
-    FunctionExecutor, FunctionExecutorBuilder, FunctionExecutorServerMetadata,
-    FunctionExecutorState, FunctionExecutorTerminationReason, FunctionResources,
-    GraphInvocationCtx, Task, TaskOutcome, TaskStatus,
+    AllocationBuilder,
+    ChangeType,
+    ExecutorId,
+    ExecutorMetadata,
+    ExecutorServerMetadata,
+    FunctionExecutor,
+    FunctionExecutorBuilder,
+    FunctionExecutorServerMetadata,
+    FunctionExecutorState,
+    FunctionExecutorTerminationReason,
+    FunctionResources,
+    GraphInvocationCtx,
+    Task,
+    TaskOutcome,
+    TaskStatus,
 };
 use rand::seq::IndexedRandom;
 use state_store::{
@@ -241,8 +252,8 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut function_executors = self
             .in_memory_state
             .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
-        if function_executors.function_executors.is_empty()
-            && function_executors.num_pending_function_executors == 0
+        if function_executors.function_executors.is_empty() &&
+            function_executors.num_pending_function_executors == 0
         {
             info!("no function executors found for task, creating one");
             let fe_update = self.create_function_executor(task)?;
@@ -353,8 +364,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             }
         }
         for fe in fes_exist_only_in_executor {
-            if fe.state != FunctionExecutorState::Terminated
-                && executor_server_metadata
+            if fe.state != FunctionExecutorState::Terminated &&
+                executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
@@ -452,10 +463,10 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
-                    || fe.termination_reason == FunctionExecutorTerminationReason::Unknown
-                    || fe.termination_reason
-                        == FunctionExecutorTerminationReason::DesiredStateRemoved
+                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
+                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
+                    fe.termination_reason ==
+                        FunctionExecutorTerminationReason::DesiredStateRemoved
                 {
                     task.status = TaskStatus::Pending;
                     task.attempt_number = task.attempt_number + 1;
