@@ -1378,6 +1378,49 @@ impl InMemoryState {
 }
 
 #[cfg(test)]
+mod test_helpers {
+    use super::*;
+    /// Macro to easily bootstrap an InMemoryState for tests.
+    ///
+    /// Usage:
+    /// ```
+    /// let state = in_memory_state_bootstrap! { clock: 42, tasks: my_tasks };
+    /// ```
+    /// You can specify any subset of fields; the rest will be defaulted.
+    #[macro_export]
+    macro_rules! in_memory_state_bootstrap {
+        ( $($field:ident : $value:expr),* $(,)? ) => {{
+            let mut state = super::InMemoryState::default();
+            $( state.$field = $value; )*
+            state
+        }};
+    }
+
+    impl Default for InMemoryState {
+        fn default() -> Self {
+            use opentelemetry::global;
+            Self {
+                clock: 0,
+                namespaces: im::HashMap::new(),
+                compute_graphs: im::HashMap::new(),
+                compute_graph_versions: im::OrdMap::new(),
+                executors: im::HashMap::new(),
+                executor_states: im::HashMap::new(),
+                function_executors_by_fn_uri: im::HashMap::new(),
+                allocations_by_executor: im::HashMap::new(),
+                unallocated_tasks: im::OrdSet::new(),
+                tasks: im::OrdMap::new(),
+                queued_reduction_tasks: im::OrdMap::new(),
+                invocation_ctx: im::OrdMap::new(),
+                task_pending_latency: global::meter("test").f64_histogram("test").build(),
+                allocation_running_latency: global::meter("test").f64_histogram("test").build(),
+                allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use data_model::{
         DataPayload,
@@ -1394,8 +1437,10 @@ mod tests {
         TaskOutcome,
         TaskStatus,
     };
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::in_memory_state::UnallocatedTaskId;
+    use crate::in_memory_state_bootstrap;
 
     #[test]
     fn test_unallocated_task_id_ordering() {
@@ -1477,64 +1522,6 @@ mod tests {
 
     #[test]
     fn test_has_pending_tasks() {
-        use std::{
-            collections::HashMap,
-            time::{SystemTime, UNIX_EPOCH},
-        };
-
-        use crate::in_memory_state::InMemoryState;
-
-        // Create a minimal InMemoryState for testing
-        let mut state = InMemoryState {
-            clock: 1,
-            namespaces: im::HashMap::new(),
-            compute_graphs: im::HashMap::new(),
-            compute_graph_versions: im::OrdMap::new(),
-            executors: im::HashMap::new(),
-            executor_states: im::HashMap::new(),
-            function_executors_by_fn_uri: im::HashMap::new(),
-            allocations_by_executor: im::HashMap::new(),
-            unallocated_tasks: im::OrdSet::new(),
-            tasks: im::OrdMap::new(),
-            queued_reduction_tasks: im::OrdMap::new(),
-            invocation_ctx: im::OrdMap::new(),
-            task_pending_latency: opentelemetry::global::meter("test")
-                .f64_histogram("test")
-                .build(),
-            allocation_running_latency: opentelemetry::global::meter("test")
-                .f64_histogram("test")
-                .build(),
-            allocation_completion_latency: opentelemetry::global::meter("test")
-                .f64_histogram("test")
-                .build(),
-        };
-
-        // Create a function executor metadata for testing
-        let executor_id = ExecutorId::new("test-executor".to_string());
-        let function_executor_id = FunctionExecutorId::new("test-fe".to_string());
-
-        let function_executor = FunctionExecutor {
-            id: function_executor_id.clone(),
-            namespace: "test-namespace".to_string(),
-            compute_graph_name: "test-graph".to_string(),
-            compute_fn_name: "test-function".to_string(),
-            version: GraphVersion("1.0".to_string()),
-            state: FunctionExecutorState::Running,
-            termination_reason: FunctionExecutorTerminationReason::Unknown,
-            resources: FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            },
-        };
-
-        let fe_metadata = FunctionExecutorServerMetadata {
-            executor_id: executor_id.clone(),
-            function_executor: function_executor.clone(),
-            desired_state: FunctionExecutorState::Running,
-        };
-
         // Helper function to create a task
         fn create_task(
             namespace: &str,
@@ -1570,7 +1557,32 @@ mod tests {
             }
         }
 
+        // Create function executor metadata for testing
+        let executor_id = ExecutorId::new("test-executor".to_string());
+        let function_executor = FunctionExecutor {
+            id: FunctionExecutorId::new("test-fe".to_string()),
+            namespace: "test-namespace".to_string(),
+            compute_graph_name: "test-graph".to_string(),
+            compute_fn_name: "test-function".to_string(),
+            version: GraphVersion("1.0".to_string()),
+            state: FunctionExecutorState::Running,
+            termination_reason: FunctionExecutorTerminationReason::Unknown,
+            resources: FunctionExecutorResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            },
+        };
+
+        let fe_metadata = FunctionExecutorServerMetadata {
+            executor_id: executor_id.clone(),
+            function_executor: function_executor.clone(),
+            desired_state: FunctionExecutorState::Running,
+        };
+
         // Test case 1: No tasks - should return false
+        let mut state = in_memory_state_bootstrap! { clock: 1 };
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 2: Add a terminal task (Success) - should return false
@@ -1582,9 +1594,7 @@ mod tests {
             "task-1",
             TaskOutcome::Success,
         );
-        state
-            .tasks
-            .insert(terminal_task.key(), Box::new(terminal_task));
+        state.tasks.insert(terminal_task.key(), Box::new(terminal_task));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 3: Add a terminal task (Failure) - should return false
@@ -1596,9 +1606,7 @@ mod tests {
             "task-2",
             TaskOutcome::Failure,
         );
-        state
-            .tasks
-            .insert(terminal_task2.key(), Box::new(terminal_task2));
+        state.tasks.insert(terminal_task2.key(), Box::new(terminal_task2));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 4: Add a non-terminal task (Unknown outcome) - should return true
@@ -1610,13 +1618,10 @@ mod tests {
             "task-3",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(pending_task.key(), Box::new(pending_task));
+        state.tasks.insert(pending_task.key(), Box::new(pending_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
-        // Test case 5: Add tasks for different namespace/graph - should not affect
-        // result
+        // Test case 5: Add tasks for different namespace/graph - should not affect result
         let different_task = create_task(
             "different-namespace",
             "different-graph",
@@ -1625,13 +1630,10 @@ mod tests {
             "task-4",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(different_task.key(), Box::new(different_task));
+        state.tasks.insert(different_task.key(), Box::new(different_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
-        // Test case 6: Add tasks for same namespace/graph but different function -
-        // should not affect result
+        // Test case 6: Add tasks for same namespace/graph but different function - should not affect result
         let different_fn_task = create_task(
             "test-namespace",
             "test-graph",
@@ -1640,9 +1642,7 @@ mod tests {
             "task-5",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(different_fn_task.key(), Box::new(different_fn_task));
+        state.tasks.insert(different_fn_task.key(), Box::new(different_fn_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 7: Add multiple pending tasks - should still return true
@@ -1654,9 +1654,7 @@ mod tests {
             "task-6",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(pending_task2.key(), Box::new(pending_task2));
+        state.tasks.insert(pending_task2.key(), Box::new(pending_task2));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 8: Change all pending tasks to terminal - should return false
@@ -1701,8 +1699,7 @@ mod tests {
         };
         assert!(state.has_pending_tasks(&fe_metadata2));
 
-        // Test case 10: Change the different function task to terminal - should return
-        // false
+        // Test case 10: Change the different function task to terminal - should return false
         let keys_to_update2: Vec<String> = state
             .tasks
             .iter()
