@@ -74,9 +74,7 @@ def task_result_logger(task_result: TaskResult, logger: Any) -> Any:
             task_result.allocation_id if task_result.HasField("allocation_id") else None
         ),
         namespace=task_result.namespace if task_result.HasField("namespace") else None,
-        graph=(
-            task_result.graph_name if task_result.HasField("graph_name") else None
-        ),
+        graph=(task_result.graph_name if task_result.HasField("graph_name") else None),
         graph_version=(
             task_result.graph_version if task_result.HasField("graph_version") else None
         ),
