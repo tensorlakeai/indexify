@@ -7,7 +7,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
-    Task,
+    TaskAllocation,
     TaskFailureReason,
     TaskOutcomeCode,
 )
@@ -26,8 +26,7 @@ class TaskOutput:
 
     def __init__(
         self,
-        task: Task,
-        allocation_id: str,
+        allocation: TaskAllocation,
         outcome_code: TaskOutcomeCode,
         # Optional[TaskFailureReason] is not supported in python 3.9
         failure_reason: TaskFailureReason = None,
@@ -42,8 +41,8 @@ class TaskOutput:
         uploaded_stdout: Optional[DataPayload] = None,
         uploaded_stderr: Optional[DataPayload] = None,
     ):
-        self.task = task
-        self.allocation_id = allocation_id
+        self.task = allocation.task
+        self.allocation = allocation
         self.function_output = function_output
         self.router_output = router_output
         self.stdout = stdout
@@ -60,14 +59,12 @@ class TaskOutput:
     @classmethod
     def internal_error(
         cls,
-        task: Task,
-        allocation_id: str,
+        allocation: TaskAllocation,
     ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
         return TaskOutput(
-            task=task,
-            allocation_id=allocation_id,
+            allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
             stderr="Platform failed to execute the function.",
@@ -76,15 +73,13 @@ class TaskOutput:
     @classmethod
     def function_timeout(
         cls,
-        task: Task,
-        allocation_id: str,
+        allocation: TaskAllocation,
         timeout_sec: float,
     ) -> "TaskOutput":
         """Creates a TaskOutput for an function timeout error."""
         # Task stdout, stderr is not available.
         return TaskOutput(
-            task=task,
-            allocation_id=allocation_id,
+            allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
             stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
@@ -93,13 +88,11 @@ class TaskOutput:
     @classmethod
     def task_cancelled(
         cls,
-        task: Task,
-        allocation_id: str,
+        allocation: TaskAllocation,
     ) -> "TaskOutput":
         """Creates a TaskOutput for the case when task didn't finish because its allocation was removed by Server."""
         return TaskOutput(
-            task=task,
-            allocation_id=allocation_id,
+            allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED,
         )
@@ -107,13 +100,11 @@ class TaskOutput:
     @classmethod
     def function_executor_terminated(
         cls,
-        task: Task,
-        allocation_id: str,
+        allocation: TaskAllocation,
     ) -> "TaskOutput":
         """Creates a TaskOutput for the case when task didn't run because its FE terminated."""
         return TaskOutput(
-            task=task,
-            allocation_id=allocation_id,
+            allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
         )

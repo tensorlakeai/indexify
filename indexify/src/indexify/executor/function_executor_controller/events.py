@@ -103,8 +103,8 @@ class TaskPreparationFinished(BaseEvent):
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )
 
@@ -143,8 +143,8 @@ class TaskExecutionFinished(BaseEvent):
         )
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"function_executor_termination_reason={function_executor_termination_reason_str}"
         )
 
@@ -162,7 +162,7 @@ class TaskOutputUploadFinished(BaseEvent):
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.task.id}, "
-            f"allocation_id={self.task_info.allocation_id}), "
+            f"task_id={self.task_info.allocation.task.id}, "
+            f"allocation_id={self.task_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )

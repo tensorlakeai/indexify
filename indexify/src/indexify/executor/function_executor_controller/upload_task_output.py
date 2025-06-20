@@ -121,7 +121,7 @@ async def _upload_to_blob_store(
     output: TaskOutput, blob_store: BLOBStore, logger: Any
 ) -> None:
     if output.stdout is not None:
-        stdout_url = f"{output.task.output_payload_uri_prefix}.{output.task.id}.stdout"
+        stdout_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.stdout"
         stdout_bytes: bytes = output.stdout.encode()
         await blob_store.put(stdout_url, stdout_bytes, logger)
         output.uploaded_stdout = DataPayload(
@@ -135,7 +135,7 @@ async def _upload_to_blob_store(
         output.stdout = None
 
     if output.stderr is not None:
-        stderr_url = f"{output.task.output_payload_uri_prefix}.{output.task.id}.stderr"
+        stderr_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.stderr"
         stderr_bytes: bytes = output.stderr.encode()
         await blob_store.put(stderr_url, stderr_bytes, logger)
         output.uploaded_stderr = DataPayload(
@@ -153,7 +153,7 @@ async def _upload_to_blob_store(
         uploaded_data_payloads = []
         for func_output_item in output.function_output.outputs:
             node_output_sequence = len(uploaded_data_payloads)
-            output_url = f"{output.task.output_payload_uri_prefix}.{output.task.id}.{node_output_sequence}"
+            output_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.{node_output_sequence}"
             output_bytes: bytes = (
                 func_output_item.bytes
                 if func_output_item.HasField("bytes")

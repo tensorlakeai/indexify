@@ -17,7 +17,7 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
     FunctionExecutorUpdate,
-    Task,
+    TaskAllocation,
     TaskResult,
 )
 
@@ -41,7 +41,7 @@ from .events import (
     TaskPreparationFinished,
 )
 from .function_executor_startup_output import FunctionExecutorStartupOutput
-from .loggers import function_executor_logger, task_logger
+from .loggers import function_executor_logger, task_allocation_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING,
     METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING,
@@ -131,13 +131,13 @@ class FunctionExecutorController:
         """
         return self._status
 
-    def add_task(self, task: Task, allocation_id: str) -> None:
+    def add_task_allocation(self, task_allocation: TaskAllocation) -> None:
         """Adds a task to the Function Executor.
 
         Not blocking. Never raises exceptions.
         """
-        logger = task_logger(task, self._logger)
-        if self.has_task(task.id):
+        logger = task_allocation_logger(task_allocation, self._logger)
+        if self.has_task(task_allocation.task.id):
             logger.warning(
                 "attempted to add already added task to Function Executor",
             )
@@ -145,9 +145,9 @@ class FunctionExecutorController:
 
         metric_tasks_fetched.inc()
         task_info: TaskInfo = TaskInfo(
-            task=task, allocation_id=allocation_id, start_time=time.monotonic()
+            allocation=task_allocation, start_time=time.monotonic()
         )
-        self._tasks[task.id] = task_info
+        self._tasks[task_allocation.task.id] = task_info
         next_aio = prepare_task(
             task_info=task_info,
             blob_store=self._blob_store,
@@ -193,7 +193,7 @@ class FunctionExecutorController:
             return  # Server processed the completed task outputs, we can forget it now.
 
         # Task cancellation is required as the task is not completed yet.
-        logger = task_logger(task_info.task, self._logger)
+        logger = task_allocation_logger(task_info.allocation, self._logger)
         task_info.is_cancelled = True
         logger.info(
             "cancelling task",
@@ -375,7 +375,7 @@ class FunctionExecutorController:
             aio=aio,
             task_info=task_info,
             on_exception=on_exception,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
 
     def _spawn_aio_for_fe(
@@ -508,22 +508,18 @@ class FunctionExecutorController:
         task_info: TaskInfo = event.task_info
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
             self._start_task_output_upload(task_info)
             return
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.internal_error(task_info.allocation)
             self._start_task_output_upload(task_info)
             return
 
         task_info.prepared_time = time.monotonic()
         metric_runnable_tasks.inc()
         metric_runnable_tasks_per_function_name.labels(
-            task_info.task.function_name
+            task_info.allocation.task.function_name
         ).inc()
         self._runnable_tasks.append(task_info)
         self._add_event(
@@ -558,14 +554,11 @@ class FunctionExecutorController:
         )
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
             self._start_task_output_upload(task_info)
         elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
             task_info.output = TaskOutput.function_executor_terminated(
-                task=task_info.task,
-                allocation_id=task_info.allocation_id,
+                task_info.allocation
             )
             self._start_task_output_upload(task_info)
         elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING:
@@ -573,7 +566,7 @@ class FunctionExecutorController:
             next_aio = run_task_on_function_executor(
                 task_info=task_info,
                 function_executor=self._fe,
-                logger=task_logger(task_info.task, self._logger),
+                logger=task_allocation_logger(task_info.allocation, self._logger),
             )
             self._spawn_aio_for_task(
                 aio=next_aio,
@@ -584,7 +577,7 @@ class FunctionExecutorController:
                 ),
             )
         else:
-            task_logger(task_info.task, self._logger).error(
+            task_allocation_logger(task_info.allocation, self._logger).error(
                 "failed to schedule task execution, this should never happen"
             )
 
@@ -593,7 +586,7 @@ class FunctionExecutorController:
         metric_schedule_task_latency.observe(time.monotonic() - task_info.prepared_time)
         metric_runnable_tasks.dec()
         metric_runnable_tasks_per_function_name.labels(
-            task_info.task.function_name
+            task_info.allocation.task.function_name
         ).dec()
         return task_info
 
@@ -628,7 +621,7 @@ class FunctionExecutorController:
         next_aio = upload_task_output(
             task_info=task_info,
             blob_store=self._blob_store,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         self._spawn_aio_for_task(
             aio=next_aio,
@@ -648,9 +641,7 @@ class FunctionExecutorController:
         # Ignore task cancellation because we need to report it to the server anyway.
         task_info: TaskInfo = event.task_info
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.internal_error(task_info.allocation)
 
         self._complete_task(event.task_info)
 
@@ -662,7 +653,7 @@ class FunctionExecutorController:
         task_info.is_completed = True
         emit_completed_task_metrics(
             task_info=task_info,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
         self._state_reporter.add_completed_task_result(
@@ -786,13 +777,13 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
 
 def _to_task_result_proto(output: TaskOutput) -> TaskResult:
     task_result = TaskResult(
-        task_id=output.task.id,
-        allocation_id=output.allocation_id,
-        namespace=output.task.namespace,
-        graph_name=output.task.graph_name,
-        graph_version=output.task.graph_version,
-        function_name=output.task.function_name,
-        graph_invocation_id=output.task.graph_invocation_id,
+        task_id=output.allocation.task.id,
+        allocation_id=output.allocation.allocation_id,
+        namespace=output.allocation.task.namespace,
+        graph_name=output.allocation.task.graph_name,
+        graph_version=output.allocation.task.graph_version,
+        function_name=output.allocation.task.function_name,
+        graph_invocation_id=output.allocation.task.graph_invocation_id,
         reducer=output.reducer,
         outcome_code=output.outcome_code,
         next_functions=(output.router_output.edges if output.router_output else []),

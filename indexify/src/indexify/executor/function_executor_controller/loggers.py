@@ -3,6 +3,7 @@ from typing import Any
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
     Task,
+    TaskAllocation,
     TaskResult,
 )
 
@@ -42,18 +43,23 @@ def function_executor_logger(
     )
 
 
-def task_logger(task: Task, logger: Any) -> Any:
-    """Returns a logger bound with the task's metadata.
+def task_allocation_logger(task_allocation: TaskAllocation, logger: Any) -> Any:
+    """Returns a logger for the given TaskAllocation.
 
-    The function assumes that the task might be invalid."""
+    Doesn't assume that the supplied TaskAllocation is valid.
+    """
+    if task_allocation.HasField("task"):
+        logger = _task_logger(task_allocation.task, logger)
     return logger.bind(
-        task_id=task.id if task.HasField("id") else None,
-        namespace=task.namespace if task.HasField("namespace") else None,
-        graph_name=task.graph_name if task.HasField("graph_name") else None,
-        graph_version=task.graph_version if task.HasField("graph_version") else None,
-        function_name=task.function_name if task.HasField("function_name") else None,
-        graph_invocation_id=(
-            task.graph_invocation_id if task.HasField("graph_invocation_id") else None
+        allocation_id=(
+            task_allocation.allocation_id
+            if task_allocation.HasField("allocation_id")
+            else None
+        ),
+        function_executor_id=(
+            task_allocation.function_executor_id
+            if task_allocation.HasField("function_executor_id")
+            else None
         ),
     )
 
@@ -81,5 +87,21 @@ def task_result_logger(task_result: TaskResult, logger: Any) -> Any:
             task_result.graph_invocation_id
             if task_result.HasField("graph_invocation_id")
             else None
+        ),
+    )
+
+
+def _task_logger(task: Task, logger: Any) -> Any:
+    """Returns a logger bound with the task's metadata.
+
+    The function assumes that the task might be invalid."""
+    return logger.bind(
+        task_id=task.id if task.HasField("id") else None,
+        namespace=task.namespace if task.HasField("namespace") else None,
+        graph_name=task.graph_name if task.HasField("graph_name") else None,
+        graph_version=task.graph_version if task.HasField("graph_version") else None,
+        function_name=task.function_name if task.HasField("function_name") else None,
+        graph_invocation_id=(
+            task.graph_invocation_id if task.HasField("graph_invocation_id") else None
         ),
     )
