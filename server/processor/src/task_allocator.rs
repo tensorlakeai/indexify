@@ -6,21 +6,10 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    AllocationBuilder,
-    ChangeType,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorServerMetadata,
-    FunctionExecutor,
-    FunctionExecutorBuilder,
-    FunctionExecutorServerMetadata,
-    FunctionExecutorState,
-    FunctionExecutorTerminationReason,
-    FunctionResources,
-    GraphInvocationCtx,
-    Task,
-    TaskOutcome,
-    TaskStatus,
+    AllocationBuilder, ChangeType, ExecutorId, ExecutorMetadata, ExecutorServerMetadata,
+    FunctionExecutor, FunctionExecutorBuilder, FunctionExecutorServerMetadata,
+    FunctionExecutorState, FunctionExecutorTerminationReason, FunctionResources,
+    GraphInvocationCtx, Task, TaskOutcome, TaskStatus,
 };
 use rand::seq::IndexedRandom;
 use state_store::{
@@ -132,8 +121,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             .vacuum_function_executors_candidates(fe_resource)?;
 
         info!(
-            num_function_executors = function_executors_to_mark.len(),
-            "vacuum phase identified function executors to mark for termination",
+            "vacuum phase identified {} function executors to mark for termination",
+            function_executors_to_mark.len(),
         );
 
         // Mark FEs for termination (change desired state to Terminated)
@@ -252,8 +241,8 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut function_executors = self
             .in_memory_state
             .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
-        if function_executors.function_executors.is_empty() &&
-            function_executors.num_pending_function_executors == 0
+        if function_executors.function_executors.is_empty()
+            && function_executors.num_pending_function_executors == 0
         {
             info!("no function executors found for task, creating one");
             let fe_update = self.create_function_executor(task)?;
@@ -364,8 +353,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             }
         }
         for fe in fes_exist_only_in_executor {
-            if fe.state != FunctionExecutorState::Terminated &&
-                executor_server_metadata
+            if fe.state != FunctionExecutorState::Terminated
+                && executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
@@ -423,21 +412,14 @@ impl<'a> TaskAllocationProcessor<'a> {
         function_executors_to_remove: &Vec<FunctionExecutor>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
+
         if function_executors_to_remove.is_empty() {
             return Ok(update);
         }
 
-        for fn_executor in function_executors_to_remove {
-            info!(
-                fn_executor_id = fn_executor.id.get(),
-                executor_id = executor_server_metadata.executor_id.get(),
-                "Removing function executor from executor",
-            );
-        }
-
         info!(
             executor_id = executor_server_metadata.executor_id.get(),
-            "Removed {} function executors from executor {}",
+            "removing {} function executors from executor {}",
             function_executors_to_remove.len(),
             executor_server_metadata.executor_id.get(),
         );
@@ -445,6 +427,12 @@ impl<'a> TaskAllocationProcessor<'a> {
         // Handle allocations for FEs to be removed and update tasks
         let mut allocations_to_remove = Vec::new();
         for fe in function_executors_to_remove {
+            info!(
+                fn_executor_id = fe.id.get(),
+                executor_id = executor_server_metadata.executor_id.get(),
+                "removing function executor from executor",
+            );
+
             let allocs = self
                 .in_memory_state
                 .allocations_by_executor
@@ -464,10 +452,10 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
                     task.outcome = TaskOutcome::Failure;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
-                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
-                    fe.termination_reason ==
-                        FunctionExecutorTerminationReason::DesiredStateRemoved
+                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError
+                    || fe.termination_reason == FunctionExecutorTerminationReason::Unknown
+                    || fe.termination_reason
+                        == FunctionExecutorTerminationReason::DesiredStateRemoved
                 {
                     task.status = TaskStatus::Pending;
                     task.attempt_number = task.attempt_number + 1;
@@ -518,6 +506,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                 );
             } else {
                 error!(
+                    fn_executor_id=fe.id.get(),
+                    executor_id=executor_server_metadata.executor_id.get(),
                     "resources not freed: function executor {} is not claiming resources on executor {}",
                     fe.id.get(),
                     &executor_server_metadata.executor_id.get()
@@ -541,7 +531,8 @@ impl<'a> TaskAllocationProcessor<'a> {
             .cloned()
         else {
             error!(
-                "executor {} not found while deregistering executor",
+                executor_id = executor_id.get(),
+                "executor {} not found while de-registering executor",
                 executor_id.get()
             );
             return Ok(update);
