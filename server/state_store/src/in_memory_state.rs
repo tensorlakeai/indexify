@@ -1340,7 +1340,7 @@ impl InMemoryState {
                 };
                 let desired_state_task = DesiredStateTask {
                     task: task.clone(),
-                    allocation_id: allocation.key(),
+                    allocation_id: allocation.id.clone(),
                     timeout_ms: cg_node.timeout.0,
                     retry_policy: cg_node.retry_policy.clone(),
                 };

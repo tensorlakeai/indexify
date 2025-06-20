@@ -13,7 +13,13 @@ mod tests {
 
     use crate::{
         service::Service,
-        testing::{self, ExecutorStateAssertions, FinalizeTaskArgs, TaskStateAssertions},
+        testing::{
+            self,
+            allocation_key_from_proto,
+            ExecutorStateAssertions,
+            FinalizeTaskArgs,
+            TaskStateAssertions,
+        },
     };
 
     #[tokio::test]
@@ -62,7 +68,7 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                     .task_outcome(TaskOutcome::Success),
             )
             .await?;
@@ -132,7 +138,7 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                     .task_outcome(TaskOutcome::Success),
             )
             .await?;
@@ -282,7 +288,7 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(task_allocation.allocation_id().to_string())
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                         .task_outcome(TaskOutcome::Success),
                 )
                 .await?;

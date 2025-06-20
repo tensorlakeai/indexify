@@ -8,6 +8,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 use anyhow::Result;
 use blob_store::BlobStorage;
 use data_model::{
+    Allocation,
     DataPayload,
     ExecutorId,
     ExecutorMetadata,
@@ -414,10 +415,10 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
 }
 
 fn to_function_executor_diagnostics(
-    function_executor_state: &executor_api_pb::FunctionExecutorState,
+    function_executor_update: &executor_api_pb::FunctionExecutorUpdate,
     blob_storage: &BlobStorage,
 ) -> Result<FunctionExecutorDiagnostics> {
-    let description = function_executor_state
+    let description = function_executor_update
         .description
         .as_ref()
         .ok_or(anyhow::anyhow!("description is required"))?;
@@ -442,12 +443,12 @@ fn to_function_executor_diagnostics(
         .clone()
         .ok_or(anyhow::anyhow!("graph_version is required"))?;
     let startup_stdout = prepare_data_payload(
-        function_executor_state.startup_stdout.clone(),
+        function_executor_update.startup_stdout.clone(),
         &blob_storage.get_url_scheme(),
         &blob_storage.get_url(),
     );
     let startup_stderr = prepare_data_payload(
-        function_executor_state.startup_stderr.clone(),
+        function_executor_update.startup_stderr.clone(),
         &blob_storage.get_url_scheme(),
         &blob_storage.get_url(),
     );
@@ -464,14 +465,13 @@ fn to_function_executor_diagnostics(
 }
 
 fn to_function_executor_diagnostics_vector(
-    executor_state: &executor_api_pb::ExecutorState,
+    function_executor_updates: &Vec<executor_api_pb::FunctionExecutorUpdate>,
     blob_storage: &BlobStorage,
 ) -> Result<Vec<FunctionExecutorDiagnostics>> {
-    executor_state
-        .function_executor_states
+    function_executor_updates
         .iter()
-        .map(|function_executor_state| {
-            to_function_executor_diagnostics(function_executor_state, blob_storage)
+        .map(|function_executor_update| {
+            to_function_executor_diagnostics(function_executor_update, blob_storage)
         })
         .collect()
 }
@@ -656,11 +656,12 @@ impl ExecutorAPIService {
                     &self.blob_storage.get_url(),
                 ),
             };
-            let allocation_key = task_result
-                .allocation_id
-                .clone()
-                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
-
+            let allocation_key = Allocation::key_from(
+                namespace.as_str(),
+                compute_graph.compute_graph_name.as_str(),
+                invocation_id.as_str(),
+                allocation_id.as_str(),
+            );
             let mut allocation = self
                 .indexify_state
                 .reader()
@@ -723,14 +724,23 @@ impl ExecutorApi for ExecutorAPIService {
             .clone()
             .ok_or(Status::invalid_argument("executor_id is required"))?;
         let executor_id = ExecutorId::new(executor_id);
+        let executor_update = request
+            .get_ref()
+            .executor_update
+            .clone()
+            .ok_or(Status::invalid_argument("executor_update is required"))?;
 
         trace!(
             executor_id = executor_id.get(),
             "Got report_executor_state request"
         );
-        let function_executor_diagnostics =
-            to_function_executor_diagnostics_vector(&executor_state, &self.blob_storage)
-                .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let function_executor_diagnostics = to_function_executor_diagnostics_vector(
+            &executor_update.function_executor_updates,
+            &self.blob_storage,
+        )
+        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         self.executor_manager
@@ -738,7 +748,7 @@ impl ExecutorApi for ExecutorAPIService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let task_results = request.get_ref().task_results.clone();
+        let task_results = executor_update.task_results.clone();
         self.handle_task_outcomes(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;

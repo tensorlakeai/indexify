@@ -3,6 +3,7 @@ from typing import Any
 from indexify.proto.executor_api_pb2 import (
     FunctionExecutorDescription,
     Task,
+    TaskResult,
 )
 
 
@@ -53,5 +54,32 @@ def task_logger(task: Task, logger: Any) -> Any:
         function_name=task.function_name if task.HasField("function_name") else None,
         graph_invocation_id=(
             task.graph_invocation_id if task.HasField("graph_invocation_id") else None
+        ),
+    )
+
+
+def task_result_logger(task_result: TaskResult, logger: Any) -> Any:
+    """Returns a logger bound with the task result's metadata.
+
+    The function assumes that the task result might be invalid."""
+    return logger.bind(
+        task_id=task_result.task_id if task_result.HasField("task_id") else None,
+        allocation_id=(
+            task_result.allocation_id if task_result.HasField("allocation_id") else None
+        ),
+        namespace=task_result.namespace if task_result.HasField("namespace") else None,
+        graph_name=(
+            task_result.graph_name if task_result.HasField("graph_name") else None
+        ),
+        graph_version=(
+            task_result.graph_version if task_result.HasField("graph_version") else None
+        ),
+        function_name=(
+            task_result.function_name if task_result.HasField("function_name") else None
+        ),
+        graph_invocation_id=(
+            task_result.graph_invocation_id
+            if task_result.HasField("graph_invocation_id")
+            else None
         ),
     )
