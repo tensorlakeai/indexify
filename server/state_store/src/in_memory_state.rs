@@ -1422,6 +1422,8 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use data_model::{
         DataPayload,
         ExecutorId,
@@ -1437,10 +1439,8 @@ mod tests {
         TaskOutcome,
         TaskStatus,
     };
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::in_memory_state::UnallocatedTaskId;
-    use crate::in_memory_state_bootstrap;
+    use crate::{in_memory_state::UnallocatedTaskId, in_memory_state_bootstrap};
 
     #[test]
     fn test_unallocated_task_id_ordering() {
@@ -1594,7 +1594,9 @@ mod tests {
             "task-1",
             TaskOutcome::Success,
         );
-        state.tasks.insert(terminal_task.key(), Box::new(terminal_task));
+        state
+            .tasks
+            .insert(terminal_task.key(), Box::new(terminal_task));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 3: Add a terminal task (Failure) - should return false
@@ -1606,7 +1608,9 @@ mod tests {
             "task-2",
             TaskOutcome::Failure,
         );
-        state.tasks.insert(terminal_task2.key(), Box::new(terminal_task2));
+        state
+            .tasks
+            .insert(terminal_task2.key(), Box::new(terminal_task2));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 4: Add a non-terminal task (Unknown outcome) - should return true
@@ -1618,10 +1622,13 @@ mod tests {
             "task-3",
             TaskOutcome::Unknown,
         );
-        state.tasks.insert(pending_task.key(), Box::new(pending_task));
+        state
+            .tasks
+            .insert(pending_task.key(), Box::new(pending_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
-        // Test case 5: Add tasks for different namespace/graph - should not affect result
+        // Test case 5: Add tasks for different namespace/graph - should not affect
+        // result
         let different_task = create_task(
             "different-namespace",
             "different-graph",
@@ -1630,10 +1637,13 @@ mod tests {
             "task-4",
             TaskOutcome::Unknown,
         );
-        state.tasks.insert(different_task.key(), Box::new(different_task));
+        state
+            .tasks
+            .insert(different_task.key(), Box::new(different_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
-        // Test case 6: Add tasks for same namespace/graph but different function - should not affect result
+        // Test case 6: Add tasks for same namespace/graph but different function -
+        // should not affect result
         let different_fn_task = create_task(
             "test-namespace",
             "test-graph",
@@ -1642,7 +1652,9 @@ mod tests {
             "task-5",
             TaskOutcome::Unknown,
         );
-        state.tasks.insert(different_fn_task.key(), Box::new(different_fn_task));
+        state
+            .tasks
+            .insert(different_fn_task.key(), Box::new(different_fn_task));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 7: Add multiple pending tasks - should still return true
@@ -1654,7 +1666,9 @@ mod tests {
             "task-6",
             TaskOutcome::Unknown,
         );
-        state.tasks.insert(pending_task2.key(), Box::new(pending_task2));
+        state
+            .tasks
+            .insert(pending_task2.key(), Box::new(pending_task2));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 8: Change all pending tasks to terminal - should return false
@@ -1699,7 +1713,8 @@ mod tests {
         };
         assert!(state.has_pending_tasks(&fe_metadata2));
 
-        // Test case 10: Change the different function task to terminal - should return false
+        // Test case 10: Change the different function task to terminal - should return
+        // false
         let keys_to_update2: Vec<String> = state
             .tasks
             .iter()
