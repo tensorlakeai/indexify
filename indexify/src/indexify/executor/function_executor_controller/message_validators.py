@@ -4,6 +4,7 @@ from indexify.proto.executor_api_pb2 import (
     DataPayload,
     FunctionExecutorDescription,
     Task,
+    TaskAllocation,
 )
 
 
@@ -25,6 +26,7 @@ def validate_function_executor_description(
     validator.required_field("customer_code_timeout_ms")
     validator.required_field("graph")
     validator.required_field("resources")
+    validator.required_field("output_payload_uri_prefix")
 
     _validate_data_payload(function_executor_description.graph)
 
@@ -39,7 +41,20 @@ def validate_function_executor_description(
         validator.required_field("model")
 
 
-def validate_task(task: Task) -> None:
+def validate_task_allocation(task_allocation: TaskAllocation) -> None:
+    """Validates the supplied TaskAllocation.
+
+    Raises ValueError if the TaskAllocation is not valid.
+    """
+    validator = MessageValidator(task_allocation)
+    validator.required_field("function_executor_id")
+    validator.required_field("allocation_id")
+    if not task_allocation.HasField("task"):
+        raise ValueError("TaskAllocation must have a 'task' field.")
+    _validate_task(task_allocation.task)
+
+
+def _validate_task(task: Task) -> None:
     """Validates the supplied Task.
 
     Raises ValueError if the Task is not valid.

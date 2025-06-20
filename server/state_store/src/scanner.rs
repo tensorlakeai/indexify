@@ -7,6 +7,7 @@ use data_model::{
     ComputeGraph,
     ComputeGraphVersion,
     DataPayload,
+    FunctionExecutorDiagnostics,
     GraphInvocationCtx,
     GraphVersion,
     InvocationPayload,
@@ -336,6 +337,49 @@ impl StateReader {
                 _ => {
                     return Err(anyhow::anyhow!("Invalid file type"));
                 }
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_function_executor_startup_diagnostic_payload(
+        &self,
+        ns: &str,
+        cg: &str,
+        func: &str,
+        ver: &str,
+        fe_id: &str,
+        file: &str,
+    ) -> Result<Option<DataPayload>> {
+        let kvs = &[KeyValue::new(
+            "op",
+            "get_function_executor_diagnostic_payload",
+        )];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let fe_diagnostics_key = FunctionExecutorDiagnostics::key_from(ns, cg, func, ver, fe_id);
+        let fe_diagnostics: Option<FunctionExecutorDiagnostics> = self.get_from_cf(
+            &IndexifyObjectsColumns::FunctionExecutorDiagnostics,
+            fe_diagnostics_key,
+        )?;
+        let Some(fe_diagnostics) = fe_diagnostics else {
+            return Ok(None);
+        };
+
+        match file {
+            "stdout" => {
+                if let Some(stdout) = fe_diagnostics.startup_stdout {
+                    return Ok(Some(stdout));
+                }
+            }
+            "stderr" => {
+                if let Some(stderr) = fe_diagnostics.startup_stderr {
+                    return Ok(Some(stderr));
+                }
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Invalid file type"));
             }
         }
 

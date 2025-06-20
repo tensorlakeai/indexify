@@ -41,13 +41,16 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::http_objects::{
-    from_data_model_executor_metadata,
-    FnOutput,
-    Invocation,
-    InvocationStatus,
-    StateChangesResponse,
-    UnallocatedTasks,
+use crate::{
+    http_objects::{
+        from_data_model_executor_metadata,
+        FnOutput,
+        Invocation,
+        InvocationStatus,
+        StateChangesResponse,
+        UnallocatedTasks,
+    },
+    routes::logs::download_function_executor_startup_logs,
 };
 
 mod download;
@@ -103,6 +106,7 @@ use crate::{
             list_outputs,
             delete_invocation,
             logs::download_allocation_logs,
+            logs::download_function_executor_startup_logs,
             list_executors,
             list_allocations,
             list_unallocated_tasks,
@@ -310,6 +314,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}", get(download_allocation_logs).with_state(route_state.clone()))
+        .route("/compute_graphs/{compute_graph}/compute_functions/{compute_function}/versions/{version}/function_executors/{function_executor_id}/startup_logs/{file}", get(download_function_executor_startup_logs).with_state(route_state.clone()))
         .layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
 }
 

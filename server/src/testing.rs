@@ -4,6 +4,7 @@ use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
     test_objects::tests::mock_node_fn_output,
+    Allocation,
     DataPayload,
     ExecutorId,
     ExecutorMetadata,
@@ -238,14 +239,23 @@ pub struct FinalizeTaskArgs {
     pub allocation_key: String,
 }
 
+pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
+    Allocation::key_from(
+        allocation.task.as_ref().unwrap().namespace(),
+        allocation.task.as_ref().unwrap().graph_name(),
+        allocation.task.as_ref().unwrap().graph_invocation_id(),
+        allocation.allocation_id.as_ref().unwrap(),
+    )
+}
+
 impl FinalizeTaskArgs {
-    pub fn new(allocation_id: String) -> FinalizeTaskArgs {
+    pub fn new(allocation_key: String) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
             num_outputs: 1,
             task_outcome: TaskOutcome::Success,
             reducer_fn: None,
             diagnostics: None,
-            allocation_key: allocation_id,
+            allocation_key,
         }
     }
 
@@ -286,10 +296,11 @@ pub struct TestExecutor<'a> {
 
 impl TestExecutor<'_> {
     pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
+        let function_executor_diagnostics = vec![];
         self.test_service
             .service
             .executor_manager
-            .heartbeat(executor)
+            .heartbeat(executor, function_executor_diagnostics)
             .await?;
         Ok(())
     }

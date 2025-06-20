@@ -17,14 +17,14 @@ async def prepare_task(
     logger = logger.bind(module=__name__)
     try:
         task_info.input = await download_input(
-            data_payload=task_info.task.input,
+            data_payload=task_info.allocation.task.input,
             blob_store=blob_store,
             logger=logger,
         )
 
-        if task_info.task.HasField("reducer_input"):
+        if task_info.allocation.task.HasField("reducer_input"):
             task_info.init_value = await download_init_value(
-                data_payload=task_info.task.reducer_input,
+                data_payload=task_info.allocation.task.reducer_input,
                 blob_store=blob_store,
                 logger=logger,
             )

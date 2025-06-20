@@ -242,6 +242,7 @@ class FunctionExecutorDescription(_message.Message):
         "customer_code_timeout_ms",
         "graph",
         "resources",
+        "output_payload_uri_prefix",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -253,6 +254,7 @@ class FunctionExecutorDescription(_message.Message):
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -263,6 +265,7 @@ class FunctionExecutorDescription(_message.Message):
     customer_code_timeout_ms: int
     graph: DataPayload
     resources: FunctionExecutorResources
+    output_payload_uri_prefix: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -275,6 +278,7 @@ class FunctionExecutorDescription(_message.Message):
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
+        output_payload_uri_prefix: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -292,6 +296,21 @@ class FunctionExecutorState(_message.Message):
         termination_reason: _Optional[
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
+    ) -> None: ...
+
+class FunctionExecutorUpdate(_message.Message):
+    __slots__ = ("description", "startup_stdout", "startup_stderr")
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    STARTUP_STDOUT_FIELD_NUMBER: _ClassVar[int]
+    STARTUP_STDERR_FIELD_NUMBER: _ClassVar[int]
+    description: FunctionExecutorDescription
+    startup_stdout: DataPayload
+    startup_stderr: DataPayload
+    def __init__(
+        self,
+        description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
+        startup_stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        startup_stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):
@@ -364,16 +383,35 @@ class ExecutorState(_message.Message):
         server_clock: _Optional[int] = ...,
     ) -> None: ...
 
-class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state", "task_results")
-    EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
+class ExecutorUpdate(_message.Message):
+    __slots__ = ("executor_id", "task_results", "function_executor_updates")
+    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_RESULTS_FIELD_NUMBER: _ClassVar[int]
-    executor_state: ExecutorState
+    FUNCTION_EXECUTOR_UPDATES_FIELD_NUMBER: _ClassVar[int]
+    executor_id: str
     task_results: _containers.RepeatedCompositeFieldContainer[TaskResult]
+    function_executor_updates: _containers.RepeatedCompositeFieldContainer[
+        FunctionExecutorUpdate
+    ]
+    def __init__(
+        self,
+        executor_id: _Optional[str] = ...,
+        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
+        function_executor_updates: _Optional[
+            _Iterable[_Union[FunctionExecutorUpdate, _Mapping]]
+        ] = ...,
+    ) -> None: ...
+
+class ReportExecutorStateRequest(_message.Message):
+    __slots__ = ("executor_state", "executor_update")
+    EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
+    EXECUTOR_UPDATE_FIELD_NUMBER: _ClassVar[int]
+    executor_state: ExecutorState
+    executor_update: ExecutorUpdate
     def __init__(
         self,
         executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
-        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
+        executor_update: _Optional[_Union[ExecutorUpdate, _Mapping]] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -498,8 +536,10 @@ class ResultRouting(_message.Message):
 class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
+        "allocation_id",
         "namespace",
         "graph_name",
+        "graph_version",
         "function_name",
         "graph_invocation_id",
         "reducer",
@@ -509,12 +549,13 @@ class TaskResult(_message.Message):
         "function_outputs",
         "stdout",
         "stderr",
-        "allocation_id",
         "routing",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
     GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     REDUCER_FIELD_NUMBER: _ClassVar[int]
@@ -524,11 +565,12 @@ class TaskResult(_message.Message):
     FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
-    ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     ROUTING_FIELD_NUMBER: _ClassVar[int]
     task_id: str
+    allocation_id: str
     namespace: str
     graph_name: str
+    graph_version: str
     function_name: str
     graph_invocation_id: str
     reducer: bool
@@ -538,13 +580,14 @@ class TaskResult(_message.Message):
     function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
-    allocation_id: str
     routing: ResultRouting
     def __init__(
         self,
         task_id: _Optional[str] = ...,
+        allocation_id: _Optional[str] = ...,
         namespace: _Optional[str] = ...,
         graph_name: _Optional[str] = ...,
+        graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
         reducer: bool = ...,
@@ -554,6 +597,5 @@ class TaskResult(_message.Message):
         function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        allocation_id: _Optional[str] = ...,
         routing: _Optional[_Union[ResultRouting, _Mapping]] = ...,
     ) -> None: ...

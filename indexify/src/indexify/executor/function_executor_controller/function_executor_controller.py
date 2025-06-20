@@ -16,7 +16,9 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
-    Task,
+    FunctionExecutorUpdate,
+    TaskAllocation,
+    TaskResult,
 )
 
 from .completed_task_metrics import emit_completed_task_metrics
@@ -38,7 +40,8 @@ from .events import (
     TaskOutputUploadFinished,
     TaskPreparationFinished,
 )
-from .loggers import function_executor_logger, task_logger
+from .function_executor_startup_output import FunctionExecutorStartupOutput
+from .loggers import function_executor_logger, task_allocation_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING,
     METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING,
@@ -77,10 +80,10 @@ class FunctionExecutorController:
         using validate_function_executor_description().
         """
         self._executor_id: str = executor_id
-        self._function_executor_description: FunctionExecutorDescription = (
+        self._fe_description: FunctionExecutorDescription = (
             function_executor_description
         )
-        self._function_executor_server_factory: FunctionExecutorServerFactory = (
+        self._fe_server_factory: FunctionExecutorServerFactory = (
             function_executor_server_factory
         )
         self._state_reporter: ExecutorStateReporter = state_reporter
@@ -93,7 +96,10 @@ class FunctionExecutorController:
         )
         # Mutable state. No lock needed as it's modified by async tasks running in
         # the same event loop.
-        self._function_executor: Optional[FunctionExecutor] = None
+        self._fe: Optional[FunctionExecutor] = None
+        self._fe_termination_reason: FunctionExecutorTerminationReason = (
+            None  # Optional
+        )
         # FE Status reported to Server.
         self._status: FunctionExecutorStatus = (
             FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_UNKNOWN
@@ -116,7 +122,7 @@ class FunctionExecutorController:
         self._running_task: Optional[TaskInfo] = None
 
     def function_executor_id(self) -> str:
-        return self._function_executor_description.id
+        return self._fe_description.id
 
     def status(self) -> FunctionExecutorStatus:
         """Returns the current status of the Function Executor.
@@ -125,13 +131,13 @@ class FunctionExecutorController:
         """
         return self._status
 
-    def add_task(self, task: Task, allocation_id: str) -> None:
+    def add_task_allocation(self, task_allocation: TaskAllocation) -> None:
         """Adds a task to the Function Executor.
 
         Not blocking. Never raises exceptions.
         """
-        logger = task_logger(task, self._logger)
-        if self.has_task(task.id):
+        logger = task_allocation_logger(task_allocation, self._logger)
+        if self.has_task(task_allocation.task.id):
             logger.warning(
                 "attempted to add already added task to Function Executor",
             )
@@ -139,9 +145,9 @@ class FunctionExecutorController:
 
         metric_tasks_fetched.inc()
         task_info: TaskInfo = TaskInfo(
-            task=task, allocation_id=allocation_id, start_time=time.monotonic()
+            allocation=task_allocation, start_time=time.monotonic()
         )
-        self._tasks[task.id] = task_info
+        self._tasks[task_allocation.task.id] = task_info
         next_aio = prepare_task(
             task_info=task_info,
             blob_store=self._blob_store,
@@ -187,7 +193,7 @@ class FunctionExecutorController:
             return  # Server processed the completed task outputs, we can forget it now.
 
         # Task cancellation is required as the task is not completed yet.
-        logger = task_logger(task_info.task, self._logger)
+        logger = task_allocation_logger(task_info.allocation, self._logger)
         task_info.is_cancelled = True
         logger.info(
             "cancelling task",
@@ -212,8 +218,8 @@ class FunctionExecutorController:
         )
         self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_PENDING)
         next_aio = create_function_executor(
-            function_executor_description=self._function_executor_description,
-            function_executor_server_factory=self._function_executor_server_factory,
+            function_executor_description=self._fe_description,
+            function_executor_server_factory=self._fe_server_factory,
             blob_store=self._blob_store,
             executor_id=self._executor_id,
             base_url=self._base_url,
@@ -225,7 +231,10 @@ class FunctionExecutorController:
             aio=next_aio,
             on_exception=FunctionExecutorCreated(
                 function_executor=None,
-                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
+                output=FunctionExecutorStartupOutput(
+                    function_executor_description=self._fe_description,
+                    termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
+                ),
             ),
         )
 
@@ -254,7 +263,6 @@ class FunctionExecutorController:
     def _set_status(
         self,
         status: FunctionExecutorStatus,
-        termination_reason: FunctionExecutorTerminationReason = None,  # type: Optional[FunctionExecutorTerminationReason]
     ) -> None:
         """Sets Function Executor status and reports it to the Server.
 
@@ -267,7 +275,9 @@ class FunctionExecutorController:
             "function executor status changed",
             old_status=FunctionExecutorStatus.Name(old_status),
             new_status=FunctionExecutorStatus.Name(new_status),
-            termination_reason=_termination_reason_to_short_name(termination_reason),
+            termination_reason=_termination_reason_to_short_name(
+                self._fe_termination_reason
+            ),
         )
         metric_function_executors_with_status.labels(
             status=_to_fe_status_metric_label(old_status, self._logger)
@@ -276,14 +286,24 @@ class FunctionExecutorController:
             status=_to_fe_status_metric_label(new_status, self._logger)
         ).inc()
 
-        new_fe_state = FunctionExecutorState(
-            description=self._function_executor_description, status=new_status
-        )
-        if termination_reason is not None:
-            new_fe_state.termination_reason = termination_reason
-        self._state_reporter.update_function_executor_state(new_fe_state)
+        self._state_reporter.update_function_executor_state(self._current_state())
         # Report the status change to the Server asap to reduce latency in the system.
         self._state_reporter.schedule_state_report()
+
+    def _current_state(self) -> FunctionExecutorState:
+        """Returns the current state of the Function Executor.
+
+        Not blocking. Never raises exceptions.
+        """
+        termination_reason: Optional[FunctionExecutorTerminationReason] = None
+        if self._fe_termination_reason is not None:
+            termination_reason = self._fe_termination_reason
+
+        return FunctionExecutorState(
+            description=self._fe_description,
+            status=self._status,
+            termination_reason=termination_reason,
+        )
 
     async def _control_loop(self) -> None:
         """Runs control loop that coordinates all the work done by the Function Executor.
@@ -355,7 +375,7 @@ class FunctionExecutorController:
             aio=aio,
             task_info=task_info,
             on_exception=on_exception,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
 
     def _spawn_aio_for_fe(
@@ -425,24 +445,25 @@ class FunctionExecutorController:
 
         Doesn't raise any exceptions. Doesn't block.
         """
+        self._state_reporter.add_function_executor_update(
+            FunctionExecutorUpdate(
+                description=self._fe_description,
+                startup_stdout=event.output.stdout,
+                startup_stderr=event.output.stderr,
+            )
+        )
+        self._state_reporter.schedule_state_report()
+
         if event.function_executor is None:
-            self._destroy_function_executor_before_termination(event.termination_reason)
-            if event.function_error is not None:
-                # TODO: Save stdout and stderr of customer code that ran during FE creation into BLOBs
-                # so customers can debug their function initialization errors.
-                # https://github.com/tensorlakeai/indexify/issues/1426
-                self._logger.error(
-                    "failed to create function executor due to error in customer code",
-                    exc_info=event.function_error,
-                )
+            self._destroy_function_executor_before_termination(
+                event.output.termination_reason
+            )
             return
 
-        self._function_executor = event.function_executor
+        self._fe = event.function_executor
         self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING)
         # Health checker starts after FE creation and gets automatically stopped on FE destroy.
-        self._function_executor.health_checker().start(
-            self._health_check_failed_callback
-        )
+        self._fe.health_checker().start(self._health_check_failed_callback)
         self._add_event(
             ScheduleTaskExecution(),
             source="_handle_event_function_executor_created",
@@ -460,10 +481,8 @@ class FunctionExecutorController:
                 "Function Executor destroy failed unexpectedly, this should never happen",
             )
         # Set the status only after the FE got destroyed because Server assumes that all FE resources are freed when the status changes.
-        self._set_status(
-            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-            termination_reason=event.termination_reason,
-        )
+        self._fe_termination_reason = event.termination_reason
+        self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED)
         # Invoke the scheduler so it can fail runnable tasks with FE Terminated error.
         self._add_event(
             ScheduleTaskExecution(),
@@ -489,22 +508,18 @@ class FunctionExecutorController:
         task_info: TaskInfo = event.task_info
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
             self._start_task_output_upload(task_info)
             return
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.internal_error(task_info.allocation)
             self._start_task_output_upload(task_info)
             return
 
         task_info.prepared_time = time.monotonic()
         metric_runnable_tasks.inc()
         metric_runnable_tasks_per_function_name.labels(
-            task_info.task.function_name
+            task_info.allocation.task.function_name
         ).inc()
         self._runnable_tasks.append(task_info)
         self._add_event(
@@ -539,21 +554,19 @@ class FunctionExecutorController:
         )
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
             self._start_task_output_upload(task_info)
         elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
             task_info.output = TaskOutput.function_executor_terminated(
-                task=task_info.task, allocation_id=task_info.allocation_id
+                task_info.allocation
             )
             self._start_task_output_upload(task_info)
         elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING:
             self._running_task = task_info
             next_aio = run_task_on_function_executor(
                 task_info=task_info,
-                function_executor=self._function_executor,
-                logger=task_logger(task_info.task, self._logger),
+                function_executor=self._fe,
+                logger=task_allocation_logger(task_info.allocation, self._logger),
             )
             self._spawn_aio_for_task(
                 aio=next_aio,
@@ -564,7 +577,7 @@ class FunctionExecutorController:
                 ),
             )
         else:
-            task_logger(task_info.task, self._logger).error(
+            task_allocation_logger(task_info.allocation, self._logger).error(
                 "failed to schedule task execution, this should never happen"
             )
 
@@ -573,7 +586,7 @@ class FunctionExecutorController:
         metric_schedule_task_latency.observe(time.monotonic() - task_info.prepared_time)
         metric_runnable_tasks.dec()
         metric_runnable_tasks_per_function_name.labels(
-            task_info.task.function_name
+            task_info.allocation.task.function_name
         ).dec()
         return task_info
 
@@ -608,7 +621,7 @@ class FunctionExecutorController:
         next_aio = upload_task_output(
             task_info=task_info,
             blob_store=self._blob_store,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         self._spawn_aio_for_task(
             aio=next_aio,
@@ -628,9 +641,7 @@ class FunctionExecutorController:
         # Ignore task cancellation because we need to report it to the server anyway.
         task_info: TaskInfo = event.task_info
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(
-                task=task_info.task, allocation_id=task_info.allocation_id
-            )
+            task_info.output = TaskOutput.internal_error(task_info.allocation)
 
         self._complete_task(event.task_info)
 
@@ -642,10 +653,12 @@ class FunctionExecutorController:
         task_info.is_completed = True
         emit_completed_task_metrics(
             task_info=task_info,
-            logger=task_logger(task_info.task, self._logger),
+            logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
-        self._state_reporter.add_completed_task_output(task_info.output)
+        self._state_reporter.add_completed_task_result(
+            _to_task_result_proto(task_info.output)
+        )
         self._state_reporter.schedule_state_report()
 
     def _destroy_function_executor_before_termination(
@@ -656,11 +669,11 @@ class FunctionExecutorController:
         Doesn't raise any exceptions. Doesn't block.
         """
         next_aio = destroy_function_executor(
-            function_executor=self._function_executor,
+            function_executor=self._fe,
             termination_reason=termination_reason,
             logger=self._logger,
         )
-        self._function_executor = None
+        self._fe = None
         self._spawn_aio_for_fe(
             aio=next_aio,
             on_exception=FunctionExecutorDestroyed(
@@ -707,7 +720,7 @@ class FunctionExecutorController:
         if self._status != FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
             self._handle_event_function_executor_destroyed(
                 await destroy_function_executor(
-                    function_executor=self._function_executor,
+                    function_executor=self._fe,
                     termination_reason=event.termination_reason,
                     logger=self._logger,
                 )
@@ -716,7 +729,7 @@ class FunctionExecutorController:
             status=_to_fe_status_metric_label(self._status, self._logger)
         ).dec()
 
-        self._state_reporter.remove_function_executor_info(self.function_executor_id())
+        self._state_reporter.remove_function_executor_state(self.function_executor_id())
         self._state_reporter.schedule_state_report()
 
         self._logger.info("function executor controller control loop finished")
@@ -760,3 +773,29 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
         return "None"
 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
+
+
+def _to_task_result_proto(output: TaskOutput) -> TaskResult:
+    task_result = TaskResult(
+        task_id=output.allocation.task.id,
+        allocation_id=output.allocation.allocation_id,
+        namespace=output.allocation.task.namespace,
+        graph_name=output.allocation.task.graph_name,
+        graph_version=output.allocation.task.graph_version,
+        function_name=output.allocation.task.function_name,
+        graph_invocation_id=output.allocation.task.graph_invocation_id,
+        reducer=output.reducer,
+        outcome_code=output.outcome_code,
+        next_functions=(output.router_output.edges if output.router_output else []),
+        function_outputs=output.uploaded_data_payloads,
+    )
+    if output.failure_reason is not None:
+        task_result.failure_reason = output.failure_reason
+    if output.uploaded_stdout is not None:
+        task_result.stdout.CopyFrom(output.uploaded_stdout)
+    if output.uploaded_stderr is not None:
+        task_result.stderr.CopyFrom(output.uploaded_stderr)
+    if output.router_output is not None:
+        task_result.routing.next_functions[:] = output.router_output.edges
+
+    return task_result
