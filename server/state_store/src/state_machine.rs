@@ -674,7 +674,6 @@ pub(crate) fn handle_scheduler_update(
         txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.key())?;
     }
 
-
     for alloc in &request.new_allocations {
         info!(
             namespace = alloc.namespace,
