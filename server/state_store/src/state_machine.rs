@@ -225,7 +225,7 @@ pub(crate) fn delete_invocation(
     for task in tasks_deleted {
         info!(
             task_id = &task.id.get(),
-            compute_fn = &task.compute_fn_name,
+            "fn" = &task.compute_fn_name,
             "deleting task",
         );
     }
@@ -248,7 +248,7 @@ pub(crate) fn delete_invocation(
             info!(
                 allocation_id = value.id,
                 task_id = value.task_id.get(),
-                compute_fn = value.compute_fn,
+                "fn" = value.compute_fn,
                 "deleting allocation",
             );
 
@@ -664,7 +664,7 @@ pub(crate) fn handle_scheduler_update(
             namespace = alloc.namespace,
             graph = alloc.compute_graph,
             invocation_id = alloc.invocation_id,
-            compute_fn = alloc.compute_fn,
+            "fn" = alloc.compute_fn,
             task_id = alloc.id.to_string(),
             allocation_id = alloc.id,
             "delete_allocation",
@@ -677,7 +677,7 @@ pub(crate) fn handle_scheduler_update(
             namespace = alloc.namespace,
             graph = alloc.compute_graph,
             invocation_id = alloc.invocation_id,
-            compute_fn = alloc.compute_fn,
+            "fn" = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
             allocation_id = alloc.id,
             fn_executor_id = alloc.function_executor_id.get(),
@@ -697,7 +697,7 @@ pub(crate) fn handle_scheduler_update(
             namespace = task.namespace,
             graph = task.compute_graph_name,
             invocation_id = task.invocation_id,
-            compute_fn = task.compute_fn_name,
+            "fn" = task.compute_fn_name,
             task_id = task.id.to_string(),
             status = task.status.to_string(),
             outcome = task.outcome.to_string(),
@@ -796,7 +796,7 @@ pub fn ingest_task_outputs(
         namespace = &req.namespace,
         graph = &req.compute_graph,
         invocation_id = &req.invocation_id,
-        compute_fn = &req.compute_fn,
+        "fn" = &req.compute_fn,
         task_id = req.task.id.get(),
     );
     let _guard = span.enter();
