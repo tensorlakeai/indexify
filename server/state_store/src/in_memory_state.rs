@@ -1170,8 +1170,6 @@ impl InMemoryState {
         &self,
         fe_resource: &FunctionResources,
     ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
-        let mut function_executors_to_remove: Vec<Box<FunctionExecutorServerMetadata>> = Vec::new();
-
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
@@ -1192,7 +1190,14 @@ impl InMemoryState {
                 })
                 .unwrap_or_default();
 
-            // Process each function executor based on allowlist and version status
+            // Start with the current free resources on this executor
+            let mut available_resources = self
+                .executor_states
+                .get(executor_id)
+                .map(|executor_state| executor_state.free_resources.clone())
+                .unwrap_or_default();
+
+            let mut function_executors_to_remove = Vec::new();
             for fe_metadata in function_executors.iter() {
                 // Skip if the FE is already marked for termination
                 if fe_metadata.desired_state == FunctionExecutorState::Terminated {
@@ -1201,8 +1206,6 @@ impl InMemoryState {
 
                 let fe = &fe_metadata.function_executor;
                 let Some(executor) = self.executors.get(executor_id) else {
-                    // If the executor is not found, we can remove the FE
-                    // since it's not running any more
                     function_executors_to_remove.push(fe_metadata.clone());
                     continue;
                 };
@@ -1215,59 +1218,78 @@ impl InMemoryState {
                     ))
                     .map(|cg| cg.version.clone())
                 else {
-                    // If the compute graph is not found, we can remove the FE
-                    // since it's not running any more
                     function_executors_to_remove.push(fe_metadata.clone());
                     continue;
                 };
 
-                // Check if this FE has any pending invocations with its current version
-                let has_pending_invocations = self.has_pending_invocations(&fe_metadata);
+                let has_pending_tasks = self.has_pending_tasks(fe_metadata);
 
-                if !has_pending_invocations {
-                    // Can remove this outdated FE since it has no active invocations,
-                    // and running on an outdated version of the allowed compute graph
+                let mut can_be_removed = false;
+                if !has_pending_tasks {
                     let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
                             if allowlist_entry.matches_function_executor(fe) &&
                                 fe.version == latest_cg_version
                             {
-                                // This FE is allowed and up to date, so we don't need to remove it
                                 found_allowlist_match = true;
+                                break;
                             }
                         }
                     }
-                    if found_allowlist_match {
+                    if !found_allowlist_match {
+                        debug!(
+                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
+                            fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                        );
+                        can_be_removed = true;
+                    }
+                }
+
+                if can_be_removed {
+                    let mut simulated_resources = available_resources.clone();
+                    if let Err(_) =
+                        simulated_resources.free(&fe_metadata.function_executor.resources)
+                    {
                         continue;
                     }
-                    debug!(
-                    "Removing outdated function executor {} from executor {} (version {} < latest {})",
-                    fe.id.get(), executor_id.get(), fe.version, latest_cg_version
-                );
+
                     function_executors_to_remove.push(fe_metadata.clone());
-                }
-            }
-        }
+                    available_resources = simulated_resources;
 
-        Ok(function_executors_to_remove)
-    }
-
-    fn has_pending_invocations(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
-        // Check if there are any allocations for this FE with pending tasks
-        if let Some(allocations_by_fe) = self.allocations_by_executor.get(&fe_meta.executor_id) {
-            if let Some(allocations) = allocations_by_fe.get(&fe_meta.function_executor.id) {
-                for allocation in allocations {
-                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
-                        if !task.outcome.is_terminal() {
-                            return true;
-                        }
+                    if available_resources
+                        .can_handle_function_resources(fe_resource)
+                        .is_ok()
+                    {
+                        debug!(
+                            "Found sufficient space on executor {} by removing {} function executors",
+                            executor_id.get(),
+                            function_executors_to_remove.len()
+                        );
+                        return Ok(function_executors_to_remove);
                     }
                 }
             }
+            debug!(
+                "Could not find sufficient space on executor {} even after vacuuming",
+                executor_id.get()
+            );
         }
 
-        false
+        Ok(Vec::new())
+    }
+
+    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+        let task_prefixes_for_fe = format!(
+            "{}|{}|",
+            fe_meta.function_executor.namespace, fe_meta.function_executor.compute_graph_name
+        );
+        self.tasks
+            .range(task_prefixes_for_fe.clone()..)
+            .into_iter()
+            .take_while(|(k, _v)| k.starts_with(&task_prefixes_for_fe))
+            .filter(|(_k, v)| v.compute_fn_name == fe_meta.function_executor.compute_fn_name)
+            .any(|(_k, v)| !v.outcome.is_terminal())
     }
 
     pub fn desired_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
@@ -1382,8 +1404,69 @@ impl InMemoryState {
 }
 
 #[cfg(test)]
+mod test_helpers {
+    use super::*;
+    /// Macro to easily bootstrap an InMemoryState for tests.
+    ///
+    /// Usage:
+    /// ```
+    /// let state = in_memory_state_bootstrap! { clock: 42, tasks: my_tasks };
+    /// ```
+    /// You can specify any subset of fields; the rest will be defaulted.
+    #[macro_export]
+    macro_rules! in_memory_state_bootstrap {
+        ( $($field:ident : $value:expr),* $(,)? ) => {{
+            let mut state = super::InMemoryState::default();
+            $( state.$field = $value; )*
+            state
+        }};
+    }
+
+    impl Default for InMemoryState {
+        fn default() -> Self {
+            use opentelemetry::global;
+            Self {
+                clock: 0,
+                namespaces: im::HashMap::new(),
+                compute_graphs: im::HashMap::new(),
+                compute_graph_versions: im::OrdMap::new(),
+                executors: im::HashMap::new(),
+                executor_states: im::HashMap::new(),
+                function_executors_by_fn_uri: im::HashMap::new(),
+                allocations_by_executor: im::HashMap::new(),
+                unallocated_tasks: im::OrdSet::new(),
+                tasks: im::OrdMap::new(),
+                queued_reduction_tasks: im::OrdMap::new(),
+                invocation_ctx: im::OrdMap::new(),
+                task_pending_latency: global::meter("test").f64_histogram("test").build(),
+                allocation_running_latency: global::meter("test").f64_histogram("test").build(),
+                allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use crate::in_memory_state::UnallocatedTaskId;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use data_model::{
+        DataPayload,
+        ExecutorId,
+        FunctionExecutor,
+        FunctionExecutorId,
+        FunctionExecutorResources,
+        FunctionExecutorServerMetadata,
+        FunctionExecutorState,
+        FunctionExecutorTerminationReason,
+        GraphVersion,
+        Task,
+        TaskId,
+        TaskOutcome,
+        TaskStatus,
+    };
+
+    use crate::{in_memory_state::UnallocatedTaskId, in_memory_state_bootstrap};
 
     #[test]
     fn test_unallocated_task_id_ordering() {
@@ -1461,5 +1544,220 @@ mod tests {
             assert!(task3 < task2);
             assert!(task2 < task1);
         }
+    }
+
+    #[test]
+    fn test_has_pending_tasks() {
+        // Helper function to create a task
+        fn create_task(
+            namespace: &str,
+            compute_graph: &str,
+            invocation_id: &str,
+            compute_fn: &str,
+            task_id: &str,
+            outcome: TaskOutcome,
+        ) -> Task {
+            let current_time = SystemTime::now();
+            let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
+            let creation_time_ns = duration.as_nanos() as u128;
+
+            Task {
+                id: TaskId::from(task_id),
+                namespace: namespace.to_string(),
+                compute_fn_name: compute_fn.to_string(),
+                compute_graph_name: compute_graph.to_string(),
+                invocation_id: invocation_id.to_string(),
+                cache_hit: false,
+                input: DataPayload {
+                    path: "test-input".to_string(),
+                    size: 100,
+                    sha256_hash: "test-hash".to_string(),
+                },
+                acc_input: None,
+                status: TaskStatus::Pending,
+                outcome,
+                creation_time_ns,
+                graph_version: GraphVersion("1.0".to_string()),
+                cache_key: None,
+                attempt_number: 0,
+            }
+        }
+
+        // Create function executor metadata for testing
+        let executor_id = ExecutorId::new("test-executor".to_string());
+        let function_executor = FunctionExecutor {
+            id: FunctionExecutorId::new("test-fe".to_string()),
+            namespace: "test-namespace".to_string(),
+            compute_graph_name: "test-graph".to_string(),
+            compute_fn_name: "test-function".to_string(),
+            version: GraphVersion("1.0".to_string()),
+            state: FunctionExecutorState::Running,
+            termination_reason: FunctionExecutorTerminationReason::Unknown,
+            resources: FunctionExecutorResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            },
+        };
+
+        let fe_metadata = FunctionExecutorServerMetadata {
+            executor_id: executor_id.clone(),
+            function_executor: function_executor.clone(),
+            desired_state: FunctionExecutorState::Running,
+        };
+
+        // Test case 1: No tasks - should return false
+        let mut state = in_memory_state_bootstrap! { clock: 1 };
+        assert!(!state.has_pending_tasks(&fe_metadata));
+
+        // Test case 2: Add a terminal task (Success) - should return false
+        let terminal_task = create_task(
+            "test-namespace",
+            "test-graph",
+            "inv-1",
+            "test-function",
+            "task-1",
+            TaskOutcome::Success,
+        );
+        state
+            .tasks
+            .insert(terminal_task.key(), Box::new(terminal_task));
+        assert!(!state.has_pending_tasks(&fe_metadata));
+
+        // Test case 3: Add a terminal task (Failure) - should return false
+        let terminal_task2 = create_task(
+            "test-namespace",
+            "test-graph",
+            "inv-2",
+            "test-function",
+            "task-2",
+            TaskOutcome::Failure,
+        );
+        state
+            .tasks
+            .insert(terminal_task2.key(), Box::new(terminal_task2));
+        assert!(!state.has_pending_tasks(&fe_metadata));
+
+        // Test case 4: Add a non-terminal task (Unknown outcome) - should return true
+        let pending_task = create_task(
+            "test-namespace",
+            "test-graph",
+            "inv-3",
+            "test-function",
+            "task-3",
+            TaskOutcome::Unknown,
+        );
+        state
+            .tasks
+            .insert(pending_task.key(), Box::new(pending_task));
+        assert!(state.has_pending_tasks(&fe_metadata));
+
+        // Test case 5: Add tasks for different namespace/graph - should not affect
+        // result
+        let different_task = create_task(
+            "different-namespace",
+            "different-graph",
+            "inv-4",
+            "test-function",
+            "task-4",
+            TaskOutcome::Unknown,
+        );
+        state
+            .tasks
+            .insert(different_task.key(), Box::new(different_task));
+        assert!(state.has_pending_tasks(&fe_metadata));
+
+        // Test case 6: Add tasks for same namespace/graph but different function -
+        // should not affect result
+        let different_fn_task = create_task(
+            "test-namespace",
+            "test-graph",
+            "inv-5",
+            "different-function",
+            "task-5",
+            TaskOutcome::Unknown,
+        );
+        state
+            .tasks
+            .insert(different_fn_task.key(), Box::new(different_fn_task));
+        assert!(state.has_pending_tasks(&fe_metadata));
+
+        // Test case 7: Add multiple pending tasks - should still return true
+        let pending_task2 = create_task(
+            "test-namespace",
+            "test-graph",
+            "inv-6",
+            "test-function",
+            "task-6",
+            TaskOutcome::Unknown,
+        );
+        state
+            .tasks
+            .insert(pending_task2.key(), Box::new(pending_task2));
+        assert!(state.has_pending_tasks(&fe_metadata));
+
+        // Test case 8: Change all pending tasks to terminal - should return false
+        let keys_to_update: Vec<String> = state
+            .tasks
+            .iter()
+            .filter(|(key, task)| {
+                key.starts_with("test-namespace|test-graph|") &&
+                    task.compute_fn_name == "test-function" &&
+                    task.outcome == TaskOutcome::Unknown
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        for key in keys_to_update {
+            if let Some(mut task) = state.tasks.get(&key).cloned() {
+                task.outcome = TaskOutcome::Success;
+                state.tasks.insert(key, task);
+            }
+        }
+        assert!(!state.has_pending_tasks(&fe_metadata));
+
+        // Test case 9: Test with different function executor metadata
+        let fe_metadata2 = FunctionExecutorServerMetadata {
+            executor_id: executor_id.clone(),
+            function_executor: FunctionExecutor {
+                id: FunctionExecutorId::new("test-fe-2".to_string()),
+                namespace: "test-namespace".to_string(),
+                compute_graph_name: "test-graph".to_string(),
+                compute_fn_name: "different-function".to_string(),
+                version: GraphVersion("1.0".to_string()),
+                state: FunctionExecutorState::Running,
+                termination_reason: FunctionExecutorTerminationReason::Unknown,
+                resources: FunctionExecutorResources {
+                    cpu_ms_per_sec: 1000,
+                    memory_mb: 512,
+                    ephemeral_disk_mb: 1024,
+                    gpu: None,
+                },
+            },
+            desired_state: FunctionExecutorState::Running,
+        };
+        assert!(state.has_pending_tasks(&fe_metadata2));
+
+        // Test case 10: Change the different function task to terminal - should return
+        // false
+        let keys_to_update2: Vec<String> = state
+            .tasks
+            .iter()
+            .filter(|(key, task)| {
+                key.starts_with("test-namespace|test-graph|") &&
+                    task.compute_fn_name == "different-function" &&
+                    task.outcome == TaskOutcome::Unknown
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        for key in keys_to_update2 {
+            if let Some(mut task) = state.tasks.get(&key).cloned() {
+                task.outcome = TaskOutcome::Success;
+                state.tasks.insert(key, task);
+            }
+        }
+        assert!(!state.has_pending_tasks(&fe_metadata2));
     }
 }
