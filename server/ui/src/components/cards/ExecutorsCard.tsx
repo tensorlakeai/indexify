@@ -161,21 +161,17 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   colSpan={1}
                   sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
                 >
-                  {Object.entries(executor.host_resources).map(
-                    ([key, value]) => (
-                      <DisplayResourceContent keyName={key} value={value} />
-                    )
-                  )}
+                  <DisplayResourceContent
+                    resourceValue={executor.host_resources}
+                  />
                 </TableCell>
                 <TableCell
                   colSpan={1}
                   sx={{ verticalAlign: 'top', fontSize: '0.90rem' }}
                 >
-                  {Object.entries(executor.free_resources).map(
-                    ([key, value]) => (
-                      <DisplayResourceContent keyName={key} value={value} />
-                    )
-                  )}
+                  <DisplayResourceContent
+                    resourceValue={executor.free_resources}
+                  />
                 </TableCell>
               </TableRow>
 
@@ -300,6 +296,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         in={expandedRows[executor.id]}
                         timeout="auto"
                         unmountOnExit
+                        sx={{ width: '100%' }}
                       >
                         {executor.function_executors.map((fnExecutor) => (
                           <FunctionExecutorsContent

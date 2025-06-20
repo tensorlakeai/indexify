@@ -1,40 +1,38 @@
-import { GPUResources } from '../../types'
+import { HostResources } from '../../types'
+import { bytesToGigabytes } from '../../utils/helpers'
 
 interface DisplayResourceContentProps {
-  keyName: string
-  value: string | number | GPUResources | null
+  resourceValue: HostResources
 }
 
 export default function DisplayResourceContent({
-  keyName,
-  value,
+  resourceValue,
 }: DisplayResourceContentProps) {
-  if (typeof value === 'object') {
-    return (
-      <p>
-        <strong>{keyName}:</strong>
-        {value?.count !== undefined ? (
-          <>
-            <br />
-            <span style={{ fontSize: '0.9rem', marginLeft: '1rem' }}>
-              <strong style={{ color: '#444444' }}>count:</strong> {value.count}
-            </span>
-            <br />
-            <span style={{ fontSize: '0.9rem', marginLeft: '1rem' }}>
-              <strong style={{ color: '#444444' }}>model:</strong> {value.model}
-            </span>
-          </>
-        ) : (
-          ' -'
-        )}
-      </p>
-    )
-  }
-
   return (
-    <p>
-      <strong>{keyName}:</strong>{' '}
-      {value === null ? 'null' : value ? value : '-'}
-    </p>
+    <>
+      <p>
+        <strong>CPU Count:</strong> {resourceValue.cpu_count}
+      </p>
+      <p>
+        <strong>Memory GB:</strong>{' '}
+        {bytesToGigabytes(resourceValue.memory_bytes)}
+      </p>
+      <p>
+        <strong>Disk GB:</strong> {bytesToGigabytes(resourceValue.disk_bytes)}
+      </p>
+      <p>
+        <strong>GPU Information:</strong>
+        <br />
+        <span style={{ fontSize: '0.85rem', marginLeft: '1rem' }}>
+          <strong style={{ color: '#444444' }}>Count:</strong>{' '}
+          {resourceValue.gpu?.count ? resourceValue.gpu.count : 'N/A'}
+        </span>
+        <br />
+        <span style={{ fontSize: '0.85rem', marginLeft: '1rem' }}>
+          <strong style={{ color: '#444444' }}>Model:</strong>{' '}
+          {resourceValue.gpu?.model ? resourceValue.gpu.model : 'N/A'}
+        </span>
+      </p>
+    </>
   )
 }
