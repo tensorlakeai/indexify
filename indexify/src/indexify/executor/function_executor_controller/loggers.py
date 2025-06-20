@@ -13,7 +13,7 @@ def function_executor_logger(
 
     The function assumes that the FE might be invalid."""
     return logger.bind(
-        function_executor_id=(
+        fn_executor_id=(
             function_executor_description.id
             if function_executor_description.HasField("id")
             else None
@@ -23,9 +23,9 @@ def function_executor_logger(
             if function_executor_description.HasField("namespace")
             else None
         ),
-        graph_name=(
+        graph=(
             function_executor_description.graph_name
-            if function_executor_description.HasField("graph")
+            if function_executor_description.HasField("graph_name")
             else None
         ),
         graph_version=(
@@ -33,9 +33,9 @@ def function_executor_logger(
             if function_executor_description.HasField("graph_version")
             else None
         ),
-        function_name=(
+        fn_name=(
             function_executor_description.function_name
-            if function_executor_description.HasField("fn_name")
+            if function_executor_description.HasField("function_name")
             else None
         ),
     )
