@@ -833,9 +833,7 @@ pub fn ingest_task_outputs(
     };
     // Skip finalize task if it's invocation is already completed
     if invocation.completed {
-        warn!(
-            "Invocation already completed, skipping setting outputs",
-        );
+        warn!("Invocation already completed, skipping setting outputs",);
         return Ok(false);
     }
 
@@ -845,18 +843,14 @@ pub fn ingest_task_outputs(
         true,
     )?;
     let Some(existing_allocation) = existing_allocation else {
-        info!(
-            "Allocation not found",
-        );
+        info!("Allocation not found",);
         return Ok(false);
     };
     let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
     if existing_allocation.is_terminal() {
-        warn!(
-            "allocation already terminal, skipping setting outputs",
-        );
+        warn!("allocation already terminal, skipping setting outputs",);
         return Ok(false);
     }
 
