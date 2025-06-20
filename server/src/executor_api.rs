@@ -757,7 +757,8 @@ impl ExecutorApi for ExecutorAPIService {
         if duration_sec >= 1.0 {
             warn!(
                 executor_id = executor_id.get(),
-                "report_executor_state took {} secs", duration_sec
+                duration_sec = duration_sec,
+                "report_executor_state took too long"
             );
         }
 
