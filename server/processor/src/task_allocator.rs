@@ -428,13 +428,6 @@ impl<'a> TaskAllocationProcessor<'a> {
             return Ok(update);
         }
 
-        info!(
-            executor_id = executor_server_metadata.executor_id.get(),
-            "removing {} function executors from executor {}",
-            function_executors_to_remove.len(),
-            executor_server_metadata.executor_id.get(),
-        );
-
         // Handle allocations for FEs to be removed and update tasks
         let mut allocations_to_remove = Vec::new();
         for fe in function_executors_to_remove {
