@@ -968,20 +968,6 @@ impl ReduceTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum TaskOutputsIngestionStatus {
-    /// Outputs are not ingested yet.
-    Pending,
-    /// Outputs were ingested.
-    Ingested,
-}
-
-impl TaskOutputsIngestionStatus {
-    fn pending() -> Self {
-        Self::Pending
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
@@ -1040,12 +1026,11 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
+    pub cache_hit: bool,
     // Input to the function
     pub input: DataPayload,
     // Input to the reducer function
     pub acc_input: Option<DataPayload>,
-    #[serde(default = "TaskOutputsIngestionStatus::pending")]
-    pub output_status: TaskOutputsIngestionStatus,
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
@@ -1189,13 +1174,13 @@ impl TaskBuilder {
             acc_input,
             invocation_id,
             namespace,
-            output_status: TaskOutputsIngestionStatus::Pending,
             status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
             graph_version,
             creation_time_ns,
             cache_key,
             attempt_number: 0,
+            cache_hit: false,
         };
         Ok(task)
     }

@@ -21,7 +21,6 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
-    TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
 use rocksdb::{
@@ -832,17 +831,34 @@ pub fn ingest_task_outputs(
             return Ok(false);
         }
     };
-
-    let existing_task = txn.get_for_update_cf(
-        &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        req.task.key(),
-        true,
-    )?;
-    if existing_task.is_none() {
-        info!("Task not found: {}", req.task.key());
+    // Skip finalize task if it's invocation is already completed
+    if invocation.completed {
+        warn!(
+            "Invocation already completed, skipping setting outputs",
+        );
         return Ok(false);
     }
-    let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
+
+    let existing_allocation = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        &req.allocation_key,
+        true,
+    )?;
+    let Some(existing_allocation) = existing_allocation else {
+        info!(
+            "Allocation not found",
+        );
+        return Ok(false);
+    };
+    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
+    // idempotency check guaranteeing that we emit a finalizing state change only
+    // once.
+    if existing_allocation.is_terminal() {
+        warn!(
+            "allocation already terminal, skipping setting outputs",
+        );
+        return Ok(false);
+    }
 
     let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
     txn.put_cf(
@@ -850,19 +866,6 @@ pub fn ingest_task_outputs(
         &req.allocation_key,
         &serialized_allocation,
     )?;
-
-    // Skip finalize task if it's invocation is already completed
-    if invocation.completed {
-        warn!("Invocation already completed, skipping setting outputs",);
-        return Ok(false);
-    }
-
-    // idempotency check guaranteeing that we emit a finalizing state change only
-    // once.
-    if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
-        warn!("Task outputs already uploaded, skipping setting outputs",);
-        return Ok(false);
-    }
 
     let serialized_output = JsonEncoder::encode(&req.node_output)?;
 

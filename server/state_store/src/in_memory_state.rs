@@ -973,6 +973,28 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
+    pub fn fe_resource_for_task(&self, task: &Task) -> Result<FunctionResources> {
+        let compute_graph = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.graph_version,
+            ))
+            .ok_or(anyhow!(
+                "compute graph version: {} not found",
+                task.graph_version
+            ))?;
+        let compute_fn = compute_graph
+            .nodes
+            .get(&task.compute_fn_name)
+            .ok_or(anyhow!(
+                "compute function: {} not found",
+                task.compute_fn_name
+            ))?;
+        Ok(compute_fn.resources.clone())
+    }
+
     pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
         let compute_graph = self
             .compute_graph_versions
@@ -1165,6 +1187,7 @@ impl InMemoryState {
     #[tracing::instrument(skip(self))]
     pub fn vacuum_function_executors_candidates(
         &self,
+        fe_resource: &FunctionResources,
     ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
         let mut function_executors_to_remove: Vec<Box<FunctionExecutorServerMetadata>> = Vec::new();
 

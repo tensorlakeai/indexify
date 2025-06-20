@@ -151,6 +151,16 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
+        // We have already handled updating this task through the path of FE failures.
+        // However, if there was a cache hit, the task would have been updated to
+        // completed without any allocation ingestion. So we have to proceed and
+        // create new tasks.
+        if (task.status == TaskStatus::Pending || task.status == TaskStatus::Completed) &&
+            !task.cache_hit
+        {
+            return Ok(SchedulerUpdateRequest::default());
+        }
+
         let compute_graph_version = in_memory_state
             .compute_graph_versions
             .get(&task.key_compute_graph_version());
