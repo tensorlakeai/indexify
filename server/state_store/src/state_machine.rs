@@ -661,19 +661,6 @@ pub(crate) fn handle_scheduler_update(
 ) -> Result<Vec<StateChange>> {
     last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
 
-    for alloc in &request.remove_allocations {
-        info!(
-            namespace = alloc.namespace,
-            graph = alloc.compute_graph,
-            invocation_id = alloc.invocation_id,
-            "fn" = alloc.compute_fn,
-            task_id = alloc.id.to_string(),
-            allocation_id = alloc.id,
-            "delete_allocation",
-        );
-        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.key())?;
-    }
-
     for alloc in &request.new_allocations {
         info!(
             namespace = alloc.namespace,
