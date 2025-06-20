@@ -56,7 +56,7 @@ def task_allocation_logger(task_allocation: TaskAllocation, logger: Any) -> Any:
             if task_allocation.HasField("allocation_id")
             else None
         ),
-        function_executor_id=(
+        fn_executor_id=(
             task_allocation.function_executor_id
             if task_allocation.HasField("function_executor_id")
             else None
@@ -74,16 +74,14 @@ def task_result_logger(task_result: TaskResult, logger: Any) -> Any:
             task_result.allocation_id if task_result.HasField("allocation_id") else None
         ),
         namespace=task_result.namespace if task_result.HasField("namespace") else None,
-        graph_name=(
-            task_result.graph_name if task_result.HasField("graph_name") else None
-        ),
+        graph=(task_result.graph_name if task_result.HasField("graph_name") else None),
         graph_version=(
             task_result.graph_version if task_result.HasField("graph_version") else None
         ),
-        function_name=(
+        fn=(
             task_result.function_name if task_result.HasField("function_name") else None
         ),
-        graph_invocation_id=(
+        invocation_id=(
             task_result.graph_invocation_id
             if task_result.HasField("graph_invocation_id")
             else None
