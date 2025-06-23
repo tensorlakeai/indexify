@@ -23,6 +23,10 @@ export function FunctionExecutorsContent({
             <strong>Compute Graph:</strong>{' '}
             {functionExecutor.compute_graph_name}
           </p>
+          <p>
+            <strong>Compute Function Name:</strong>{' '}
+            {functionExecutor.compute_fn_name}
+          </p>
         </TableCell>
         <TableCell
           sx={{ verticalAlign: 'top', fontSize: '0.90rem', width: '50%' }}
