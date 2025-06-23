@@ -157,7 +157,9 @@ impl<'a> TaskAllocationProcessor<'a> {
     fn create_function_executor(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "create_function_executor",
+            namespace = task.namespace,
             invocation_id = task.invocation_id,
+            task_id = task.id.get(),
             graph = task.compute_graph_name,
             "fn" = task.compute_fn_name,
             graph_version = task.graph_version.to_string(),
@@ -241,6 +243,8 @@ impl<'a> TaskAllocationProcessor<'a> {
     fn create_allocation(&mut self, task: &Task) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "delete_compute_graph",
+            namespace = task.namespace,
+            task_id = task.id.get(),
             invocation_id = task.invocation_id,
             graph = task.compute_graph_name,
             "fn" = task.compute_fn_name,
@@ -268,8 +272,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                 .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
         }
         info!(
-            "found {} function executors for task",
-            function_executors.function_executors.len()
+            num_function_executors = function_executors.function_executors.len(),
+            "found function executors for task",
         );
 
         let Some(candidate) = function_executors
@@ -424,6 +428,13 @@ impl<'a> TaskAllocationProcessor<'a> {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
+        let span = info_span!(
+            "remove_function_executors",
+            executor_id = executor_server_metadata.executor_id.get(),
+            num_function_executors = function_executors_to_remove.len(),
+        );
+        let _guard = span.enter();
+
         if function_executors_to_remove.is_empty() {
             return Ok(update);
         }
@@ -432,8 +443,10 @@ impl<'a> TaskAllocationProcessor<'a> {
         // Handle allocations for FEs to be removed and update tasks
         for fe in function_executors_to_remove {
             info!(
+                namespace = fe.namespace,
+                compute_graph = fe.compute_graph_name,
+                compute_fn = fe.compute_fn_name,
                 fn_executor_id = fe.id.get(),
-                executor_id = executor_server_metadata.executor_id.get(),
                 "removing function executor from executor",
             );
 
@@ -487,8 +500,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         }
 
         info!(
-            num_allocations = failed_tasks,
-            executor_id = executor_server_metadata.executor_id.get(),
+            num_failed_allocations = failed_tasks,
             "failed allocations on executor due to function executor terminations",
         );
 
@@ -510,11 +522,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                 );
             } else {
                 error!(
-                    fn_executor_id=fe.id.get(),
-                    executor_id=executor_server_metadata.executor_id.get(),
-                    "resources not freed: function executor {} is not claiming resources on executor {}",
-                    fe.id.get(),
-                    &executor_server_metadata.executor_id.get()
+                    fn_executor_id = fe.id.get(),
+                    "resources not freed: function executor is not claiming resources on executor",
                 );
             }
         }
