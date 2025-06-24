@@ -197,7 +197,7 @@ class FunctionExecutorController:
         task_info.is_cancelled = True
         logger.info(
             "cancelling task",
-            allocation_id=task_info.allocation_id,
+            allocation_id=task_info.allocation.allocation_id,
         )
         if task_info.aio_task is not None:
             task_info.aio_task.cancel()
