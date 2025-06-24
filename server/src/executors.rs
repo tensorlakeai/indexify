@@ -415,7 +415,7 @@ impl ExecutorManager {
                 )),
                 size: Some(desired_state_fe.code_payload.size),
                 sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
-                encoding: Some(DataPayloadEncoding::BinaryPickle.into()),
+                encoding: Some(DataPayloadEncoding::BinaryZip.into()),
                 encoding_version: None,
             };
             let fe = &desired_state_fe.function_executor.function_executor;

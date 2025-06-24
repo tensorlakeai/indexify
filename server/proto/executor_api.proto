@@ -7,11 +7,10 @@ package executor_api_pb;
 // ===== DataPayload =====
 enum DataPayloadEncoding {
     DATA_PAYLOAD_ENCODING_UNKNOWN = 0;
-    // These encodings are currently mapping 1:1 to mime types.
-    // TODO: use SDK specific encodings becase 1:1 mapping might not work in the future.
     DATA_PAYLOAD_ENCODING_UTF8_JSON = 1;
     DATA_PAYLOAD_ENCODING_UTF8_TEXT = 2;
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE = 3;
+    DATA_PAYLOAD_ENCODING_BINARY_ZIP = 4;
 }
 
 message DataPayload {
@@ -231,14 +230,9 @@ enum TaskFailureReason {
     TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
     TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
-    TASK_FAILURE_REASON_TASK_CANCELLED = 4;
-    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 5;
-}
-
-message ResultRouting {
-    // The list of next functions.
-    // NB: An empty list indicates that no routing should be performed.
-    repeated string next_functions = 1;
+    TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
+    TASK_FAILURE_REASON_TASK_CANCELLED = 5;
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
 
 message TaskResult {
@@ -252,25 +246,15 @@ message TaskResult {
     optional bool reducer = 8;
     optional TaskOutcomeCode outcome_code = 9;
     optional TaskFailureReason failure_reason = 10;
+    optional string failure_message = 16;
     // Edges that the function wants the invocation to be routed to.
-    // Previously called router_edges.
-    // NB: An empty list indicates that the graph's route definitions should be used,
-    // unless this field is overridden by the presence of the `routing` field.
+    // Unless use_graph_routing is true.
     repeated string next_functions = 11;
+    optional bool use_graph_routing = 15;
     repeated DataPayload function_outputs = 12;
     // Standard output and error streams of the function.
     optional DataPayload stdout = 13;
     optional DataPayload stderr = 14;
-
-    // Indicates how the results should be routed.
-    // If this is present, it replaces `next_functions`.
-    //
-    // If absent, `next_functions` will be used; note that if no
-    // routes are defined in `next_functions`, this will use the
-    // graph's routing.  The long-term goal is to deprecate
-    // `next_functions`, so that if `routing` is not present, the
-    // graph's routing definitions will always be used.
-    ResultRouting routing = 15;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

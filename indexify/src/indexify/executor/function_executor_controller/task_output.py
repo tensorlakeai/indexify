@@ -1,8 +1,7 @@
 from typing import Dict, List, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionOutput,
-    RouterOutput,
+    SerializedObject,
 )
 
 from indexify.proto.executor_api_pb2 import (
@@ -30,9 +29,10 @@ class TaskOutput:
         outcome_code: TaskOutcomeCode,
         # Optional[TaskFailureReason] is not supported in python 3.9
         failure_reason: TaskFailureReason = None,
-        output_encoding: Optional[str] = None,
-        function_output: Optional[FunctionOutput] = None,
-        router_output: Optional[RouterOutput] = None,
+        failure_message: Optional[str] = None,
+        function_outputs: List[SerializedObject] = [],
+        next_functions: List[str] = [],
+        use_graph_routing: bool = True,
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
@@ -43,15 +43,16 @@ class TaskOutput:
     ):
         self.task = allocation.task
         self.allocation = allocation
-        self.function_output = function_output
-        self.router_output = router_output
+        self.function_outputs = function_outputs
+        self.next_functions = next_functions
+        self.use_graph_routing = use_graph_routing
         self.stdout = stdout
         self.stderr = stderr
         self.reducer = reducer
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
+        self.failure_message = failure_message
         self.metrics = metrics
-        self.output_encoding = output_encoding
         self.uploaded_data_payloads = uploaded_data_payloads
         self.uploaded_stdout = uploaded_stdout
         self.uploaded_stderr = uploaded_stderr
@@ -68,6 +69,7 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
             stderr="Platform failed to execute the function.",
+            failure_message="Platform failed to execute the function.",
         )
 
     @classmethod
@@ -83,6 +85,7 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
             stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
+            failure_message=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
         )
 
     @classmethod

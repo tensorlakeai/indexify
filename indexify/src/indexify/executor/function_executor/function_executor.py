@@ -7,6 +7,8 @@ import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     InfoRequest,
     InfoResponse,
+    InitializationFailureReason,
+    InitializationOutcomeCode,
     InitializeRequest,
     InitializeResponse,
 )
@@ -315,16 +317,42 @@ async def _initialize_server(
                 initialize_request,
                 timeout=customer_code_timeout_sec,
             )
-            # TODO: set real stdout and stderr when their proper capturing on FE initialization is implemented.
-            if initialize_response.success:
-                return FunctionExecutorInitializationResult()
-            elif initialize_response.HasField("customer_error"):
+
+            if (
+                initialize_response.outcome_code
+                == InitializationOutcomeCode.INITIALIZE_OUTCOME_CODE_SUCCESS
+            ):
                 return FunctionExecutorInitializationResult(
-                    error=FunctionExecutorInitializationError.FUNCTION_ERROR,
-                    stderr=initialize_response.customer_error,
+                    stdout=initialize_response.stdout, stderr=initialize_response.stderr
                 )
+            elif (
+                initialize_response.outcome_code
+                == InitializationOutcomeCode.INITIALIZE_OUTCOME_CODE_FAILURE
+            ):
+                if (
+                    initialize_response.failure_reason
+                    == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR
+                ):
+                    return FunctionExecutorInitializationResult(
+                        error=FunctionExecutorInitializationError.FUNCTION_ERROR,
+                        stdout=initialize_response.stdout,
+                        stderr=initialize_response.stderr,
+                    )
+                elif (
+                    initialize_response.failure_reason
+                    == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_INTERNAL_ERROR
+                ):
+                    # Don't add stdout/stderr because this is customer data.
+                    raise RuntimeError("initialize RPC failed with internal error")
+                else:
+                    raise ValueError(
+                        f"unexpected failure reason {InitializationFailureReason.Name(initialize_response.failure_reason)} in initialize RPC response"
+                    )
             else:
-                raise Exception("initialize RPC failed at function executor server")
+                raise ValueError(
+                    f"unexpected outcome code {InitializationOutcomeCode.Name(initialize_response.outcome_code)} in initialize RPC response"
+                )
+
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 return FunctionExecutorInitializationResult(

@@ -1809,30 +1809,32 @@ name = "tensorlake"
 version = "0.2.6"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Workflows"
 optional = false
-python-versions = "<4.0,>=3.10"
+python-versions = "^3.10"
 groups = ["main"]
-files = [
-    {file = "tensorlake-0.2.6-py3-none-any.whl", hash = "sha256:64ba0f198518a72c176ae912adbfe3e43b46b7f1a9daa2475ec5ca60d2913555"},
-    {file = "tensorlake-0.2.6.tar.gz", hash = "sha256:d4836d57ed817f9f506d93e1b114fc91e08f0631090fc7641c934b35c9d22562"},
-]
+files = []
+develop = true
 
 [package.dependencies]
-aiofiles = ">=24.1.0,<25.0.0"
+aiofiles = "^24.1.0"
 click = "8.2.1"
-cloudpickle = ">=3.1.0,<4.0.0"
-docker = ">=7.1.0,<8.0.0"
+cloudpickle = "^3.1.0"
+docker = "^7.1.0"
 grpcio = "1.73.0"
 grpcio-tools = "1.73.0"
 httpx = {version = "0.27.2", extras = ["http2"]}
-httpx-sse = ">=0.4.0,<0.5.0"
-nanoid = ">=2.0.0,<3.0.0"
-pydantic = "2.11.6"
-python-magic = ">=0.4.27,<0.5.0"
-pyyaml = ">=6.0.2,<7.0.0"
-retry = ">=0.9.2,<0.10.0"
+httpx-sse = "^0.4.0"
+nanoid = "^2.0.0"
+pydantic = "^2.0"
+python-magic = "^0.4.27"
+pyyaml = "^6.0.2"
+retry = "^0.9.2"
 rich = "14.0.0"
 structlog = "25.4.0"
-tqdm = ">=4.67.1,<5.0.0"
+tqdm = "^4.67.1"
+
+[package.source]
+type = "directory"
+url = "../tensorlake"
 
 [[package]]
 name = "tomli"
@@ -2079,4 +2081,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "325421b4f68d37f284dcd89c68514f5414742d3294da55bac70effd45a754ee2"
+content-hash = "b62d6ae8a79956df13d3d1f2302308cccf72e932ecfe50a4f9f3573e7b509f13"

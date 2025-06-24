@@ -17,6 +17,7 @@ class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DATA_PAYLOAD_ENCODING_UTF8_JSON: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_UTF8_TEXT: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_BINARY_ZIP: _ClassVar[DataPayloadEncoding]
 
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -90,6 +91,7 @@ class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TASK_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
+    TASK_FAILURE_REASON_INVOCATION_ERROR: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
 
@@ -97,6 +99,7 @@ DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_BINARY_ZIP: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_A100_40GB: GPUModel
 GPU_MODEL_NVIDIA_A100_80GB: GPUModel
@@ -142,6 +145,7 @@ TASK_FAILURE_REASON_UNKNOWN: TaskFailureReason
 TASK_FAILURE_REASON_INTERNAL_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
+TASK_FAILURE_REASON_INVOCATION_ERROR: TaskFailureReason
 TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 
@@ -527,12 +531,6 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
-class ResultRouting(_message.Message):
-    __slots__ = ("next_functions",)
-    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
-    next_functions: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, next_functions: _Optional[_Iterable[str]] = ...) -> None: ...
-
 class TaskResult(_message.Message):
     __slots__ = (
         "task_id",
@@ -545,11 +543,12 @@ class TaskResult(_message.Message):
         "reducer",
         "outcome_code",
         "failure_reason",
+        "failure_message",
         "next_functions",
+        "use_graph_routing",
         "function_outputs",
         "stdout",
         "stderr",
-        "routing",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -561,11 +560,12 @@ class TaskResult(_message.Message):
     REDUCER_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    USE_GRAPH_ROUTING_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
-    ROUTING_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     allocation_id: str
     namespace: str
@@ -576,11 +576,12 @@ class TaskResult(_message.Message):
     reducer: bool
     outcome_code: TaskOutcomeCode
     failure_reason: TaskFailureReason
+    failure_message: str
     next_functions: _containers.RepeatedScalarFieldContainer[str]
+    use_graph_routing: bool
     function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
-    routing: ResultRouting
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -593,9 +594,10 @@ class TaskResult(_message.Message):
         reducer: bool = ...,
         outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
         failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
+        failure_message: _Optional[str] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
+        use_graph_routing: bool = ...,
         function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        routing: _Optional[_Union[ResultRouting, _Mapping]] = ...,
     ) -> None: ...

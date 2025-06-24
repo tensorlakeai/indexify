@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import nanoid
-from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    SerializedObject,
+    SerializedObjectEncoding,
+)
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import (
@@ -179,20 +182,28 @@ def _serialized_object_from_data_payload_proto(
     """
     if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:
         return SerializedObject(
-            bytes=data,
-            content_type="application/octet-stream",
+            data=data,
+            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
+            encoding_version=1,
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT:
         return SerializedObject(
-            content_type="text/plain",
-            string=data.decode("utf-8"),
+            data=data,
+            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT,
+            encoding_version=1,
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON:
-        result = SerializedObject(
-            content_type="application/json",
-            string=data.decode("utf-8"),
+        return SerializedObject(
+            data=data,
+            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON,
+            encoding_version=1,
         )
-        return result
+    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_ZIP:
+        return SerializedObject(
+            data=data,
+            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP,
+            encoding_version=1,
+        )
 
     raise ValueError(
         f"Can't convert data payload {data_payload} into serialized object"

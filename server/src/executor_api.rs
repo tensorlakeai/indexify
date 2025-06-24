@@ -515,6 +515,15 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let failure_reason = task_result.failure_reason
+                .map(|reason| {
+                    executor_api_pb::TaskFailureReason::try_from(reason)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))
+                })
+                .transpose()?;
+            let failure_message = task_result
+                .failure_message
+                .clone();
             let namespace = task_result
                 .namespace
                 .clone()
@@ -597,6 +606,7 @@ impl ExecutorAPIService {
                             DataPayloadEncoding::Utf8Json => Ok("application/json"),
                             DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
                             DataPayloadEncoding::Utf8Text => Ok("text/plain"),
+                            DataPayloadEncoding::BinaryZip => Ok("application/zip"),
                             DataPayloadEncoding::Unknown => {
                                 Err(Status::invalid_argument("unknown data payload encoding"))
                             }
@@ -610,25 +620,10 @@ impl ExecutorAPIService {
                 payloads.push(data_payload);
             }
 
-            // Figure out the routing to use.
-            //
-            // The `next_functions` field has a special-case edge
-            // behavior: iff it's empty, we use the routing specified
-            // by the graph itself.  We're replacing this with a
-            // `routing` field which, if present, overrides
-            // `next_functions` entirely; it has its own
-            // `next_functions`, defined as being the complete route
-            // list (if empty, there are no routes, and this part of
-            // the graph is complete).
-            let routing = match task_result.routing.as_ref() {
-                Some(r) => Routing::Edges(r.next_functions.clone()),
-                None => {
-                    if task_result.next_functions.len() > 0 {
-                        Routing::Edges(task_result.next_functions.clone())
-                    } else {
-                        Routing::UseGraphEdges
-                    }
-                }
+            let routing = if task_result.use_graph_routing.unwrap_or(true) {
+                Routing::UseGraphEdges
+            } else {
+                Routing::Edges(task_result.next_functions.clone())
             };
 
             let node_output = NodeOutputBuilder::default()

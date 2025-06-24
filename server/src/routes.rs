@@ -463,6 +463,16 @@ async fn create_or_update_compute_graph(
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
                 upgrade_tasks_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
+            } else if name == "code_content_type" {
+                let code_content_type = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                if code_content_type != "application/zip" {
+                    return Err(IndexifyAPIError::bad_request(
+                        "Code content type must be application/zip",
+                    ));
+                }
             }
         }
     }

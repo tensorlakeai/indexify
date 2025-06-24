@@ -786,7 +786,8 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         graph_invocation_id=output.allocation.task.graph_invocation_id,
         reducer=output.reducer,
         outcome_code=output.outcome_code,
-        next_functions=(output.router_output.edges if output.router_output else []),
+        next_functions=output.next_functions,
+        use_graph_routing=output.use_graph_routing,
         function_outputs=output.uploaded_data_payloads,
     )
     if output.failure_reason is not None:
@@ -795,7 +796,5 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         task_result.stdout.CopyFrom(output.uploaded_stdout)
     if output.uploaded_stderr is not None:
         task_result.stderr.CopyFrom(output.uploaded_stderr)
-    if output.router_output is not None:
-        task_result.routing.next_functions[:] = output.router_output.edges
 
     return task_result
