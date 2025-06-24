@@ -80,6 +80,7 @@ impl Service {
         let graph_processor = Arc::new(GraphProcessor::new(
             indexify_state.clone(),
             task_cache.clone(),
+            config.queue_size,
         ));
         Ok(Self {
             config,

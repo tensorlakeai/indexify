@@ -1017,7 +1017,7 @@ impl InMemoryState {
     pub fn candidate_function_executors(
         &self,
         task: &Task,
-        capacity_threshold: usize,
+        capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
         let mut candidates = Vec::new();
         let fn_uri = FunctionURI::from(task);
@@ -1043,7 +1043,7 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if allocation_count < capacity_threshold {
+                if (allocation_count as u32) < capacity_threshold {
                     candidates.push(function_executor.clone());
                 }
             }
