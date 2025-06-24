@@ -17,6 +17,7 @@ pub struct ServerConfig {
     pub blob_storage: BlobStorageConfig,
     pub tracing: TracingConfig,
     pub executor: ExecutorConfig,
+    pub queue_size: u32,
 }
 
 impl Default for ServerConfig {
@@ -30,6 +31,7 @@ impl Default for ServerConfig {
             blob_storage: Default::default(),
             tracing: TracingConfig::default(),
             executor: ExecutorConfig::default(),
+            queue_size: 20,
         }
     }
 }

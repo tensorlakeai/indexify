@@ -24,10 +24,15 @@ pub struct GraphProcessor {
     pub task_cache: Arc<task_cache::TaskCache>,
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
+    pub queue_size: u32,
 }
 
 impl GraphProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>, task_cache: Arc<task_cache::TaskCache>) -> Self {
+    pub fn new(
+        indexify_state: Arc<IndexifyState>,
+        task_cache: Arc<task_cache::TaskCache>,
+        queue_size: u32,
+    ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let processor_processing_latency = meter
@@ -49,6 +54,7 @@ impl GraphProcessor {
             task_cache,
             state_transition_latency,
             processor_processing_latency,
+            queue_size,
         }
     }
 
@@ -214,7 +220,7 @@ impl GraphProcessor {
 
                 scheduler_update.extend(self.task_cache.try_allocate(indexes.clone()));
 
-                scheduler_update.extend(task_allocator::allocate(indexes, clock)?);
+                scheduler_update.extend(task_allocator::allocate(indexes, clock, self.queue_size)?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],
@@ -223,8 +229,12 @@ impl GraphProcessor {
             ChangeType::ExecutorUpserted(_) |
             ChangeType::ExecutorRemoved(_) |
             ChangeType::TombStoneExecutor(_) => {
-                let scheduler_update =
-                    task_allocator::invoke(indexes, clock, &state_change.change_type)?;
+                let scheduler_update = task_allocator::invoke(
+                    indexes,
+                    clock,
+                    &state_change.change_type,
+                    self.queue_size,
+                )?;
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],

@@ -35,11 +35,10 @@ use tracing::{debug, error, info, info_span, warn};
 // - function concurrency configuration
 // - function batching configuration
 // - function timeout configuration
-const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
-
 struct TaskAllocationProcessor<'a> {
     in_memory_state: &'a mut InMemoryState,
     clock: u64,
+    queue_size: u32,
 }
 
 #[tracing::instrument(skip(in_memory_state, clock, change))]
@@ -47,12 +46,14 @@ pub fn invoke(
     in_memory_state: Arc<RwLock<InMemoryState>>,
     clock: u64,
     change: &ChangeType,
+    queue_size: u32,
 ) -> Result<SchedulerUpdateRequest> {
     let mut in_memory_state = in_memory_state.write().unwrap();
 
     let mut task_allocator = TaskAllocationProcessor {
         in_memory_state: &mut in_memory_state.deref_mut(),
         clock,
+        queue_size,
     };
 
     task_allocator.invoke(change)
@@ -64,12 +65,14 @@ pub fn invoke(
 pub fn allocate(
     in_memory_state: Arc<RwLock<InMemoryState>>,
     clock: u64,
+    queue_size: u32,
 ) -> Result<SchedulerUpdateRequest> {
     let mut in_memory_state = in_memory_state.write().unwrap();
 
     let mut task_allocator = TaskAllocationProcessor {
         in_memory_state: &mut in_memory_state.deref_mut(),
         clock,
+        queue_size,
     };
 
     task_allocator.allocate()
@@ -255,7 +258,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut update = SchedulerUpdateRequest::default();
         let mut function_executors = self
             .in_memory_state
-            .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
+            .candidate_function_executors(task, self.queue_size)?;
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
@@ -269,7 +272,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             )?;
             function_executors = self
                 .in_memory_state
-                .candidate_function_executors(task, MAX_ALLOCATIONS_PER_FN_EXECUTOR)?;
+                .candidate_function_executors(task, self.queue_size)?;
         }
         info!(
             num_function_executors = function_executors.function_executors.len(),
