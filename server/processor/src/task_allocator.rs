@@ -29,15 +29,16 @@ use state_store::{
 };
 use tracing::{debug, error, info, info_span, warn};
 
-// Maximum number of allocations per executor.
-//
-// In the future, this should be a dynamic value based on:
-// - function concurrency configuration
-// - function batching configuration
-// - function timeout configuration
 struct TaskAllocationProcessor<'a> {
     in_memory_state: &'a mut InMemoryState,
     clock: u64,
+
+    // Maximum number of allocations per executor.
+    //
+    // In the future, this should be a dynamic value based on:
+    // - function concurrency configuration
+    // - function batching configuration
+    // - function timeout configuration
     queue_size: u32,
 }
 
