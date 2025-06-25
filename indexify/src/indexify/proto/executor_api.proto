@@ -246,13 +246,14 @@ message TaskResult {
     optional bool reducer = 8;
     optional TaskOutcomeCode outcome_code = 9;
     optional TaskFailureReason failure_reason = 10;
-    optional string failure_message = 16;
     // Edges that the function wants the invocation to be routed to.
     repeated string next_functions = 11;
     repeated DataPayload function_outputs = 12;
     // Standard output and error streams of the function.
     optional DataPayload stdout = 13;
     optional DataPayload stderr = 14;
+    // User payload for invocation error if task failed with invocation error.
+    optional DataPayload invocation_error_output = 15;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

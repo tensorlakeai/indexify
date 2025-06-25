@@ -514,14 +514,13 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
-            let failure_reason = task_result
-                .failure_reason
-                .map(|reason| {
-                    executor_api_pb::TaskFailureReason::try_from(reason)
-                        .map_err(|e| Status::invalid_argument(e.to_string()))
-                })
-                .transpose()?;
-            let failure_message = task_result.failure_message.clone();
+            // let failure_reason = task_result
+            //     .failure_reason
+            //     .map(|reason| {
+            //         executor_api_pb::TaskFailureReason::try_from(reason)
+            //             .map_err(|e| Status::invalid_argument(e.to_string()))
+            //     })
+            //     .transpose()?;
             let namespace = task_result
                 .namespace
                 .clone()
@@ -643,6 +642,11 @@ impl ExecutorAPIService {
                     &self.blob_storage.get_url(),
                 ),
             };
+            // let invocation_error_output = prepare_data_payload(
+            //     task_result.invocation_error_output.clone(),
+            //     &self.blob_storage.get_url_scheme(),
+            //     &self.blob_storage.get_url(),
+            // );
             let allocation_key = Allocation::key_from(
                 namespace.as_str(),
                 compute_graph.compute_graph_name.as_str(),

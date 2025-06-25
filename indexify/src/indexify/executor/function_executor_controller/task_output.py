@@ -29,16 +29,13 @@ class TaskOutput:
         outcome_code: TaskOutcomeCode,
         # Optional[TaskFailureReason] is not supported in python 3.9
         failure_reason: TaskFailureReason = None,
-        failure_message: Optional[str] = None,
+        invocation_error_output: Optional[SerializedObject] = None,
         function_outputs: List[SerializedObject] = [],
         next_functions: List[str] = [],
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
         metrics: Optional[TaskMetrics] = None,
-        uploaded_data_payloads: List[DataPayload] = [],
-        uploaded_stdout: Optional[DataPayload] = None,
-        uploaded_stderr: Optional[DataPayload] = None,
     ):
         self.task = allocation.task
         self.allocation = allocation
@@ -49,11 +46,12 @@ class TaskOutput:
         self.reducer = reducer
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
-        self.failure_message = failure_message
+        self.invocation_error_output = invocation_error_output
         self.metrics = metrics
-        self.uploaded_data_payloads = uploaded_data_payloads
-        self.uploaded_stdout = uploaded_stdout
-        self.uploaded_stderr = uploaded_stderr
+        self.uploaded_data_payloads: List[DataPayload] = []
+        self.uploaded_stdout: Optional[DataPayload] = None
+        self.uploaded_stderr: Optional[DataPayload] = None
+        self.uploaded_invocation_error_output: Optional[DataPayload] = None
 
     @classmethod
     def internal_error(
@@ -67,7 +65,6 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
             stderr="Platform failed to execute the function.",
-            failure_message="Platform failed to execute the function.",
         )
 
     @classmethod
@@ -83,7 +80,6 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
             stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
-            failure_message=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
         )
 
     @classmethod

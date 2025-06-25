@@ -197,7 +197,6 @@ class FunctionExecutorController:
         task_info.is_cancelled = True
         logger.info(
             "cancelling task",
-            allocation_id=task_info.allocation.allocation_id,
         )
         if task_info.aio_task is not None:
             task_info.aio_task.cancel()
@@ -332,7 +331,7 @@ class FunctionExecutorController:
                     self._logger.error(
                         "unexpected exception in function executor controller control loop",
                         exc_info=e,
-                        fe_event=str(event),
+                        event_type=event.event_type.name,
                     )
 
     def _handle_event(self, event: BaseEvent) -> None:
@@ -786,11 +785,11 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         graph_invocation_id=output.allocation.task.graph_invocation_id,
         reducer=output.reducer,
         outcome_code=output.outcome_code,
+        failure_reason=output.failure_reason,
         next_functions=output.next_functions,
         function_outputs=output.uploaded_data_payloads,
+        invocation_error_output=output.uploaded_invocation_error_output,
     )
-    if output.failure_reason is not None:
-        task_result.failure_reason = output.failure_reason
     if output.uploaded_stdout is not None:
         task_result.stdout.CopyFrom(output.uploaded_stdout)
     if output.uploaded_stderr is not None:

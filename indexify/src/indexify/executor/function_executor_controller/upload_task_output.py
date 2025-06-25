@@ -84,6 +84,8 @@ class _TaskOutputSummary:
         self.stdout_total_bytes: int = 0
         self.stderr_count: int = 0
         self.stderr_total_bytes: int = 0
+        self.invocation_error_output_count: int = 0
+        self.invocation_error_output_total_bytes: int = 0
         self.total_bytes: int = 0
 
 
@@ -100,12 +102,14 @@ async def _upload_task_output_once(
         total_bytes=output_summary.total_bytes,
         total_files=output_summary.output_count
         + output_summary.stdout_count
-        + output_summary.stderr_count,
+        + output_summary.stderr_count
+        + output_summary.invocation_error_output_count,
         output_files=output_summary.output_count,
         output_bytes=output_summary.total_bytes,
         next_functions_count=output_summary.next_functions_count,
         stdout_bytes=output_summary.stdout_total_bytes,
         stderr_bytes=output_summary.stderr_total_bytes,
+        invocation_error_output_bytes=output_summary.invocation_error_output_total_bytes,
     )
 
     start_time = time.time()
@@ -138,7 +142,7 @@ async def _upload_to_blob_store(
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
-        # stdout is uploaded, free the memory used for it.
+        # stdout is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
         task_output.stdout = None
 
     if task_output.stderr is not None:
@@ -152,8 +156,29 @@ async def _upload_to_blob_store(
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
-        # stderr is uploaded, free the memory used for it.
+        # stderr is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
         task_output.stderr = None
+
+    if task_output.invocation_error_output is not None:
+        invocation_error_output_url = (
+            f"{task_output.allocation.task.output_payload_uri_prefix}.inverr."
+            f"{task_output.allocation.task.graph_invocation_id}"
+        )
+        invocation_error_output_bytes: bytes = task_output.invocation_error_output.data
+        await blob_store.put(
+            invocation_error_output_url, invocation_error_output_bytes, logger
+        )
+        task_output.uploaded_invocation_error_output = DataPayload(
+            uri=invocation_error_output_url,
+            size=len(invocation_error_output_bytes),
+            sha256_hash=compute_hash(invocation_error_output_bytes),
+            encoding=_to_grpc_data_payload_encoding(
+                task_output.invocation_error_output.encoding, logger
+            ),
+            encoding_version=0,
+        )
+        # Invocation error output is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
+        task_output.invocation_error_output = None
 
     # We can't use the default empty list output.uploaded_data_payloads because it's a singleton.
     uploaded_data_payloads: List[DataPayload] = []
@@ -175,7 +200,7 @@ async def _upload_to_blob_store(
         )
 
     task_output.uploaded_data_payloads = uploaded_data_payloads
-    # The output is uploaded, free the memory used for it.
+    # The output is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
     task_output.function_outputs = []
 
 
@@ -189,6 +214,12 @@ def _task_output_summary(task_output: TaskOutput) -> _TaskOutputSummary:
     if task_output.stderr is not None:
         summary.stderr_count += 1
         summary.stderr_total_bytes += len(task_output.stderr)
+
+    if task_output.invocation_error_output is not None:
+        summary.invocation_error_output_count += 1
+        summary.invocation_error_output_total_bytes += len(
+            task_output.invocation_error_output.data
+        )
 
     for output in task_output.function_outputs:
         output: SerializedObject

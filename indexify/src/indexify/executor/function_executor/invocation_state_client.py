@@ -287,5 +287,5 @@ def _serialized_object_from_http_response(response: httpx.Response) -> Serialize
     return SerializedObject(
         data=response.content,
         encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
-        encoding_version=1,
+        encoding_version=0,
     )

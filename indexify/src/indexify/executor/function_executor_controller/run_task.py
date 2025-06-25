@@ -6,6 +6,7 @@ import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,
     RunTaskResponse,
+    SerializedObject,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     TaskFailureReason as FETaskFailureReason,
@@ -164,26 +165,23 @@ def _task_output_from_function_executor_response(
     outcome_code: TaskOutcomeCode = _to_task_outcome_code(
         response.outcome_code, logger=logger
     )
-    if outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS:
-        failure_reason: Optional[TaskFailureReason] = None
-        failure_message: Optional[str] = None
-    elif outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
+    failure_reason: Optional[TaskFailureReason] = None
+    invocation_error_output: Optional[SerializedObject] = None
+
+    if outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
         response_validator.required_field("failure_reason")
-        response_validator.required_field("failure_message")
         failure_reason: Optional[TaskFailureReason] = _to_task_failure_reason(
             response.failure_reason, logger
         )
-        failure_message: Optional[str] = response.failure_message
-    else:
-        raise ValueError(
-            f"Unexpected TaskOutcomeCode received from Function Executor: {FETaskOutcomeCode.Name(response.outcome_code)}"
-        )
+        if failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR:
+            response_validator.required_field("invocation_error_output")
+            invocation_error_output = response.invocation_error_output
 
     return TaskOutput(
         allocation=allocation,
         outcome_code=outcome_code,
         failure_reason=failure_reason,
-        failure_message=failure_message,
+        invocation_error_output=invocation_error_output,
         function_outputs=response.function_outputs,
         next_functions=response.next_functions,
         stdout=response.stdout,

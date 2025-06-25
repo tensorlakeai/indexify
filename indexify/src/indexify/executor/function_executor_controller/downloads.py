@@ -184,25 +184,25 @@ def _serialized_object_from_data_payload_proto(
         return SerializedObject(
             data=data,
             encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
-            encoding_version=1,
+            encoding_version=data_payload.encoding_version,
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT:
         return SerializedObject(
             data=data,
             encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT,
-            encoding_version=1,
+            encoding_version=data_payload.encoding_version,
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON:
         return SerializedObject(
             data=data,
             encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON,
-            encoding_version=1,
+            encoding_version=data_payload.encoding_version,
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_ZIP:
         return SerializedObject(
             data=data,
             encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP,
-            encoding_version=1,
+            encoding_version=data_payload.encoding_version,
         )
 
     raise ValueError(

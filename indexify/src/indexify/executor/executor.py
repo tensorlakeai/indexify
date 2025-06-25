@@ -52,7 +52,7 @@ class Executor:
         blob_store: BLOBStore,
         host_resources_provider: HostResourcesProvider,
     ):
-        self._logger = structlog.get_logger(module=__name__)
+        self._logger = structlog.get_logger(module=__name__, executor_id=id)
         protocol: str = "http"
         if config_path:
             self._logger.info("running the extractor with TLS enabled")

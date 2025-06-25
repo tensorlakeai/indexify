@@ -543,11 +543,11 @@ class TaskResult(_message.Message):
         "reducer",
         "outcome_code",
         "failure_reason",
-        "failure_message",
         "next_functions",
         "function_outputs",
         "stdout",
         "stderr",
+        "invocation_error_output",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -559,11 +559,11 @@ class TaskResult(_message.Message):
     REDUCER_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
-    FAILURE_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
+    INVOCATION_ERROR_OUTPUT_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     allocation_id: str
     namespace: str
@@ -574,11 +574,11 @@ class TaskResult(_message.Message):
     reducer: bool
     outcome_code: TaskOutcomeCode
     failure_reason: TaskFailureReason
-    failure_message: str
     next_functions: _containers.RepeatedScalarFieldContainer[str]
     function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
+    invocation_error_output: DataPayload
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -591,9 +591,9 @@ class TaskResult(_message.Message):
         reducer: bool = ...,
         outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
         failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
-        failure_message: _Optional[str] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
         function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        invocation_error_output: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
