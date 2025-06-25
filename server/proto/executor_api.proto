@@ -248,9 +248,7 @@ message TaskResult {
     optional TaskFailureReason failure_reason = 10;
     optional string failure_message = 16;
     // Edges that the function wants the invocation to be routed to.
-    // Unless use_graph_routing is true.
     repeated string next_functions = 11;
-    optional bool use_graph_routing = 15;
     repeated DataPayload function_outputs = 12;
     // Standard output and error streams of the function.
     optional DataPayload stdout = 13;

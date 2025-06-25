@@ -20,7 +20,6 @@ use data_model::{
     GPUResources,
     GraphVersion,
     NodeOutputBuilder,
-    Routing,
     TaskDiagnostics,
     TaskOutcome,
 };
@@ -515,15 +514,14 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
-            let failure_reason = task_result.failure_reason
+            let failure_reason = task_result
+                .failure_reason
                 .map(|reason| {
                     executor_api_pb::TaskFailureReason::try_from(reason)
                         .map_err(|e| Status::invalid_argument(e.to_string()))
                 })
                 .transpose()?;
-            let failure_message = task_result
-                .failure_message
-                .clone();
+            let failure_message = task_result.failure_message.clone();
             let namespace = task_result
                 .namespace
                 .clone()
@@ -620,19 +618,13 @@ impl ExecutorAPIService {
                 payloads.push(data_payload);
             }
 
-            let routing = if task_result.use_graph_routing.unwrap_or(true) {
-                Routing::UseGraphEdges
-            } else {
-                Routing::Edges(task_result.next_functions.clone())
-            };
-
             let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
                 .compute_graph_name(compute_graph.compute_graph_name.clone())
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payloads(payloads)
-                .routing(routing)
+                .next_functions(task_result.next_functions.clone())
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
                 .reducer_output(compute_fn_node.reducer)

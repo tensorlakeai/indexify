@@ -32,7 +32,6 @@ class TaskOutput:
         failure_message: Optional[str] = None,
         function_outputs: List[SerializedObject] = [],
         next_functions: List[str] = [],
-        use_graph_routing: bool = True,
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
@@ -45,7 +44,6 @@ class TaskOutput:
         self.allocation = allocation
         self.function_outputs = function_outputs
         self.next_functions = next_functions
-        self.use_graph_routing = use_graph_routing
         self.stdout = stdout
         self.stderr = stderr
         self.reducer = reducer

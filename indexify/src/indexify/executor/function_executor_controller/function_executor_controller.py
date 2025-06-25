@@ -787,7 +787,6 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         reducer=output.reducer,
         outcome_code=output.outcome_code,
         next_functions=output.next_functions,
-        use_graph_routing=output.use_graph_routing,
         function_outputs=output.uploaded_data_payloads,
     )
     if output.failure_reason is not None:

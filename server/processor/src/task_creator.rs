@@ -13,7 +13,6 @@ use data_model::{
     GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     ReduceTask,
-    Routing,
     Task,
     TaskOutcome,
     TaskStatus,
@@ -419,12 +418,7 @@ impl TaskCreator {
             }
         }
 
-        let edges = match &node_output.routing {
-            Routing::UseGraphEdges => compute_graph_version.edges.get(&task.compute_fn_name),
-            Routing::Edges(e) => Some(e),
-        };
-
-        if edges.is_none_or(|e| e.len() == 0) {
+        if node_output.next_functions.is_empty() {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
@@ -439,11 +433,18 @@ impl TaskCreator {
 
         // Create new tasks for the edges of the node of the current task.
         let mut new_reduction_tasks = vec![];
-        for edge in edges.unwrap().iter() {
-            let edge_compute_node = compute_graph_version
-                .nodes
-                .get(edge)
-                .ok_or(anyhow!("compute node not found: {:?}", edge))?;
+        for edge in node_output.next_functions.iter() {
+            let edge_compute_node = compute_graph_version.nodes.get(edge);
+            let Some(edge_compute_node) = edge_compute_node else {
+                // This can happen e.g. if the compute graph was updated in non backward
+                // compatible way while the invocation was running.
+                info!(edge = edge, "Edge function not found, failing invocation",);
+                invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
+                return Ok(TaskCreationResult {
+                    invocation_ctx: Some(invocation_ctx),
+                    ..Default::default()
+                });
+            };
 
             for output in &node_output.payloads {
                 if edge_compute_node.reducer {

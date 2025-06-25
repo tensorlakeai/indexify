@@ -186,7 +186,6 @@ def _task_output_from_function_executor_response(
         failure_message=failure_message,
         function_outputs=response.function_outputs,
         next_functions=response.next_functions,
-        use_graph_routing=response.use_graph_routing,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,

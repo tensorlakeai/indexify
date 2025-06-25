@@ -545,7 +545,6 @@ class TaskResult(_message.Message):
         "failure_reason",
         "failure_message",
         "next_functions",
-        "use_graph_routing",
         "function_outputs",
         "stdout",
         "stderr",
@@ -562,7 +561,6 @@ class TaskResult(_message.Message):
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
     FAILURE_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
-    USE_GRAPH_ROUTING_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
@@ -578,7 +576,6 @@ class TaskResult(_message.Message):
     failure_reason: TaskFailureReason
     failure_message: str
     next_functions: _containers.RepeatedScalarFieldContainer[str]
-    use_graph_routing: bool
     function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
     stdout: DataPayload
     stderr: DataPayload
@@ -596,7 +593,6 @@ class TaskResult(_message.Message):
         failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
         failure_message: _Optional[str] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
-        use_graph_routing: bool = ...,
         function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
