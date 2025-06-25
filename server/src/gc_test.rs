@@ -97,10 +97,12 @@ mod tests {
                     graph_version: compute_graph.version.clone(),
                     completed: false,
                     outcome: data_model::GraphInvocationOutcome::Failure,
+                    failure_reason: data_model::GraphInvocationFailureReason::InternalError,
                     outstanding_tasks: 0,
                     outstanding_reducer_tasks: 0,
                     fn_task_analytics: HashMap::new(),
                     created_at: get_epoch_time_in_ms(),
+                    invocation_error: None,
                 })?,
             )?;
 
@@ -115,12 +117,12 @@ mod tests {
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
                 }],
-                errors: None,
                 created_at: 5,
                 reducer_output: false,
                 allocation_id: "allocation_id".to_string(),
                 next_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
                 encoding: "application/octet-stream".to_string(),
+                invocation_error_payload: None,
             };
             let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;

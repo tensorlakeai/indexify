@@ -46,7 +46,6 @@ use crate::{
         from_data_model_executor_metadata,
         FnOutput,
         Invocation,
-        InvocationStatus,
         StateChangesResponse,
         UnallocatedTasks,
     },
@@ -57,7 +56,11 @@ mod download;
 mod internal_ingest;
 mod invoke;
 mod logs;
-use download::{download_fn_output_payload, download_invocation_payload};
+use download::{
+    download_fn_output_payload,
+    download_invocation_error,
+    download_invocation_payload,
+};
 use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
 use logs::download_allocation_logs;
@@ -648,7 +651,11 @@ async fn graph_invocations(
         .map_err(IndexifyAPIError::internal_error)?;
     let mut invocations = vec![];
     for invocation_ctx in invocation_ctxs {
-        invocations.push(invocation_ctx.into());
+        let mut invocation: Invocation = invocation_ctx.clone().into();
+        invocation.invocation_error =
+            download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
+                .await?;
+        invocations.push(invocation);
     }
     let prev_cursor = prev_cursor.map(|c| BASE64_STANDARD.encode(c));
     let next_cursor = next_cursor.map(|c| BASE64_STANDARD.encode(c));
@@ -927,20 +934,17 @@ async fn list_outputs(
         }
     }
 
-    let status = if invocation_ctx.completed {
-        InvocationStatus::Finalized
-    } else if invocation_ctx.outstanding_tasks > 0 {
-        InvocationStatus::Running
-    } else {
-        InvocationStatus::Pending
-    };
+    let mut invocation: Invocation = invocation_ctx.clone().into();
+    invocation.invocation_error =
+        download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
+            .await?;
+
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
 
     // We return the outputs of finalized and pending invocations to allow getting
     // partial results.
     Ok(Json(FnOutputs {
-        status,
-        outcome: invocation_ctx.outcome.into(),
+        invocation,
         outputs: http_outputs,
         cursor,
     }))
@@ -967,7 +971,11 @@ async fn find_invocation(
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
 
-    Ok(Json(invocation_ctx.into()))
+    let mut invocation: Invocation = invocation_ctx.clone().into();
+    invocation.invocation_error =
+        download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
+            .await?;
+    Ok(Json(invocation))
 }
 
 /// Delete a specific invocation

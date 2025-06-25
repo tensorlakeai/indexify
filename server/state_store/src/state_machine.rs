@@ -690,6 +690,7 @@ pub(crate) fn handle_scheduler_update(
             task_id = task.id.to_string(),
             status = task.status.to_string(),
             outcome = task.outcome.to_string(),
+            failure_reason = task.failure_reason.to_string(),
             duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
             "updated task",
         );
@@ -758,6 +759,7 @@ pub(crate) fn handle_scheduler_update(
                 namespace = invocation_ctx.namespace,
                 graph = invocation_ctx.compute_graph_name,
                 outcome = invocation_ctx.outcome.to_string(),
+                failure_reason = invocation_ctx.failure_reason.to_string(),
                 duration_sec =
                     get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"

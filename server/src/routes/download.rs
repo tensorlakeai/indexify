@@ -4,10 +4,12 @@ use axum::{
     extract::{Path, State},
     response::Response,
 };
+use blob_store::BlobStorage;
+use data_model::GraphInvocationError;
 use futures::TryStreamExt;
 
 use super::RouteState;
-use crate::http_objects::IndexifyAPIError;
+use crate::http_objects::{IndexifyAPIError, InvocationError};
 
 pub async fn download_invocation_payload(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
@@ -47,6 +49,43 @@ pub async fn download_invocation_payload(
         .header("Content-Length", output.payload.size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+}
+
+pub async fn download_invocation_error(
+    invocation_error: Option<GraphInvocationError>,
+    blob_storage: &BlobStorage,
+) -> Result<Option<InvocationError>, IndexifyAPIError> {
+    let Some(invocation_error) = invocation_error else {
+        return Ok(None);
+    };
+
+    let storage_reader = blob_storage
+        .get(&invocation_error.payload.path)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    let bytes = storage_reader
+        .map_ok(|chunk| chunk.to_vec())
+        .try_concat()
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "Failed to read invocation error payload: {}",
+                e
+            ))
+        })?;
+
+    let message = String::from_utf8(bytes).map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!(
+            "Invocation error payload is not valid UTF-8: {}",
+            e
+        ))
+    })?;
+
+    return Ok(Some(InvocationError {
+        function_name: invocation_error.function_name,
+        message,
+    }));
 }
 
 /// Get function output

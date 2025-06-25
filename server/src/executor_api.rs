@@ -21,6 +21,7 @@ use data_model::{
     GraphVersion,
     NodeOutputBuilder,
     TaskDiagnostics,
+    TaskFailureReason,
     TaskOutcome,
 };
 use executor_api_pb::{
@@ -514,13 +515,13 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
-            // let failure_reason = task_result
-            //     .failure_reason
-            //     .map(|reason| {
-            //         executor_api_pb::TaskFailureReason::try_from(reason)
-            //             .map_err(|e| Status::invalid_argument(e.to_string()))
-            //     })
-            //     .transpose()?;
+            let failure_reason = task_result
+                .failure_reason
+                .map(|reason| {
+                    executor_api_pb::TaskFailureReason::try_from(reason)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))
+                })
+                .transpose()?;
             let namespace = task_result
                 .namespace
                 .clone()
@@ -616,6 +617,11 @@ impl ExecutorAPIService {
                 .to_string();
                 payloads.push(data_payload);
             }
+            let invocation_error_payload = prepare_data_payload(
+                task_result.invocation_error_output.clone(),
+                &self.blob_storage.get_url_scheme(),
+                &self.blob_storage.get_url(),
+            );
 
             let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
@@ -626,6 +632,7 @@ impl ExecutorAPIService {
                 .next_functions(task_result.next_functions.clone())
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
+                .invocation_error_payload(invocation_error_payload)
                 .reducer_output(compute_fn_node.reducer)
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
@@ -642,11 +649,6 @@ impl ExecutorAPIService {
                     &self.blob_storage.get_url(),
                 ),
             };
-            // let invocation_error_output = prepare_data_payload(
-            //     task_result.invocation_error_output.clone(),
-            //     &self.blob_storage.get_url_scheme(),
-            //     &self.blob_storage.get_url(),
-            // );
             let allocation_key = Allocation::key_from(
                 namespace.as_str(),
                 compute_graph.compute_graph_name.as_str(),
@@ -664,8 +666,34 @@ impl ExecutorAPIService {
                 executor_api_pb::TaskOutcomeCode::Failure => TaskOutcome::Failure,
                 executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
             };
+            let allocation_failure_reason = match failure_reason {
+                Some(reason) => match reason {
+                    executor_api_pb::TaskFailureReason::Unknown => Some(TaskFailureReason::Unknown),
+                    executor_api_pb::TaskFailureReason::InternalError => {
+                        Some(TaskFailureReason::InternalError)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionError => {
+                        Some(TaskFailureReason::FunctionError)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionTimeout => {
+                        Some(TaskFailureReason::FunctionTimeout)
+                    }
+                    executor_api_pb::TaskFailureReason::InvocationError => {
+                        Some(TaskFailureReason::InvocationError)
+                    }
+                    executor_api_pb::TaskFailureReason::TaskCancelled => {
+                        Some(TaskFailureReason::TaskCancelled)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
+                        Some(TaskFailureReason::FunctionExecutorTerminated)
+                    }
+                },
+                None => None,
+            };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
+            allocation.failure_reason =
+                allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
 
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),

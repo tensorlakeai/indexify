@@ -10,6 +10,8 @@ use data_model::{
     ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
+    GraphInvocationError,
+    GraphInvocationFailureReason,
     GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     ReduceTask,
@@ -199,7 +201,8 @@ impl TaskCreator {
             };
 
             if allocation.outcome == TaskOutcome::Failure &&
-                compute_graph_version.should_retry_task(&task)
+                compute_graph_version.should_retry_task(&task) &&
+                allocation.failure_reason.is_retriable()
             {
                 task.status = TaskStatus::Pending;
                 task.attempt_number += 1;
@@ -208,6 +211,7 @@ impl TaskCreator {
             }
             task.status = TaskStatus::Completed;
             task.outcome = allocation.outcome;
+            task.failure_reason = allocation.failure_reason;
             scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
             in_memory_state.update_state(
                 self.clock,
@@ -355,18 +359,30 @@ impl TaskCreator {
         let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
+        let node_output = self
+            .indexify_state
+            .reader()
+            .get_node_output_by_key(&node_output_key)?;
+
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
+            if let Some(node_output) = &node_output {
+                if let Some(invocation_error_payload) = node_output.invocation_error_payload.clone()
+                {
+                    invocation_ctx.invocation_error = Some(GraphInvocationError {
+                        function_name: task.compute_fn_name.clone(),
+                        payload: invocation_error_payload,
+                    });
+                }
+            }
+            invocation_ctx.failure_reason = task.failure_reason.into();
             invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
                 ..Default::default()
             });
         }
-        let node_output = self
-            .indexify_state
-            .reader()
-            .get_node_output_by_key(&node_output_key)?;
+
         let Some(node_output) = node_output else {
             // Handle the case when the task hasn't produced any output
             if invocation_ctx.all_tasks_completed() {
@@ -439,6 +455,7 @@ impl TaskCreator {
                 // This can happen e.g. if the compute graph was updated in non backward
                 // compatible way while the invocation was running.
                 info!(edge = edge, "Edge function not found, failing invocation",);
+                invocation_ctx.failure_reason = GraphInvocationFailureReason::NextFunctionNotFound;
                 invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
                 return Ok(TaskCreationResult {
                     invocation_ctx: Some(invocation_ctx),
