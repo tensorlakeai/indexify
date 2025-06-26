@@ -133,7 +133,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut update = SchedulerUpdateRequest::default();
         let function_executors_to_mark = self
             .in_memory_state
-            .vacuum_function_executors_candidates(fe_resource)?;
+            .vacuum_function_executors(fe_resource)?;
 
         info!(
             "vacuum phase identified {} function executors to mark for termination",
@@ -174,8 +174,8 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut candidates = self.in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
             info!("no candidates found for task, running vacuum");
-            let fe_resource = self.in_memory_state.fe_resource_for_task(&task)?;
-            let vacuum_update = self.vacuum(&fe_resource)?;
+            let func_resource = self.in_memory_state.function_resources_for_task(&task)?;
+            let vacuum_update = self.vacuum(&func_resource)?;
             update.extend(vacuum_update);
             self.in_memory_state.update_state(
                 self.clock,
@@ -195,7 +195,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         let executor_id = candidate.executor_id.clone();
         let node_resources = self
             .in_memory_state
-            .get_fe_resources_by_uri(
+            .get_function_resources_by_uri(
                 &task.namespace,
                 &task.compute_graph_name,
                 &task.compute_fn_name,

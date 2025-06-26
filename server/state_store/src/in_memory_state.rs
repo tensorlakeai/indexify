@@ -954,7 +954,7 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
-    pub fn fe_resource_for_task(&self, task: &Task) -> Result<FunctionResources> {
+    pub fn function_resources_for_task(&self, task: &Task) -> Result<FunctionResources> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
@@ -1025,15 +1025,10 @@ impl InMemoryState {
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for function_executor in function_executors.iter() {
-                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
-                    function_executor.function_executor.state == FunctionExecutorState::Unknown
-                {
+                if function_executor.function_executor.state.is_pending() {
                     num_pending_function_executors += 1;
                 }
-                if function_executor.desired_state == FunctionExecutorState::Terminated ||
-                    function_executor.function_executor.state ==
-                        FunctionExecutorState::Terminated
-                {
+                if !function_executor.is_candidate() {
                     continue;
                 }
                 // FIXME - Create a reverse index of fe_id -> # active allocations
@@ -1052,6 +1047,16 @@ impl InMemoryState {
             function_executors: candidates,
             num_pending_function_executors,
         })
+    }
+
+    fn candidate_function_executors_count(&self, function_uri: &FunctionURI) -> usize {
+        match self.function_executors_by_fn_uri.get(function_uri) {
+            Some(function_executors) => function_executors
+                .iter()
+                .filter(|fe| fe.is_candidate())
+                .count(),
+            None => 0,
+        }
     }
 
     pub fn next_reduction_task(
@@ -1083,7 +1088,7 @@ impl InMemoryState {
         }
     }
 
-    pub fn get_fe_resources_by_uri(
+    pub fn get_function_resources_by_uri(
         &self,
         ns: &str,
         cg: &str,
@@ -1166,117 +1171,136 @@ impl InMemoryState {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn vacuum_function_executors_candidates(
+    pub fn vacuum_function_executors(
         &self,
-        fe_resource: &FunctionResources,
+        resources_to_free: &FunctionResources,
     ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
-        // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
                 continue;
             }
 
-            // Get function executors for this executor from our in-memory state
-            let function_executors = self
-                .executor_states
-                .get(executor_id)
+            let Some(executor_state) = self.executor_states.get(executor_id) else {
+                continue;
+            };
+
+            let executor_fes = executor_state
+                .function_executors
+                .values()
                 .cloned()
-                .map(|executor_state| {
-                    executor_state
-                        .function_executors
-                        .values()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                .collect::<Vec<_>>();
 
-            // Start with the current free resources on this executor
-            let mut available_resources = self
-                .executor_states
-                .get(executor_id)
-                .map(|executor_state| executor_state.free_resources.clone())
-                .unwrap_or_default();
-
-            let mut function_executors_to_remove = Vec::new();
-            for fe_metadata in function_executors.iter() {
+            let mut removable_executor_fes = Vec::new();
+            let mut idle_fe_ids: HashSet<FunctionExecutorId> = HashSet::new();
+            for fe_metadata in executor_fes.iter() {
                 // Skip if the FE is already marked for termination
                 if fe_metadata.desired_state == FunctionExecutorState::Terminated {
                     continue;
                 }
 
-                let fe = &fe_metadata.function_executor;
-                let Some(executor) = self.executors.get(executor_id) else {
-                    function_executors_to_remove.push(fe_metadata.clone());
+                if self.is_stale_function_executor(fe_metadata) {
+                    removable_executor_fes.push(fe_metadata.clone());
                     continue;
-                };
-
-                let Some(latest_cg_version) = self
-                    .compute_graphs
-                    .get(&ComputeGraph::key_from(
-                        &fe.namespace,
-                        &fe.compute_graph_name,
-                    ))
-                    .map(|cg| cg.version.clone())
-                else {
-                    function_executors_to_remove.push(fe_metadata.clone());
-                    continue;
-                };
-
-                let has_pending_tasks = self.has_pending_tasks(fe_metadata);
-
-                let mut can_be_removed = false;
-                if !has_pending_tasks {
-                    let mut found_allowlist_match = false;
-                    if let Some(allowlist) = executor.function_allowlist.as_ref() {
-                        for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe) &&
-                                fe.version == latest_cg_version
-                            {
-                                found_allowlist_match = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !found_allowlist_match {
-                        debug!(
-                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
-                            fe.id.get(), executor_id.get(), fe.version, latest_cg_version
-                        );
-                        can_be_removed = true;
-                    }
                 }
 
-                if can_be_removed {
-                    let mut simulated_resources = available_resources.clone();
-                    if let Err(_) =
-                        simulated_resources.free(&fe_metadata.function_executor.resources)
-                    {
-                        continue;
-                    }
-
-                    function_executors_to_remove.push(fe_metadata.clone());
-                    available_resources = simulated_resources;
-
-                    if available_resources
-                        .can_handle_function_resources(fe_resource)
-                        .is_ok()
-                    {
-                        debug!(
-                            "Found sufficient space on executor {} by removing {} function executors",
-                            executor_id.get(),
-                            function_executors_to_remove.len()
-                        );
-                        return Ok(function_executors_to_remove);
-                    }
+                if !self.has_pending_tasks(fe_metadata) {
+                    removable_executor_fes.push(fe_metadata.clone());
+                    idle_fe_ids.insert(fe_metadata.function_executor.id.clone());
+                    continue;
                 }
             }
+
+            let mut executor_fes_to_remove = Vec::new();
+            // Simulate how many FEs per function are available if we remove the FEs.
+            let mut simulated_fes_per_function: HashMap<FunctionURI, usize> = HashMap::new();
+            // Simulate how much free resources are available if we remove the FEs.
+            let mut simulated_free_resources = executor_state.free_resources.clone();
+            for fe in removable_executor_fes.iter() {
+                if !stale_fe_ids.contains(&fe.function_executor.id) {
+                    // 
+                }
+
+                let fe_func_fes_count = simulated_fes_per_function
+                    .entry(fe_func_uri)
+                    .or_insert_with(|| self.candidate_function_executors_count(&FunctionURI::from(fe.clone())));
+
+                let fe_func_fes_count = self.candidate_function_executors_count(&FunctionURI::from(fe.clone()));
+                if fe_func_fes_count <= 1 {
+                    debug!(
+                        executor_id = executor_id.get(),
+                        fn_executor_id = fe.function_executor.id.get(),
+                        namespace = fe.function_executor.namespace,
+                        graph = fe.function_executor.compute_graph_name,
+                        graph_version = fe.function_executor.version.to_string(),
+                        "fn" = fe.function_executor.compute_fn_name,
+                        "Not removing the last candidate function executor for the function",
+                    );
+                    continue;
+                }
+
+                executor_fes_to_remove.push(fe.clone());
+                if let Err(e) = simulated_free_resources.free(&fe.function_executor.resources) {
+                    error!(
+                        executor_id = executor_id.get(),
+                        fn_executor_id = fe.function_executor.id.get(),
+                        "failed to free resources for function executor: {e}"
+                    );
+                }
+                if simulated_free_resources.can_handle_function_resources(resources_to_free).is_ok() {
+                    debug!(
+                        executor_id = executor_id.get(),
+                        fn_executor_id = fe.function_executor.id.get(),
+                        fe_count = executor_fes_to_remove.len(),
+                        "Found sufficient space on executor by removing function executors",
+                    );
+                    return Ok(executor_fes_to_remove);
+                }
+            }
+
             debug!(
+                executor_id = executor_id.get(),
                 "Could not find sufficient space on executor {} even after vacuuming",
-                executor_id.get()
             );
         }
 
         Ok(Vec::new())
+    }
+
+    fn is_stale_function_executor(
+        &self,
+        fe_meta: &FunctionExecutorServerMetadata,
+    ) -> bool {
+        let Some(executor) = self.executors.get(&fe_meta.executor_id) else {
+            return true;
+        };
+
+        let Some(latest_cg_version) = self
+            .compute_graphs
+            .get(&ComputeGraph::key_from(
+                &fe_meta.function_executor.namespace,
+                &fe_meta.function_executor.compute_graph_name,
+            ))
+            .map(|cg| cg.version.clone())
+        else {
+            return true;
+        };
+
+        let found_allowlist_match = match executor.function_allowlist.as_ref() {
+            Some(allowlist) => allowlist.iter().any(|entry| {
+                entry.matches_function_executor(&fe_meta.function_executor) &&
+                fe_meta.function_executor.version == latest_cg_version
+            }),
+            None => true, // Executor accepts any function
+        };
+        if !found_allowlist_match {
+            debug!(
+                "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
+                fe_meta.function_executor.id.get(), fe_meta.executor_id.get(), fe_meta.function_executor.version, latest_cg_version
+            );
+            return true;
+        }
+    
+        false
     }
 
     fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {

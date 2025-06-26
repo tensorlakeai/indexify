@@ -1653,6 +1653,21 @@ pub enum FunctionExecutorState {
     Terminated,
 }
 
+impl FunctionExecutorState {
+    pub fn is_pending(&self) -> bool {
+        matches!(self, Self::Unknown | Self::Pending)
+    }
+
+    // Candidate means this FE is allocatable for tasks.
+    pub fn is_candidate(&self) -> bool {
+        matches!(self, Self::Unknown | Self::Pending | Self::Running)
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        matches!(self, Self::Terminated)
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -1944,6 +1959,10 @@ impl FunctionExecutorServerMetadata {
     /// Checks if this FunctionExecutor matches another FunctionExecutor.
     pub fn matches(&self, other: &FunctionExecutor) -> bool {
         self.function_executor.matches(other)
+    }
+
+    pub fn is_candidate(&self) -> bool {
+        self.desired_state.is_candidate() && self.function_executor.state.is_candidate()
     }
 }
 
