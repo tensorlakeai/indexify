@@ -765,21 +765,21 @@ pub struct Tasks {
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct FnOutput {
     pub id: String,
     pub compute_fn: String,
     pub created_at: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum InvocationStatus {
     Pending,
     Running,
     Finalized,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum InvocationOutcome {
     Undefined,
     Success,
@@ -796,7 +796,7 @@ impl From<GraphInvocationOutcome> for InvocationOutcome {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum InvocationFailureReason {
     Unknown,
     InternalError,
@@ -821,15 +821,19 @@ impl From<GraphInvocationFailureReason> for InvocationFailureReason {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct InvocationError {
     pub function_name: String,
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct FnOutputs {
     pub invocation: Invocation,
+    // Deprecated, duplicates Invocation.status
+    pub status: InvocationStatus,
+    // Deprecated, duplicates Invocation.outcome
+    pub outcome: InvocationOutcome,
     pub outputs: Vec<FnOutput>,
     pub cursor: Option<String>,
 }
@@ -839,7 +843,7 @@ pub struct InvocationId {
     pub id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct Invocation {
     pub id: String,
     pub completed: bool,
@@ -888,7 +892,7 @@ impl From<GraphInvocationCtx> for Invocation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct TaskAnalytics {
     pub pending_tasks: u64,
     pub successful_tasks: u64,

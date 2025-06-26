@@ -944,7 +944,9 @@ async fn list_outputs(
     // We return the outputs of finalized and pending invocations to allow getting
     // partial results.
     Ok(Json(FnOutputs {
-        invocation,
+        invocation: invocation.clone(),
+        status: invocation.status,
+        outcome: invocation.outcome,
         outputs: http_outputs,
         cursor,
     }))
