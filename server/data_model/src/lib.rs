@@ -776,10 +776,15 @@ impl Display for GraphInvocationOutcome {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GraphInvocationFailureReason {
-    Unknown, // Used when invocation didn't finish yet and when invocation finished successfully
+    // Used when invocation didn't finish yet and when invocation finished successfully
+    Unknown,
+    // Internal error on Executor aka platform error.
     InternalError,
+    // Clear function code failure typically by raising an exception from the function code.
     FunctionError,
+    // Function code raised InvocationError to mark the invocation as permanently failed.
     InvocationError,
+    // Next function is not found in the graph (while routing).
     NextFunctionNotFound,
 }
 
@@ -1049,11 +1054,19 @@ impl Display for TaskOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskFailureReason {
     Unknown,
+    // Internal error on Executor aka platform error.
+    // Includes grey failures when we can't determine the exact cause.
     InternalError,
+    // Clear function code failure typically by raising an exception from the function code.
     FunctionError,
+    // Function code run time exceeded its cofigured timeout.
     FunctionTimeout,
+    // Function code raised InvocationError to mark the invocation as permanently failed.
     InvocationError,
+    // Server removed the task allocation from Executor desired state.
+    // The task allocation didn't finish before the removal.
     TaskCancelled,
+    // Function Executor terminated - can't run the task allocation on it anymore.
     FunctionExecutorTerminated,
 }
 
@@ -1080,14 +1093,15 @@ impl Default for TaskFailureReason {
 
 impl TaskFailureReason {
     pub fn is_retriable(&self) -> bool {
+        // Only InvocationError is not retriable because it fails the invocation
+        // permanently.
         matches!(
             self,
-            TaskFailureReason::InternalError
-            | TaskFailureReason::FunctionError
-            | TaskFailureReason::FunctionTimeout
-            // | TaskFailureReason::InvocationError - fails the invocation and the task
-            | TaskFailureReason::TaskCancelled
-            | TaskFailureReason::FunctionExecutorTerminated
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout |
+                TaskFailureReason::TaskCancelled |
+                TaskFailureReason::FunctionExecutorTerminated
         )
     }
 }
@@ -1631,8 +1645,11 @@ impl Default for FunctionExecutorId {
 pub enum FunctionExecutorState {
     #[default]
     Unknown,
+    // Function Executor is being created.
     Pending,
+    // Function Executor is running and ready to accept tasks.
     Running,
+    // Function Executor is terminated, all resources are freed.
     Terminated,
 }
 
@@ -1652,8 +1669,12 @@ pub enum FunctionExecutorState {
 pub enum FunctionExecutorTerminationReason {
     #[default]
     Unknown,
+    // FE was removed from desired Executor state.
     DesiredStateRemoved,
+    // FE failed to startup or was terminated due to a clear customer code problem
+    // like a code timeout or exception raised from it.
     CustomerCodeError,
+    // FE failed to startup or was terminated due to an internal error aka platform error.
     PlatformError,
 }
 

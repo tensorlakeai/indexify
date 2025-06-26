@@ -61,28 +61,38 @@ message AllowedFunction {
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    // Function Executor is being created.
+    // FE is being created.
     FUNCTION_EXECUTOR_STATUS_PENDING = 1;
-    // Function Executor is running and ready to accept tasks.
+    // FE is running and ready to accept tasks.
     FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
-    // Function Executor is terminated, all resources are freed.
+    // FE is terminated, all resources are freed.
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
 enum FunctionExecutorTerminationReason {
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
+    // Internal error aka platform error on FE startup.
     FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR = 1;
+    // A clear function constructor code error on FE startup.
+    // Typically an exception raised from the constructor.
     FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR = 2;
     // Timeout on FE startup while running the function constructor.
     FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
 
+    // FE was terminated on Executor shutdown.
     FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN = 10;
+    // FE was removed from the Executor desired state by Server.
     FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE = 11;
+    // FE was terminated because it failed a health check.
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
+    // FE was terminated due to an unrecoverable internal error on Executor.
     FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
-    // Timeout while running the function.
+    // FE was terminated because Function code exceeded its cofigured timeout.
+    // FE termination is the only way to reliably stop the function code execution.
     FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
-    // The running function allocation was removed from the desired state.
+    // FE was terminated because function allocation currently running on it was removed
+    // from Executor desired state.
+    // FE termination is the only way to reliably stop the function code execution.
     FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
 }
 
@@ -128,9 +138,13 @@ message FunctionExecutorUpdate {
 
 enum ExecutorStatus {
     EXECUTOR_STATUS_UNKNOWN = 0;
+    // Executor is starting up, not ready to accept task allocations and FEs.
     EXECUTOR_STATUS_STARTING_UP = 1;
+    // Executor is ready to accept task allocations and FEs.
     EXECUTOR_STATUS_RUNNING = 2;
+    // No new task allocations or FEs should be places on the Executor.
     EXECUTOR_STATUS_DRAINED = 3;
+    // Executor is stopped, all resources are freed, all FEs are terminated.
     EXECUTOR_STATUS_STOPPED = 4;
 }
 
@@ -227,11 +241,18 @@ enum TaskOutcomeCode {
 
 enum TaskFailureReason {
     TASK_FAILURE_REASON_UNKNOWN = 0;
+    // Internal error on Executor aka platform error.
+    // Includes grey failures when we can't determine the exact cause.
     TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    // Clear function code failure typically by raising an exception from the function code.
     TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    // Function code run time exceeded its cofigured timeout.
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    // Function code raised InvocationError to mark the invocation as permanently failed.
     TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
+    // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
     TASK_FAILURE_REASON_TASK_CANCELLED = 5;
+    // Function Executor terminated - can't run the task allocation on it anymore.
     TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
 
