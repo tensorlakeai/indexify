@@ -8,6 +8,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     InvocationStateRequest,
     InvocationStateResponse,
     SerializedObject,
+    SerializedObjectEncoding,
     SetInvocationStateResponse,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
@@ -24,6 +25,10 @@ from .metrics.invocation_state_client import (
     metric_server_set_state_request_latency,
     metric_server_set_state_requests,
 )
+
+# We're currently only supporting CloudPickle for invocation state values.
+# FIXME: if Function Executor sends us something else then we fail the calls.
+_VALUE_CONTENT_TYPE = "application/octet-stream"
 
 
 class InvocationStateClient:
@@ -196,14 +201,21 @@ class InvocationStateClient:
         url: str = (
             f"{self._base_url}/internal/namespaces/{self._namespace}/compute_graphs/{self._graph}/invocations/{invocation_id}/ctx/{key}"
         )
-        payload = value.bytes if value.HasField("bytes") else value.string
+        if (
+            value.encoding
+            != SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE
+        ):
+            raise ValueError(
+                f"Unsupported value encoding: {SerializedObjectEncoding.Name(value.encoding)}. "
+                "Only binary pickle is supported for invocation state values."
+            )
 
         response = await self._http_client.post(
             url=url,
             files=[
                 (
                     "value",
-                    ("value", payload, value.content_type),
+                    ("value", value.data, _VALUE_CONTENT_TYPE),
                 ),
             ],
         )
@@ -245,7 +257,7 @@ class InvocationStateClient:
             )
             raise
 
-        return serialized_object_from_http_response(response)
+        return _serialized_object_from_http_response(response)
 
     def _validate_request(self, request: InvocationStateRequest) -> None:
         (
@@ -265,17 +277,15 @@ class InvocationStateClient:
             raise ValueError("unknown request type")
 
 
-def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
-    # We're hardcoding the content type currently used by Python SDK. It might change in the future.
-    # There's no other way for now to determine if the response is a bytes or string.
-    if response.headers["content-type"] in [
-        "application/octet-stream",
-        "application/pickle",
-    ]:
-        return SerializedObject(
-            bytes=response.content, content_type=response.headers["content-type"]
+def _serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
+    if response.headers["content-type"] != _VALUE_CONTENT_TYPE:
+        raise ValueError(
+            f"Unexpected content type: {response.headers['content-type']}. "
+            f"Expected: {_VALUE_CONTENT_TYPE}."
         )
-    else:
-        return SerializedObject(
-            string=response.text, content_type=response.headers["content-type"]
-        )
+
+    return SerializedObject(
+        data=response.content,
+        encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
+        encoding_version=0,
+    )

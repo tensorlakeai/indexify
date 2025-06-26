@@ -1,7 +1,12 @@
 import asyncio
 import hashlib
 import time
-from typing import Any
+from typing import Any, List
+
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    SerializedObject,
+    SerializedObjectEncoding,
+)
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import (
@@ -74,11 +79,13 @@ class _TaskOutputSummary:
     def __init__(self):
         self.output_count: int = 0
         self.output_total_bytes: int = 0
-        self.router_output_count: int = 0
+        self.next_functions_count: int = 0
         self.stdout_count: int = 0
         self.stdout_total_bytes: int = 0
         self.stderr_count: int = 0
         self.stderr_total_bytes: int = 0
+        self.invocation_error_output_count: int = 0
+        self.invocation_error_output_total_bytes: int = 0
         self.total_bytes: int = 0
 
 
@@ -95,12 +102,14 @@ async def _upload_task_output_once(
         total_bytes=output_summary.total_bytes,
         total_files=output_summary.output_count
         + output_summary.stdout_count
-        + output_summary.stderr_count,
+        + output_summary.stderr_count
+        + output_summary.invocation_error_output_count,
         output_files=output_summary.output_count,
         output_bytes=output_summary.total_bytes,
-        router_output_count=output_summary.router_output_count,
+        next_functions_count=output_summary.next_functions_count,
         stdout_bytes=output_summary.stdout_total_bytes,
         stderr_bytes=output_summary.stderr_total_bytes,
+        invocation_error_output_bytes=output_summary.invocation_error_output_total_bytes,
     )
 
     start_time = time.time()
@@ -109,7 +118,9 @@ async def _upload_task_output_once(
         metric_task_output_blob_store_upload_errors.count_exceptions(),
     ):
         metric_task_output_blob_store_uploads.inc()
-        await _upload_to_blob_store(output=output, blob_store=blob_store, logger=logger)
+        await _upload_to_blob_store(
+            task_output=output, blob_store=blob_store, logger=logger
+        )
 
     logger.info(
         "files uploaded to blob store",
@@ -118,86 +129,105 @@ async def _upload_task_output_once(
 
 
 async def _upload_to_blob_store(
-    output: TaskOutput, blob_store: BLOBStore, logger: Any
+    task_output: TaskOutput, blob_store: BLOBStore, logger: Any
 ) -> None:
-    if output.stdout is not None:
-        stdout_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.stdout"
-        stdout_bytes: bytes = output.stdout.encode()
+    if task_output.stdout is not None:
+        stdout_url = f"{task_output.allocation.task.output_payload_uri_prefix}.{task_output.allocation.task.id}.stdout"
+        stdout_bytes: bytes = task_output.stdout.encode()
         await blob_store.put(stdout_url, stdout_bytes, logger)
-        output.uploaded_stdout = DataPayload(
+        task_output.uploaded_stdout = DataPayload(
             uri=stdout_url,
             size=len(stdout_bytes),
             sha256_hash=compute_hash(stdout_bytes),
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
-        # stdout is uploaded, free the memory used for it.
-        output.stdout = None
+        # stdout is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
+        task_output.stdout = None
 
-    if output.stderr is not None:
-        stderr_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.stderr"
-        stderr_bytes: bytes = output.stderr.encode()
+    if task_output.stderr is not None:
+        stderr_url = f"{task_output.allocation.task.output_payload_uri_prefix}.{task_output.allocation.task.id}.stderr"
+        stderr_bytes: bytes = task_output.stderr.encode()
         await blob_store.put(stderr_url, stderr_bytes, logger)
-        output.uploaded_stderr = DataPayload(
+        task_output.uploaded_stderr = DataPayload(
             uri=stderr_url,
             size=len(stderr_bytes),
             sha256_hash=compute_hash(stderr_bytes),
             encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
             encoding_version=0,
         )
-        # stderr is uploaded, free the memory used for it.
-        output.stderr = None
+        # stderr is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
+        task_output.stderr = None
 
-    if output.function_output is not None:
-        # We can't use the default empty list output.uploaded_data_payloads because it's a singleton.
-        uploaded_data_payloads = []
-        for func_output_item in output.function_output.outputs:
-            node_output_sequence = len(uploaded_data_payloads)
-            output_url = f"{output.allocation.task.output_payload_uri_prefix}.{output.allocation.task.id}.{node_output_sequence}"
-            output_bytes: bytes = (
-                func_output_item.bytes
-                if func_output_item.HasField("bytes")
-                else func_output_item.string.encode()
+    if task_output.invocation_error_output is not None:
+        invocation_error_output_url = (
+            f"{task_output.allocation.task.output_payload_uri_prefix}.inverr."
+            f"{task_output.allocation.task.graph_invocation_id}"
+        )
+        invocation_error_output_bytes: bytes = task_output.invocation_error_output.data
+        await blob_store.put(
+            invocation_error_output_url, invocation_error_output_bytes, logger
+        )
+        task_output.uploaded_invocation_error_output = DataPayload(
+            uri=invocation_error_output_url,
+            size=len(invocation_error_output_bytes),
+            sha256_hash=compute_hash(invocation_error_output_bytes),
+            encoding=_to_grpc_data_payload_encoding(
+                task_output.invocation_error_output.encoding, logger
+            ),
+            encoding_version=0,
+        )
+        # Invocation error output is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
+        task_output.invocation_error_output = None
+
+    # We can't use the default empty list output.uploaded_data_payloads because it's a singleton.
+    uploaded_data_payloads: List[DataPayload] = []
+    for output in task_output.function_outputs:
+        output: SerializedObject
+        output_ix: int = len(uploaded_data_payloads)
+        output_url: str = (
+            f"{task_output.allocation.task.output_payload_uri_prefix}.{task_output.allocation.task.id}.{output_ix}"
+        )
+        await blob_store.put(output_url, output.data, logger)
+        uploaded_data_payloads.append(
+            DataPayload(
+                uri=output_url,
+                size=len(output.data),
+                sha256_hash=compute_hash(output.data),
+                encoding=_to_grpc_data_payload_encoding(output.encoding, logger),
+                encoding_version=0,
             )
-            await blob_store.put(output_url, output_bytes, logger)
-            uploaded_data_payloads.append(
-                DataPayload(
-                    uri=output_url,
-                    size=len(output_bytes),
-                    sha256_hash=compute_hash(output_bytes),
-                    encoding=_to_grpc_data_payload_encoding(output),
-                    encoding_version=0,
-                )
-            )
+        )
 
-        output.uploaded_data_payloads = uploaded_data_payloads
-        # The output is uploaded, free the memory used for it.
-        output.function_output = None
+    task_output.uploaded_data_payloads = uploaded_data_payloads
+    # The output is uploaded, free the memory used for it and don't upload again if we retry overall output upload again.
+    task_output.function_outputs = []
 
 
-def _task_output_summary(output: TaskOutput) -> _TaskOutputSummary:
+def _task_output_summary(task_output: TaskOutput) -> _TaskOutputSummary:
     summary: _TaskOutputSummary = _TaskOutputSummary()
 
-    if output.stdout is not None:
+    if task_output.stdout is not None:
         summary.stdout_count += 1
-        summary.stdout_total_bytes += len(output.stdout)
+        summary.stdout_total_bytes += len(task_output.stdout)
 
-    if output.stderr is not None:
+    if task_output.stderr is not None:
         summary.stderr_count += 1
-        summary.stderr_total_bytes += len(output.stderr)
+        summary.stderr_total_bytes += len(task_output.stderr)
 
-    if output.function_output is not None:
-        for func_output_item in output.function_output.outputs:
-            output_len: bytes = len(
-                func_output_item.bytes
-                if func_output_item.HasField("bytes")
-                else func_output_item.string
-            )
-            summary.output_count += 1
-            summary.output_total_bytes += output_len
+    if task_output.invocation_error_output is not None:
+        summary.invocation_error_output_count += 1
+        summary.invocation_error_output_total_bytes += len(
+            task_output.invocation_error_output.data
+        )
 
-    if output.router_output is not None:
-        summary.router_output_count += 1
+    for output in task_output.function_outputs:
+        output: SerializedObject
+        output_len: bytes = len(output.data)
+        summary.output_count += 1
+        summary.output_total_bytes += output_len
+
+    summary.next_functions_count = len(task_output.next_functions)
 
     summary.total_bytes = (
         summary.output_total_bytes
@@ -207,11 +237,21 @@ def _task_output_summary(output: TaskOutput) -> _TaskOutputSummary:
     return summary
 
 
-def _to_grpc_data_payload_encoding(task_output: TaskOutput) -> DataPayloadEncoding:
-    if task_output.output_encoding == "json":
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
-    else:
+def _to_grpc_data_payload_encoding(
+    encoding: SerializedObjectEncoding, logger: Any
+) -> DataPayloadEncoding:
+    if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
+    else:
+        logger.error(
+            "Unexpected encoding for SerializedObject",
+            encoding=SerializedObjectEncoding.Name(encoding),
+        )
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN
 
 
 def compute_hash(data: bytes) -> str:

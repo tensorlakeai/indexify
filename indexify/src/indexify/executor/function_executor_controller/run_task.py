@@ -6,6 +6,13 @@ import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,
     RunTaskResponse,
+    SerializedObject,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    TaskFailureReason as FETaskFailureReason,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    TaskOutcomeCode as FETaskOutcomeCode,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
@@ -83,6 +90,7 @@ async def run_task_on_function_executor(
         task_info.output = _task_output_from_function_executor_response(
             allocation=task_info.allocation,
             response=response,
+            logger=logger,
         )
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
@@ -140,13 +148,13 @@ async def run_task_on_function_executor(
 
 
 def _task_output_from_function_executor_response(
-    allocation: TaskAllocation, response: RunTaskResponse
+    allocation: TaskAllocation, response: RunTaskResponse, logger: Any
 ) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
     response_validator.required_field("stderr")
     response_validator.required_field("is_reducer")
-    response_validator.required_field("success")
+    response_validator.required_field("outcome_code")
 
     metrics = TaskMetrics(counters={}, timers={})
     if response.HasField("metrics"):
@@ -154,30 +162,33 @@ def _task_output_from_function_executor_response(
         metrics.counters = dict(response.metrics.counters)
         metrics.timers = dict(response.metrics.timers)
 
-    output = TaskOutput(
+    outcome_code: TaskOutcomeCode = _to_task_outcome_code(
+        response.outcome_code, logger=logger
+    )
+    failure_reason: Optional[TaskFailureReason] = None
+    invocation_error_output: Optional[SerializedObject] = None
+
+    if outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
+        response_validator.required_field("failure_reason")
+        failure_reason: Optional[TaskFailureReason] = _to_task_failure_reason(
+            response.failure_reason, logger
+        )
+        if failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR:
+            response_validator.required_field("invocation_error_output")
+            invocation_error_output = response.invocation_error_output
+
+    return TaskOutput(
         allocation=allocation,
-        outcome_code=(
-            TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS
-            if response.success
-            else TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
-        ),
-        failure_reason=(
-            None
-            if response.success
-            else TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
-        ),
+        outcome_code=outcome_code,
+        failure_reason=failure_reason,
+        invocation_error_output=invocation_error_output,
+        function_outputs=response.function_outputs,
+        next_functions=response.next_functions,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,
         metrics=metrics,
     )
-
-    if response.HasField("function_output"):
-        output.function_output = response.function_output
-    if response.HasField("router_output"):
-        output.router_output = response.router_output
-
-    return output
 
 
 def _log_task_execution_finished(output: TaskOutput, logger: Any) -> None:
@@ -191,3 +202,40 @@ def _log_task_execution_finished(output: TaskOutput, logger: Any) -> None:
             else None
         ),
     )
+
+
+def _to_task_outcome_code(
+    fe_task_outcome_code: FETaskOutcomeCode, logger
+) -> TaskOutcomeCode:
+    if fe_task_outcome_code == FETaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS:
+        return TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS
+    elif fe_task_outcome_code == FETaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
+        return TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
+    else:
+        logger.warning(
+            "Unknown TaskOutcomeCode received from Function Executor",
+            value=FETaskOutcomeCode.Name(fe_task_outcome_code),
+        )
+        return TaskOutcomeCode.TASK_OUTCOME_CODE_UNKNOWN
+
+
+def _to_task_failure_reason(
+    fe_task_failure_reason: FETaskFailureReason, logger: Any
+) -> TaskFailureReason:
+    if fe_task_failure_reason == FETaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR:
+        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+    elif (
+        fe_task_failure_reason
+        == FETaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR
+    ):
+        return TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR
+    elif (
+        fe_task_failure_reason == FETaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+    ):
+        return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+    else:
+        logger.warning(
+            "Unknown TaskFailureReason received from Function Executor",
+            value=FETaskFailureReason.Name(fe_task_failure_reason),
+        )
+        return TaskFailureReason.TASK_FAILURE_REASON_UNKNOWN

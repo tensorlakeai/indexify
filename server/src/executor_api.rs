@@ -20,8 +20,8 @@ use data_model::{
     GPUResources,
     GraphVersion,
     NodeOutputBuilder,
-    Routing,
     TaskDiagnostics,
+    TaskFailureReason,
     TaskOutcome,
 };
 use executor_api_pb::{
@@ -515,6 +515,13 @@ impl ExecutorAPIService {
             let outcome_code =
                 executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
                     .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let failure_reason = task_result
+                .failure_reason
+                .map(|reason| {
+                    executor_api_pb::TaskFailureReason::try_from(reason)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))
+                })
+                .transpose()?;
             let namespace = task_result
                 .namespace
                 .clone()
@@ -597,6 +604,7 @@ impl ExecutorAPIService {
                             DataPayloadEncoding::Utf8Json => Ok("application/json"),
                             DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
                             DataPayloadEncoding::Utf8Text => Ok("text/plain"),
+                            DataPayloadEncoding::BinaryZip => Ok("application/zip"),
                             DataPayloadEncoding::Unknown => {
                                 Err(Status::invalid_argument("unknown data payload encoding"))
                             }
@@ -609,27 +617,11 @@ impl ExecutorAPIService {
                 .to_string();
                 payloads.push(data_payload);
             }
-
-            // Figure out the routing to use.
-            //
-            // The `next_functions` field has a special-case edge
-            // behavior: iff it's empty, we use the routing specified
-            // by the graph itself.  We're replacing this with a
-            // `routing` field which, if present, overrides
-            // `next_functions` entirely; it has its own
-            // `next_functions`, defined as being the complete route
-            // list (if empty, there are no routes, and this part of
-            // the graph is complete).
-            let routing = match task_result.routing.as_ref() {
-                Some(r) => Routing::Edges(r.next_functions.clone()),
-                None => {
-                    if task_result.next_functions.len() > 0 {
-                        Routing::Edges(task_result.next_functions.clone())
-                    } else {
-                        Routing::UseGraphEdges
-                    }
-                }
-            };
+            let invocation_error_payload = prepare_data_payload(
+                task_result.invocation_error_output.clone(),
+                &self.blob_storage.get_url_scheme(),
+                &self.blob_storage.get_url(),
+            );
 
             let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
@@ -637,9 +629,10 @@ impl ExecutorAPIService {
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payloads(payloads)
-                .routing(routing)
+                .next_functions(task_result.next_functions.clone())
                 .encoding(encoding_str.to_string())
                 .allocation_id(allocation_id.clone())
+                .invocation_error_payload(invocation_error_payload)
                 .reducer_output(compute_fn_node.reducer)
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
@@ -673,8 +666,34 @@ impl ExecutorAPIService {
                 executor_api_pb::TaskOutcomeCode::Failure => TaskOutcome::Failure,
                 executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
             };
+            let allocation_failure_reason = match failure_reason {
+                Some(reason) => match reason {
+                    executor_api_pb::TaskFailureReason::Unknown => Some(TaskFailureReason::Unknown),
+                    executor_api_pb::TaskFailureReason::InternalError => {
+                        Some(TaskFailureReason::InternalError)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionError => {
+                        Some(TaskFailureReason::FunctionError)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionTimeout => {
+                        Some(TaskFailureReason::FunctionTimeout)
+                    }
+                    executor_api_pb::TaskFailureReason::InvocationError => {
+                        Some(TaskFailureReason::InvocationError)
+                    }
+                    executor_api_pb::TaskFailureReason::TaskCancelled => {
+                        Some(TaskFailureReason::TaskCancelled)
+                    }
+                    executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
+                        Some(TaskFailureReason::FunctionExecutorTerminated)
+                    }
+                },
+                None => None,
+            };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
+            allocation.failure_reason =
+                allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
 
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),

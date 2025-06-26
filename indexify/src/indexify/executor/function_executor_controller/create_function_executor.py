@@ -5,6 +5,7 @@ from typing import Any, Optional, Tuple
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     SerializedObject,
+    SerializedObjectEncoding,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore

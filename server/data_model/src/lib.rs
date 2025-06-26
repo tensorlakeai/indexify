@@ -78,6 +78,7 @@ pub struct Allocation {
     pub invocation_id: String,
     pub created_at: u128,
     pub outcome: TaskOutcome,
+    pub failure_reason: TaskFailureReason,
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
 }
@@ -173,6 +174,7 @@ impl AllocationBuilder {
             .outcome
             .clone()
             .ok_or(anyhow!("allocation outcome is required"))?;
+        let failure_reason = self.failure_reason.clone().unwrap_or_default();
 
         Ok(Allocation {
             id,
@@ -185,6 +187,7 @@ impl AllocationBuilder {
             invocation_id,
             created_at,
             outcome,
+            failure_reason,
             diagnostics: None,
             attempt_number: retry_number,
         })
@@ -560,12 +563,6 @@ pub struct TaskDiagnostics {
     pub stderr: Option<DataPayload>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Routing {
-    UseGraphEdges,
-    Edges(Vec<String>),
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
@@ -575,11 +572,11 @@ pub struct NodeOutput {
     pub compute_fn_name: String,
     pub invocation_id: String,
     pub payloads: Vec<DataPayload>,
-    pub routing: Routing,
-    pub errors: Option<DataPayload>,
+    pub next_functions: Vec<String>,
     pub created_at: u64,
     pub encoding: String,
     pub allocation_id: String,
+    pub invocation_error_payload: Option<DataPayload>,
 
     // If this is the output of an individual reducer
     // We need this here since we are going to filter out the individual reducer outputs
@@ -658,7 +655,11 @@ impl NodeOutputBuilder {
             .payloads
             .clone()
             .ok_or(anyhow!("payloads is required"))?;
-        let routing = self.routing.clone().ok_or(anyhow!("routing is required"))?;
+        let next_functions = self
+            .next_functions
+            .clone()
+            .ok_or(anyhow!("next_functions is required"))?;
+        let invocation_error_payload = self.invocation_error_payload.clone().flatten();
         let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
@@ -666,7 +667,6 @@ impl NodeOutputBuilder {
         fn_name.hash(&mut hasher);
         invocation_id.hash(&mut hasher);
         allocation_id.hash(&mut hasher);
-        let errors = self.errors.clone().flatten();
 
         let id = format!("{:x}", hasher.finish());
         Ok(NodeOutput {
@@ -676,11 +676,11 @@ impl NodeOutputBuilder {
             invocation_id,
             compute_fn_name: fn_name,
             payloads,
-            errors,
-            routing,
+            next_functions,
             created_at,
             encoding,
             allocation_id,
+            invocation_error_payload,
             reducer_output,
         })
     }
@@ -774,6 +774,62 @@ impl Display for GraphInvocationOutcome {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum GraphInvocationFailureReason {
+    // Used when invocation didn't finish yet and when invocation finished successfully
+    Unknown,
+    // Internal error on Executor aka platform error.
+    InternalError,
+    // Clear function code failure typically by raising an exception from the function code.
+    FunctionError,
+    // Function code raised InvocationError to mark the invocation as permanently failed.
+    InvocationError,
+    // Next function is not found in the graph (while routing).
+    NextFunctionNotFound,
+}
+
+impl Display for GraphInvocationFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str_val = match self {
+            GraphInvocationFailureReason::Unknown => "Unknown",
+            GraphInvocationFailureReason::InternalError => "InternalError",
+            GraphInvocationFailureReason::FunctionError => "FunctionError",
+            GraphInvocationFailureReason::InvocationError => "InvocationError",
+            GraphInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
+        };
+        write!(f, "{}", str_val)
+    }
+}
+
+impl Default for GraphInvocationFailureReason {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl From<TaskFailureReason> for GraphInvocationFailureReason {
+    fn from(failure_reason: TaskFailureReason) -> Self {
+        match failure_reason {
+            TaskFailureReason::Unknown => GraphInvocationFailureReason::Unknown,
+            TaskFailureReason::InternalError => GraphInvocationFailureReason::InternalError,
+            TaskFailureReason::FunctionError => GraphInvocationFailureReason::FunctionError,
+            TaskFailureReason::FunctionTimeout => GraphInvocationFailureReason::FunctionError,
+            TaskFailureReason::InvocationError => GraphInvocationFailureReason::InvocationError,
+            TaskFailureReason::TaskCancelled => GraphInvocationFailureReason::InternalError,
+            TaskFailureReason::FunctionExecutorTerminated => {
+                GraphInvocationFailureReason::InternalError
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct GraphInvocationError {
+    pub function_name: String,
+    pub payload: DataPayload,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct GraphInvocationCtx {
@@ -784,11 +840,13 @@ pub struct GraphInvocationCtx {
     pub completed: bool,
     #[serde(default)]
     pub outcome: GraphInvocationOutcome,
+    pub failure_reason: GraphInvocationFailureReason,
     pub outstanding_tasks: u64,
     pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
+    pub invocation_error: Option<GraphInvocationError>,
 }
 
 impl GraphInvocationCtx {
@@ -923,10 +981,12 @@ impl GraphInvocationCtxBuilder {
             invocation_id,
             completed: false,
             outcome: GraphInvocationOutcome::Undefined,
+            failure_reason: GraphInvocationFailureReason::default(),
             fn_task_analytics,
             outstanding_tasks: 0,
             outstanding_reducer_tasks: 0,
             created_at,
+            invocation_error: None,
         })
     }
 }
@@ -991,6 +1051,61 @@ impl Display for TaskOutcome {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TaskFailureReason {
+    Unknown,
+    // Internal error on Executor aka platform error.
+    // Includes grey failures when we can't determine the exact cause.
+    InternalError,
+    // Clear function code failure typically by raising an exception from the function code.
+    FunctionError,
+    // Function code run time exceeded its cofigured timeout.
+    FunctionTimeout,
+    // Function code raised InvocationError to mark the invocation as permanently failed.
+    InvocationError,
+    // Server removed the task allocation from Executor desired state.
+    // The task allocation didn't finish before the removal.
+    TaskCancelled,
+    // Function Executor terminated - can't run the task allocation on it anymore.
+    FunctionExecutorTerminated,
+}
+
+impl Display for TaskFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str_val = match self {
+            TaskFailureReason::Unknown => "Unknown",
+            TaskFailureReason::InternalError => "InternalError",
+            TaskFailureReason::FunctionError => "FunctionError",
+            TaskFailureReason::FunctionTimeout => "FunctionTimeout",
+            TaskFailureReason::InvocationError => "InvocationError",
+            TaskFailureReason::TaskCancelled => "TaskCancelled",
+            TaskFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
+        };
+        write!(f, "{}", str_val)
+    }
+}
+
+impl Default for TaskFailureReason {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl TaskFailureReason {
+    pub fn is_retriable(&self) -> bool {
+        // Only InvocationError is not retriable because it fails the invocation
+        // permanently.
+        matches!(
+            self,
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout |
+                TaskFailureReason::TaskCancelled |
+                TaskFailureReason::FunctionExecutorTerminated
+        )
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TaskStatus {
     /// Task is waiting for execution
@@ -1034,6 +1149,7 @@ pub struct Task {
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
+    pub failure_reason: TaskFailureReason,
     pub creation_time_ns: u128,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
@@ -1176,6 +1292,7 @@ impl TaskBuilder {
             namespace,
             status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
+            failure_reason: TaskFailureReason::default(),
             graph_version,
             creation_time_ns,
             cache_key,
@@ -1528,8 +1645,11 @@ impl Default for FunctionExecutorId {
 pub enum FunctionExecutorState {
     #[default]
     Unknown,
+    // Function Executor is being created.
     Pending,
+    // Function Executor is running and ready to accept tasks.
     Running,
+    // Function Executor is terminated, all resources are freed.
     Terminated,
 }
 
@@ -1549,8 +1669,12 @@ pub enum FunctionExecutorState {
 pub enum FunctionExecutorTerminationReason {
     #[default]
     Unknown,
+    // FE was removed from desired Executor state.
     DesiredStateRemoved,
+    // FE failed to startup or was terminated due to a clear customer code problem
+    // like a code timeout or exception raised from it.
     CustomerCodeError,
+    // FE failed to startup or was terminated due to an internal error aka platform error.
     PlatformError,
 }
 

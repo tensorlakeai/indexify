@@ -66,6 +66,7 @@ def emit_completed_task_metrics(task_info: TaskInfo, logger: Any) -> None:
         elif task_failure_reason in [
             TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
             TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
+            TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR,
         ]:
             metric_tasks_completed.labels(
                 outcome_code=METRIC_TASKS_COMPLETED_OUTCOME_CODE_FAILURE,

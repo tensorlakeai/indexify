@@ -10,6 +10,7 @@ use data_model::{
     ExecutorMetadata,
     FunctionExecutor,
     FunctionExecutorState,
+    GraphVersion,
     Task,
     TaskDiagnostics,
     TaskOutcome,
@@ -441,6 +442,24 @@ impl TestExecutor<'_> {
         args: FinalizeTaskArgs,
     ) -> Result<()> {
         let allocation_id = task_allocation.allocation_id.clone().unwrap();
+        let graph_version = self
+            .test_service
+            .service
+            .indexify_state
+            .reader()
+            .get_compute_graph_version(
+                &task_allocation.task.as_ref().unwrap().namespace(),
+                &task_allocation.task.as_ref().unwrap().graph_name(),
+                &GraphVersion(
+                    task_allocation
+                        .task
+                        .as_ref()
+                        .unwrap()
+                        .graph_version()
+                        .to_string(),
+                ),
+            )?
+            .unwrap();
         let node_output = mock_node_fn_output(
             task_allocation.task.as_ref().unwrap().graph_invocation_id(),
             task_allocation.task.as_ref().unwrap().graph_name(),
@@ -448,6 +467,18 @@ impl TestExecutor<'_> {
             args.reducer_fn.clone(),
             args.num_outputs as usize,
             allocation_id,
+            graph_version
+                .edges
+                .get(
+                    &task_allocation
+                        .task
+                        .as_ref()
+                        .unwrap()
+                        .function_name()
+                        .to_string(),
+                )
+                .cloned()
+                .unwrap_or_default(),
         );
 
         // get the task from the state store

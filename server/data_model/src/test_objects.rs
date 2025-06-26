@@ -3,14 +3,7 @@ pub mod tests {
 
     use rand::Rng;
 
-    use super::super::{
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        NodeOutput,
-        Routing,
-        RuntimeInformation,
-    };
+    use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, NodeOutput, RuntimeInformation};
     use crate::{
         DataPayload,
         ExecutorId,
@@ -82,6 +75,7 @@ pub mod tests {
             reducer_fn,
             num_outputs,
             allocation_id,
+            vec!["fn_b".to_string(), "fn_c".to_string()],
         )
     }
 
@@ -92,6 +86,7 @@ pub mod tests {
         reducer_fn: Option<String>,
         num_outputs: usize,
         allocation_id: String,
+        next_functions: Vec<String>,
     ) -> NodeOutput {
         let mut path = rand::rng()
             .sample_iter(rand::distr::Alphanumeric)
@@ -117,18 +112,7 @@ pub mod tests {
                     })
                     .collect(),
             )
-            .routing(Routing::UseGraphEdges)
-            .build()
-            .unwrap()
-    }
-
-    pub fn mock_node_router_output_x(invocation_id: &str, graph: &str) -> NodeOutput {
-        NodeOutputBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .compute_fn_name("router_x".to_string())
-            .compute_graph_name(graph.to_string())
-            .invocation_id(invocation_id.to_string())
-            .routing(Routing::Edges(vec!["fn_c".to_string()]))
+            .next_functions(next_functions)
             .build()
             .unwrap()
     }

@@ -1,8 +1,7 @@
 from typing import Dict, List, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionOutput,
-    RouterOutput,
+    SerializedObject,
 )
 
 from indexify.proto.executor_api_pb2 import (
@@ -30,31 +29,29 @@ class TaskOutput:
         outcome_code: TaskOutcomeCode,
         # Optional[TaskFailureReason] is not supported in python 3.9
         failure_reason: TaskFailureReason = None,
-        output_encoding: Optional[str] = None,
-        function_output: Optional[FunctionOutput] = None,
-        router_output: Optional[RouterOutput] = None,
+        invocation_error_output: Optional[SerializedObject] = None,
+        function_outputs: List[SerializedObject] = [],
+        next_functions: List[str] = [],
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         reducer: bool = False,
         metrics: Optional[TaskMetrics] = None,
-        uploaded_data_payloads: List[DataPayload] = [],
-        uploaded_stdout: Optional[DataPayload] = None,
-        uploaded_stderr: Optional[DataPayload] = None,
     ):
         self.task = allocation.task
         self.allocation = allocation
-        self.function_output = function_output
-        self.router_output = router_output
+        self.function_outputs = function_outputs
+        self.next_functions = next_functions
         self.stdout = stdout
         self.stderr = stderr
         self.reducer = reducer
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
+        self.invocation_error_output = invocation_error_output
         self.metrics = metrics
-        self.output_encoding = output_encoding
-        self.uploaded_data_payloads = uploaded_data_payloads
-        self.uploaded_stdout = uploaded_stdout
-        self.uploaded_stderr = uploaded_stderr
+        self.uploaded_data_payloads: List[DataPayload] = []
+        self.uploaded_stdout: Optional[DataPayload] = None
+        self.uploaded_stderr: Optional[DataPayload] = None
+        self.uploaded_invocation_error_output: Optional[DataPayload] = None
 
     @classmethod
     def internal_error(

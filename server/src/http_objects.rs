@@ -10,6 +10,7 @@ use data_model::{
     FunctionExecutorServerMetadata,
     FunctionExecutorState,
     GraphInvocationCtx,
+    GraphInvocationFailureReason,
     GraphInvocationOutcome,
 };
 use indexify_utils::get_epoch_time_in_ms;
@@ -796,9 +797,39 @@ impl From<GraphInvocationOutcome> for InvocationOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum InvocationFailureReason {
+    Unknown,
+    InternalError,
+    FunctionError,
+    InvocationError,
+    NextFunctionNotFound,
+}
+
+impl From<GraphInvocationFailureReason> for InvocationFailureReason {
+    fn from(failure_reason: GraphInvocationFailureReason) -> Self {
+        match failure_reason {
+            GraphInvocationFailureReason::Unknown => InvocationFailureReason::Unknown,
+            GraphInvocationFailureReason::InternalError => InvocationFailureReason::InternalError,
+            GraphInvocationFailureReason::FunctionError => InvocationFailureReason::FunctionError,
+            GraphInvocationFailureReason::InvocationError => {
+                InvocationFailureReason::InvocationError
+            }
+            GraphInvocationFailureReason::NextFunctionNotFound => {
+                InvocationFailureReason::NextFunctionNotFound
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvocationError {
+    pub function_name: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutputs {
-    pub status: InvocationStatus,
-    pub outcome: InvocationOutcome,
+    pub invocation: Invocation,
     pub outputs: Vec<FnOutput>,
     pub cursor: Option<String>,
 }
@@ -814,10 +845,12 @@ pub struct Invocation {
     pub completed: bool,
     pub status: InvocationStatus,
     pub outcome: InvocationOutcome,
+    pub failure_reason: InvocationFailureReason,
     pub outstanding_tasks: u64,
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
     pub created_at: u64,
+    pub invocation_error: Option<InvocationError>,
 }
 
 impl From<GraphInvocationCtx> for Invocation {
@@ -844,11 +877,13 @@ impl From<GraphInvocationCtx> for Invocation {
             id: value.invocation_id.to_string(),
             completed: value.completed,
             outcome: value.outcome.into(),
+            failure_reason: value.failure_reason.into(),
             status,
             outstanding_tasks: value.outstanding_tasks,
             task_analytics,
             graph_version: value.graph_version.0,
             created_at: value.created_at,
+            invocation_error: None, // Set by API handlers if needed
         }
     }
 }

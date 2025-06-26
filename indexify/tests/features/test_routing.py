@@ -83,6 +83,21 @@ def _get_class_name(cls, unused_num, param_dict):
     return f"{cls.__name__}_{'remote' if param_dict['is_remote'] else 'local'}"
 
 
+@tensorlake_function()
+def skip_func_3(_: str) -> str:
+    return "skip_func_3"
+
+
+@tensorlake_function(next=skip_func_3)
+def skip_func_2(_: str) -> str:
+    return "skip_func_2"
+
+
+@tensorlake_function(next=skip_func_2)
+def skip_func_1() -> str:
+    return RouteTo("skip_func_1", [skip_func_3])
+
+
 @parameterized_class(
     ("is_remote"),
     [
@@ -136,6 +151,21 @@ class TestRouting(unittest.TestCase):
         output_should_not_run = graph.output(invocation_id, "should_not_run")
         self.assertEqual(output_simple_success, ["ab"])
         self.assertEqual(output_should_not_run, [])
+
+    def test_skip_default_route(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test for function skipping on default route",
+            start_node=skip_func_1,
+        )
+        graph = remote_or_local_graph(graph, self.is_remote)
+        invocation_id = graph.run(block_until_done=True)
+
+        output_skip_func_3 = graph.output(invocation_id, "skip_func_3")
+        self.assertEqual(output_skip_func_3, ["skip_func_3"])
+
+        output_skip_func_2 = graph.output(invocation_id, "skip_func_2")
+        self.assertEqual(output_skip_func_2, [])
 
 
 if __name__ == "__main__":
