@@ -1104,6 +1104,10 @@ impl TaskFailureReason {
                 TaskFailureReason::FunctionExecutorTerminated
         )
     }
+
+    pub fn is_internal_error(&self) -> bool {
+        matches!(self, Self::TaskCancelled | Self::FunctionExecutorTerminated)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

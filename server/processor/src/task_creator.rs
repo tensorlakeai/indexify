@@ -205,7 +205,9 @@ impl TaskCreator {
                 allocation.failure_reason.is_retriable()
             {
                 task.status = TaskStatus::Pending;
-                task.attempt_number += 1;
+                if !allocation.failure_reason.is_internal_error() {
+                    task.attempt_number += 1;
+                }
                 scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
                 return Ok(scheduler_update);
             }
