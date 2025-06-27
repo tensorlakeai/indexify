@@ -469,17 +469,20 @@ impl<'a> TaskAllocationProcessor<'a> {
                 if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
                     continue;
                 }
-                if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
-                    task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
-                    failed_tasks += 1;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
-                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
-                    fe.termination_reason ==
-                        FunctionExecutorTerminationReason::DesiredStateRemoved
-                {
-                    task.status = TaskStatus::Pending;
-                    task.attempt_number = task.attempt_number + 1;
+                match fe.termination_reason {
+                    FunctionExecutorTerminationReason::CustomerCodeError => {
+                        task.status = TaskStatus::Completed;
+                        task.outcome = TaskOutcome::Failure;
+                        failed_tasks += 1;
+                    }
+                    FunctionExecutorTerminationReason::Unknown |
+                    FunctionExecutorTerminationReason::PlatformError => {
+                        task.status = TaskStatus::Pending;
+                        task.attempt_number = task.attempt_number + 1;
+                    }
+                    FunctionExecutorTerminationReason::DesiredStateRemoved => {
+                        task.status = TaskStatus::Pending;
+                    }
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
