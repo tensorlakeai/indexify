@@ -466,7 +466,10 @@ impl<'a> TaskAllocationProcessor<'a> {
                 else {
                     continue;
                 };
-                if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
+                if task.status == TaskStatus::Pending ||
+                    task.status == TaskStatus::Completed ||
+                    alloc.is_terminal()
+                {
                     continue;
                 }
                 match fe.termination_reason {
@@ -475,12 +478,15 @@ impl<'a> TaskAllocationProcessor<'a> {
                         task.outcome = TaskOutcome::Failure;
                         failed_tasks += 1;
                     }
-                    FunctionExecutorTerminationReason::Unknown |
                     FunctionExecutorTerminationReason::PlatformError => {
                         task.status = TaskStatus::Pending;
                         task.attempt_number = task.attempt_number + 1;
                     }
+                    FunctionExecutorTerminationReason::Unknown |
                     FunctionExecutorTerminationReason::DesiredStateRemoved => {
+                        // We would get here in two cases:
+                        // 1. The executor was deregistered
+                        // 2. We asked the function executor to terminate, without a reason
                         task.status = TaskStatus::Pending;
                     }
                 }
