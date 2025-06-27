@@ -205,7 +205,12 @@ impl TaskCreator {
                 allocation.failure_reason.is_retriable()
             {
                 task.status = TaskStatus::Pending;
-                task.attempt_number += 1;
+                if allocation
+                    .failure_reason
+                    .should_count_against_task_retry_attempts()
+                {
+                    task.attempt_number += 1;
+                }
                 scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
                 return Ok(scheduler_update);
             }
