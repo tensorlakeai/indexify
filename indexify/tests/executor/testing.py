@@ -1,8 +1,4 @@
-import os
-import platform
-import subprocess
 import unittest
-from typing import List, Optional
 
 
 def test_graph_name(test_case: unittest.TestCase) -> str:
