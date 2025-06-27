@@ -1370,6 +1370,17 @@ impl From<Box<FunctionExecutorServerMetadata>> for FunctionURI {
     }
 }
 
+impl From<&FunctionExecutor> for FunctionURI {
+    fn from(fe: &FunctionExecutor) -> Self {
+        FunctionURI {
+            namespace: fe.namespace.clone(),
+            compute_graph_name: fe.compute_graph_name.clone(),
+            compute_fn_name: fe.compute_fn_name.clone(),
+            version: fe.version.clone(),
+        }
+    }
+}
+
 impl From<&Task> for FunctionURI {
     fn from(task: &Task) -> Self {
         FunctionURI {
@@ -1836,6 +1847,13 @@ impl FunctionExecutor {
             self.compute_graph_name == other.compute_graph_name &&
             self.compute_fn_name == other.compute_fn_name &&
             self.version == other.version
+    }
+
+    pub fn update(&mut self, other: &FunctionExecutor) {
+        // Only update fields that change after self FE was created.
+        // Other FE mush represent the same FE.
+        self.state = other.state;
+        self.termination_reason = other.termination_reason;
     }
 }
 
