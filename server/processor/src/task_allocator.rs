@@ -467,20 +467,29 @@ impl<'a> TaskAllocationProcessor<'a> {
                 else {
                     continue;
                 };
-                if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
+                if task.status == TaskStatus::Pending ||
+                    task.status == TaskStatus::Completed ||
+                    alloc.is_terminal()
+                {
                     continue;
                 }
-                if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
-                    task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
-                    failed_tasks += 1;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
-                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
-                    fe.termination_reason ==
-                        FunctionExecutorTerminationReason::DesiredStateRemoved
-                {
-                    task.status = TaskStatus::Pending;
-                    task.attempt_number = task.attempt_number + 1;
+                match fe.termination_reason {
+                    FunctionExecutorTerminationReason::CustomerCodeError => {
+                        task.status = TaskStatus::Completed;
+                        task.outcome = TaskOutcome::Failure;
+                        failed_tasks += 1;
+                    }
+                    FunctionExecutorTerminationReason::PlatformError => {
+                        task.status = TaskStatus::Pending;
+                        task.attempt_number = task.attempt_number + 1;
+                    }
+                    FunctionExecutorTerminationReason::Unknown |
+                    FunctionExecutorTerminationReason::DesiredStateRemoved => {
+                        // We would get here in two cases:
+                        // 1. The executor was deregistered
+                        // 2. We asked the function executor to terminate, without a reason
+                        task.status = TaskStatus::Pending;
+                    }
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
