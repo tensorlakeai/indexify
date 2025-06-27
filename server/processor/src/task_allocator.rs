@@ -277,6 +277,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         }
         info!(
             num_function_executors = function_executors.function_executors.len(),
+            num_pending_function_executors = function_executors.num_pending_function_executors,
             "found function executors for task",
         );
 

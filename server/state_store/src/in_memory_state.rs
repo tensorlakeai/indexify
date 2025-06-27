@@ -129,8 +129,10 @@ pub struct InMemoryState {
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
 
-    pub function_executors_by_fn_uri:
-        im::HashMap<FunctionURI, im::HashSet<Box<FunctionExecutorServerMetadata>>>,
+    pub function_executors_by_fn_uri: im::HashMap<
+        FunctionURI,
+        im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    >,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
@@ -833,7 +835,10 @@ impl InMemoryState {
                     self.function_executors_by_fn_uri
                         .entry(fn_uri)
                         .or_default()
-                        .insert(Box::new(fe_meta.clone()));
+                        .insert(
+                            fe_meta.function_executor.id.clone(),
+                            Box::new(fe_meta.clone()),
+                        );
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
@@ -896,7 +901,7 @@ impl InMemoryState {
                             let fn_uri = FunctionURI::from(fe.clone());
                             self.function_executors_by_fn_uri
                                 .get_mut(&fn_uri)
-                                .and_then(|fe_set| fe_set.remove(&fe));
+                                .and_then(|fe_map| fe_map.remove(&fe.function_executor.id));
                         }
                         changed_executors.insert(executor_id.clone());
                     }
@@ -941,6 +946,20 @@ impl InMemoryState {
                         }),
                     );
                 }
+                req.executor
+                    .function_executors
+                    .iter()
+                    .for_each(|executor_fe_entry| {
+                        let executor_fe = executor_fe_entry.1;
+                        let fn_uri = FunctionURI::from(executor_fe);
+                        if let Some(index_fe_map) =
+                            self.function_executors_by_fn_uri.get_mut(&fn_uri)
+                        {
+                            if let Some(index_fe_meta) = index_fe_map.get_mut(&executor_fe.id) {
+                                index_fe_meta.function_executor.update(executor_fe);
+                            }
+                        }
+                    });
             }
             RequestPayload::DeregisterExecutor(req) => {
                 let executor = self.executors.get_mut(&req.executor_id);
@@ -1024,7 +1043,8 @@ impl InMemoryState {
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
-            for function_executor in function_executors.iter() {
+            for function_executor_kv in function_executors.iter() {
+                let function_executor = function_executor_kv.1;
                 if function_executor.function_executor.state == FunctionExecutorState::Pending ||
                     function_executor.function_executor.state == FunctionExecutorState::Unknown
                 {

@@ -31,7 +31,7 @@ impl Default for ServerConfig {
             blob_storage: Default::default(),
             tracing: TracingConfig::default(),
             executor: ExecutorConfig::default(),
-            queue_size: 20,
+            queue_size: 2,
         }
     }
 }
