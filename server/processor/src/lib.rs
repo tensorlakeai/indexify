@@ -1,3 +1,4 @@
+pub mod function_executor_manager;
 pub mod gc;
 pub mod graph_processor;
 pub mod task_allocator;

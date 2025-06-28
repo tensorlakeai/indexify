@@ -356,7 +356,7 @@ impl TestExecutor<'_> {
         // complete function executors
         let executor = indexes
             .read()
-            .unwrap()
+            .await
             .executors
             .get(&self.executor_id)
             .cloned()
@@ -364,7 +364,7 @@ impl TestExecutor<'_> {
 
         let executor_server_metadata = indexes
             .read()
-            .unwrap()
+            .await
             .executor_states
             .get(&self.executor_id)
             .cloned()

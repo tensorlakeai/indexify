@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-    vec,
-};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -36,31 +32,31 @@ pub struct TaskCreationResult {
 
 pub struct TaskCreator {
     indexify_state: Arc<IndexifyState>,
-    in_memory_state: Arc<RwLock<InMemoryState>>,
     clock: u64,
 }
 
 impl TaskCreator {
-    pub fn new(
-        indexify_state: Arc<IndexifyState>,
-        in_memory_state: Arc<RwLock<InMemoryState>>,
-        clock: u64,
-    ) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
         Self {
             indexify_state,
-            in_memory_state,
             clock,
         }
     }
 }
 
 impl TaskCreator {
-    #[tracing::instrument(skip(self))]
-    pub async fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self, in_memory_state))]
+    pub async fn invoke(
+        &mut self,
+        in_memory_state: &mut InMemoryState,
+        change: &ChangeType,
+    ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::AllocationOutputsIngested(ev) => {
-                let scheduler_update = self.handle_allocation_ingestion(ev).await?;
-                self.in_memory_state.write().unwrap().update_state(
+                let scheduler_update = self
+                    .handle_allocation_ingestion(in_memory_state, ev)
+                    .await?;
+                in_memory_state.update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
                     "task_creator",
@@ -68,7 +64,9 @@ impl TaskCreator {
                 Ok(scheduler_update)
             }
             ChangeType::InvokeComputeGraph(ev) => {
-                let result = self.handle_invoke_compute_graph(ev.clone()).await?;
+                let result = self
+                    .handle_invoke_compute_graph(in_memory_state, ev.clone())
+                    .await?;
                 let scheduler_update = SchedulerUpdateRequest {
                     updated_tasks: result
                         .tasks
@@ -86,7 +84,7 @@ impl TaskCreator {
                     },
                     ..Default::default()
                 };
-                self.in_memory_state.write().unwrap().update_state(
+                in_memory_state.update_state(
                     self.clock,
                     &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
                     "task_creator",
@@ -106,12 +104,12 @@ impl TaskCreator {
         }
     }
 
-    #[tracing::instrument(skip(self, task_finished_event))]
+    #[tracing::instrument(skip(self, in_memory_state, task_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,
+        in_memory_state: &mut InMemoryState,
         task_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<SchedulerUpdateRequest> {
-        let mut in_memory_state = self.in_memory_state.write().unwrap();
         let Some(invocation_ctx) = in_memory_state
             .invocation_ctx
             .get(&GraphInvocationCtx::key_from(
@@ -221,7 +219,7 @@ impl TaskCreator {
         }
         let task_creation_result = self
             .handle_task_finished(
-                &mut in_memory_state,
+                in_memory_state,
                 *invocation_ctx.clone(),
                 *task.clone(),
                 *compute_graph_version.clone(),
@@ -249,15 +247,13 @@ impl TaskCreator {
         Ok(scheduler_update)
     }
 
-    #[tracing::instrument(skip(self, event))]
+    #[tracing::instrument(skip(self, in_memory_state, event))]
     pub async fn handle_invoke_compute_graph(
         &self,
+        in_memory_state: &InMemoryState,
         event: InvokeComputeGraphEvent,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = self
-            .in_memory_state
-            .read()
-            .unwrap()
+        let invocation_ctx = in_memory_state
             .invocation_ctx
             .get(&GraphInvocationCtx::key_from(
                 &event.namespace,
@@ -276,10 +272,7 @@ impl TaskCreator {
             ))?
             .clone();
 
-        let compute_graph_version = self
-            .in_memory_state
-            .read()
-            .unwrap()
+        let compute_graph_version = in_memory_state
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
                 &event.namespace,
