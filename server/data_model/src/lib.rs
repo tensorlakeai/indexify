@@ -1113,6 +1113,15 @@ impl TaskFailureReason {
                 TaskFailureReason::FunctionExecutorTerminated
         )
     }
+
+    pub fn should_count_against_task_retry_attempts(&self) -> bool {
+        // Platform/infrastructure failures shouldn't count against retry attempts
+        // since they're not legitimate task execution failures
+        matches!(
+            self,
+            TaskFailureReason::FunctionError | TaskFailureReason::FunctionTimeout
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
