@@ -27,6 +27,9 @@ pub struct FunctionExecutorManager {
     queue_size: u32,
 }
 
+/// Implements the policy around function executors: when to create
+/// them, when to terminate them, and the selection of function
+/// executors appropriate to a given task.
 impl FunctionExecutorManager {
     pub fn new(clock: u64, queue_size: u32) -> Self {
         Self { clock, queue_size }
