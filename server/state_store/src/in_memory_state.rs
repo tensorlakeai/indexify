@@ -448,9 +448,9 @@ impl InMemoryState {
                     continue;
                 }
                 allocations_by_executor
-                    .entry(allocation.executor_id.clone())
+                    .entry(allocation.target.executor_id.clone())
                     .or_default()
-                    .entry(allocation.function_executor_id.clone())
+                    .entry(allocation.target.function_executor_id.clone())
                     .or_default()
                     .push(Box::new(allocation));
             }
@@ -850,9 +850,9 @@ impl InMemoryState {
                             .remove(&UnallocatedTaskId::new(&task));
 
                         self.allocations_by_executor
-                            .entry(allocation.executor_id.clone())
+                            .entry(allocation.target.executor_id.clone())
                             .or_default()
-                            .entry(allocation.function_executor_id.clone())
+                            .entry(allocation.target.function_executor_id.clone())
                             .or_default()
                             .push(Box::new(allocation.clone()));
 
@@ -863,13 +863,13 @@ impl InMemoryState {
                         );
 
                         // Executor has a new allocation
-                        changed_executors.insert(allocation.executor_id.clone());
+                        changed_executors.insert(allocation.target.executor_id.clone());
                     } else {
                         error!(
                             namespace = &allocation.namespace,
                             compute_graph = &allocation.compute_graph,
                             "fn" = &allocation.compute_fn,
-                            executor_id = allocation.executor_id.get(),
+                            executor_id = allocation.target.executor_id.get(),
                             invocation_id = &allocation.invocation_id,
                             task_id = allocation.task_id.get(),
                             "task not found for new allocation"
@@ -1401,8 +1401,8 @@ impl InMemoryState {
         }
     }
 
-    pub fn clone(&self) -> Arc<std::sync::RwLock<Self>> {
-        Arc::new(std::sync::RwLock::new(InMemoryState {
+    pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
+        Arc::new(tokio::sync::RwLock::new(InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),

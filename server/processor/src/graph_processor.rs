@@ -17,7 +17,12 @@ use state_store::{
 use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
-use crate::{task_allocator, task_cache, task_creator};
+use crate::{
+    function_executor_manager,
+    task_allocator::TaskAllocationProcessor,
+    task_cache,
+    task_creator,
+};
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
@@ -207,34 +212,57 @@ impl GraphProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         trace!("processing state change: {}", state_change);
-        let clock = self.indexify_state.in_memory_state.read().await.clock;
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
-        let mut task_creator =
-            task_creator::TaskCreator::new(self.indexify_state.clone(), indexes.clone(), clock);
-        if let ChangeType::AllocationOutputsIngested(req) = &state_change.change_type {
-            self.task_cache.handle_task_outputs(req, indexes.clone());
-        }
+        let mut indexes_guard = indexes.write().await;
+        let clock = indexes_guard.clock;
+        let mut task_creator = task_creator::TaskCreator::new(self.indexify_state.clone(), clock);
+        let fe_manager =
+            function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
+        let task_allocator = TaskAllocationProcessor::new(clock, &fe_manager);
+
         let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::AllocationOutputsIngested(_) => {
-                let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;
+                if let ChangeType::AllocationOutputsIngested(req) = &state_change.change_type {
+                    self.task_cache
+                        .handle_task_outputs(req, &*indexes_guard)
+                        .await;
+                }
 
-                scheduler_update.extend(self.task_cache.try_allocate(indexes.clone()));
+                let mut scheduler_update = task_creator
+                    .invoke(&mut *indexes_guard, &state_change.change_type)
+                    .await?;
 
-                scheduler_update.extend(task_allocator::allocate(indexes, clock, self.queue_size)?);
+                scheduler_update.extend(self.task_cache.try_allocate(&mut *indexes_guard).await);
+                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],
                 }
             }
-            ChangeType::ExecutorUpserted(_) |
-            ChangeType::ExecutorRemoved(_) |
-            ChangeType::TombStoneExecutor(_) => {
-                let scheduler_update = task_allocator::invoke(
-                    indexes,
-                    clock,
-                    &state_change.change_type,
-                    self.queue_size,
-                )?;
+            ChangeType::ExecutorUpserted(ev) => {
+                let mut scheduler_update =
+                    fe_manager.reconcile_executor_state(&mut *indexes_guard, &ev.executor_id)?;
+                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
+                    processed_state_changes: vec![state_change.clone()],
+                }
+            }
+            ChangeType::ExecutorRemoved(_) => {
+                let scheduler_update = task_allocator.allocate(&mut *indexes_guard)?;
+
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
+                    processed_state_changes: vec![state_change.clone()],
+                }
+            }
+            ChangeType::TombStoneExecutor(ev) => {
+                let mut scheduler_update =
+                    fe_manager.deregister_executor(&mut *indexes_guard, &ev.executor_id)?;
+                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],

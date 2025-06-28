@@ -65,12 +65,26 @@ impl From<&str> for TaskId {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct AllocationTarget {
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
+}
+
+impl AllocationTarget {
+    pub fn new(executor_id: ExecutorId, function_executor_id: FunctionExecutorId) -> Self {
+        Self {
+            executor_id,
+            function_executor_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Allocation {
     pub id: String,
-    pub executor_id: ExecutorId,
-    pub function_executor_id: FunctionExecutorId,
+    pub target: AllocationTarget,
     pub task_id: TaskId,
     pub namespace: String,
     pub compute_graph: String,
@@ -146,14 +160,10 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
         let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
-        let function_executor_id = self
-            .function_executor_id
+        let target = self
+            .target
             .clone()
-            .ok_or(anyhow!("function_executor_id is required"))?;
-        let executor_id = self
-            .executor_id
-            .clone()
-            .ok_or(anyhow!("executor_id is required"))?;
+            .ok_or(anyhow!("allocation target is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
         let retry_number = self
             .attempt_number
@@ -167,7 +177,7 @@ impl AllocationBuilder {
         task_id.get().hash(&mut hasher);
         invocation_id.hash(&mut hasher);
         retry_number.hash(&mut hasher);
-        executor_id.get().hash(&mut hasher);
+        target.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
 
         let outcome = self
@@ -178,8 +188,7 @@ impl AllocationBuilder {
 
         Ok(Allocation {
             id,
-            function_executor_id,
-            executor_id,
+            target,
             task_id,
             namespace,
             compute_graph,

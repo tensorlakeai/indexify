@@ -400,7 +400,7 @@ impl ExecutorManager {
             .await
             .clone()
             .read()
-            .unwrap()
+            .await
             .desired_state(executor_id);
         let current_fe_hash =
             compute_function_executors_hash(&desired_executor_state.function_executors);

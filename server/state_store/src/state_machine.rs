@@ -669,8 +669,8 @@ pub(crate) fn handle_scheduler_update(
             "fn" = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
             allocation_id = alloc.id,
-            fn_executor_id = alloc.function_executor_id.get(),
-            executor_id = alloc.executor_id.get(),
+            fn_executor_id = alloc.target.function_executor_id.get(),
+            executor_id = alloc.target.executor_id.get(),
             "add_allocation",
         );
         let serialized_alloc = JsonEncoder::encode(&alloc)?;

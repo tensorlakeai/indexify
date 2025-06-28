@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use data_model::{
     AllocationOutputIngestedEvent,
@@ -16,6 +13,7 @@ use state_store::{
     requests::SchedulerUpdateRequest,
     IndexifyState,
 };
+use tokio::sync::Mutex;
 use tracing::{debug, span};
 
 pub struct CacheState {
@@ -43,17 +41,15 @@ impl TaskCache {
         }
     }
 
-    pub fn handle_task_outputs(
+    pub async fn handle_task_outputs(
         &self,
         event: &AllocationOutputIngestedEvent,
-        indexes: Arc<RwLock<InMemoryState>>,
+        indexes: &InMemoryState,
     ) {
         let _span = span!(tracing::Level::DEBUG, "cache_write").entered();
 
-        let mut state = self.mutex.lock().unwrap();
+        let mut state = self.mutex.lock().await;
         state.outputs_ingested += 1;
-
-        let indexes = indexes.read().unwrap();
 
         let Some(task) = indexes.tasks.get(&Task::key_from(
             &event.namespace,
@@ -89,15 +85,13 @@ impl TaskCache {
             .insert((cache_key.clone(), input_hash.clone()), node_output);
     }
 
-    pub fn try_allocate(&self, indexes: Arc<RwLock<InMemoryState>>) -> SchedulerUpdateRequest {
+    pub async fn try_allocate(&self, indexes: &mut InMemoryState) -> SchedulerUpdateRequest {
         let _span = span!(tracing::Level::DEBUG, "cache_check").entered();
 
-        let mut state = self.mutex.lock().unwrap();
+        let mut state = self.mutex.lock().await;
 
         let mut to_remove: Vec<UnallocatedTaskId> = Vec::new();
         let mut result = SchedulerUpdateRequest::default();
-
-        let mut indexes = indexes.write().unwrap();
 
         for task_id in &indexes.unallocated_tasks {
             debug!(task = ?task_id);
