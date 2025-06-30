@@ -5,7 +5,7 @@ mod tests {
     use anyhow::Result;
     use bytes::Bytes;
     use data_model::{
-        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        test_objects::tests::{test_graph_a, TEST_NAMESPACE},
         GraphInvocationCtx,
         InvocationPayload,
         NodeOutput,
@@ -37,7 +37,7 @@ mod tests {
 
         // Create a compute graph
         let compute_graph = {
-            let mut compute_graph = mock_graph_a("image_hash".to_string()).clone();
+            let mut compute_graph = test_graph_a("image_hash".to_string()).clone();
             let data = "code";
             let path = format!("{}", &compute_graph.code.path);
 

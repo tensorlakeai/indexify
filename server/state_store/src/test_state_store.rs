@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use data_model::test_objects::tests::{
     self,
-    mock_invocation_ctx,
-    mock_invocation_payload,
-    mock_invocation_payload_graph_b,
+    test_invocation_ctx,
+    test_invocation_payload_graph_a,
+    test_invocation_payload_graph_b,
     TEST_NAMESPACE,
 };
 
@@ -46,7 +46,7 @@ impl TestStateStore {
 pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: tests::mock_graph_a("image_hash".to_string()),
+        compute_graph: tests::test_graph_a("image_hash".to_string()),
         upgrade_tasks_to_current_version: true,
     };
     indexify_state
@@ -56,10 +56,10 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
         })
         .await
         .unwrap();
-    let invocation_payload = mock_invocation_payload();
-    let ctx = mock_invocation_ctx(
+    let invocation_payload = test_invocation_payload_graph_a();
+    let ctx = test_invocation_ctx(
         TEST_NAMESPACE,
-        &tests::mock_graph_a("image_hash".to_string()),
+        &tests::test_graph_a("image_hash".to_string()),
         &invocation_payload,
     );
     let request = InvokeComputeGraphRequest {
@@ -81,7 +81,7 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
 pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: tests::mock_graph_b(),
+        compute_graph: tests::test_graph_b(),
         upgrade_tasks_to_current_version: false,
     };
     indexify_state
@@ -92,8 +92,8 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
         .await
         .unwrap();
 
-    let invocation_payload = mock_invocation_payload_graph_b();
-    let ctx = mock_invocation_ctx(TEST_NAMESPACE, &tests::mock_graph_b(), &invocation_payload);
+    let invocation_payload = test_invocation_payload_graph_b();
+    let ctx = test_invocation_ctx(TEST_NAMESPACE, &tests::test_graph_b(), &invocation_payload);
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_B".to_string(),
@@ -113,7 +113,7 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
 pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: tests::mock_graph_with_reducer(),
+        compute_graph: tests::test_graph_with_reducer(),
         upgrade_tasks_to_current_version: false,
     };
     indexify_state
@@ -124,10 +124,10 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
         .await
         .unwrap();
 
-    let invocation_payload = mock_invocation_payload_graph_b();
-    let ctx = mock_invocation_ctx(
+    let invocation_payload = test_invocation_payload_graph_b();
+    let ctx = test_invocation_ctx(
         TEST_NAMESPACE,
-        &tests::mock_graph_with_reducer(),
+        &tests::test_graph_with_reducer(),
         &invocation_payload,
     );
     let request = InvokeComputeGraphRequest {

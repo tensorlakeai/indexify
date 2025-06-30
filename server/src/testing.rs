@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
-    test_objects::tests::mock_node_fn_output,
+    test_objects::tests::test_node_fn_output,
     Allocation,
     DataPayload,
     ExecutorId,
@@ -460,7 +460,7 @@ impl TestExecutor<'_> {
                 ),
             )?
             .unwrap();
-        let node_output = mock_node_fn_output(
+        let node_output = test_node_fn_output(
             task_allocation.task.as_ref().unwrap().graph_invocation_id(),
             task_allocation.task.as_ref().unwrap().graph_name(),
             task_allocation.task.as_ref().unwrap().function_name(),

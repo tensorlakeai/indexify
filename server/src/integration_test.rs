@@ -4,7 +4,7 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{mock_executor, TEST_EXECUTOR_ID, TEST_NAMESPACE},
+        test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -99,7 +99,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
+                .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -239,7 +239,7 @@ mod tests {
         // register executor
         {
             let executor = test_srv
-                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
+                .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -338,7 +338,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
+                .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -491,7 +491,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
+                .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -576,7 +576,7 @@ mod tests {
         // register executor1, task assigned to it
         let executor1 = {
             let executor1 = test_srv
-                .create_executor(mock_executor("executor_1".into()))
+                .create_executor(test_executor_metadata("executor_1".into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -604,7 +604,7 @@ mod tests {
         // register executor2, no tasks assigned to it
         let executor2 = {
             let executor2 = test_srv
-                .create_executor(mock_executor("executor_2".into()))
+                .create_executor(test_executor_metadata("executor_2".into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;

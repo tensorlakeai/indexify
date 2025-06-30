@@ -61,14 +61,14 @@ pub mod tests {
         compute_fn
     }
 
-    pub fn mock_node_fn_output_fn_a(
+    pub fn test_node_fn_output_fn_a(
         invocation_id: &str,
         graph: &str,
         reducer_fn: Option<String>,
         num_outputs: usize,
         allocation_id: String,
     ) -> NodeOutput {
-        mock_node_fn_output(
+        test_node_fn_output(
             invocation_id,
             graph,
             "fn_a",
@@ -79,7 +79,7 @@ pub mod tests {
         )
     }
 
-    pub fn mock_node_fn_output(
+    pub fn test_node_fn_output(
         invocation_id: &str,
         graph: &str,
         compute_fn_name: &str,
@@ -117,7 +117,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_invocation_payload() -> InvocationPayload {
+    pub fn test_invocation_payload_graph_a() -> InvocationPayload {
         InvocationPayloadBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name("graph_A".to_string())
@@ -131,7 +131,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_invocation_ctx(
+    pub fn test_invocation_ctx(
         namespace: &str,
         compute_graph: &ComputeGraph,
         invocation_payload: &InvocationPayload,
@@ -147,7 +147,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_invocation_payload_graph_b() -> InvocationPayload {
+    pub fn test_invocation_payload_graph_b() -> InvocationPayload {
         InvocationPayloadBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name("graph_B".to_string())
@@ -162,7 +162,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_graph_a(image_hash: String) -> ComputeGraph {
+    pub fn test_graph_a(image_hash: String) -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", image_hash.clone());
         let fn_b = test_compute_fn("fn_b", image_hash.clone());
         let fn_c = test_compute_fn("fn_c", image_hash.clone());
@@ -202,7 +202,7 @@ pub mod tests {
         }
     }
 
-    pub fn mock_graph_b() -> ComputeGraph {
+    pub fn test_graph_b() -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", "image_hash".to_string());
         let router_x = ComputeFn {
             name: "router_x".to_string(),
@@ -259,7 +259,7 @@ pub mod tests {
         }
     }
 
-    pub fn mock_graph_with_reducer() -> ComputeGraph {
+    pub fn test_graph_with_reducer() -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", "image_hash".to_string());
         let fn_b = reducer_fn("fn_b");
         let fn_c = test_compute_fn("fn_c", "image_hash".to_string());
@@ -298,7 +298,7 @@ pub mod tests {
         }
     }
 
-    pub fn mock_executor(id: ExecutorId) -> ExecutorMetadata {
+    pub fn test_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
         ExecutorMetadata {
             id,
             executor_version: "1.0.0".to_string(),
