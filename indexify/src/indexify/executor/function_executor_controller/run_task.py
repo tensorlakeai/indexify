@@ -1,4 +1,6 @@
 import asyncio
+import os
+import random
 import time
 from typing import Any, Optional
 
@@ -37,6 +39,10 @@ from .metrics.run_task import (
 )
 from .task_info import TaskInfo
 from .task_output import TaskMetrics, TaskOutput
+
+_ENABLE_INJECT_TASK_CANCELLATIONS = (
+    os.getenv("INDEXIFY_INJECT_TASK_CANCELLATIONS", "0") == "1"
+)
 
 
 async def run_task_on_function_executor(
@@ -176,6 +182,14 @@ def _task_output_from_function_executor_response(
         if failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR:
             response_validator.required_field("invocation_error_output")
             invocation_error_output = response.invocation_error_output
+
+    if _ENABLE_INJECT_TASK_CANCELLATIONS:
+        logger.warning("injecting cancellation failure for the task allocation")
+        if (
+            random.random() < 0.5
+        ):  # 50% chance to get stable reproduction in manual testing
+            outcome_code = TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
+            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED
 
     return TaskOutput(
         allocation=allocation,
