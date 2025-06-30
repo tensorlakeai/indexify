@@ -150,6 +150,19 @@ impl TestService {
         Ok(e)
     }
 
+    pub fn tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self
+            .service
+            .indexify_state
+            .reader()
+            .get_all_rows_from_cf::<Task>(IndexifyObjectsColumns::Tasks)?
+            .iter()
+            .map(|r| r.1.clone())
+            .collect::<Vec<_>>();
+
+        Ok(tasks)
+    }
+
     pub async fn assert_task_states(&self, assertions: TaskStateAssertions) -> Result<()> {
         let tasks = self
             .service

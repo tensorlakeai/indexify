@@ -4,7 +4,12 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
+        test_objects::tests::{
+            test_executor_metadata,
+            TEST_EXECUTOR_ID,
+            TEST_FN_MAX_RETRIES,
+            TEST_NAMESPACE,
+        },
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -410,7 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graph_failure() -> Result<()> {
+    async fn test_graph_failure_on_invocation_error() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
@@ -426,6 +431,7 @@ mod tests {
 
         // finalize the starting node task with failure
         {
+            // first, verify the executor state and task states
             let desired_state = executor.desired_state().await;
             assert_eq!(
                 desired_state.task_allocations.len(),
@@ -433,7 +439,6 @@ mod tests {
                 "{:#?}",
                 desired_state.task_allocations
             );
-            let task_allocation = desired_state.task_allocations.first().unwrap();
 
             test_srv
                 .assert_task_states(TaskStateAssertions {
@@ -444,11 +449,14 @@ mod tests {
                 })
                 .await?;
 
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+
+            // NB InvocationError is a user request for a permanent failure.
             executor
                 .finalize_task(
                     task_allocation,
                     FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::FunctionError)),
+                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
                 )
                 .await?;
 
@@ -482,6 +490,168 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    async fn test_task_retry_attempt_used(reason: TaskFailureReason) -> Result<()> {
+        assert!(reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // track the attempt number
+        let mut attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.tasks()?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // loop over retries
+        while attempt_number <= TEST_FN_MAX_RETRIES {
+            // finalize the starting node task with our retryable failure (using an attempt)
+            {
+                let desired_state = executor.desired_state().await;
+                let task_allocation = desired_state.task_allocations.first().unwrap();
+
+                executor
+                    .finalize_task(
+                        task_allocation,
+                        FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
+                            .task_outcome(TaskOutcome::Failure(reason)),
+                    )
+                    .await?;
+
+                test_srv.process_all_state_changes().await?;
+            }
+
+            // validate the task retry attempt number was incremented
+            // if it was less than the retry max
+            if attempt_number < TEST_FN_MAX_RETRIES {
+                let tasks = test_srv.tasks()?;
+                assert_eq!(1, tasks.len());
+                assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
+            }
+
+            attempt_number = attempt_number + 1;
+        }
+
+        // check for completion
+        {
+            test_srv
+                .assert_task_states(TaskStateAssertions {
+                    total: 1,
+                    allocated: 0,
+                    unallocated: 0,
+                    completed_success: 0,
+                })
+                .await?;
+
+            let desired_state = executor.desired_state().await;
+            assert!(
+                desired_state.task_allocations.is_empty(),
+                "expected all tasks to be finalized: {:#?}",
+                desired_state.task_allocations
+            );
+
+            let invocation = indexify_state
+                .reader()
+                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .unwrap();
+
+            assert!(invocation.completed);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionError).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout).await
+    }
+
+    async fn test_task_retry_attempt_not_used(reason: TaskFailureReason) -> Result<()> {
+        assert!(!reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // track the attempt number
+        let attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.tasks()?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // finalize the starting node task with our retryable failure (not using an
+        // attempt)
+        {
+            let desired_state = executor.desired_state().await;
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+
+            executor
+                .finalize_task(
+                    task_allocation,
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
+                        .task_outcome(TaskOutcome::Failure(reason)),
+                )
+                .await?;
+
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // validate the task retry attempt number was not changed
+        {
+            let tasks = test_srv.tasks()?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_internal_error() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::InternalError).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated).await
     }
 
     #[tokio::test]

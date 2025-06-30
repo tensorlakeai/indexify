@@ -8,6 +8,7 @@ pub mod tests {
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        FunctionRetryPolicy,
         GraphInvocationCtx,
         GraphInvocationCtxBuilder,
         GraphVersion,
@@ -22,6 +23,7 @@ pub mod tests {
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
     pub const TEST_EXECUTOR_IMAGE_NAME: &str = "test_image_name";
+    pub const TEST_FN_MAX_RETRIES: u32 = 3;
 
     pub fn create_mock_task(
         cg: &ComputeGraph,
@@ -51,6 +53,10 @@ pub mod tests {
             description: format!("description {}", name),
             fn_name: name.to_string(),
             image_information,
+            retry_policy: FunctionRetryPolicy {
+                max_retries: TEST_FN_MAX_RETRIES,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
