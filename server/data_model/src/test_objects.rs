@@ -299,7 +299,7 @@ pub mod tests {
     }
 
     pub fn mock_executor_id() -> ExecutorId {
-        ExecutorId::new(TEST_EXECUTOR_ID.to_string())
+        TEST_EXECUTOR_ID.into()
     }
 
     pub fn mock_executor(id: ExecutorId) -> ExecutorMetadata {

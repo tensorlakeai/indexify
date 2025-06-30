@@ -5,7 +5,6 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
-        ExecutorId,
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -577,7 +576,7 @@ mod tests {
         // register executor1, task assigned to it
         let executor1 = {
             let executor1 = test_srv
-                .create_executor(mock_executor(ExecutorId::new("executor_1".to_string())))
+                .create_executor(mock_executor("executor_1".into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -605,7 +604,7 @@ mod tests {
         // register executor2, no tasks assigned to it
         let executor2 = {
             let executor2 = test_srv
-                .create_executor(mock_executor(ExecutorId::new("executor_2".to_string())))
+                .create_executor(mock_executor("executor_2".into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;

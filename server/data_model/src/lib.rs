@@ -44,6 +44,12 @@ impl ExecutorId {
     }
 }
 
+impl From<&str> for ExecutorId {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
 
