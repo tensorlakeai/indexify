@@ -35,24 +35,6 @@ use crate::{
     service::Service,
 };
 
-pub struct TaskStateAssertions {
-    pub total: usize,
-    pub allocated: usize,
-    pub unallocated: usize,
-    pub completed_success: usize,
-}
-
-impl Default for TaskStateAssertions {
-    fn default() -> Self {
-        Self {
-            total: 0,
-            allocated: 0,
-            unallocated: 0,
-            completed_success: 0,
-        }
-    }
-}
-
 pub struct ExecutorStateAssertions {
     pub num_func_executors: usize,
     pub num_allocated_tasks: usize,
@@ -150,7 +132,7 @@ impl TestService {
         Ok(e)
     }
 
-    pub fn tasks(&self) -> Result<Vec<Task>> {
+    pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let tasks = self
             .service
             .indexify_state
@@ -159,44 +141,26 @@ impl TestService {
             .iter()
             .map(|r| r.1.clone())
             .collect::<Vec<_>>();
-
         Ok(tasks)
     }
 
-    pub async fn assert_task_states(&self, assertions: TaskStateAssertions) -> Result<()> {
-        let tasks = self
-            .service
-            .indexify_state
-            .reader()
-            .get_all_rows_from_cf::<Task>(IndexifyObjectsColumns::Tasks)?
-            .iter()
-            .map(|r| r.1.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(tasks.len(), assertions.total, "Total Tasks: {:#?}", tasks);
-
+    pub async fn get_allocated_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
         let allocated_tasks = tasks
-            .iter()
+            .into_iter()
             .filter(|t| t.status == TaskStatus::Running)
             .collect::<Vec<_>>();
-        assert_eq!(
-            allocated_tasks.len(),
-            assertions.allocated,
-            "Allocated tasks: {}/{} - {:#?}",
-            allocated_tasks.len(),
-            tasks.len(),
-            allocated_tasks,
-        );
+        Ok(allocated_tasks)
+    }
 
+    pub async fn get_pending_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
         let pending_tasks = tasks
-            .iter()
+            .into_iter()
             .filter(|t| t.status == TaskStatus::Pending)
             .collect::<Vec<_>>();
-        assert_eq!(
-            pending_tasks.len(),
-            assertions.unallocated,
-            "Pending tasks: {:#?}",
-            pending_tasks
-        );
+
+        let pending_count = pending_tasks.len();
 
         let pending_tasks_memory = self
             .service
@@ -206,25 +170,16 @@ impl TestService {
             .await
             .tasks
             .clone();
+
         let pending_tasks_memory = pending_tasks_memory
             .iter()
             .filter(|(_k, t)| t.status == TaskStatus::Pending)
             .collect::<Vec<_>>();
+
         assert_eq!(
             pending_tasks_memory.len(),
-            assertions.unallocated,
+            pending_count,
             "Pending tasks in mem store",
-        );
-
-        let completed_success_tasks = tasks
-            .iter()
-            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            completed_success_tasks.len(),
-            assertions.completed_success,
-            "Tasks completed successfully: {:#?}",
-            completed_success_tasks
         );
 
         let unallocated_tasks = self
@@ -235,14 +190,55 @@ impl TestService {
             .await
             .unallocated_tasks
             .clone();
+
         assert_eq!(
             unallocated_tasks.len(),
-            assertions.unallocated,
+            pending_count,
             "Unallocated tasks in mem store",
         );
 
-        Ok(())
+        Ok(pending_tasks)
     }
+
+    pub async fn get_completed_success_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
+        let completed_success_tasks = tasks
+            .into_iter()
+            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
+            .collect::<Vec<_>>();
+        Ok(completed_success_tasks)
+    }
+}
+
+// Declarative macros for task state assertions
+#[macro_export]
+macro_rules! assert_task_counts {
+    ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
+        let all_tasks = $test_srv.get_all_tasks().await?;
+        let allocated_tasks = $test_srv.get_allocated_tasks().await?;
+        let pending_tasks = $test_srv.get_pending_tasks().await?;
+        let completed_success_tasks = $test_srv.get_completed_success_tasks().await?;
+
+        assert_eq!(all_tasks.len(), $total, "Total Tasks: {:#?}", all_tasks);
+        assert_eq!(
+            allocated_tasks.len(),
+            $allocated,
+            "Allocated tasks: {:#?}",
+            allocated_tasks
+        );
+        assert_eq!(
+            pending_tasks.len(),
+            $pending,
+            "Pending tasks: {:#?}",
+            pending_tasks
+        );
+        assert_eq!(
+            completed_success_tasks.len(),
+            $completed_success,
+            "Tasks completed successfully: {:#?}",
+            completed_success_tasks
+        );
+    }};
 }
 
 pub struct FinalizeTaskArgs {

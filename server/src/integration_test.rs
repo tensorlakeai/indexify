@@ -23,8 +23,9 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use crate::{
+        assert_task_counts,
         service::Service,
-        testing::{self, allocation_key_from_proto, FinalizeTaskArgs, TaskStateAssertions},
+        testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 
     fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
@@ -90,14 +91,7 @@ mod tests {
         );
 
         // And now, we should have an unallocated task
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 1,
-                allocated: 0,
-                unallocated: 1,
-                completed_success: 0,
-            })
-            .await?;
+        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         Ok(())
     }
@@ -112,14 +106,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // We should have an unallocated task
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 1,
-                allocated: 0,
-                unallocated: 1,
-                completed_success: 0,
-            })
-            .await?;
+        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Add an executor...
         test_srv
@@ -128,14 +115,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // And now the task should be allocated
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 1,
-                allocated: 1,
-                unallocated: 0,
-                completed_success: 0,
-            })
-            .await?;
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
     }
@@ -170,14 +150,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 3,
-                    allocated: 2,
-                    unallocated: 0,
-                    completed_success: 1,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize the remaining tasks
@@ -260,14 +233,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // verify that everything was deleted
-        test_srv
-            .assert_task_states(TaskStateAssertions {
-                total: 0,
-                allocated: 0,
-                unallocated: 0,
-                completed_success: 0,
-            })
-            .await?;
+        assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
         // This makes sure we never leak any data on deletion!
         assert_cf_counts(
@@ -315,14 +281,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 3,
-                    allocated: 2,
-                    unallocated: 0,
-                    completed_success: 1,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize the remaining tasks
@@ -391,14 +350,7 @@ mod tests {
                 .await?;
 
             test_srv.process_all_state_changes().await?;
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 0,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
             // This makes sure we never leak any data on deletion!
             assert_cf_counts(
@@ -440,14 +392,7 @@ mod tests {
                 desired_state.task_allocations
             );
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             let task_allocation = desired_state.task_allocations.first().unwrap();
 
@@ -465,14 +410,7 @@ mod tests {
 
         // check for completion
         {
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -513,7 +451,7 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.tasks()?;
+            let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
         }
@@ -539,7 +477,7 @@ mod tests {
             // validate the task retry attempt number was incremented
             // if it was less than the retry max
             if attempt_number < TEST_FN_MAX_RETRIES {
-                let tasks = test_srv.tasks()?;
+                let tasks = test_srv.get_all_tasks().await?;
                 assert_eq!(1, tasks.len());
                 assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
             }
@@ -549,14 +487,7 @@ mod tests {
 
         // check for completion
         {
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -607,7 +538,7 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.tasks()?;
+            let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
         }
@@ -631,7 +562,7 @@ mod tests {
 
         // validate the task retry attempt number was not changed
         {
-            let tasks = test_srv.tasks()?;
+            let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
         }
@@ -705,14 +636,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // verify that the tasks are still allocated
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             // verify that the tasks are reassigned to executor2
             let desired_state = executor2.desired_state().await;
@@ -731,14 +655,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // verify that the tasks become unallocated
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 1,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
         }
 
         Ok(())
