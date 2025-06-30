@@ -11,3 +11,9 @@
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
             });
+
+            if compute_graph_version.should_retry_task(&task) && allocation.is_retriable()
+            {
+                task.status = TaskStatus::Pending;
+                task.attempt_number += 1;
+            }

@@ -200,7 +200,7 @@ impl TaskCreator {
 
             if allocation.outcome == TaskOutcome::Failure &&
                 compute_graph_version.should_retry_task(&task) &&
-                allocation.failure_reason.as_ref().map(|r| r.is_retriable()).unwrap_or(false)
+                allocation.is_retriable()
             {
                 task.status = TaskStatus::Pending;
                 task.attempt_number += 1;

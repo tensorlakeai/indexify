@@ -139,6 +139,16 @@ impl Allocation {
     pub fn is_terminal(&self) -> bool {
         self.outcome == TaskOutcome::Success || self.outcome == TaskOutcome::Failure
     }
+
+    pub fn is_retriable(&self) -> bool {
+        if self.outcome != TaskOutcome::Failure {
+            return false;
+        }
+        self.failure_reason
+            .as_ref()
+            .map(|r| r.is_retriable())
+            .unwrap_or(false)
+    }
 }
 
 impl AllocationBuilder {
@@ -1101,16 +1111,16 @@ impl Default for TaskFailureReason {
 }
 
 impl TaskFailureReason {
-    pub fn is_retriable(&self) -> bool {
+    fn is_retriable(&self) -> bool {
         // Only InvocationError is not retriable because it fails the invocation
         // permanently.
         matches!(
             self,
-            TaskFailureReason::InternalError |
-                TaskFailureReason::FunctionError |
-                TaskFailureReason::FunctionTimeout |
-                TaskFailureReason::TaskCancelled |
-                TaskFailureReason::FunctionExecutorTerminated
+            TaskFailureReason::InternalError
+                | TaskFailureReason::FunctionError
+                | TaskFailureReason::FunctionTimeout
+                | TaskFailureReason::TaskCancelled
+                | TaskFailureReason::FunctionExecutorTerminated
         )
     }
 }
