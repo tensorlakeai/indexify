@@ -690,7 +690,7 @@ pub(crate) fn handle_scheduler_update(
             task_id = task.id.to_string(),
             status = task.status.to_string(),
             outcome = task.outcome.to_string(),
-            failure_reason = task.failure_reason.to_string(),
+            failure_reason = task.failure_reason.as_ref().map(|r| r.to_string()).unwrap_or_default(),
             duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
             "updated task",
         );

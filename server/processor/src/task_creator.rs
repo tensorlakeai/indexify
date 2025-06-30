@@ -200,7 +200,7 @@ impl TaskCreator {
 
             if allocation.outcome == TaskOutcome::Failure &&
                 compute_graph_version.should_retry_task(&task) &&
-                allocation.failure_reason.is_retriable()
+                allocation.failure_reason.as_ref().map(|r| r.is_retriable()).unwrap_or(false)
             {
                 task.status = TaskStatus::Pending;
                 task.attempt_number += 1;
@@ -368,7 +368,7 @@ impl TaskCreator {
                     });
                 }
             }
-            invocation_ctx.failure_reason = task.failure_reason.into();
+            invocation_ctx.failure_reason = task.failure_reason.unwrap_or_default().into();
             invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),

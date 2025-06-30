@@ -92,7 +92,7 @@ pub struct Allocation {
     pub invocation_id: String,
     pub created_at: u128,
     pub outcome: TaskOutcome,
-    pub failure_reason: TaskFailureReason,
+    pub failure_reason: Option<TaskFailureReason>,
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
 }
@@ -184,7 +184,7 @@ impl AllocationBuilder {
             .outcome
             .clone()
             .ok_or(anyhow!("allocation outcome is required"))?;
-        let failure_reason = self.failure_reason.clone().unwrap_or_default();
+        let failure_reason = self.failure_reason.clone().flatten();
 
         Ok(Allocation {
             id,
@@ -1158,7 +1158,8 @@ pub struct Task {
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    pub failure_reason: TaskFailureReason,
+    #[serde(default)]
+    pub failure_reason: Option<TaskFailureReason>,
     pub creation_time_ns: u128,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
@@ -1301,7 +1302,7 @@ impl TaskBuilder {
             namespace,
             status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
-            failure_reason: TaskFailureReason::default(),
+            failure_reason: None,
             graph_version,
             creation_time_ns,
             cache_key,

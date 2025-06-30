@@ -325,7 +325,7 @@ impl FunctionExecutorManager {
                         let mut invocation_ctx = invocation_ctx.clone();
                         invocation_ctx.completed = true;
                         invocation_ctx.outcome = task.outcome.into();
-                        invocation_ctx.failure_reason = task.failure_reason.into();
+                        invocation_ctx.failure_reason = task.failure_reason.unwrap_or_default().into();
                         update.updated_invocations_states.push(*invocation_ctx);
                     }
                 }

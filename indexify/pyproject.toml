@@ -36,6 +36,7 @@ tensorlake = "0.2.7"
 # nanoid is provided by tensorlake
 # click is provided by tensorlake
 boto3 = "^1.37.30"
+pytest = "^8.4.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

@@ -692,8 +692,7 @@ impl ExecutorAPIService {
             };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
-            allocation.failure_reason =
-                allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
+            allocation.failure_reason = allocation_failure_reason;
 
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),
