@@ -96,8 +96,9 @@ mod tests {
                     namespace: TEST_NAMESPACE.to_string(),
                     graph_version: compute_graph.version.clone(),
                     completed: false,
-                    outcome: data_model::GraphInvocationOutcome::Failure,
-                    failure_reason: data_model::GraphInvocationFailureReason::InternalError,
+                    outcome: data_model::GraphInvocationOutcome::Failure(
+                        data_model::GraphInvocationFailureReason::InternalError,
+                    ),
                     outstanding_tasks: 0,
                     outstanding_reducer_tasks: 0,
                     fn_task_analytics: HashMap::new(),

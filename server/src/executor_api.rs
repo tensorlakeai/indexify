@@ -661,11 +661,6 @@ impl ExecutorAPIService {
                 .get_allocation(&allocation_key)
                 .map_err(|e| Status::internal(e.to_string()))?
                 .ok_or(anyhow::anyhow!("allocation not found"))?;
-            let task_outcome = match outcome_code {
-                executor_api_pb::TaskOutcomeCode::Success => TaskOutcome::Success,
-                executor_api_pb::TaskOutcomeCode::Failure => TaskOutcome::Failure,
-                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
-            };
             let allocation_failure_reason = match failure_reason {
                 Some(reason) => match reason {
                     executor_api_pb::TaskFailureReason::Unknown => Some(TaskFailureReason::Unknown),
@@ -690,10 +685,17 @@ impl ExecutorAPIService {
                 },
                 None => None,
             };
+            let task_outcome = match outcome_code {
+                executor_api_pb::TaskOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::TaskOutcomeCode::Failure => {
+                    let failure_reason =
+                        allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
+                    TaskOutcome::Failure(failure_reason)
+                }
+                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
+            };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
-            allocation.failure_reason =
-                allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
 
             let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                 namespace: namespace.to_string(),

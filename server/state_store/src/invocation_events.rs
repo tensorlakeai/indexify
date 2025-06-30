@@ -20,7 +20,7 @@ impl InvocationStateChangeEvent {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.task.id.to_string(),
-            outcome: event.allocation.outcome,
+            outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
         })
     }
@@ -74,13 +74,30 @@ pub struct TaskAssigned {
     pub executor_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TaskOutcomeSummary {
+    Unknown,
+    Success,
+    Failure,
+}
+
+impl From<&TaskOutcome> for TaskOutcomeSummary {
+    fn from(outcome: &TaskOutcome) -> Self {
+        match outcome {
+            TaskOutcome::Unknown => TaskOutcomeSummary::Unknown,
+            TaskOutcome::Success => TaskOutcomeSummary::Success,
+            TaskOutcome::Failure(_) => TaskOutcomeSummary::Failure,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCompleted {
     pub invocation_id: String,
     pub fn_name: String,
     pub task_id: String,
     pub allocation_id: String,
-    pub outcome: TaskOutcome,
+    pub outcome: TaskOutcomeSummary,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

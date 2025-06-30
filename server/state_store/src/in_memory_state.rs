@@ -1596,7 +1596,6 @@ mod tests {
                 },
                 acc_input: None,
                 status: TaskStatus::Pending,
-                failure_reason: TaskFailureReason::Unknown,
                 outcome,
                 creation_time_ns,
                 graph_version: GraphVersion("1.0".to_string()),
@@ -1654,7 +1653,7 @@ mod tests {
             "inv-2",
             "test-function",
             "task-2",
-            TaskOutcome::Failure,
+            TaskOutcome::Failure(TaskFailureReason::FunctionError),
         );
         state
             .tasks
