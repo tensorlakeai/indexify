@@ -369,10 +369,8 @@ impl TaskCreator {
                     });
                 }
             }
-            invocation_ctx.complete_invocation(
-                true,
-                GraphInvocationOutcome::Failure(failure_reason.clone().into()),
-            );
+            invocation_ctx
+                .complete_invocation(true, GraphInvocationOutcome::Failure(failure_reason.into()));
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
                 ..Default::default()

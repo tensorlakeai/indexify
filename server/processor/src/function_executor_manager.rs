@@ -325,7 +325,7 @@ impl FunctionExecutorManager {
                     if task.status == TaskStatus::Completed {
                         let mut invocation_ctx = invocation_ctx.clone();
                         invocation_ctx.completed = true;
-                        invocation_ctx.outcome = task.outcome.into();
+                        invocation_ctx.outcome = (&task.outcome).into();
                         update.updated_invocations_states.push(*invocation_ctx);
                     }
                 }

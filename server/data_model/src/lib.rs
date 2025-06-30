@@ -759,8 +759,8 @@ impl Default for GraphInvocationOutcome {
     }
 }
 
-impl From<TaskOutcome> for GraphInvocationOutcome {
-    fn from(outcome: TaskOutcome) -> Self {
+impl From<&TaskOutcome> for GraphInvocationOutcome {
+    fn from(outcome: &TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
             TaskOutcome::Failure(failure_reason) => {
@@ -773,12 +773,15 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
 
 impl Display for GraphInvocationOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str_val = match self {
-            GraphInvocationOutcome::Unknown => "Unknown",
-            GraphInvocationOutcome::Success => "Success",
-            GraphInvocationOutcome::Failure(_) => "Failure",
-        };
-        write!(f, "{}", str_val)
+        match self {
+            GraphInvocationOutcome::Unknown => write!(f, "Unknown"),
+            GraphInvocationOutcome::Success => write!(f, "Success"),
+            GraphInvocationOutcome::Failure(reason) => {
+                write!(f, "Failure (")?;
+                reason.fmt(f)?;
+                write!(f, ")")
+            }
+        }
     }
 }
 
@@ -815,8 +818,8 @@ impl Default for GraphInvocationFailureReason {
     }
 }
 
-impl From<TaskFailureReason> for GraphInvocationFailureReason {
-    fn from(failure_reason: TaskFailureReason) -> Self {
+impl From<&TaskFailureReason> for GraphInvocationFailureReason {
+    fn from(failure_reason: &TaskFailureReason) -> Self {
         match failure_reason {
             TaskFailureReason::Unknown => GraphInvocationFailureReason::Unknown,
             TaskFailureReason::InternalError => GraphInvocationFailureReason::InternalError,
@@ -1048,12 +1051,15 @@ impl TaskOutcome {
 
 impl Display for TaskOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str_val = match self {
-            TaskOutcome::Unknown => "Unknown",
-            TaskOutcome::Success => "Success",
-            TaskOutcome::Failure(_) => "Failure",
-        };
-        write!(f, "{}", str_val)
+        match self {
+            TaskOutcome::Unknown => write!(f, "Unknown"),
+            TaskOutcome::Success => write!(f, "Success"),
+            TaskOutcome::Failure(reason) => {
+                write!(f, "Failure (")?;
+                reason.fmt(f)?;
+                write!(f, ")")
+            }
+        }
     }
 }
 
