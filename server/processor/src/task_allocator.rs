@@ -72,7 +72,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .task_id(task.id.clone())
             .target(target)
             .attempt_number(updated_task.attempt_number)
-            .outcome(TaskOutcome::InProgress)
+            .outcome(TaskOutcome::Unknown)
             .build()?;
 
         info!(allocation_id = allocation.id, "created allocation");

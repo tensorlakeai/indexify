@@ -692,7 +692,7 @@ impl ExecutorAPIService {
                         allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
                     TaskOutcome::Failure(failure_reason)
                 }
-                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::InProgress,
+                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
             };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());

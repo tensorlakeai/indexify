@@ -748,14 +748,14 @@ impl InvocationPayloadBuilder {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GraphInvocationOutcome {
-    InProgress,
+    Unknown,
     Success,
     Failure(GraphInvocationFailureReason),
 }
 
 impl Default for GraphInvocationOutcome {
     fn default() -> Self {
-        Self::InProgress
+        Self::Unknown
     }
 }
 
@@ -766,7 +766,7 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
             TaskOutcome::Failure(failure_reason) => {
                 GraphInvocationOutcome::Failure(failure_reason.into())
             }
-            TaskOutcome::InProgress => GraphInvocationOutcome::InProgress,
+            TaskOutcome::Unknown => GraphInvocationOutcome::Unknown,
         }
     }
 }
@@ -774,9 +774,9 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
 impl Display for GraphInvocationOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
+            GraphInvocationOutcome::Unknown => "Unknown",
             GraphInvocationOutcome::Success => "Success",
             GraphInvocationOutcome::Failure(_) => "Failure",
-            GraphInvocationOutcome::InProgress => "InProgress",
         };
         write!(f, "{}", str_val)
     }
@@ -987,7 +987,7 @@ impl GraphInvocationCtxBuilder {
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
-            outcome: GraphInvocationOutcome::InProgress,
+            outcome: GraphInvocationOutcome::Unknown,
             fn_task_analytics,
             outstanding_tasks: 0,
             outstanding_reducer_tasks: 0,
@@ -1035,7 +1035,7 @@ impl ReduceTask {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
-    InProgress,
+    Unknown,
     Success,
     Failure(TaskFailureReason),
 }
@@ -1049,9 +1049,9 @@ impl TaskOutcome {
 impl Display for TaskOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
+            TaskOutcome::Unknown => "Unknown",
             TaskOutcome::Success => "Success",
             TaskOutcome::Failure(_) => "Failure",
-            TaskOutcome::InProgress => "InProgress",
         };
         write!(f, "{}", str_val)
     }
@@ -1305,7 +1305,7 @@ impl TaskBuilder {
             invocation_id,
             namespace,
             status: TaskStatus::Pending,
-            outcome: TaskOutcome::InProgress,
+            outcome: TaskOutcome::Unknown,
             graph_version,
             creation_time_ns,
             cache_key,

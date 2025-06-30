@@ -1667,7 +1667,7 @@ mod tests {
             "inv-3",
             "test-function",
             "task-3",
-            TaskOutcome::InProgress,
+            TaskOutcome::Unknown,
         );
         state
             .tasks
@@ -1682,7 +1682,7 @@ mod tests {
             "inv-4",
             "test-function",
             "task-4",
-            TaskOutcome::InProgress,
+            TaskOutcome::Unknown,
         );
         state
             .tasks
@@ -1697,7 +1697,7 @@ mod tests {
             "inv-5",
             "different-function",
             "task-5",
-            TaskOutcome::InProgress,
+            TaskOutcome::Unknown,
         );
         state
             .tasks
@@ -1711,7 +1711,7 @@ mod tests {
             "inv-6",
             "test-function",
             "task-6",
-            TaskOutcome::InProgress,
+            TaskOutcome::Unknown,
         );
         state
             .tasks
@@ -1725,7 +1725,7 @@ mod tests {
             .filter(|(key, task)| {
                 key.starts_with("test-namespace|test-graph|") &&
                     task.compute_fn_name == "test-function" &&
-                    task.outcome == TaskOutcome::InProgress
+                    task.outcome == TaskOutcome::Unknown
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1768,7 +1768,7 @@ mod tests {
             .filter(|(key, task)| {
                 key.starts_with("test-namespace|test-graph|") &&
                     task.compute_fn_name == "different-function" &&
-                    task.outcome == TaskOutcome::InProgress
+                    task.outcome == TaskOutcome::Unknown
             })
             .map(|(key, _)| key.clone())
             .collect();

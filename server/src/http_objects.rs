@@ -652,7 +652,7 @@ pub enum TaskOutcome {
 impl From<data_model::TaskOutcome> for TaskOutcome {
     fn from(outcome: data_model::TaskOutcome) -> Self {
         match outcome {
-            data_model::TaskOutcome::InProgress => TaskOutcome::Undefined,
+            data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
             data_model::TaskOutcome::Success => TaskOutcome::Success,
             data_model::TaskOutcome::Failure(_) => TaskOutcome::Failure,
         }
@@ -789,7 +789,7 @@ pub enum InvocationOutcome {
 impl From<GraphInvocationOutcome> for InvocationOutcome {
     fn from(outcome: GraphInvocationOutcome) -> Self {
         match outcome {
-            GraphInvocationOutcome::InProgress => InvocationOutcome::Undefined,
+            GraphInvocationOutcome::Unknown => InvocationOutcome::Undefined,
             GraphInvocationOutcome::Success => InvocationOutcome::Success,
             GraphInvocationOutcome::Failure(_) => InvocationOutcome::Failure,
         }
