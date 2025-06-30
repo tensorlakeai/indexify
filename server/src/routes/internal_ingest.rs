@@ -35,7 +35,9 @@ impl From<TaskOutcome> for data_model::TaskOutcome {
     fn from(val: TaskOutcome) -> Self {
         match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
-            TaskOutcome::Failure => data_model::TaskOutcome::Failure,
+            TaskOutcome::Failure => {
+                data_model::TaskOutcome::Failure(data_model::TaskFailureReason::Unknown)
+            }
         }
     }
 }

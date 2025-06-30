@@ -198,23 +198,19 @@ impl TaskCreator {
                 return Ok(SchedulerUpdateRequest::default());
             };
 
-            if allocation.outcome == TaskOutcome::Failure &&
-                compute_graph_version.should_retry_task(&task) &&
-                allocation.failure_reason.is_retriable()
-            {
-                task.status = TaskStatus::Pending;
-                if allocation
-                    .failure_reason
-                    .should_count_against_task_retry_attempts()
-                {
-                    task.attempt_number += 1;
+            if let TaskOutcome::Failure(failure_reason) = &allocation.outcome {
+                if compute_graph_version.should_retry_task(&task) && failure_reason.is_retriable() {
+                    task.status = TaskStatus::Pending;
+                    if failure_reason.should_count_against_task_retry_attempts() {
+                        task.attempt_number += 1;
+                    }
+                    scheduler_update.updated_tasks =
+                        HashMap::from([(task.id.clone(), *task.clone())]);
+                    return Ok(scheduler_update);
                 }
-                scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
-                return Ok(scheduler_update);
             }
             task.status = TaskStatus::Completed;
             task.outcome = allocation.outcome;
-            task.failure_reason = allocation.failure_reason;
             scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
             in_memory_state.update_state(
                 self.clock,
@@ -362,7 +358,7 @@ impl TaskCreator {
             .reader()
             .get_node_output_by_key(&node_output_key)?;
 
-        if task.outcome == TaskOutcome::Failure {
+        if let TaskOutcome::Failure(failure_reason) = &task.outcome {
             trace!("task failed, stopping scheduling of child tasks");
             if let Some(node_output) = &node_output {
                 if let Some(invocation_error_payload) = node_output.invocation_error_payload.clone()
@@ -373,8 +369,10 @@ impl TaskCreator {
                     });
                 }
             }
-            invocation_ctx.failure_reason = task.failure_reason.into();
-            invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
+            invocation_ctx.complete_invocation(
+                true,
+                GraphInvocationOutcome::Failure(failure_reason.clone().into()),
+            );
             return Ok(TaskCreationResult {
                 invocation_ctx: Some(invocation_ctx),
                 ..Default::default()
@@ -453,8 +451,12 @@ impl TaskCreator {
                 // This can happen e.g. if the compute graph was updated in non backward
                 // compatible way while the invocation was running.
                 info!(edge = edge, "Edge function not found, failing invocation",);
-                invocation_ctx.failure_reason = GraphInvocationFailureReason::NextFunctionNotFound;
-                invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
+                invocation_ctx.complete_invocation(
+                    true,
+                    GraphInvocationOutcome::Failure(
+                        GraphInvocationFailureReason::NextFunctionNotFound,
+                    ),
+                );
                 return Ok(TaskCreationResult {
                     invocation_ctx: Some(invocation_ctx),
                     ..Default::default()

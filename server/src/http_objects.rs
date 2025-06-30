@@ -652,9 +652,9 @@ pub enum TaskOutcome {
 impl From<data_model::TaskOutcome> for TaskOutcome {
     fn from(outcome: data_model::TaskOutcome) -> Self {
         match outcome {
-            data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
+            data_model::TaskOutcome::InProgress => TaskOutcome::Undefined,
             data_model::TaskOutcome::Success => TaskOutcome::Success,
-            data_model::TaskOutcome::Failure => TaskOutcome::Failure,
+            data_model::TaskOutcome::Failure(_) => TaskOutcome::Failure,
         }
     }
 }
@@ -789,9 +789,9 @@ pub enum InvocationOutcome {
 impl From<GraphInvocationOutcome> for InvocationOutcome {
     fn from(outcome: GraphInvocationOutcome) -> Self {
         match outcome {
-            GraphInvocationOutcome::Undefined => InvocationOutcome::Undefined,
+            GraphInvocationOutcome::InProgress => InvocationOutcome::Undefined,
             GraphInvocationOutcome::Success => InvocationOutcome::Success,
-            GraphInvocationOutcome::Failure => InvocationOutcome::Failure,
+            GraphInvocationOutcome::Failure(_) => InvocationOutcome::Failure,
         }
     }
 }
@@ -880,8 +880,11 @@ impl From<GraphInvocationCtx> for Invocation {
         Self {
             id: value.invocation_id.to_string(),
             completed: value.completed,
-            outcome: value.outcome.into(),
-            failure_reason: value.failure_reason.into(),
+            outcome: value.outcome.clone().into(),
+            failure_reason: match &value.outcome {
+                GraphInvocationOutcome::Failure(reason) => reason.clone().into(),
+                _ => GraphInvocationFailureReason::Unknown.into(),
+            },
             status,
             outstanding_tasks: value.outstanding_tasks,
             task_analytics,

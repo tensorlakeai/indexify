@@ -12,6 +12,7 @@ use data_model::{
     FunctionResources,
     GraphInvocationCtx,
     Task,
+    TaskFailureReason,
     TaskOutcome,
     TaskStatus,
 };
@@ -300,7 +301,7 @@ impl FunctionExecutorManager {
                 }
                 if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
                     task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure;
+                    task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError);
                     failed_tasks += 1;
                 } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
                     fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
@@ -325,7 +326,6 @@ impl FunctionExecutorManager {
                         let mut invocation_ctx = invocation_ctx.clone();
                         invocation_ctx.completed = true;
                         invocation_ctx.outcome = task.outcome.into();
-                        invocation_ctx.failure_reason = task.failure_reason.into();
                         update.updated_invocations_states.push(*invocation_ctx);
                     }
                 }

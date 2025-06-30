@@ -7,6 +7,7 @@ mod tests {
         test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
         ExecutorId,
         Task,
+        TaskFailureReason,
         TaskOutcome,
     };
     use rocksdb::{IteratorMode, TransactionDB};
@@ -523,7 +524,7 @@ mod tests {
                 .finalize_task(
                     task_allocation,
                     FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Failure),
+                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::FunctionError)),
                 )
                 .await?;
 

@@ -92,7 +92,6 @@ pub struct Allocation {
     pub invocation_id: String,
     pub created_at: u128,
     pub outcome: TaskOutcome,
-    pub failure_reason: TaskFailureReason,
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
 }
@@ -137,7 +136,7 @@ impl Allocation {
     }
 
     pub fn is_terminal(&self) -> bool {
-        self.outcome == TaskOutcome::Success || self.outcome == TaskOutcome::Failure
+        matches!(self.outcome, TaskOutcome::Success | TaskOutcome::Failure(_))
     }
 }
 
@@ -184,7 +183,6 @@ impl AllocationBuilder {
             .outcome
             .clone()
             .ok_or(anyhow!("allocation outcome is required"))?;
-        let failure_reason = self.failure_reason.clone().unwrap_or_default();
 
         Ok(Allocation {
             id,
@@ -196,7 +194,6 @@ impl AllocationBuilder {
             invocation_id,
             created_at,
             outcome,
-            failure_reason,
             diagnostics: None,
             attempt_number: retry_number,
         })
@@ -751,14 +748,14 @@ impl InvocationPayloadBuilder {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GraphInvocationOutcome {
-    Undefined,
+    InProgress,
     Success,
-    Failure,
+    Failure(GraphInvocationFailureReason),
 }
 
 impl Default for GraphInvocationOutcome {
     fn default() -> Self {
-        Self::Undefined
+        Self::InProgress
     }
 }
 
@@ -766,8 +763,10 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
     fn from(outcome: TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
-            TaskOutcome::Failure => GraphInvocationOutcome::Failure,
-            TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
+            TaskOutcome::Failure(failure_reason) => {
+                GraphInvocationOutcome::Failure(failure_reason.into())
+            }
+            TaskOutcome::InProgress => GraphInvocationOutcome::InProgress,
         }
     }
 }
@@ -776,8 +775,8 @@ impl Display for GraphInvocationOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             GraphInvocationOutcome::Success => "Success",
-            GraphInvocationOutcome::Failure => "Failure",
-            GraphInvocationOutcome::Undefined => "Undefined",
+            GraphInvocationOutcome::Failure(_) => "Failure",
+            GraphInvocationOutcome::InProgress => "InProgress",
         };
         write!(f, "{}", str_val)
     }
@@ -849,7 +848,6 @@ pub struct GraphInvocationCtx {
     pub completed: bool,
     #[serde(default)]
     pub outcome: GraphInvocationOutcome,
-    pub failure_reason: GraphInvocationFailureReason,
     pub outstanding_tasks: u64,
     pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
@@ -887,7 +885,7 @@ impl GraphInvocationCtx {
                     analytics.success();
                     self.outstanding_tasks -= 1;
                 }
-                TaskOutcome::Failure => {
+                TaskOutcome::Failure(_) => {
                     analytics.fail();
                     self.outstanding_tasks -= 1;
                 }
@@ -989,8 +987,7 @@ impl GraphInvocationCtxBuilder {
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
-            outcome: GraphInvocationOutcome::Undefined,
-            failure_reason: GraphInvocationFailureReason::default(),
+            outcome: GraphInvocationOutcome::InProgress,
             fn_task_analytics,
             outstanding_tasks: 0,
             outstanding_reducer_tasks: 0,
@@ -1038,14 +1035,14 @@ impl ReduceTask {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
-    Unknown,
+    InProgress,
     Success,
-    Failure,
+    Failure(TaskFailureReason),
 }
 
 impl TaskOutcome {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Success | Self::Failure)
+        matches!(self, Self::Success | Self::Failure(_))
     }
 }
 
@@ -1053,8 +1050,8 @@ impl Display for TaskOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             TaskOutcome::Success => "Success",
-            TaskOutcome::Failure => "Failure",
-            TaskOutcome::Unknown => "Unknown",
+            TaskOutcome::Failure(_) => "Failure",
+            TaskOutcome::InProgress => "InProgress",
         };
         write!(f, "{}", str_val)
     }
@@ -1167,7 +1164,6 @@ pub struct Task {
     #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
-    pub failure_reason: TaskFailureReason,
     pub creation_time_ns: u128,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
@@ -1309,8 +1305,7 @@ impl TaskBuilder {
             invocation_id,
             namespace,
             status: TaskStatus::Pending,
-            outcome: TaskOutcome::Unknown,
-            failure_reason: TaskFailureReason::default(),
+            outcome: TaskOutcome::InProgress,
             graph_version,
             creation_time_ns,
             cache_key,
