@@ -358,7 +358,7 @@ impl TaskCreator {
             .reader()
             .get_node_output_by_key(&node_output_key)?;
 
-        if let TaskOutcome::Failure(failure_reason) = &task.outcome {
+        if let TaskOutcome::Failure(failure_reason) = task.outcome {
             trace!("task failed, stopping scheduling of child tasks");
             if let Some(node_output) = &node_output {
                 if let Some(invocation_error_payload) = node_output.invocation_error_payload.clone()

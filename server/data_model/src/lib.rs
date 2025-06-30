@@ -44,6 +44,12 @@ impl ExecutorId {
     }
 }
 
+impl From<&str> for ExecutorId {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
 
@@ -759,8 +765,8 @@ impl Default for GraphInvocationOutcome {
     }
 }
 
-impl From<&TaskOutcome> for GraphInvocationOutcome {
-    fn from(outcome: &TaskOutcome) -> Self {
+impl From<TaskOutcome> for GraphInvocationOutcome {
+    fn from(outcome: TaskOutcome) -> Self {
         match outcome {
             TaskOutcome::Success => GraphInvocationOutcome::Success,
             TaskOutcome::Failure(failure_reason) => {
@@ -818,8 +824,8 @@ impl Default for GraphInvocationFailureReason {
     }
 }
 
-impl From<&TaskFailureReason> for GraphInvocationFailureReason {
-    fn from(failure_reason: &TaskFailureReason) -> Self {
+impl From<TaskFailureReason> for GraphInvocationFailureReason {
+    fn from(failure_reason: TaskFailureReason) -> Self {
         match failure_reason {
             TaskFailureReason::Unknown => GraphInvocationFailureReason::Unknown,
             TaskFailureReason::InternalError => GraphInvocationFailureReason::InternalError,
@@ -1036,7 +1042,7 @@ impl ReduceTask {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
@@ -1063,7 +1069,7 @@ impl Display for TaskOutcome {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskFailureReason {
     Unknown,
     // Internal error on Executor aka platform error.

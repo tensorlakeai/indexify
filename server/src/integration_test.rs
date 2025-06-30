@@ -4,8 +4,12 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
-        ExecutorId,
+        test_objects::tests::{
+            test_executor_metadata,
+            TEST_EXECUTOR_ID,
+            TEST_FN_MAX_RETRIES,
+            TEST_NAMESPACE,
+        },
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -19,8 +23,9 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use crate::{
+        assert_task_counts,
         service::Service,
-        testing::{self, allocation_key_from_proto, FinalizeTaskArgs, TaskStateAssertions},
+        testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 
     fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
@@ -53,69 +58,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_can_process_initial_graph_state_changes() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // Invoke a simple graph
+        test_state_store::with_simple_graph(&indexify_state).await;
+
+        // Should have 1 unprocessed state - one task created event
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .unprocessed_state_changes(&None, &None)?;
+        assert_eq!(
+            1,
+            unprocessed_state_changes.changes.len(),
+            "{:?}",
+            unprocessed_state_changes
+        );
+
+        // Do the processing
+        test_srv.process_all_state_changes().await?;
+
+        // Should have 0 unprocessed state changes
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .unprocessed_state_changes(&None, &None)?;
+        assert_eq!(
+            unprocessed_state_changes.changes.len(),
+            0,
+            "{:#?}",
+            unprocessed_state_changes
+        );
+
+        // And now, we should have an unallocated task
+        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_executor_allocates_tasks() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // Invoke a simple graph
+        test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // We should have an unallocated task
+        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+
+        // Add an executor...
+        test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // And now the task should be allocated
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_simple_graph_completion() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        let invocation_id = {
-            let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
-
-            // Should have 1 unprocessed state - one task created event
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                1,
-                unprocessed_state_changes.changes.len(),
-                "{:?}",
-                unprocessed_state_changes
-            );
-
-            test_srv.process_all_state_changes().await?;
-
-            // Should have 0 unprocessed state.
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                unprocessed_state_changes.changes.len(),
-                0,
-                "{:#?}",
-                unprocessed_state_changes
-            );
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 1,
-                    completed_success: 0,
-                })
-                .await?;
-
-            invocation_id
-        };
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = {
-            let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
-            executor
-        };
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task
         {
@@ -132,14 +150,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 3,
-                    allocated: 2,
-                    unallocated: 0,
-                    completed_success: 1,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize the remaining tasks
@@ -198,95 +209,39 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        {
-            let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
 
-            // Should have 1 unprocessed state - one task created event
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                1,
-                unprocessed_state_changes.changes.len(),
-                "{:?}",
-                unprocessed_state_changes
-            );
+        // register an executor
+        test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
 
-            test_srv.process_all_state_changes().await?;
+        test_srv.process_all_state_changes().await?;
 
-            // Should have 0 unprocessed state.
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                unprocessed_state_changes.changes.len(),
-                0,
-                "{:#?}",
-                unprocessed_state_changes
-            );
+        // delete the graph...
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "graph_A".to_string(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 1,
-                    completed_success: 0,
-                })
-                .await?;
+        test_srv.process_all_state_changes().await?;
 
-            invocation_id
-        };
+        // verify that everything was deleted
+        assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
-        // register executor
-        {
-            let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
-            executor
-        };
-
-        // Delete graph and expect everything to be deleted
-        {
-            indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        name: "graph_A".to_string(),
-                    }),
-                    processed_state_changes: vec![],
-                })
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 0,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
-            // This makes sure we never leak any data on deletion!
-            assert_cf_counts(
-                indexify_state.db.clone(),
-                HashMap::from([
-                    (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 1), // input
-                ]),
-            )?;
-        }
+        // This makes sure we never leak any data on deletion!
+        assert_cf_counts(
+            indexify_state.db.clone(),
+            HashMap::from([
+                (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 1), // input
+            ]),
+        )?;
 
         Ok(())
     }
@@ -297,64 +252,14 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        let invocation_id = {
-            let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
-
-            // Should have 1 unprocessed state - one task created event
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                1,
-                unprocessed_state_changes.changes.len(),
-                "{:?}",
-                unprocessed_state_changes
-            );
-
-            test_srv.process_all_state_changes().await?;
-
-            // Should have 0 unprocessed state.
-            let unprocessed_state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            assert_eq!(
-                unprocessed_state_changes.changes.len(),
-                0,
-                "{:#?}",
-                unprocessed_state_changes
-            );
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 1,
-                    completed_success: 0,
-                })
-                .await?;
-
-            invocation_id
-        };
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = {
-            let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
-            executor
-        };
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task
         {
@@ -376,14 +281,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 3,
-                    allocated: 2,
-                    unallocated: 0,
-                    completed_success: 1,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize the remaining tasks
@@ -452,14 +350,7 @@ mod tests {
                 .await?;
 
             test_srv.process_all_state_changes().await?;
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 0,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
             // This makes sure we never leak any data on deletion!
             assert_cf_counts(
@@ -476,32 +367,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graph_failure() -> Result<()> {
+    async fn test_graph_failure_on_invocation_error() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        let invocation_id = {
-            let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
-
-            test_srv.process_all_state_changes().await?;
-
-            invocation_id
-        };
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = {
-            let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            executor
-        };
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task with failure
         {
+            // first, verify the executor state and task states
             let desired_state = executor.desired_state().await;
             assert_eq!(
                 desired_state.task_allocations.len(),
@@ -509,22 +391,17 @@ mod tests {
                 "{:#?}",
                 desired_state.task_allocations
             );
+
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
             let task_allocation = desired_state.task_allocations.first().unwrap();
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
-
+            // NB InvocationError is a user request for a permanent failure.
             executor
                 .finalize_task(
                     task_allocation,
                     FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::FunctionError)),
+                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
                 )
                 .await?;
 
@@ -533,14 +410,84 @@ mod tests {
 
         // check for completion
         {
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+
+            let desired_state = executor.desired_state().await;
+            assert!(
+                desired_state.task_allocations.is_empty(),
+                "expected all tasks to be finalized: {:#?}",
+                desired_state.task_allocations
+            );
+
+            let invocation = indexify_state
+                .reader()
+                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .unwrap();
+
+            assert!(invocation.completed);
+        }
+
+        Ok(())
+    }
+
+    async fn test_task_retry_attempt_used(reason: TaskFailureReason) -> Result<()> {
+        assert!(reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // track the attempt number
+        let mut attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // loop over retries
+        while attempt_number <= TEST_FN_MAX_RETRIES {
+            // finalize the starting node task with our retryable failure (using an attempt)
+            {
+                let desired_state = executor.desired_state().await;
+                let task_allocation = desired_state.task_allocations.first().unwrap();
+
+                executor
+                    .finalize_task(
+                        task_allocation,
+                        FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
+                            .task_outcome(TaskOutcome::Failure(reason)),
+                    )
+                    .await?;
+
+                test_srv.process_all_state_changes().await?;
+            }
+
+            // validate the task retry attempt number was incremented
+            // if it was less than the retry max
+            if attempt_number < TEST_FN_MAX_RETRIES {
+                let tasks = test_srv.get_all_tasks().await?;
+                assert_eq!(1, tasks.len());
+                assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
+            }
+
+            attempt_number = attempt_number + 1;
+        }
+
+        // check for completion
+        {
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -561,35 +508,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionError).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout).await
+    }
+
+    async fn test_task_retry_attempt_not_used(reason: TaskFailureReason) -> Result<()> {
+        assert!(!reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // track the attempt number
+        let attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // finalize the starting node task with our retryable failure (not using an
+        // attempt)
+        {
+            let desired_state = executor.desired_state().await;
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+
+            executor
+                .finalize_task(
+                    task_allocation,
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
+                        .task_outcome(TaskOutcome::Failure(reason)),
+                )
+                .await?;
+
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // validate the task retry attempt number was not changed
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_internal_error() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::InternalError).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated).await
+    }
+
+    #[tokio::test]
     async fn test_executor_task_reassignment() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        let _invocation_id = {
-            let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
-
-            test_srv.process_all_state_changes().await?;
-
-            invocation_id
-        };
+        test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
 
         // register executor1, task assigned to it
         let executor1 = {
             let executor1 = test_srv
-                .create_executor(mock_executor(ExecutorId::new("executor_1".to_string())))
+                .create_executor(test_executor_metadata("executor_1".into()))
                 .await?;
-
             test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
 
             let desired_state = executor1.desired_state().await;
             assert_eq!(
@@ -605,19 +615,9 @@ mod tests {
         // register executor2, no tasks assigned to it
         let executor2 = {
             let executor2 = test_srv
-                .create_executor(mock_executor(ExecutorId::new("executor_2".to_string())))
+                .create_executor(test_executor_metadata("executor_2".into()))
                 .await?;
-
             test_srv.process_all_state_changes().await?;
-
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
 
             let desired_state = executor2.desired_state().await;
             assert!(
@@ -629,21 +629,16 @@ mod tests {
             executor2
         };
 
-        // when executor1 deregisters, its tasks are reassigned to executor2
+        // verify tasks are reassigned to executor2 when executor1 deregisters
         {
             executor1.deregister().await?;
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 1,
-                    unallocated: 0,
-                    completed_success: 0,
-                })
-                .await?;
+            // verify that the tasks are still allocated
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
+            // verify that the tasks are reassigned to executor2
             let desired_state = executor2.desired_state().await;
             assert_eq!(
                 desired_state.task_allocations.len(),
@@ -653,20 +648,14 @@ mod tests {
             );
         }
 
-        // when executor2 deregisters, its tasks are not unallocated
+        // verify tasks are unallocated when executor2 deregisters
         {
             executor2.deregister().await?;
 
             test_srv.process_all_state_changes().await?;
 
-            test_srv
-                .assert_task_states(TaskStateAssertions {
-                    total: 1,
-                    allocated: 0,
-                    unallocated: 1,
-                    completed_success: 0,
-                })
-                .await?;
+            // verify that the tasks become unallocated
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
         }
 
         Ok(())

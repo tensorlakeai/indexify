@@ -400,10 +400,10 @@ impl IndexifyState {
 mod tests {
     use data_model::{
         test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            mock_graph_a,
-            mock_invocation_payload,
+            test_executor_metadata,
+            test_graph_a,
+            test_invocation_payload_graph_a,
+            TEST_EXECUTOR_ID,
             TEST_NAMESPACE,
         },
         ComputeGraph,
@@ -467,7 +467,7 @@ mod tests {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
         // Create a compute graph and write it
-        let compute_graph = mock_graph_a("Old Hash".to_string());
+        let compute_graph = test_graph_a("Old Hash".to_string());
         _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
@@ -484,7 +484,7 @@ mod tests {
         for i in 2..4 {
             // Update the graph
             let new_hash = format!("this is a new hash {}", i);
-            let mut compute_graph = mock_graph_a(new_hash.clone());
+            let mut compute_graph = test_graph_a(new_hash.clone());
             compute_graph.version = GraphVersion(i.to_string());
 
             _write_to_test_state_store(&indexify_state, compute_graph).await?;
@@ -514,13 +514,13 @@ mod tests {
             .compute_graph_name("cg1".to_string())
             .invocation_id("foo1".to_string())
             .graph_version(GraphVersion("1".to_string()))
-            .build(tests::mock_graph_a("image_hash".to_string()))?;
+            .build(tests::test_graph_a("image_hash".to_string()))?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.last_state_change_id,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
-                invocation_payload: mock_invocation_payload(),
+                invocation_payload: test_invocation_payload_graph_a(),
                 ctx: ctx.clone(),
             },
         )
@@ -531,7 +531,7 @@ mod tests {
         let state_change_2 = state_changes::register_executor(
             &indexify_state.last_state_change_id,
             &UpsertExecutorRequest {
-                executor: mock_executor(mock_executor_id()),
+                executor: test_executor_metadata(TEST_EXECUTOR_ID.into()),
                 function_executor_diagnostics: vec![],
             },
         )
@@ -544,7 +544,7 @@ mod tests {
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
-                invocation_payload: mock_invocation_payload(),
+                invocation_payload: test_invocation_payload_graph_a(),
                 ctx: ctx.clone(),
             },
         )
