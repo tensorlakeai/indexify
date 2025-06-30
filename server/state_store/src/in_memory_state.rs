@@ -1596,7 +1596,6 @@ mod tests {
                 },
                 acc_input: None,
                 status: TaskStatus::Pending,
-                failure_reason: TaskFailureReason::Unknown,
                 outcome,
                 creation_time_ns,
                 graph_version: GraphVersion("1.0".to_string()),
@@ -1654,7 +1653,7 @@ mod tests {
             "inv-2",
             "test-function",
             "task-2",
-            TaskOutcome::Failure,
+            TaskOutcome::Failure(TaskFailureReason::FunctionError),
         );
         state
             .tasks
@@ -1668,7 +1667,7 @@ mod tests {
             "inv-3",
             "test-function",
             "task-3",
-            TaskOutcome::Unknown,
+            TaskOutcome::InProgress,
         );
         state
             .tasks
@@ -1683,7 +1682,7 @@ mod tests {
             "inv-4",
             "test-function",
             "task-4",
-            TaskOutcome::Unknown,
+            TaskOutcome::InProgress,
         );
         state
             .tasks
@@ -1698,7 +1697,7 @@ mod tests {
             "inv-5",
             "different-function",
             "task-5",
-            TaskOutcome::Unknown,
+            TaskOutcome::InProgress,
         );
         state
             .tasks
@@ -1712,7 +1711,7 @@ mod tests {
             "inv-6",
             "test-function",
             "task-6",
-            TaskOutcome::Unknown,
+            TaskOutcome::InProgress,
         );
         state
             .tasks
@@ -1726,7 +1725,7 @@ mod tests {
             .filter(|(key, task)| {
                 key.starts_with("test-namespace|test-graph|") &&
                     task.compute_fn_name == "test-function" &&
-                    task.outcome == TaskOutcome::Unknown
+                    task.outcome == TaskOutcome::InProgress
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1769,7 +1768,7 @@ mod tests {
             .filter(|(key, task)| {
                 key.starts_with("test-namespace|test-graph|") &&
                     task.compute_fn_name == "different-function" &&
-                    task.outcome == TaskOutcome::Unknown
+                    task.outcome == TaskOutcome::InProgress
             })
             .map(|(key, _)| key.clone())
             .collect();
