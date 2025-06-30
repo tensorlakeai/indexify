@@ -146,7 +146,16 @@ impl Allocation {
         }
         self.failure_reason
             .as_ref()
-            .map(|r| r.is_retriable())
+            .map(|r| {
+                matches!(
+                    r,
+                    TaskFailureReason::InternalError
+                        | TaskFailureReason::FunctionError
+                        | TaskFailureReason::FunctionTimeout
+                        | TaskFailureReason::TaskCancelled
+                        | TaskFailureReason::FunctionExecutorTerminated
+                )
+            })
             .unwrap_or(false)
     }
 }
@@ -1107,21 +1116,6 @@ impl Display for TaskFailureReason {
 impl Default for TaskFailureReason {
     fn default() -> Self {
         Self::Unknown
-    }
-}
-
-impl TaskFailureReason {
-    fn is_retriable(&self) -> bool {
-        // Only InvocationError is not retriable because it fails the invocation
-        // permanently.
-        matches!(
-            self,
-            TaskFailureReason::InternalError
-                | TaskFailureReason::FunctionError
-                | TaskFailureReason::FunctionTimeout
-                | TaskFailureReason::TaskCancelled
-                | TaskFailureReason::FunctionExecutorTerminated
-        )
     }
 }
 
