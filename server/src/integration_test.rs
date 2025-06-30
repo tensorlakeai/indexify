@@ -4,7 +4,7 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
+        test_objects::tests::{mock_executor, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -99,7 +99,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
+                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -239,7 +239,7 @@ mod tests {
         // register executor
         {
             let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
+                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -338,7 +338,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
+                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -491,7 +491,7 @@ mod tests {
         // register executor
         let executor = {
             let executor = test_srv
-                .create_executor(mock_executor(mock_executor_id()))
+                .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
                 .await?;
 
             test_srv.process_all_state_changes().await?;

@@ -2,8 +2,7 @@
 mod tests {
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{mock_executor, mock_executor_id, TEST_NAMESPACE},
-        ExecutorId,
+        test_objects::tests::{mock_executor, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         FunctionAllowlist,
         FunctionExecutorState,
         GraphVersion,
@@ -42,7 +41,7 @@ mod tests {
 
         // Register executor in dev mode - task should be allocated
         let executor = test_srv
-            .create_executor(mock_executor(mock_executor_id()))
+            .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -105,7 +104,7 @@ mod tests {
             .await?;
 
         // Register executor with non-dev mode and specific allowlist
-        let mut executor_meta = mock_executor(mock_executor_id());
+        let mut executor_meta = mock_executor(TEST_EXECUTOR_ID.into());
         executor_meta.function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some(TEST_NAMESPACE.to_string()),
             compute_graph_name: Some("graph_A".to_string()),
@@ -175,7 +174,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Register first executor with no allowlist
-        let mut executor1_meta = mock_executor(ExecutorId::new("executor_1".to_string()));
+        let mut executor1_meta = mock_executor("executor_1".into());
         executor1_meta.function_allowlist = None;
 
         let executor1 = test_srv.create_executor(executor1_meta).await?;
@@ -193,7 +192,7 @@ mod tests {
 
         // Register second executor
         let executor2 = test_srv
-            .create_executor(mock_executor(ExecutorId::new("executor_2".to_string())))
+            .create_executor(mock_executor("executor_2".into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -260,7 +259,7 @@ mod tests {
 
         // Register executor in dev mode
         let executor = test_srv
-            .create_executor(mock_executor(mock_executor_id()))
+            .create_executor(mock_executor(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
