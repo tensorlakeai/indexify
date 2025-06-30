@@ -35,20 +35,6 @@ use crate::{
     service::Service,
 };
 
-pub struct ExecutorStateAssertions {
-    pub num_func_executors: usize,
-    pub num_allocated_tasks: usize,
-}
-
-impl Default for ExecutorStateAssertions {
-    fn default() -> Self {
-        Self {
-            num_func_executors: 0,
-            num_allocated_tasks: 0,
-        }
-    }
-}
-
 pub struct TestService {
     pub service: Service,
     // keeping a reference to the temp dir to ensure it is not deleted
@@ -241,6 +227,35 @@ macro_rules! assert_task_counts {
     }};
 }
 
+#[macro_export]
+macro_rules! assert_executor_state {
+    ($executor:expr, num_func_executors: $num_func_executors:expr, num_allocated_tasks: $num_allocated_tasks:expr) => {{
+        // Get desired state from executor manager
+        let desired_state = $executor
+            .test_service
+            .service
+            .executor_manager
+            .get_executor_state(&$executor.executor_id)
+            .await;
+
+        // Check function executor count
+        let func_executors_count = desired_state.function_executors.len();
+        assert_eq!(
+            $num_func_executors, func_executors_count,
+            "function executors: expected {}, got {}",
+            $num_func_executors, func_executors_count
+        );
+
+        // Check task allocation count
+        let tasks_count = desired_state.task_allocations.len();
+        assert_eq!(
+            $num_allocated_tasks, tasks_count,
+            "tasks: expected {}, got {}",
+            $num_allocated_tasks, tasks_count
+        );
+    }};
+}
+
 pub struct FinalizeTaskArgs {
     pub num_outputs: i32,
     pub task_outcome: TaskOutcome,
@@ -389,34 +404,6 @@ impl TestExecutor<'_> {
             .collect();
 
         Ok(executor)
-    }
-
-    pub async fn assert_state(&self, assertions: ExecutorStateAssertions) -> Result<()> {
-        // Get desired state from executor manager
-        let desired_state = self
-            .test_service
-            .service
-            .executor_manager
-            .get_executor_state(&self.executor_id)
-            .await;
-
-        // Check function executor count
-        let func_executors_count = desired_state.function_executors.len();
-        assert_eq!(
-            assertions.num_func_executors, func_executors_count,
-            "function executors: expected {}, got {}",
-            assertions.num_func_executors, func_executors_count
-        );
-
-        // Check task allocation count
-        let tasks_count = desired_state.task_allocations.len();
-        assert_eq!(
-            assertions.num_allocated_tasks, tasks_count,
-            "tasks: expected {}, got {}",
-            assertions.num_allocated_tasks, tasks_count
-        );
-
-        Ok(())
     }
 
     pub async fn desired_state(

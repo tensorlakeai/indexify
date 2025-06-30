@@ -11,9 +11,10 @@ mod tests {
     use state_store::test_state_store;
 
     use crate::{
+        assert_executor_state,
         assert_task_counts,
         service::Service,
-        testing::{self, allocation_key_from_proto, ExecutorStateAssertions, FinalizeTaskArgs},
+        testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 
     #[tokio::test]
@@ -35,12 +36,7 @@ mod tests {
 
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
-            })
-            .await?;
+        assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
         // Finalize task - the new tasks should also be allocated
         let desired_state = executor.desired_state().await;
@@ -84,12 +80,7 @@ mod tests {
 
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
-            })
-            .await?;
+        assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
         // Finalize task - new tasks should be allocated for b and c functions
         let desired_state = executor.desired_state().await;
@@ -107,12 +98,7 @@ mod tests {
         // in allowlist
         assert_task_counts!(test_srv, total: 3, allocated: 0, pending: 2, completed_success: 1);
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,  // Still has fn_a executor
-                num_allocated_tasks: 0, // No tasks allocated
-            })
-            .await?;
+        assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 0); // Still has fn_a executor, no tasks allocated
 
         Ok(())
     }
@@ -142,19 +128,9 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        executor1
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
-            })
-            .await?;
+        assert_executor_state!(executor1, num_func_executors: 1, num_allocated_tasks: 1);
 
-        executor2
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 0,
-                num_allocated_tasks: 0,
-            })
-            .await?;
+        assert_executor_state!(executor2, num_func_executors: 0, num_allocated_tasks: 0);
 
         // When the first executor is deregistered, task should be allocated to the
         // second executor
@@ -163,12 +139,7 @@ mod tests {
 
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-        executor2
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
-            })
-            .await?;
+        assert_executor_state!(executor2, num_func_executors: 1, num_allocated_tasks: 1);
 
         // Deregister second executor
         executor2.deregister().await?;
@@ -198,12 +169,7 @@ mod tests {
         // Verify initial state - fn_a task should be allocated
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 1,
-                num_allocated_tasks: 1,
-            })
-            .await?;
+        assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
         // Complete the task to create fn_b and fn_c tasks
         {
@@ -221,12 +187,7 @@ mod tests {
 
         assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
 
-        executor
-            .assert_state(ExecutorStateAssertions {
-                num_func_executors: 3,  // Should have fn_a, fn_b, fn_c
-                num_allocated_tasks: 2, // fn_b and fn_c tasks
-            })
-            .await?;
+        assert_executor_state!(executor, num_func_executors: 3, num_allocated_tasks: 2); // Should have fn_a, fn_b, fn_c and fn_b, fn_c tasks
 
         executor.mark_function_executors_as_running().await?;
 
