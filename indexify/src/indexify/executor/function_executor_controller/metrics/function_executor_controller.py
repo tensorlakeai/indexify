@@ -34,27 +34,34 @@ metric_runnable_tasks_per_function_name: prometheus_client.Gauge = (
     )
 )
 
-metric_function_executors_with_status: prometheus_client.Gauge = (
-    prometheus_client.Gauge(
-        "function_executors_with_status",
-        "Number of Function Executors with a particular status",
-        ["status"],
-    )
+metric_function_executors_with_state: prometheus_client.Gauge = prometheus_client.Gauge(
+    "function_executors_with_state",
+    "Number of Function Executors with a particular internal state",
+    ["state"],
 )
-METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN = "unknown"
-METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING = "pending"
-METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING = "running"
-METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_TERMINATED = "terminated"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_UNKNOWN = "unknown"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED = "not_started"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_STARTING_UP = "starting_up"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_RUNNING = "running"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATING = "terminating"
+METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATED = "terminated"
 
-metric_function_executors_with_status.labels(
-    status=METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
+
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_UNKNOWN
 )
-metric_function_executors_with_status.labels(
-    status=METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED
 )
-metric_function_executors_with_status.labels(
-    status=METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_STARTING_UP
 )
-metric_function_executors_with_status.labels(
-    status=METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_TERMINATED
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_RUNNING
+)
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATING
+)
+metric_function_executors_with_state.labels(
+    state=METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATED
 )

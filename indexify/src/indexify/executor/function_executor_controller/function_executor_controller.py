@@ -1,6 +1,7 @@
 import asyncio
 import time
 from collections.abc import Coroutine
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,12 +44,14 @@ from .events import (
 from .function_executor_startup_output import FunctionExecutorStartupOutput
 from .loggers import function_executor_logger, task_allocation_logger
 from .metrics.function_executor_controller import (
-    METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING,
-    METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING,
-    METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_TERMINATED,
-    METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_RUNNING,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_STARTING_UP,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATED,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATING,
+    METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_UNKNOWN,
     metric_control_loop_handle_event_latency,
-    metric_function_executors_with_status,
+    metric_function_executors_with_state,
     metric_runnable_tasks,
     metric_runnable_tasks_per_function_name,
     metric_schedule_task_latency,
@@ -59,6 +62,16 @@ from .run_task import run_task_on_function_executor
 from .task_info import TaskInfo
 from .task_output import TaskOutput
 from .upload_task_output import upload_task_output
+
+
+# Actual FE controller states, they are a bit different from statuses reported to the Server.
+# All the valid state transitions are forward only (can skip multiple states in a row).
+class _FE_CONTROLLER_STATE(Enum):
+    NOT_STARTED = 1
+    STARTING_UP = 2
+    RUNNING = 3
+    TERMINATING = 4
+    TERMINATED = 5
 
 
 class FunctionExecutorController:
@@ -94,19 +107,18 @@ class FunctionExecutorController:
         self._logger: Any = function_executor_logger(
             function_executor_description, logger.bind(module=__name__)
         )
-        # Mutable state. No lock needed as it's modified by async tasks running in
-        # the same event loop.
+        self._destroy_lock: asyncio.Lock = asyncio.Lock()
+        # Mutable state. No lock needed as it's modified by async tasks running in the same event loop.
         self._fe: Optional[FunctionExecutor] = None
-        self._fe_termination_reason: FunctionExecutorTerminationReason = (
-            None  # Optional
-        )
-        # FE Status reported to Server.
-        self._status: FunctionExecutorStatus = (
-            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_UNKNOWN
-        )
-        metric_function_executors_with_status.labels(
-            status=_to_fe_status_metric_label(self._status, self._logger)
+        self._fe_termination_reason: Optional[FunctionExecutorTerminationReason] = None
+        self._internal_state = _FE_CONTROLLER_STATE.NOT_STARTED
+        metric_function_executors_with_state.labels(
+            state=_to_fe_state_metric_label(self._internal_state, self._logger)
         ).inc()
+        self._reported_state: FunctionExecutorState = FunctionExecutorState(
+            description=function_executor_description,
+            status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_UNKNOWN,
+        )
         # Ordered list of events to be processed by the control loop.
         self._events: List[BaseEvent] = []
         # Asyncio event used to notify the control loop that there are new events to process.
@@ -123,13 +135,6 @@ class FunctionExecutorController:
 
     def function_executor_id(self) -> str:
         return self._fe_description.id
-
-    def status(self) -> FunctionExecutorStatus:
-        """Returns the current status of the Function Executor.
-
-        Not blocking.
-        """
-        return self._status
 
     def add_task_allocation(self, task_allocation: TaskAllocation) -> None:
         """Adds a task to the Function Executor.
@@ -205,9 +210,10 @@ class FunctionExecutorController:
         """Starts up the Function Executor and prepares it to run tasks.
 
         Not blocking. Never raises exceptions."""
-        if self._control_loop_aio_task is not None:
+        if self._internal_state != _FE_CONTROLLER_STATE.NOT_STARTED:
             self._logger.warning(
-                "ignoring startup call as the Function Executor is already started"
+                "function executor state is not NOT_STARTED, ignoring startup call",
+                internal_state=self._internal_state.name,
             )
             return
 
@@ -215,7 +221,13 @@ class FunctionExecutorController:
             self._control_loop(),
             name="function executor control loop",
         )
-        self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_PENDING)
+        self._update_internal_state(_FE_CONTROLLER_STATE.STARTING_UP)
+        self._update_reported_state(
+            FunctionExecutorState(
+                description=self._fe_description,
+                status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_PENDING,
+            )
+        )
         next_aio = create_function_executor(
             function_executor_description=self._fe_description,
             function_executor_server_factory=self._fe_server_factory,
@@ -242,7 +254,7 @@ class FunctionExecutorController:
     ) -> None:
         """Shutsdown the Function Executor and frees all of its resources.
 
-        All the tasks are reported as failed with FE Terminated failure code.
+        No task outcomes and outputs are getting reported to Server after this call.
         Doesn't raise any exceptions. Blocks until the shutdown is complete.
         """
         self._add_event(
@@ -259,50 +271,48 @@ class FunctionExecutorController:
             )
         self._logger.info("function executor controller shutdown finished")
 
-    def _set_status(
-        self,
-        status: FunctionExecutorStatus,
-    ) -> None:
-        """Sets Function Executor status and reports it to the Server.
+    def _update_internal_state(self, new_state: _FE_CONTROLLER_STATE) -> None:
+        """Updates the internal state of the Function Executor Controller.
 
         Not blocking. Never raises exceptions."""
-        old_status: FunctionExecutorStatus = self._status
-        new_status: FunctionExecutorStatus = status
-        self._status: FunctionExecutorStatus = new_status
+        old_state: _FE_CONTROLLER_STATE = self._internal_state
+        self._internal_state = new_state
 
         self._logger.info(
-            "function executor status changed",
-            old_status=FunctionExecutorStatus.Name(old_status),
-            new_status=FunctionExecutorStatus.Name(new_status),
-            termination_reason=_termination_reason_to_short_name(
-                self._fe_termination_reason
-            ),
+            "function executor internal state changed",
+            old_state=old_state.name,
+            new_state=new_state.name,
         )
-        metric_function_executors_with_status.labels(
-            status=_to_fe_status_metric_label(old_status, self._logger)
+
+        metric_function_executors_with_state.labels(
+            state=_to_fe_state_metric_label(old_state, self._logger)
         ).dec()
-        metric_function_executors_with_status.labels(
-            status=_to_fe_status_metric_label(new_status, self._logger)
+        metric_function_executors_with_state.labels(
+            state=_to_fe_state_metric_label(new_state, self._logger)
         ).inc()
 
-        self._state_reporter.update_function_executor_state(self._current_state())
+    def _update_reported_state(
+        self,
+        new_state: FunctionExecutorState,
+    ) -> None:
+        """Sets new Function Executor state and reports it to the Server.
+
+        Not blocking. Never raises exceptions."""
+        old_state: FunctionExecutorState = self._reported_state
+        self._reported_state = new_state
+
+        self._logger.info(
+            "function executor grpc status changed",
+            old_status=FunctionExecutorStatus.Name(old_state.status),
+            new_status=FunctionExecutorStatus.Name(new_state.status),
+            termination_reason=_termination_reason_to_short_name(
+                new_state.termination_reason
+            ),
+        )
+
+        self._state_reporter.update_function_executor_state(new_state)
         # Report the status change to the Server asap to reduce latency in the system.
         self._state_reporter.schedule_state_report()
-
-    def _current_state(self) -> FunctionExecutorState:
-        """Returns the current state of the Function Executor.
-
-        Not blocking. Never raises exceptions.
-        """
-        termination_reason: Optional[FunctionExecutorTerminationReason] = None
-        if self._fe_termination_reason is not None:
-            termination_reason = self._fe_termination_reason
-
-        return FunctionExecutorState(
-            description=self._fe_description,
-            status=self._status,
-            termination_reason=termination_reason,
-        )
 
     async def _control_loop(self) -> None:
         """Runs control loop that coordinates all the work done by the Function Executor.
@@ -454,13 +464,17 @@ class FunctionExecutorController:
         self._state_reporter.schedule_state_report()
 
         if event.function_executor is None:
-            self._destroy_function_executor_before_termination(
-                event.output.termination_reason
-            )
+            self._start_termination(termination_reason=event.output.termination_reason)
             return
 
         self._fe = event.function_executor
-        self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING)
+        self._update_internal_state(_FE_CONTROLLER_STATE.RUNNING)
+        self._update_reported_state(
+            FunctionExecutorState(
+                description=self._fe_description,
+                status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING,
+            )
+        )
         # Health checker starts after FE creation and gets automatically stopped on FE destroy.
         self._fe.health_checker().start(self._health_check_failed_callback)
         self._add_event(
@@ -479,9 +493,18 @@ class FunctionExecutorController:
             self._logger.error(
                 "Function Executor destroy failed unexpectedly, this should never happen",
             )
-        # Set the status only after the FE got destroyed because Server assumes that all FE resources are freed when the status changes.
-        self._fe_termination_reason = event.termination_reason
-        self._set_status(FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED)
+
+        self._fe = None
+        # Set reported status only after the FE got destroyed because Server assumes that all FE resources are freed when the status changes.
+        self._update_reported_state(
+            FunctionExecutorState(
+                description=self._fe_description,
+                status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
+                termination_reason=self._fe_termination_reason,
+            )
+        )
+        self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATED)
+
         # Invoke the scheduler so it can fail runnable tasks with FE Terminated error.
         self._add_event(
             ScheduleTaskExecution(),
@@ -493,7 +516,7 @@ class FunctionExecutorController:
             "Function Executor health check failed, terminating Function Executor",
             reason=result.reason,
         )
-        self._destroy_function_executor_before_termination(
+        self._start_termination(
             termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
         )
 
@@ -532,14 +555,15 @@ class FunctionExecutorController:
         if len(self._runnable_tasks) == 0:
             return
 
-        if self._status not in [
-            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING,
-            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
+        if self._internal_state not in [
+            _FE_CONTROLLER_STATE.RUNNING,
+            _FE_CONTROLLER_STATE.TERMINATING,
+            _FE_CONTROLLER_STATE.TERMINATED,
         ]:
-            return  # Can't progress pending task with the current status.
+            return  # Can't progress runnable tasks in the current state.
 
         if (
-            self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING
+            self._internal_state == _FE_CONTROLLER_STATE.RUNNING
             and self._running_task is not None
         ):
             return
@@ -555,12 +579,15 @@ class FunctionExecutorController:
         if task_info.is_cancelled:
             task_info.output = TaskOutput.task_cancelled(task_info.allocation)
             self._start_task_output_upload(task_info)
-        elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
+        elif self._internal_state in [
+            _FE_CONTROLLER_STATE.TERMINATING,
+            _FE_CONTROLLER_STATE.TERMINATED,
+        ]:
             task_info.output = TaskOutput.function_executor_terminated(
                 task_info.allocation
             )
             self._start_task_output_upload(task_info)
-        elif self._status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING:
+        elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
             self._running_task = task_info
             next_aio = run_task_on_function_executor(
                 task_info=task_info,
@@ -603,7 +630,7 @@ class FunctionExecutorController:
                 ScheduleTaskExecution(), source="_handle_event_task_execution_finished"
             )
         else:
-            self._destroy_function_executor_before_termination(
+            self._start_termination(
                 termination_reason=event.function_executor_termination_reason
             )
 
@@ -660,24 +687,31 @@ class FunctionExecutorController:
         )
         self._state_reporter.schedule_state_report()
 
-    def _destroy_function_executor_before_termination(
+    def _start_termination(
         self, termination_reason: FunctionExecutorTerminationReason
     ) -> None:
-        """Destroys the Function Executor and frees all its resources to prepare for transitioning to the TERMINATED state.
+        """Starts termination of the Function Executor if it's not started yet.
 
         Doesn't raise any exceptions. Doesn't block.
         """
+        if self._internal_state in [
+            _FE_CONTROLLER_STATE.TERMINATING,
+            _FE_CONTROLLER_STATE.TERMINATED,
+        ]:
+            # _start_termination() can be called multiple times, e.g. by each failed task alloc
+            # when the FE is unhealthy. Dedup the calls to keep state machine consistent.
+            return
+
+        self._fe_termination_reason = termination_reason
+        self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATING)
         next_aio = destroy_function_executor(
             function_executor=self._fe,
-            termination_reason=termination_reason,
+            lock=self._destroy_lock,
             logger=self._logger,
         )
-        self._fe = None
         self._spawn_aio_for_fe(
             aio=next_aio,
-            on_exception=FunctionExecutorDestroyed(
-                is_success=False, termination_reason=termination_reason
-            ),
+            on_exception=FunctionExecutorDestroyed(is_success=False),
         )
 
     async def _shutdown_no_exceptions(self, event: ShutdownInitiated) -> None:
@@ -716,16 +750,15 @@ class FunctionExecutorController:
                 # BaseException includes asyncio.CancelledError which is always raised here.
                 pass
 
-        if self._status != FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
-            self._handle_event_function_executor_destroyed(
-                await destroy_function_executor(
-                    function_executor=self._fe,
-                    termination_reason=event.termination_reason,
-                    logger=self._logger,
-                )
-            )
-        metric_function_executors_with_status.labels(
-            status=_to_fe_status_metric_label(self._status, self._logger)
+        await destroy_function_executor(
+            function_executor=self._fe,
+            lock=self._destroy_lock,
+            logger=self._logger,
+        )
+
+        # Cleanup the metric from this FE.
+        metric_function_executors_with_state.labels(
+            state=_to_fe_state_metric_label(self._internal_state, self._logger)
         ).dec()
 
         self._state_reporter.remove_function_executor_state(self.function_executor_id())
@@ -735,21 +768,23 @@ class FunctionExecutorController:
         debug_print_events(events=self._events, logger=self._logger)
 
 
-def _to_fe_status_metric_label(status: FunctionExecutorStatus, logger: Any) -> str:
-    if status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_UNKNOWN:
-        return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
-    elif status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_PENDING:
-        return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_PENDING
-    elif status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING:
-        return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_RUNNING
-    elif status == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED:
-        return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_TERMINATED
+def _to_fe_state_metric_label(state: _FE_CONTROLLER_STATE, logger: Any) -> str:
+    if state == _FE_CONTROLLER_STATE.NOT_STARTED:
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED
+    elif state == _FE_CONTROLLER_STATE.STARTING_UP:
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_STARTING_UP
+    elif state == _FE_CONTROLLER_STATE.RUNNING:
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_RUNNING
+    elif state == _FE_CONTROLLER_STATE.TERMINATING:
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATING
+    elif state == _FE_CONTROLLER_STATE.TERMINATED:
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATED
     else:
         logger.error(
-            "unexpected Function Executor status",
-            status=FunctionExecutorStatus.Name(status),
+            "unexpected Function Executor internal state",
+            state=state.name,
         )
-        return METRIC_FUNCTION_EXECUTORS_WITH_STATUS_LABEL_UNKNOWN
+        return METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_UNKNOWN
 
 
 _termination_reason_to_short_name_map = {
