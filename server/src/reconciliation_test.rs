@@ -5,6 +5,7 @@ mod tests {
         test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         FunctionAllowlist,
         FunctionExecutorState,
+        FunctionExecutorTerminationReason,
         GraphVersion,
         TaskOutcome,
     };
@@ -201,7 +202,9 @@ mod tests {
                 .collect();
             for fe in fes.iter_mut() {
                 if fe.compute_fn_name == "fn_a" {
-                    fe.state = FunctionExecutorState::Terminated;
+                    fe.state = FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    );
                 }
             }
             executor.update_function_executors(fes).await?;
