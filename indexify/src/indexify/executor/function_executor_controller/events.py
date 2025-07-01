@@ -55,19 +55,12 @@ class FunctionExecutorDestroyed(BaseEvent):
     Event indicating that Function Executor has been destroyed.
     """
 
-    def __init__(
-        self, is_success: bool, termination_reason: FunctionExecutorTerminationReason
-    ):
+    def __init__(self, is_success: bool):
         super().__init__(EventType.FUNCTION_EXECUTOR_DESTROYED)
         self.is_success: bool = is_success
-        self.termination_reason: FunctionExecutorTerminationReason = termination_reason
 
     def __str__(self) -> str:
-        return (
-            f"Event(type={self.event_type.name}, "
-            f"is_success={self.is_success}, "
-            f"termination_reason={FunctionExecutorTerminationReason.Name(self.termination_reason)})"
-        )
+        return f"Event(type={self.event_type.name}, " f"is_success={self.is_success})"
 
 
 class ShutdownInitiated(BaseEvent):

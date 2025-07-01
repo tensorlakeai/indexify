@@ -171,8 +171,8 @@ class TestMetrics(unittest.TestCase):
             "function_executor_destroy_health_checker_latency_seconds_count",
             "function_executor_destroy_health_checker_latency_seconds_sum",
             "function_executor_destroy_health_checker_errors_total",
-            # FE statuses
-            "function_executors_with_status",
+            # FE states
+            "function_executors_with_state",
             # Executor
             "executor_info",
             "executor_state",
