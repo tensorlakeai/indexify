@@ -1124,11 +1124,14 @@ impl TaskFailureReason {
     }
 
     pub fn should_count_against_task_retry_attempts(self) -> bool {
-        // Platform/infrastructure failures shouldn't count against retry attempts
-        // since they're not legitimate task execution failures
+        // Explicit platform decisions and provable infrastructure
+        // failures don't count against retry attempts.  Everything
+        // else counts against retry attempts.
         matches!(
             self,
-            TaskFailureReason::FunctionError | TaskFailureReason::FunctionTimeout
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout
         )
     }
 }

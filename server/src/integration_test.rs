@@ -509,6 +509,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_task_retry_attempt_used_on_internal_error() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::InternalError, TEST_FN_MAX_RETRIES).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_internal_error_no_retries() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::InternalError, 0).await
+    }
+
+    #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
         test_task_retry_attempt_used(TaskFailureReason::FunctionError, TEST_FN_MAX_RETRIES).await
     }
@@ -588,17 +598,6 @@ mod tests {
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_internal_error() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::InternalError, TEST_FN_MAX_RETRIES)
-            .await
-    }
-
-    #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_internal_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::InternalError, 0).await
     }
 
     #[tokio::test]
