@@ -199,9 +199,12 @@ impl TaskCreator {
             };
 
             if let TaskOutcome::Failure(failure_reason) = &allocation.outcome {
-                if compute_graph_version.should_retry_task(&task) && failure_reason.is_retriable() {
+                let uses_attempt = failure_reason.should_count_against_task_retry_attempts();
+                if compute_graph_version.should_retry_task(&task, uses_attempt) &&
+                    failure_reason.is_retriable()
+                {
                     task.status = TaskStatus::Pending;
-                    if failure_reason.should_count_against_task_retry_attempts() {
+                    if uses_attempt {
                         task.attempt_number += 1;
                     }
                     scheduler_update.updated_tasks =

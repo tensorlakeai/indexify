@@ -23,7 +23,6 @@ pub mod tests {
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
     pub const TEST_EXECUTOR_IMAGE_NAME: &str = "test_image_name";
-    pub const TEST_FN_MAX_RETRIES: u32 = 3;
 
     pub fn create_mock_task(
         cg: &ComputeGraph,
@@ -42,7 +41,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn test_compute_fn(name: &str, image_hash: String) -> ComputeFn {
+    pub fn test_compute_fn(name: &str, image_hash: String, max_retries: u32) -> ComputeFn {
         let image_information = ImageInformation {
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             image_hash,
@@ -54,7 +53,7 @@ pub mod tests {
             fn_name: name.to_string(),
             image_information,
             retry_policy: FunctionRetryPolicy {
-                max_retries: TEST_FN_MAX_RETRIES,
+                max_retries,
                 ..Default::default()
             },
             ..Default::default()
@@ -62,7 +61,7 @@ pub mod tests {
     }
 
     pub fn reducer_fn(name: &str) -> ComputeFn {
-        let mut compute_fn = test_compute_fn(name, "image_hash".to_string());
+        let mut compute_fn = test_compute_fn(name, "image_hash".to_string(), 0);
         compute_fn.reducer = true;
         compute_fn
     }
@@ -168,10 +167,10 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn test_graph_a(image_hash: String) -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a", image_hash.clone());
-        let fn_b = test_compute_fn("fn_b", image_hash.clone());
-        let fn_c = test_compute_fn("fn_c", image_hash.clone());
+    pub fn test_graph_a_retry(image_hash: String, max_retries: u32) -> ComputeGraph {
+        let fn_a = test_compute_fn("fn_a", image_hash.clone(), max_retries);
+        let fn_b = test_compute_fn("fn_b", image_hash.clone(), max_retries);
+        let fn_c = test_compute_fn("fn_c", image_hash.clone(), max_retries);
 
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
@@ -208,8 +207,12 @@ pub mod tests {
         }
     }
 
+    pub fn test_graph_a(image_hash: String) -> ComputeGraph {
+        test_graph_a_retry(image_hash, 0)
+    }
+
     pub fn test_graph_b() -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a", "image_hash".to_string());
+        let fn_a = test_compute_fn("fn_a", "image_hash".to_string(), 0);
         let router_x = ComputeFn {
             name: "router_x".to_string(),
             description: "description router_x".to_string(),
@@ -230,8 +233,8 @@ pub mod tests {
             },
             ..Default::default()
         };
-        let fn_b = test_compute_fn("fn_b", "image_hash".to_string());
-        let fn_c = test_compute_fn("fn_c", "image_hash".to_string());
+        let fn_b = test_compute_fn("fn_b", "image_hash".to_string(), 0);
+        let fn_c = test_compute_fn("fn_c", "image_hash".to_string(), 0);
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_B".to_string(),
@@ -266,9 +269,9 @@ pub mod tests {
     }
 
     pub fn test_graph_with_reducer() -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a", "image_hash".to_string());
+        let fn_a = test_compute_fn("fn_a", "image_hash".to_string(), 0);
         let fn_b = reducer_fn("fn_b");
-        let fn_c = test_compute_fn("fn_c", "image_hash".to_string());
+        let fn_c = test_compute_fn("fn_c", "image_hash".to_string(), 0);
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_R".to_string(),

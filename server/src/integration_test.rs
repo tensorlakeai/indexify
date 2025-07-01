@@ -4,12 +4,7 @@ mod tests {
 
     use anyhow::Result;
     use data_model::{
-        test_objects::tests::{
-            test_executor_metadata,
-            TEST_EXECUTOR_ID,
-            TEST_FN_MAX_RETRIES,
-            TEST_NAMESPACE,
-        },
+        test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         Task,
         TaskFailureReason,
         TaskOutcome,
@@ -27,6 +22,8 @@ mod tests {
         service::Service,
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
+
+    const TEST_FN_MAX_RETRIES: u32 = 3;
 
     fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
         if !asserts.contains_key(IndexifyObjectsColumns::StateMachineMetadata.as_ref()) {
@@ -430,14 +427,18 @@ mod tests {
         Ok(())
     }
 
-    async fn test_task_retry_attempt_used(reason: TaskFailureReason) -> Result<()> {
+    async fn test_task_retry_attempt_used(
+        reason: TaskFailureReason,
+        max_retries: u32,
+    ) -> Result<()> {
         assert!(reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        let invocation_id =
+            test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -457,7 +458,7 @@ mod tests {
         }
 
         // loop over retries
-        while attempt_number <= TEST_FN_MAX_RETRIES {
+        while attempt_number <= max_retries {
             // finalize the starting node task with our retryable failure (using an attempt)
             {
                 let desired_state = executor.desired_state().await;
@@ -476,7 +477,7 @@ mod tests {
 
             // validate the task retry attempt number was incremented
             // if it was less than the retry max
-            if attempt_number < TEST_FN_MAX_RETRIES {
+            if attempt_number < max_retries {
                 let tasks = test_srv.get_all_tasks().await?;
                 assert_eq!(1, tasks.len());
                 assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
@@ -509,22 +510,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionError).await
+        test_task_retry_attempt_used(TaskFailureReason::FunctionError, TEST_FN_MAX_RETRIES).await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_error_no_retries() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout).await
+        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, TEST_FN_MAX_RETRIES).await
     }
 
-    async fn test_task_retry_attempt_not_used(reason: TaskFailureReason) -> Result<()> {
+    #[tokio::test]
+    async fn test_task_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
+        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, 0).await
+    }
+
+    async fn test_task_retry_attempt_not_used(
+        reason: TaskFailureReason,
+        max_retries: u32,
+    ) -> Result<()> {
         assert!(!reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -532,6 +546,9 @@ mod tests {
             .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
+
+        // make sure the task is allocated
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // track the attempt number
         let attempt_number: u32 = 0;
@@ -567,22 +584,47 @@ mod tests {
             assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
         }
 
+        // make sure the task is still allocated
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
         Ok(())
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_internal_error() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::InternalError).await
+        test_task_retry_attempt_not_used(TaskFailureReason::InternalError, TEST_FN_MAX_RETRIES)
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_internal_error_no_retries() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::InternalError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled).await
+        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, TEST_FN_MAX_RETRIES)
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated).await
+        test_task_retry_attempt_not_used(
+            TaskFailureReason::FunctionExecutorTerminated,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_attempt_not_used_on_function_executor_terminated_no_retries(
+    ) -> Result<()> {
+        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated, 0).await
     }
 
     #[tokio::test]

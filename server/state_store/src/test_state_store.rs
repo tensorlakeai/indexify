@@ -43,10 +43,10 @@ impl TestStateStore {
     }
 }
 
-pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
+pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries: u32) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: tests::test_graph_a("image_hash".to_string()),
+        compute_graph: tests::test_graph_a_retry("image_hash".to_string(), max_retries),
         upgrade_tasks_to_current_version: true,
     };
     indexify_state
@@ -59,7 +59,7 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     let invocation_payload = test_invocation_payload_graph_a();
     let ctx = test_invocation_ctx(
         TEST_NAMESPACE,
-        &tests::test_graph_a("image_hash".to_string()),
+        &tests::test_graph_a_retry("image_hash".to_string(), max_retries),
         &invocation_payload,
     );
     let request = InvokeComputeGraphRequest {
@@ -76,6 +76,10 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
         .await
         .unwrap();
     invocation_payload.id
+}
+
+pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
+    with_simple_retry_graph(indexify_state, 0).await
 }
 
 pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
