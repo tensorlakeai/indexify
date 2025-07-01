@@ -549,11 +549,11 @@ impl ComputeGraphVersion {
             .collect()
     }
 
-    pub fn should_retry_task(&self, task: &Task) -> bool {
+    pub fn should_retry_task(&self, task: &Task, uses_attempt: bool) -> bool {
         let Some(node) = self.nodes.get(&task.compute_fn_name) else {
             return false;
         };
-        task.attempt_number < node.retry_policy.max_retries
+        task.attempt_number < node.retry_policy.max_retries || !uses_attempt
     }
 }
 
@@ -1123,12 +1123,15 @@ impl TaskFailureReason {
         )
     }
 
-    pub fn should_count_against_task_retry_attempts(&self) -> bool {
-        // Platform/infrastructure failures shouldn't count against retry attempts
-        // since they're not legitimate task execution failures
+    pub fn should_count_against_task_retry_attempts(self) -> bool {
+        // Explicit platform decisions and provable infrastructure
+        // failures don't count against retry attempts.  Everything
+        // else counts against retry attempts.
         matches!(
             self,
-            TaskFailureReason::FunctionError | TaskFailureReason::FunctionTimeout
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout
         )
     }
 }
@@ -2274,9 +2277,9 @@ mod tests {
     #[test]
     fn test_compute_graph_update() {
         const TEST_NAMESPACE: &str = "namespace1";
-        let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
-        let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string());
-        let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string());
+        let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string(), 0);
+        let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string(), 0);
+        let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string(), 0);
         let original_graph: ComputeGraph = ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
@@ -2468,7 +2471,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
                     ]),
                     ..original_graph.clone()
                 },
@@ -2478,7 +2481,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
                     ]),
                     ..original_graph.clone()
                 },
@@ -2488,7 +2491,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string())), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
                     ]),
                     ..original_graph.into_version()
                 },
@@ -2528,7 +2531,7 @@ mod tests {
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())), // different
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)), // different
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2537,7 +2540,7 @@ mod tests {
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2546,7 +2549,7 @@ mod tests {
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string())),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2578,7 +2581,7 @@ mod tests {
         F: FnOnce(&mut ComputeGraphVersion),
     {
         fn create_test_graph_version() -> ComputeGraphVersion {
-            let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
+            let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string(), 0);
             ComputeGraphVersion {
                 namespace: String::new(),
                 compute_graph_name: String::new(),
@@ -2617,11 +2620,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    test_compute_fn("compute1", "image_hash".to_string()),
+                    test_compute_fn("compute1", "image_hash".to_string(), 0),
                 ),
                 (
                     "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string()),
+                    test_compute_fn("compute2", "image_hash".to_string(), 0),
                 ),
             ]);
         });
@@ -2633,11 +2636,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    test_compute_fn("compute1", "image_hash".to_string()),
+                    test_compute_fn("compute1", "image_hash".to_string(), 0),
                 ),
                 (
                     "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string()),
+                    test_compute_fn("compute2", "image_hash".to_string(), 0),
                 ),
             ]);
         });
@@ -2647,11 +2650,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    test_compute_fn("compute3", "image_hash".to_string()),
+                    test_compute_fn("compute3", "image_hash".to_string(), 0),
                 ),
                 (
                     "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string()),
+                    test_compute_fn("compute2", "image_hash".to_string(), 0),
                 ),
             ]);
         });
@@ -2661,11 +2664,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    test_compute_fn("compute3", "image_hash".to_string()),
+                    test_compute_fn("compute3", "image_hash".to_string(), 0),
                 ),
                 (
                     "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string()),
+                    test_compute_fn("compute2", "image_hash".to_string(), 0),
                 ),
             ]);
         });
@@ -2684,27 +2687,27 @@ mod tests {
                 graph.nodes = HashMap::from([
                     (
                         "compute1".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                     (
                         "compute2".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                     (
                         "compute3".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                     (
                         "compute4".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                     (
                         "compute5".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                     (
                         "compute6".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string()),
+                        test_compute_fn("compute1", "image_hash".to_string(), 0),
                     ),
                 ]);
             },
