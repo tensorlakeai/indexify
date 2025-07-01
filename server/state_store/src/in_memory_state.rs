@@ -1429,6 +1429,26 @@ impl InMemoryState {
             allocation_completion_latency: self.allocation_completion_latency.clone(),
         }))
     }
+
+    pub fn get_existing_compute_graph_version<'a>(
+        &'a self,
+        task: &Task,
+    ) -> Result<&'a Box<ComputeGraphVersion>> {
+        self.compute_graph_versions
+            .get(&task.key_compute_graph_version())
+            .ok_or_else(|| {
+                error!(
+                    task_id = task.id.to_string(),
+                    invocation_id = task.invocation_id.to_string(),
+                    namespace = task.namespace,
+                    graph = task.compute_graph_name,
+                    "fn" = task.compute_fn_name,
+                    graph_version = task.graph_version.0,
+                    "compute graph version not found",
+                );
+                anyhow!("compute graph version not found")
+            })
+    }
 }
 
 #[cfg(test)]

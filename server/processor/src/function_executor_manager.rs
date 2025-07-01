@@ -16,6 +16,7 @@ use data_model::{
     TaskOutcome,
     TaskStatus,
 };
+use if_chain::if_chain;
 use rand::seq::IndexedRandom;
 use state_store::{
     in_memory_state::InMemoryState,
@@ -58,7 +59,7 @@ impl FunctionExecutorManager {
         for fe in &function_executors_to_mark {
             let mut update_fe = fe.clone();
             update_fe.desired_state = FunctionExecutorState::Terminated(
-                FunctionExecutorTerminationReason::DesiredStateRemoved,
+                FunctionExecutorTerminationReason::FunctionCancelled,
             );
             update.new_function_executors.push(*update_fe);
 
@@ -303,36 +304,34 @@ impl FunctionExecutorManager {
                 if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
                     continue;
                 }
-                match fe.state {
-                    FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::CustomerCodeError,
-                    ) => {
-                        task.status = TaskStatus::Completed;
-                        task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError);
-                        failed_tasks += 1;
-                    }
-                    FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::PlatformError,
-                    ) |
-                    FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::Unknown,
-                    ) |
-		    // NB: We handle these FE states here because we
-		    // can receive a ChangeType::TomeStoneExecutor for
-		    // an executor whose FEs haven't been individually
-		    // terminated; in this situation, we still need to
-		    // reallocate the FE's tasks, and we do so as if
-		    // the FE were individually removed by the system.
-                    FunctionExecutorState::Unknown |
-                    FunctionExecutorState::Pending |
-                    FunctionExecutorState::Running |
-                    FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    ) => {
-                        task.status = TaskStatus::Pending;
-                        task.attempt_number = task.attempt_number + 1;
-                    }
+
+                if_chain! {
+                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
+                        if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
+                        if matches!(fe.state, FunctionExecutorState::Terminated(termination_reason) if termination_reason.should_count_against_task_retry_attempts());
+                        then {
+                                // The alloc's task should be retried iff it has remaining retry
+                                // attempts.
+                                if task.attempt_number < max_retries {
+                                    // The task can be retried.
+                                    task.attempt_number += 1;
+                                    task.status = TaskStatus::Pending;
+                                } else {
+                                    // The task cannot be retried.
+                                    task.status = TaskStatus::Completed;
+                                    task.outcome =
+                                        TaskOutcome::Failure(TaskFailureReason::FunctionError);
+                                    failed_tasks += 1;
+                                }
+                        }
+                else {
+                            // Either we weren't able to get the info we
+                            // needed, or this termination reason doesn't
+                            // count against the task's retry attempts;
+                            // just set the task to Pending.
+                            task.status = TaskStatus::Pending;
                 }
+                    }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
                     &task.namespace,

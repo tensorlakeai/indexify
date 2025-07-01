@@ -594,8 +594,12 @@ mod tests {
             assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
         }
 
-        // make sure the task is still allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        // make sure the task is still allocated iff the reason is retriable.
+        if reason.is_retriable() {
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        } else {
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+        }
 
         Ok(())
     }

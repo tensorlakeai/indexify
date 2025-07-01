@@ -85,8 +85,11 @@ class TestFunctionRetries(unittest.TestCase):
 
 
 class FunctionWithFailingConstructor(TensorlakeCompute):
-    name = "FunctionWithFailingConstructor"
     FILE_PATH = "/tmp/FunctionWithFailingConstructor_fail"
+    MAX_RETRIES = 3
+
+    name = "FunctionWithFailingConstructor"
+    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
 
     def __init__(self):
         super().__init__()
@@ -109,9 +112,12 @@ class FunctionWithFailingConstructor(TensorlakeCompute):
 
 
 class FunctionWithTimingOutConstructor(TensorlakeCompute):
+    FILE_PATH = "/tmp/FunctionWithTimingOutConstructor_timeout"
+    MAX_RETRIES = 3
+
     name = "FunctionWithTimingOutConstructor"
     timeout = 1
-    FILE_PATH = "/tmp/FunctionWithTimingOutConstructor_timeout"
+    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
 
     def __init__(self):
         super().__init__()
@@ -133,7 +139,82 @@ class FunctionWithTimingOutConstructor(TensorlakeCompute):
             )
 
 
-@unittest.skip("Function Executor startup retries feature has a bug")
+class FunctionWithRetryCountingConstructor(TensorlakeCompute):
+    COUNTER_FILE_PATH = "/tmp/FunctionWithRetryCountingConstructor_counter"
+    MAX_RETRIES = 3
+
+    name = "FunctionWithRetryCountingConstructor"
+    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
+
+    def __init__(self):
+        super().__init__()
+        # Read current constructor run count, increment it, and write back
+        constructor_run_count = self.get_constructor_run_count()
+        constructor_run_count += 1
+
+        with open(self.COUNTER_FILE_PATH, "w") as f:
+            f.write(str(constructor_run_count))
+
+        # Fail until we've retried the specified number of times
+        if constructor_run_count <= self.MAX_RETRIES:
+            raise Exception(f"Constructor failed on attempt {constructor_run_count}")
+
+    def run(self, x: int) -> str:
+        return "success after retries"
+
+    @classmethod
+    def reset_counter(cls):
+        if os.path.exists(cls.COUNTER_FILE_PATH):
+            os.remove(cls.COUNTER_FILE_PATH)
+
+    @classmethod
+    def get_constructor_run_count(cls):
+        try:
+            with open(cls.COUNTER_FILE_PATH, "r") as f:
+                return int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+
+class FunctionWithRetryCountingTimeoutConstructor(TensorlakeCompute):
+    COUNTER_FILE_PATH = "/tmp/FunctionWithRetryCountingTimeoutConstructor_counter"
+    MAX_RETRIES = 3
+
+    name = "FunctionWithRetryCountingTimeoutConstructor"
+    timeout = 1
+    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
+
+    def __init__(self):
+        super().__init__()
+        # Read current constructor run count, increment it, and write back
+        constructor_run_count = self.get_constructor_run_count()
+        constructor_run_count += 1
+
+        with open(self.COUNTER_FILE_PATH, "w") as f:
+            f.write(str(constructor_run_count))
+
+        # Timeout until we've retried the specified number of times
+        if constructor_run_count <= self.MAX_RETRIES:
+            time.sleep(1000)  # This will cause a timeout
+
+    def run(self, x: int) -> str:
+        return "success after timeout retries"
+
+    @classmethod
+    def reset_counter(cls):
+        if os.path.exists(cls.COUNTER_FILE_PATH):
+            os.remove(cls.COUNTER_FILE_PATH)
+
+    @classmethod
+    def get_constructor_run_count(cls):
+        try:
+            with open(cls.COUNTER_FILE_PATH, "r") as f:
+                return int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+
+@unittest.skip("Function Executor startup retries with delay is not implemented")
 class TestFunctionConstructorRetries(unittest.TestCase):
     def test_function_constructor_succeeds_after_failing_for_5_secs(self):
         def unfail_constructor_with_delay():
@@ -168,6 +249,68 @@ class TestFunctionConstructorRetries(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=1)
         outputs = graph.output(invocation_id, FunctionWithTimingOutConstructor.name)
         self.assertEqual(outputs, ["success"])
+
+
+class TestFunctionConstructorRetriesWithCounter(unittest.TestCase):
+    def test_function_constructor_succeeds_after_specified_retries(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test",
+            start_node=FunctionWithRetryCountingConstructor,
+        )
+        graph = remote_or_local_graph(graph, remote=True)
+
+        # Reset counter before starting test
+        FunctionWithRetryCountingConstructor.reset_counter()
+
+        # Run the graph - it should succeed after exactly MAX_RETRIES + 1 attempts
+        invocation_id = graph.run(block_until_done=True, x=1)
+
+        # Verify the output
+        outputs = graph.output(invocation_id, FunctionWithRetryCountingConstructor.name)
+        self.assertEqual(outputs, ["success after retries"])
+
+        # Verify the retry count matches expected retries + initial attempt
+        constructor_run_count = (
+            FunctionWithRetryCountingConstructor.get_constructor_run_count()
+        )
+        expected_count = FunctionWithRetryCountingConstructor.MAX_RETRIES + 1
+        self.assertEqual(
+            constructor_run_count,
+            expected_count,
+            f"Expected {expected_count} attempts (1 initial + {FunctionWithRetryCountingConstructor.MAX_RETRIES} retries), got {constructor_run_count}",
+        )
+
+    def test_function_constructor_timeout_succeeds_after_specified_retries(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test",
+            start_node=FunctionWithRetryCountingTimeoutConstructor,
+        )
+        graph = remote_or_local_graph(graph, remote=True)
+
+        # Reset counter before starting test
+        FunctionWithRetryCountingTimeoutConstructor.reset_counter()
+
+        # Run the graph - it should succeed after exactly MAX_RETRIES + 1 attempts
+        invocation_id = graph.run(block_until_done=True, x=1)
+
+        # Verify the output
+        outputs = graph.output(
+            invocation_id, FunctionWithRetryCountingTimeoutConstructor.name
+        )
+        self.assertEqual(outputs, ["success after timeout retries"])
+
+        # Verify the retry count matches expected retries + initial attempt
+        constructor_run_count = (
+            FunctionWithRetryCountingTimeoutConstructor.get_constructor_run_count()
+        )
+        expected_count = FunctionWithRetryCountingTimeoutConstructor.MAX_RETRIES + 1
+        self.assertEqual(
+            constructor_run_count,
+            expected_count,
+            f"Expected {expected_count} attempts (1 initial + {FunctionWithRetryCountingTimeoutConstructor.MAX_RETRIES} retries), got {constructor_run_count}",
+        )
 
 
 if __name__ == "__main__":

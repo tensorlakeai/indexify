@@ -345,14 +345,14 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn mark_function_executors_as_running(&self) -> Result<()> {
+    pub async fn set_function_executor_states(&self, state: FunctionExecutorState) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
             .function_executors
             .into_values()
             .map(|mut fe| {
-                fe.state = FunctionExecutorState::Running;
+                fe.state = state;
                 fe
             })
             .collect();
@@ -363,6 +363,11 @@ impl TestExecutor<'_> {
         self.test_service.process_all_state_changes().await?;
 
         Ok(())
+    }
+
+    pub async fn mark_function_executors_as_running(&self) -> Result<()> {
+        self.set_function_executor_states(FunctionExecutorState::Running)
+            .await
     }
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {

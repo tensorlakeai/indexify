@@ -95,6 +95,7 @@ tonic-build = "0.13.1"
 tokio-util = { version = "0.7.15", features = ["full"] }
 priority-queue = "2.5.0"
 hex = "0.4.3"
+if_chain = "1.0.2"
 
 [dependencies]
 async-stream = { workspace = true }
@@ -147,6 +148,7 @@ tonic-reflection = { workspace = true }
 tokio-stream = { workspace = true }
 priority-queue = { workspace = true }
 tokio-util = { workspace = true }
+if_chain = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
