@@ -179,17 +179,6 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl From<FunctionExecutorStatus> for data_model::FunctionExecutorState {
-    fn from(status: FunctionExecutorStatus) -> Self {
-        match status {
-            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
-            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
-            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
-            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated,
-        }
-    }
-}
-
 impl From<data_model::FunctionRetryPolicy> for executor_api_pb::TaskRetryPolicy {
     fn from(from: data_model::FunctionRetryPolicy) -> Self {
         executor_api_pb::TaskRetryPolicy {
@@ -407,8 +396,14 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             compute_graph_name: compute_graph_name.clone(),
             compute_fn_name: compute_fn_name.clone(),
             version: GraphVersion(version.clone()),
-            state: function_executor_state.status().into(),
-            termination_reason,
+            state: match function_executor_state.status() {
+                FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
+                FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
+                FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
+                FunctionExecutorStatus::Terminated => {
+                    data_model::FunctionExecutorState::Terminated(termination_reason)
+                }
+            },
             resources,
         })
     }

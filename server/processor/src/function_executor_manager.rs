@@ -57,7 +57,9 @@ impl FunctionExecutorManager {
         // but don't actually remove them - reconciliation will handle that
         for fe in &function_executors_to_mark {
             let mut update_fe = fe.clone();
-            update_fe.desired_state = FunctionExecutorState::Terminated;
+            update_fe.desired_state = FunctionExecutorState::Terminated(
+                FunctionExecutorTerminationReason::DesiredStateRemoved,
+            );
             update.new_function_executors.push(*update_fe);
 
             info!(
@@ -136,7 +138,6 @@ impl FunctionExecutorManager {
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(fe_resources.clone())
-            .termination_reason(FunctionExecutorTerminationReason::Unknown)
             .build()?;
 
         info!(
@@ -191,12 +192,12 @@ impl FunctionExecutorManager {
             .map(|(_fe_id, fe)| fe.clone())
             .collect::<Vec<_>>();
         for fe in fes_exist_only_in_server {
-            if fe.desired_state == FunctionExecutorState::Terminated {
+            if matches!(fe.desired_state, FunctionExecutorState::Terminated(_)) {
                 function_executors_to_remove.push(fe.function_executor.clone());
             }
         }
         for fe in fes_exist_only_in_executor {
-            if fe.state != FunctionExecutorState::Terminated &&
+            if !matches!(fe.state, FunctionExecutorState::Terminated(_)) &&
                 executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
@@ -218,11 +219,14 @@ impl FunctionExecutorManager {
         }
         for (executor_fe_id, executor_fe) in &executor.function_executors {
             if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
-                if executor_fe.state == FunctionExecutorState::Terminated {
+                if matches!(executor_fe.state, FunctionExecutorState::Terminated(_)) {
                     function_executors_to_remove.push(executor_fe.clone());
                     continue;
                 }
-                if server_fe.desired_state == FunctionExecutorState::Terminated {
+                if matches!(
+                    server_fe.desired_state,
+                    FunctionExecutorState::Terminated(_)
+                ) {
                     continue;
                 }
                 if executor_fe.state != server_fe.desired_state {
@@ -299,17 +303,35 @@ impl FunctionExecutorManager {
                 if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
                     continue;
                 }
-                if fe.termination_reason == FunctionExecutorTerminationReason::CustomerCodeError {
-                    task.status = TaskStatus::Completed;
-                    task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError);
-                    failed_tasks += 1;
-                } else if fe.termination_reason == FunctionExecutorTerminationReason::PlatformError ||
-                    fe.termination_reason == FunctionExecutorTerminationReason::Unknown ||
-                    fe.termination_reason ==
-                        FunctionExecutorTerminationReason::DesiredStateRemoved
-                {
-                    task.status = TaskStatus::Pending;
-                    task.attempt_number = task.attempt_number + 1;
+                match fe.state {
+                    FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::CustomerCodeError,
+                    ) => {
+                        task.status = TaskStatus::Completed;
+                        task.outcome = TaskOutcome::Failure(TaskFailureReason::FunctionError);
+                        failed_tasks += 1;
+                    }
+                    FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::PlatformError,
+                    ) |
+                    FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::Unknown,
+                    ) |
+		    // NB: We handle these FE states here because we
+		    // can receive a ChangeType::TomeStoneExecutor for
+		    // an executor whose FEs haven't been individually
+		    // terminated; in this situation, we still need to
+		    // reallocate the FE's tasks, and we do so as if
+		    // the FE were individually removed by the system.
+                    FunctionExecutorState::Unknown |
+                    FunctionExecutorState::Pending |
+                    FunctionExecutorState::Running |
+                    FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    ) => {
+                        task.status = TaskStatus::Pending;
+                        task.attempt_number = task.attempt_number + 1;
+                    }
                 }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(

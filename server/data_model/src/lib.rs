@@ -1689,7 +1689,7 @@ pub enum FunctionExecutorState {
     // Function Executor is running and ready to accept tasks.
     Running,
     // Function Executor is terminated, all resources are freed.
-    Terminated,
+    Terminated(FunctionExecutorTerminationReason),
 }
 
 #[derive(
@@ -1814,7 +1814,6 @@ pub struct FunctionExecutor {
     pub compute_fn_name: String,
     pub version: GraphVersion,
     pub state: FunctionExecutorState,
-    pub termination_reason: FunctionExecutorTerminationReason,
     pub resources: FunctionExecutorResources,
 }
 
@@ -1881,7 +1880,6 @@ impl FunctionExecutor {
         // Only update fields that change after self FE was created.
         // Other FE mush represent the same FE.
         self.state = other.state;
-        self.termination_reason = other.termination_reason;
     }
 }
 
@@ -1906,10 +1904,6 @@ impl FunctionExecutorBuilder {
             .resources
             .clone()
             .ok_or(anyhow!("resources is required"))?;
-        let termination_reason = self
-            .termination_reason
-            .clone()
-            .ok_or(anyhow!("termination_reason is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -1917,7 +1911,6 @@ impl FunctionExecutorBuilder {
             compute_fn_name,
             version,
             state,
-            termination_reason,
             resources,
         })
     }

@@ -1050,10 +1050,13 @@ impl InMemoryState {
                 {
                     num_pending_function_executors += 1;
                 }
-                if function_executor.desired_state == FunctionExecutorState::Terminated ||
-                    function_executor.function_executor.state ==
-                        FunctionExecutorState::Terminated
-                {
+                if matches!(
+                    function_executor.desired_state,
+                    FunctionExecutorState::Terminated(_)
+                ) || matches!(
+                    function_executor.function_executor.state,
+                    FunctionExecutorState::Terminated(_)
+                ) {
                     continue;
                 }
                 // FIXME - Create a reverse index of fe_id -> # active allocations
@@ -1220,7 +1223,10 @@ impl InMemoryState {
             let mut function_executors_to_remove = Vec::new();
             for fe_metadata in function_executors.iter() {
                 // Skip if the FE is already marked for termination
-                if fe_metadata.desired_state == FunctionExecutorState::Terminated {
+                if matches!(
+                    fe_metadata.desired_state,
+                    FunctionExecutorState::Terminated(_)
+                ) {
                     continue;
                 }
 
@@ -1320,7 +1326,9 @@ impl InMemoryState {
             .map(|executor_state| executor_state.function_executors.clone())
             .unwrap_or_default()
             .values()
-            .filter(|fe_meta| fe_meta.desired_state != FunctionExecutorState::Terminated)
+            .filter(|fe_meta| {
+                !matches!(fe_meta.desired_state, FunctionExecutorState::Terminated(_))
+            })
             .map(|fe_meta| fe_meta.clone())
             .collect::<Vec<_>>();
 
@@ -1478,7 +1486,6 @@ mod tests {
         FunctionExecutorResources,
         FunctionExecutorServerMetadata,
         FunctionExecutorState,
-        FunctionExecutorTerminationReason,
         GraphVersion,
         Task,
         TaskFailureReason,
@@ -1613,7 +1620,6 @@ mod tests {
             compute_fn_name: "test-function".to_string(),
             version: GraphVersion("1.0".to_string()),
             state: FunctionExecutorState::Running,
-            termination_reason: FunctionExecutorTerminationReason::Unknown,
             resources: FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
@@ -1748,7 +1754,6 @@ mod tests {
                 compute_fn_name: "different-function".to_string(),
                 version: GraphVersion("1.0".to_string()),
                 state: FunctionExecutorState::Running,
-                termination_reason: FunctionExecutorTerminationReason::Unknown,
                 resources: FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 512,
