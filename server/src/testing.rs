@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
-    test_objects::tests::mock_node_fn_output,
+    test_objects::tests::test_node_fn_output,
     Allocation,
     DataPayload,
     ExecutorId,
@@ -34,38 +34,6 @@ use crate::{
     executor_api::executor_api_pb::TaskAllocation,
     service::Service,
 };
-
-pub struct TaskStateAssertions {
-    pub total: usize,
-    pub allocated: usize,
-    pub unallocated: usize,
-    pub completed_success: usize,
-}
-
-impl Default for TaskStateAssertions {
-    fn default() -> Self {
-        Self {
-            total: 0,
-            allocated: 0,
-            unallocated: 0,
-            completed_success: 0,
-        }
-    }
-}
-
-pub struct ExecutorStateAssertions {
-    pub num_func_executors: usize,
-    pub num_allocated_tasks: usize,
-}
-
-impl Default for ExecutorStateAssertions {
-    fn default() -> Self {
-        Self {
-            num_func_executors: 0,
-            num_allocated_tasks: 0,
-        }
-    }
-}
 
 pub struct TestService {
     pub service: Service,
@@ -150,7 +118,7 @@ impl TestService {
         Ok(e)
     }
 
-    pub async fn assert_task_states(&self, assertions: TaskStateAssertions) -> Result<()> {
+    pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let tasks = self
             .service
             .indexify_state
@@ -159,31 +127,26 @@ impl TestService {
             .iter()
             .map(|r| r.1.clone())
             .collect::<Vec<_>>();
-        assert_eq!(tasks.len(), assertions.total, "Total Tasks: {:#?}", tasks);
+        Ok(tasks)
+    }
 
+    pub async fn get_allocated_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
         let allocated_tasks = tasks
-            .iter()
+            .into_iter()
             .filter(|t| t.status == TaskStatus::Running)
             .collect::<Vec<_>>();
-        assert_eq!(
-            allocated_tasks.len(),
-            assertions.allocated,
-            "Allocated tasks: {}/{} - {:#?}",
-            allocated_tasks.len(),
-            tasks.len(),
-            allocated_tasks,
-        );
+        Ok(allocated_tasks)
+    }
 
+    pub async fn get_pending_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
         let pending_tasks = tasks
-            .iter()
+            .into_iter()
             .filter(|t| t.status == TaskStatus::Pending)
             .collect::<Vec<_>>();
-        assert_eq!(
-            pending_tasks.len(),
-            assertions.unallocated,
-            "Pending tasks: {:#?}",
-            pending_tasks
-        );
+
+        let pending_count = pending_tasks.len();
 
         let pending_tasks_memory = self
             .service
@@ -193,25 +156,16 @@ impl TestService {
             .await
             .tasks
             .clone();
+
         let pending_tasks_memory = pending_tasks_memory
             .iter()
             .filter(|(_k, t)| t.status == TaskStatus::Pending)
             .collect::<Vec<_>>();
+
         assert_eq!(
             pending_tasks_memory.len(),
-            assertions.unallocated,
+            pending_count,
             "Pending tasks in mem store",
-        );
-
-        let completed_success_tasks = tasks
-            .iter()
-            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            completed_success_tasks.len(),
-            assertions.completed_success,
-            "Tasks completed successfully: {:#?}",
-            completed_success_tasks
         );
 
         let unallocated_tasks = self
@@ -222,14 +176,84 @@ impl TestService {
             .await
             .unallocated_tasks
             .clone();
+
         assert_eq!(
             unallocated_tasks.len(),
-            assertions.unallocated,
+            pending_count,
             "Unallocated tasks in mem store",
         );
 
-        Ok(())
+        Ok(pending_tasks)
     }
+
+    pub async fn get_completed_success_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self.get_all_tasks().await?;
+        let completed_success_tasks = tasks
+            .into_iter()
+            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
+            .collect::<Vec<_>>();
+        Ok(completed_success_tasks)
+    }
+}
+
+// Declarative macros for task state assertions
+#[macro_export]
+macro_rules! assert_task_counts {
+    ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
+        let all_tasks = $test_srv.get_all_tasks().await?;
+        let allocated_tasks = $test_srv.get_allocated_tasks().await?;
+        let pending_tasks = $test_srv.get_pending_tasks().await?;
+        let completed_success_tasks = $test_srv.get_completed_success_tasks().await?;
+
+        assert_eq!(all_tasks.len(), $total, "Total Tasks: {:#?}", all_tasks);
+        assert_eq!(
+            allocated_tasks.len(),
+            $allocated,
+            "Allocated tasks: {:#?}",
+            allocated_tasks
+        );
+        assert_eq!(
+            pending_tasks.len(),
+            $pending,
+            "Pending tasks: {:#?}",
+            pending_tasks
+        );
+        assert_eq!(
+            completed_success_tasks.len(),
+            $completed_success,
+            "Tasks completed successfully: {:#?}",
+            completed_success_tasks
+        );
+    }};
+}
+
+#[macro_export]
+macro_rules! assert_executor_state {
+    ($executor:expr, num_func_executors: $num_func_executors:expr, num_allocated_tasks: $num_allocated_tasks:expr) => {{
+        // Get desired state from executor manager
+        let desired_state = $executor
+            .test_service
+            .service
+            .executor_manager
+            .get_executor_state(&$executor.executor_id)
+            .await;
+
+        // Check function executor count
+        let func_executors_count = desired_state.function_executors.len();
+        assert_eq!(
+            $num_func_executors, func_executors_count,
+            "function executors: expected {}, got {}",
+            $num_func_executors, func_executors_count
+        );
+
+        // Check task allocation count
+        let tasks_count = desired_state.task_allocations.len();
+        assert_eq!(
+            $num_allocated_tasks, tasks_count,
+            "tasks: expected {}, got {}",
+            $num_allocated_tasks, tasks_count
+        );
+    }};
 }
 
 pub struct FinalizeTaskArgs {
@@ -382,34 +406,6 @@ impl TestExecutor<'_> {
         Ok(executor)
     }
 
-    pub async fn assert_state(&self, assertions: ExecutorStateAssertions) -> Result<()> {
-        // Get desired state from executor manager
-        let desired_state = self
-            .test_service
-            .service
-            .executor_manager
-            .get_executor_state(&self.executor_id)
-            .await;
-
-        // Check function executor count
-        let func_executors_count = desired_state.function_executors.len();
-        assert_eq!(
-            assertions.num_func_executors, func_executors_count,
-            "function executors: expected {}, got {}",
-            assertions.num_func_executors, func_executors_count
-        );
-
-        // Check task allocation count
-        let tasks_count = desired_state.task_allocations.len();
-        assert_eq!(
-            assertions.num_allocated_tasks, tasks_count,
-            "tasks: expected {}, got {}",
-            assertions.num_allocated_tasks, tasks_count
-        );
-
-        Ok(())
-    }
-
     pub async fn desired_state(
         &self,
     ) -> crate::executor_api::executor_api_pb::DesiredExecutorState {
@@ -460,7 +456,7 @@ impl TestExecutor<'_> {
                 ),
             )?
             .unwrap();
-        let node_output = mock_node_fn_output(
+        let node_output = test_node_fn_output(
             task_allocation.task.as_ref().unwrap().graph_invocation_id(),
             task_allocation.task.as_ref().unwrap().graph_name(),
             task_allocation.task.as_ref().unwrap().function_name(),
