@@ -18,6 +18,8 @@ mod tests {
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 
+    const TEST_FN_MAX_RETRIES: u32 = 3;
+
     #[tokio::test]
     async fn test_dev_mode_executor_behavior() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
@@ -203,7 +205,7 @@ mod tests {
             for fe in fes.iter_mut() {
                 if fe.compute_fn_name == "fn_a" {
                     fe.state = FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::DesiredStateRemoved,
+                        FunctionExecutorTerminationReason::FunctionCancelled,
                     );
                 }
             }
@@ -228,5 +230,285 @@ mod tests {
             }));
 
         Ok(())
+    }
+
+    async fn test_function_executor_retry_attempt_used(
+        reason: FunctionExecutorTerminationReason,
+        max_retries: u32,
+    ) -> Result<()> {
+        assert!(reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        let invocation_id =
+            test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // track the attempt number
+        let mut attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // loop over retries
+        while attempt_number <= max_retries {
+            // update the function executors
+            executor
+                .set_function_executor_states(FunctionExecutorState::Terminated(reason))
+                .await?;
+
+            // validate the task retry attempt number was incremented
+            // if it was less than the retry max
+            if attempt_number < max_retries {
+                let tasks = test_srv.get_all_tasks().await?;
+                assert_eq!(1, tasks.len());
+                assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
+            }
+
+            attempt_number = attempt_number + 1;
+        }
+
+        // check for completion
+        {
+            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+
+            let desired_state = executor.desired_state().await;
+            assert!(
+                desired_state.task_allocations.is_empty(),
+                "expected all tasks to be finalized: {:#?}",
+                desired_state.task_allocations
+            );
+
+            let invocation = indexify_state
+                .reader()
+                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .unwrap();
+
+            assert!(invocation.completed);
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_unknown() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::Unknown,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_unknown_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_used(FunctionExecutorTerminationReason::Unknown, 0)
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_internal_error() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedInternalError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_internal_error_no_retries() -> Result<()>
+    {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedInternalError,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_function_error() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedFunctionError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_function_error_no_retries() -> Result<()>
+    {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedFunctionError,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_function_timeout() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_startup_failed_function_timeout_no_retries() -> Result<()>
+    {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_unhealthy() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::Unhealthy,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_unhealthy_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_used(FunctionExecutorTerminationReason::Unhealthy, 0)
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_internal_error() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::InternalError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_internal_error_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::InternalError,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_function_error() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::FunctionError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_function_error_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::FunctionError,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_function_timeout() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::FunctionTimeout,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_used(
+            FunctionExecutorTerminationReason::FunctionTimeout,
+            0,
+        )
+        .await
+    }
+
+    async fn test_function_executor_retry_attempt_not_used(
+        reason: FunctionExecutorTerminationReason,
+        max_retries: u32,
+    ) -> Result<()> {
+        assert!(!reason.should_count_against_task_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the graph
+        test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
+        test_srv.process_all_state_changes().await?;
+
+        // register executor
+        let executor = test_srv
+            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // make sure the task is allocated
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // track the attempt number
+        let attempt_number: u32 = 0;
+
+        // validate the initial task retry attempt number
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // update the function executors with our retryable termination reason (not
+        // using an attempt)
+        executor
+            .set_function_executor_states(FunctionExecutorState::Terminated(reason))
+            .await?;
+
+        // validate the task retry attempt number was not changed
+        {
+            let tasks = test_srv.get_all_tasks().await?;
+            assert_eq!(1, tasks.len());
+            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+        }
+
+        // make sure the task is still allocated
+        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_function_cancelled() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
+            FunctionExecutorTerminationReason::FunctionCancelled,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_function_cancelled_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
+            FunctionExecutorTerminationReason::FunctionCancelled,
+            0,
+        )
+        .await
     }
 }

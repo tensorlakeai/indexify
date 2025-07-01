@@ -549,11 +549,10 @@ impl ComputeGraphVersion {
             .collect()
     }
 
-    pub fn should_retry_task(&self, task: &Task, uses_attempt: bool) -> bool {
-        let Some(node) = self.nodes.get(&task.compute_fn_name) else {
-            return false;
-        };
-        task.attempt_number < node.retry_policy.max_retries || !uses_attempt
+    pub fn task_max_retries(&self, task: &Task) -> Option<u32> {
+        self.nodes
+            .get(&task.compute_fn_name)
+            .map(|node| node.retry_policy.max_retries)
     }
 }
 
@@ -1111,8 +1110,8 @@ impl Default for TaskFailureReason {
 
 impl TaskFailureReason {
     pub fn is_retriable(&self) -> bool {
-        // Only InvocationError is not retriable because it fails the invocation
-        // permanently.
+        // InvocationError and RetryLimitExceeded are not retriable;
+        // they fail the invocation permanently.
         matches!(
             self,
             TaskFailureReason::InternalError |
@@ -1125,7 +1124,7 @@ impl TaskFailureReason {
 
     pub fn should_count_against_task_retry_attempts(self) -> bool {
         // Explicit platform decisions and provable infrastructure
-        // failures don't count against retry attempts.  Everything
+        // failures don't count against retry attempts; everything
         // else counts against retry attempts.
         matches!(
             self,
@@ -1708,13 +1707,30 @@ pub enum FunctionExecutorState {
 pub enum FunctionExecutorTerminationReason {
     #[default]
     Unknown,
-    // FE was removed from desired Executor state.
-    DesiredStateRemoved,
-    // FE failed to startup or was terminated due to a clear customer code problem
-    // like a code timeout or exception raised from it.
-    CustomerCodeError,
-    // FE failed to startup or was terminated due to an internal error aka platform error.
-    PlatformError,
+    StartupFailedInternalError,
+    StartupFailedFunctionError,
+    StartupFailedFunctionTimeout,
+    Unhealthy,
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    FunctionCancelled,
+}
+
+impl FunctionExecutorTerminationReason {
+    pub fn should_count_against_task_retry_attempts(self) -> bool {
+        matches!(
+            self,
+            Self::Unknown |
+                Self::StartupFailedInternalError |
+                Self::StartupFailedFunctionError |
+                Self::StartupFailedFunctionTimeout |
+                Self::Unhealthy |
+                Self::InternalError |
+                Self::FunctionError |
+                Self::FunctionTimeout
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

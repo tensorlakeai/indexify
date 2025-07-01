@@ -316,25 +316,25 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
                 Ok(data_model::FunctionExecutorTerminationReason::Unknown)
             }
             FunctionExecutorTerminationReason::StartupFailedInternalError => {
-                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedInternalError)
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionError => {
-                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedFunctionError)
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
-                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout)
             }
             FunctionExecutorTerminationReason::Unhealthy => {
-                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+                Ok(data_model::FunctionExecutorTerminationReason::Unhealthy)
             }
             FunctionExecutorTerminationReason::InternalError => {
-                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
+                Ok(data_model::FunctionExecutorTerminationReason::InternalError)
             }
             FunctionExecutorTerminationReason::FunctionTimeout => {
-                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+                Ok(data_model::FunctionExecutorTerminationReason::FunctionError)
             }
             FunctionExecutorTerminationReason::FunctionCancelled => {
-                Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
+                Ok(data_model::FunctionExecutorTerminationReason::FunctionCancelled)
             }
         }
     }

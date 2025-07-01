@@ -160,29 +160,11 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         }
 
-        let compute_graph_version = in_memory_state
-            .compute_graph_versions
-            .get(&task.key_compute_graph_version());
-        if compute_graph_version.is_none() {
-            error!(
-                task_id = task.id.to_string(),
-                invocation_id = task.invocation_id.to_string(),
-                namespace = task.namespace,
-                graph = task.compute_graph_name,
-                "fn" = task.compute_fn_name,
-                graph_version = task.graph_version.0,
-                "compute graph version not found",
-            );
+        let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task)
+        else {
             return Ok(SchedulerUpdateRequest::default());
-        }
-        let compute_graph_version = compute_graph_version
-            .ok_or(anyhow!(
-                "compute graph version not found: {:?} {:?} {:?}",
-                task.namespace,
-                task.compute_graph_name,
-                task.graph_version.0
-            ))?
-            .clone();
+        };
+        let compute_graph_version = compute_graph_version.clone();
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
         if let Some(allocation_key) = &task_finished_event.allocation_key {
@@ -200,16 +182,18 @@ impl TaskCreator {
 
             if let TaskOutcome::Failure(failure_reason) = &allocation.outcome {
                 let uses_attempt = failure_reason.should_count_against_task_retry_attempts();
-                if compute_graph_version.should_retry_task(&task, uses_attempt) &&
-                    failure_reason.is_retriable()
-                {
-                    task.status = TaskStatus::Pending;
-                    if uses_attempt {
-                        task.attempt_number += 1;
+                if let Some(max_retries) = compute_graph_version.task_max_retries(&task) {
+                    if failure_reason.is_retriable() &&
+                        (task.attempt_number < max_retries || !uses_attempt)
+                    {
+                        task.status = TaskStatus::Pending;
+                        if uses_attempt {
+                            task.attempt_number += 1;
+                        }
+                        scheduler_update.updated_tasks =
+                            HashMap::from([(task.id.clone(), *task.clone())]);
+                        return Ok(scheduler_update);
                     }
-                    scheduler_update.updated_tasks =
-                        HashMap::from([(task.id.clone(), *task.clone())]);
-                    return Ok(scheduler_update);
                 }
             }
             task.status = TaskStatus::Completed;
@@ -226,7 +210,7 @@ impl TaskCreator {
                 in_memory_state,
                 *invocation_ctx.clone(),
                 *task.clone(),
-                *compute_graph_version.clone(),
+                *compute_graph_version,
                 task_finished_event.node_output_key.clone(),
             )
             .await?;
