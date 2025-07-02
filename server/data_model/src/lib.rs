@@ -1721,8 +1721,7 @@ impl FunctionExecutorTerminationReason {
     pub fn should_count_against_task_retry_attempts(self) -> bool {
         matches!(
             self,
-            Self::Unknown |
-                Self::StartupFailedInternalError |
+            Self::StartupFailedInternalError |
                 Self::StartupFailedFunctionError |
                 Self::StartupFailedFunctionTimeout |
                 Self::Unhealthy |
