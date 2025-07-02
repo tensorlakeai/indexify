@@ -303,21 +303,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fe_retry_attempt_used_on_unknown() -> Result<()> {
-        test_function_executor_retry_attempt_used(
-            FunctionExecutorTerminationReason::Unknown,
-            TEST_FN_MAX_RETRIES,
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn test_fe_retry_attempt_used_on_unknown_no_retries() -> Result<()> {
-        test_function_executor_retry_attempt_used(FunctionExecutorTerminationReason::Unknown, 0)
-            .await
-    }
-
-    #[tokio::test]
     async fn test_fe_retry_attempt_used_on_startup_failed_internal_error() -> Result<()> {
         test_function_executor_retry_attempt_used(
             FunctionExecutorTerminationReason::StartupFailedInternalError,
@@ -492,6 +477,21 @@ mod tests {
         assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_unknown() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
+            FunctionExecutorTerminationReason::Unknown,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_unknown_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(FunctionExecutorTerminationReason::Unknown, 0)
+            .await
     }
 
     #[tokio::test]
