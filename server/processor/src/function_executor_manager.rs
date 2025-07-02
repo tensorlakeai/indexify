@@ -308,7 +308,8 @@ impl FunctionExecutorManager {
                 if_chain! {
                         if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
                         if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
-                        if matches!(fe.state, FunctionExecutorState::Terminated(termination_reason) if termination_reason.should_count_against_task_retry_attempts());
+                        if let FunctionExecutorState::Terminated(termination_reason) = fe.state;
+                        if termination_reason.should_count_against_task_retry_attempts();
                         then {
                                 // The alloc's task should be retried iff it has remaining retry
                                 // attempts.
