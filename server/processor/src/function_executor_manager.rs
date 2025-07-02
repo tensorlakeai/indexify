@@ -59,7 +59,7 @@ impl FunctionExecutorManager {
         for fe in &function_executors_to_mark {
             let mut update_fe = fe.clone();
             update_fe.desired_state = FunctionExecutorState::Terminated(
-                FunctionExecutorTerminationReason::FunctionCancelled,
+                FunctionExecutorTerminationReason::DesiredStateRemoved,
             );
             update.new_function_executors.push(*update_fe);
 

@@ -1715,6 +1715,7 @@ pub enum FunctionExecutorTerminationReason {
     FunctionError,
     FunctionTimeout,
     FunctionCancelled,
+    DesiredStateRemoved,
 }
 
 impl FunctionExecutorTerminationReason {

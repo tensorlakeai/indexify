@@ -495,6 +495,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_desired_state_removed() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
+            FunctionExecutorTerminationReason::DesiredStateRemoved,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_fe_retry_attempt_not_used_on_desired_state_removed_no_retries() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
+            FunctionExecutorTerminationReason::DesiredStateRemoved,
+            0,
+        )
+        .await
+    }
+
+    #[tokio::test]
     async fn test_fe_retry_attempt_not_used_on_function_cancelled() -> Result<()> {
         test_function_executor_retry_attempt_not_used(
             FunctionExecutorTerminationReason::FunctionCancelled,
