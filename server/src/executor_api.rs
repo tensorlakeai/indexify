@@ -400,7 +400,10 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
                 FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
                 FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
                 FunctionExecutorStatus::Terminated => {
-                    data_model::FunctionExecutorState::Terminated(termination_reason)
+                    data_model::FunctionExecutorState::Terminated {
+                        reason: termination_reason,
+                        allocs: function_executor_state.allocation_ids_caused_termination,
+                    }
                 }
             },
             resources,

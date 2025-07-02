@@ -1050,10 +1050,10 @@ impl InMemoryState {
                 }
                 if matches!(
                     function_executor.desired_state,
-                    FunctionExecutorState::Terminated(_)
+                    FunctionExecutorState::Terminated { .. }
                 ) || matches!(
                     function_executor.function_executor.state,
-                    FunctionExecutorState::Terminated(_)
+                    FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
                 }
@@ -1223,7 +1223,7 @@ impl InMemoryState {
                 // Skip if the FE is already marked for termination
                 if matches!(
                     fe_metadata.desired_state,
-                    FunctionExecutorState::Terminated(_)
+                    FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
                 }
@@ -1325,7 +1325,10 @@ impl InMemoryState {
             .unwrap_or_default()
             .values()
             .filter(|fe_meta| {
-                !matches!(fe_meta.desired_state, FunctionExecutorState::Terminated(_))
+                !matches!(
+                    fe_meta.desired_state,
+                    FunctionExecutorState::Terminated { .. }
+                )
             })
             .map(|fe_meta| fe_meta.clone())
             .collect::<Vec<_>>();

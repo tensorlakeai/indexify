@@ -1668,17 +1668,7 @@ impl Default for FunctionExecutorId {
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Default,
-    strum::AsRefStr,
-    Display,
-    Eq,
-    Hash,
+    Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
 pub enum FunctionExecutorState {
     #[default]
@@ -1688,7 +1678,10 @@ pub enum FunctionExecutorState {
     // Function Executor is running and ready to accept tasks.
     Running,
     // Function Executor is terminated, all resources are freed.
-    Terminated(FunctionExecutorTerminationReason),
+    Terminated {
+        reason: FunctionExecutorTerminationReason,
+        allocs: Vec<String>,
+    },
 }
 
 #[derive(
@@ -1896,7 +1889,7 @@ impl FunctionExecutor {
     pub fn update(&mut self, other: &FunctionExecutor) {
         // Only update fields that change after self FE was created.
         // Other FE mush represent the same FE.
-        self.state = other.state;
+        self.state = other.state.clone();
     }
 }
 
