@@ -7,7 +7,6 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.proto.executor_api_pb2 import (
     DesiredExecutorState,
     FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
     GetDesiredExecutorStatesRequest,
     TaskAllocation,
 )
@@ -123,9 +122,7 @@ class ExecutorStateReconciler:
         for fe_controller in self._function_executor_controllers.values():
             fe_shutdown_tasks.append(
                 asyncio.create_task(
-                    fe_controller.shutdown(
-                        termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN
-                    ),
+                    fe_controller.shutdown(),
                     name=f"Shutdown Function Executor {fe_controller.function_executor_id()}",
                 )
             )
@@ -327,9 +324,7 @@ class ExecutorStateReconciler:
             self._function_executor_controllers.pop(function_executor_id)
         )
         asyncio.create_task(
-            fe_controller.shutdown(
-                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE
-            ),
+            fe_controller.shutdown(),
             name=f"Shutdown Function Executor {function_executor_id}",
         )
 

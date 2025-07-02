@@ -324,12 +324,6 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
                 Ok(data_model::FunctionExecutorTerminationReason::CustomerCodeError)
             }
-            FunctionExecutorTerminationReason::ExecutorShutdown => {
-                Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
-            }
-            FunctionExecutorTerminationReason::RemovedFromDesiredState => {
-                Ok(data_model::FunctionExecutorTerminationReason::DesiredStateRemoved)
-            }
             FunctionExecutorTerminationReason::Unhealthy => {
                 Ok(data_model::FunctionExecutorTerminationReason::PlatformError)
             }

@@ -68,15 +68,8 @@ class ShutdownInitiated(BaseEvent):
     Event indicating that Function Executor shutdown has been initiated.
     """
 
-    def __init__(self, termination_reason: FunctionExecutorTerminationReason):
+    def __init__(self):
         super().__init__(EventType.SHUTDOWN_INITIATED)
-        self.termination_reason: FunctionExecutorTerminationReason = termination_reason
-
-    def __str__(self) -> str:
-        return (
-            f"Event(type={self.event_type.name}, "
-            f"termination_reason={FunctionExecutorTerminationReason.Name(self.termination_reason)})"
-        )
 
 
 class TaskPreparationFinished(BaseEvent):
