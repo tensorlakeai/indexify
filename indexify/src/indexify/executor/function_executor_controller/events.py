@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
@@ -12,7 +12,7 @@ from .task_info import TaskInfo
 
 class EventType(Enum):
     FUNCTION_EXECUTOR_CREATED = 1
-    FUNCTION_EXECUTOR_DESTROYED = 2
+    FUNCTION_EXECUTOR_TERMINATED = 2
     SHUTDOWN_INITIATED = 3
     TASK_PREPARATION_FINISHED = 4
     SCHEDULE_TASK_EXECUTION = 5
@@ -50,17 +50,33 @@ class FunctionExecutorCreated(BaseEvent):
         self.output: FunctionExecutorStartupOutput = output
 
 
-class FunctionExecutorDestroyed(BaseEvent):
+class FunctionExecutorTerminated(BaseEvent):
     """
-    Event indicating that Function Executor has been destroyed.
+    Event indicating that Function Executor has been terminated (destroyed).
     """
 
-    def __init__(self, is_success: bool):
-        super().__init__(EventType.FUNCTION_EXECUTOR_DESTROYED)
+    def __init__(
+        self,
+        is_success: bool,
+        fe_termination_reason: FunctionExecutorTerminationReason,
+        allocation_ids_caused_termination: List[str],
+    ):
+        super().__init__(EventType.FUNCTION_EXECUTOR_TERMINATED)
         self.is_success: bool = is_success
+        self.fe_termination_reason: FunctionExecutorTerminationReason = (
+            fe_termination_reason
+        )
+        self.allocation_ids_caused_termination: List[str] = (
+            allocation_ids_caused_termination
+        )
 
     def __str__(self) -> str:
-        return f"Event(type={self.event_type.name}, " f"is_success={self.is_success})"
+        return (
+            f"Event(type={self.event_type.name}, "
+            f"is_success={self.is_success}, "
+            f"fe_termination_reason={FunctionExecutorTerminationReason.Name(self.fe_termination_reason)}, "
+            f"allocation_ids_caused_termination={self.allocation_ids_caused_termination})"
+        )
 
 
 class ShutdownInitiated(BaseEvent):

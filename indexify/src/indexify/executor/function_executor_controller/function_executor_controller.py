@@ -29,12 +29,11 @@ from .debug_event_loop import (
     debug_print_events,
     debug_print_processing_event,
 )
-from .destroy_function_executor import destroy_function_executor
 from .events import (
     BaseEvent,
     EventType,
     FunctionExecutorCreated,
-    FunctionExecutorDestroyed,
+    FunctionExecutorTerminated,
     ScheduleTaskExecution,
     ShutdownInitiated,
     TaskExecutionFinished,
@@ -61,6 +60,7 @@ from .prepare_task import prepare_task
 from .run_task import run_task_on_function_executor
 from .task_info import TaskInfo
 from .task_output import TaskOutput
+from .terminate_function_executor import terminate_function_executor
 from .upload_task_output import upload_task_output
 
 
@@ -110,7 +110,6 @@ class FunctionExecutorController:
         self._destroy_lock: asyncio.Lock = asyncio.Lock()
         # Mutable state. No lock needed as it's modified by async tasks running in the same event loop.
         self._fe: Optional[FunctionExecutor] = None
-        self._fe_termination_reason: Optional[FunctionExecutorTerminationReason] = None
         self._internal_state = _FE_CONTROLLER_STATE.NOT_STARTED
         metric_function_executors_with_state.labels(
             state=_to_fe_state_metric_label(self._internal_state, self._logger)
@@ -347,8 +346,8 @@ class FunctionExecutorController:
         """
         if event.event_type == EventType.FUNCTION_EXECUTOR_CREATED:
             return self._handle_event_function_executor_created(event)
-        elif event.event_type == EventType.FUNCTION_EXECUTOR_DESTROYED:
-            return self._handle_event_function_executor_destroyed(event)
+        elif event.event_type == EventType.FUNCTION_EXECUTOR_TERMINATED:
+            return self._handle_event_function_executor_terminated(event)
         elif event.event_type == EventType.TASK_PREPARATION_FINISHED:
             return self._handle_event_task_preparation_finished(event)
         elif event.event_type == EventType.SCHEDULE_TASK_EXECUTION:
@@ -460,7 +459,15 @@ class FunctionExecutorController:
         self._state_reporter.schedule_state_report()
 
         if event.function_executor is None:
-            self._start_termination(termination_reason=event.output.termination_reason)
+            # Server needs to increment attempts counter for all the tasks that were pending while FE was starting up.
+            # This prevents infinite retries if FEs consistently fail to start up.
+            self._start_termination(
+                fe_termination_reason=event.output.termination_reason,
+                allocation_ids_caused_termination=[
+                    task_info.allocation.allocation_id
+                    for task_info in self._tasks.values()
+                ],
+            )
             return
 
         self._fe = event.function_executor
@@ -478,16 +485,16 @@ class FunctionExecutorController:
             source="_handle_event_function_executor_created",
         )
 
-    def _handle_event_function_executor_destroyed(
-        self, event: FunctionExecutorDestroyed
+    def _handle_event_function_executor_terminated(
+        self, event: FunctionExecutorTerminated
     ) -> None:
-        """Handles the Function Executor destroy finished event.
+        """Handles the Function Executor terminated event.
 
         Doesn't raise any exceptions. Doesn't block.
         """
         if not event.is_success:
             self._logger.error(
-                "Function Executor destroy failed unexpectedly, this should never happen",
+                "Function Executor termination failed unexpectedly, this should never happen",
             )
 
         self._fe = None
@@ -496,7 +503,8 @@ class FunctionExecutorController:
             FunctionExecutorState(
                 description=self._fe_description,
                 status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
-                termination_reason=self._fe_termination_reason,
+                termination_reason=event.fe_termination_reason,
+                allocation_ids_caused_termination=event.allocation_ids_caused_termination,
             )
         )
         self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATED)
@@ -512,8 +520,14 @@ class FunctionExecutorController:
             "Function Executor health check failed, terminating Function Executor",
             reason=result.reason,
         )
+
         self._start_termination(
-            termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
+            allocation_ids_caused_termination=(
+                []
+                if self._running_task is None
+                else [self._running_task.allocation.allocation_id]
+            ),
         )
 
     def _handle_event_task_preparation_finished(
@@ -627,7 +641,10 @@ class FunctionExecutorController:
             )
         else:
             self._start_termination(
-                termination_reason=event.function_executor_termination_reason
+                fe_termination_reason=event.function_executor_termination_reason,
+                allocation_ids_caused_termination=[
+                    event.task_info.allocation.allocation_id
+                ],
             )
 
         # Ignore is_cancelled because cancelling a task still involves uploading its output.
@@ -684,7 +701,9 @@ class FunctionExecutorController:
         self._state_reporter.schedule_state_report()
 
     def _start_termination(
-        self, termination_reason: FunctionExecutorTerminationReason
+        self,
+        fe_termination_reason: FunctionExecutorTerminationReason,
+        allocation_ids_caused_termination: List[str],
     ) -> None:
         """Starts termination of the Function Executor if it's not started yet.
 
@@ -698,16 +717,21 @@ class FunctionExecutorController:
             # when the FE is unhealthy. Dedup the calls to keep state machine consistent.
             return
 
-        self._fe_termination_reason = termination_reason
         self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATING)
-        next_aio = destroy_function_executor(
+        next_aio = terminate_function_executor(
             function_executor=self._fe,
             lock=self._destroy_lock,
+            fe_termination_reason=fe_termination_reason,
+            allocation_ids_caused_termination=allocation_ids_caused_termination,
             logger=self._logger,
         )
         self._spawn_aio_for_fe(
             aio=next_aio,
-            on_exception=FunctionExecutorDestroyed(is_success=False),
+            on_exception=FunctionExecutorTerminated(
+                is_success=False,
+                fe_termination_reason=fe_termination_reason,
+                allocation_ids_caused_termination=allocation_ids_caused_termination,
+            ),
         )
 
     async def _shutdown_no_exceptions(self, event: ShutdownInitiated) -> None:
@@ -746,11 +770,14 @@ class FunctionExecutorController:
                 # BaseException includes asyncio.CancelledError which is always raised here.
                 pass
 
-        await destroy_function_executor(
-            function_executor=self._fe,
-            lock=self._destroy_lock,
-            logger=self._logger,
-        )
+        # Makes sure we don't run fe destroy concurrently with an event loop task.
+        # FE destroy uses asyncio.to_thread() calls so it doesn't get cancelled with all the tasks above.
+        async with self._destroy_lock:
+            if self._fe is not None:
+                self._logger.info(
+                    "destroying function executor",
+                )
+                await self._fe.destroy()
 
         # Cleanup the metric from this FE.
         metric_function_executors_with_state.labels(

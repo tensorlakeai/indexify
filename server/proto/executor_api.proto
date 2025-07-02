@@ -125,6 +125,7 @@ message FunctionExecutorState {
     optional FunctionExecutorDescription description = 1;
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
+    repeated string allocation_ids_caused_termination = 4;
 }
 
 message FunctionExecutorUpdate {
