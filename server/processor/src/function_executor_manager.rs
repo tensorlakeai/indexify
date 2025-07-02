@@ -58,9 +58,10 @@ impl FunctionExecutorManager {
         // but don't actually remove them - reconciliation will handle that
         for fe in &function_executors_to_mark {
             let mut update_fe = fe.clone();
-            update_fe.desired_state = FunctionExecutorState::Terminated(
-                FunctionExecutorTerminationReason::DesiredStateRemoved,
-            );
+            update_fe.desired_state = FunctionExecutorState::Terminated {
+                reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                allocs: Vec::new(),
+            };
             update.new_function_executors.push(*update_fe);
 
             info!(
@@ -193,12 +194,12 @@ impl FunctionExecutorManager {
             .map(|(_fe_id, fe)| fe.clone())
             .collect::<Vec<_>>();
         for fe in fes_exist_only_in_server {
-            if matches!(fe.desired_state, FunctionExecutorState::Terminated(_)) {
+            if matches!(fe.desired_state, FunctionExecutorState::Terminated { .. }) {
                 function_executors_to_remove.push(fe.function_executor.clone());
             }
         }
         for fe in fes_exist_only_in_executor {
-            if !matches!(fe.state, FunctionExecutorState::Terminated(_)) &&
+            if !matches!(fe.state, FunctionExecutorState::Terminated { .. }) &&
                 executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
@@ -220,19 +221,19 @@ impl FunctionExecutorManager {
         }
         for (executor_fe_id, executor_fe) in &executor.function_executors {
             if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
-                if matches!(executor_fe.state, FunctionExecutorState::Terminated(_)) {
+                if matches!(executor_fe.state, FunctionExecutorState::Terminated { .. }) {
                     function_executors_to_remove.push(executor_fe.clone());
                     continue;
                 }
                 if matches!(
                     server_fe.desired_state,
-                    FunctionExecutorState::Terminated(_)
+                    FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
                 }
                 if executor_fe.state != server_fe.desired_state {
                     let mut server_fe_clone = server_fe.clone();
-                    server_fe_clone.function_executor.state = executor_fe.state;
+                    server_fe_clone.function_executor.state = executor_fe.state.clone();
                     new_function_executors.push(*server_fe_clone);
                 }
             }
@@ -306,33 +307,34 @@ impl FunctionExecutorManager {
                 }
 
                 if_chain! {
-                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
-                        if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
-                        if let FunctionExecutorState::Terminated(termination_reason) = fe.state;
-                        if termination_reason.should_count_against_task_retry_attempts();
-                        then {
-                                // The alloc's task should be retried iff it has remaining retry
-                                // attempts.
-                                if task.attempt_number < max_retries {
-                                    // The task can be retried.
-                                    task.attempt_number += 1;
-                                    task.status = TaskStatus::Pending;
-                                } else {
-                                    // The task cannot be retried.
-                                    task.status = TaskStatus::Completed;
-                                    task.outcome =
-                                        TaskOutcome::Failure(TaskFailureReason::FunctionError);
-                                    failed_tasks += 1;
-                                }
-                        }
-                else {
-                            // Either we weren't able to get the info we
-                            // needed, or this termination reason doesn't
-                            // count against the task's retry attempts;
-                            // just set the task to Pending.
+                    if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
+                    if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
+                    if let FunctionExecutorState::Terminated { reason: termination_reason, allocs: blame_allocs } = &fe.state;
+                    if termination_reason.should_count_against_task_retry_attempts();
+                    if blame_allocs.contains(&alloc.id);
+                    then {
+                        // The alloc's task should be retried iff it has remaining retry
+                        // attempts.
+                        if task.attempt_number < max_retries {
+                            // The task can be retried.
+                            task.attempt_number += 1;
                             task.status = TaskStatus::Pending;
-                }
+                        } else {
+                            // The task cannot be retried.
+                            task.status = TaskStatus::Completed;
+                            task.outcome =
+                                TaskOutcome::Failure(TaskFailureReason::FunctionError);
+                            failed_tasks += 1;
+                        }
                     }
+                    else {
+                        // Either we weren't able to get the info we
+                        // needed, or this termination reason doesn't
+                        // count against the task's retry attempts;
+                        // just set the task to Pending.
+                        task.status = TaskStatus::Pending;
+                    }
+                }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
                     &task.namespace,

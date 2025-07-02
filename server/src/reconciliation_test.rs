@@ -204,9 +204,10 @@ mod tests {
                 .collect();
             for fe in fes.iter_mut() {
                 if fe.compute_fn_name == "fn_a" {
-                    fe.state = FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::FunctionCancelled,
-                    );
+                    fe.state = FunctionExecutorState::Terminated {
+                        reason: FunctionExecutorTerminationReason::FunctionCancelled,
+                        allocs: Vec::new(),
+                    };
                 }
             }
             executor.update_function_executors(fes).await?;
@@ -265,8 +266,16 @@ mod tests {
         // loop over retries
         while attempt_number <= max_retries {
             // update the function executors
+            let allocs = executor
+                .desired_state()
+                .await
+                .task_allocations
+                .iter()
+                .filter_map(|ta| ta.allocation_id.as_ref())
+                .cloned()
+                .collect();
             executor
-                .set_function_executor_states(FunctionExecutorState::Terminated(reason))
+                .set_function_executor_states(FunctionExecutorState::Terminated { reason, allocs })
                 .await?;
 
             // validate the task retry attempt number was incremented
@@ -462,8 +471,16 @@ mod tests {
 
         // update the function executors with our retryable termination reason (not
         // using an attempt)
+        let allocs = executor
+            .desired_state()
+            .await
+            .task_allocations
+            .iter()
+            .filter_map(|ta| ta.allocation_id.as_ref())
+            .cloned()
+            .collect();
         executor
-            .set_function_executor_states(FunctionExecutorState::Terminated(reason))
+            .set_function_executor_states(FunctionExecutorState::Terminated { reason, allocs })
             .await?;
 
         // validate the task retry attempt number was not changed

@@ -352,7 +352,7 @@ impl TestExecutor<'_> {
             .function_executors
             .into_values()
             .map(|mut fe| {
-                fe.state = state;
+                fe.state = state.clone();
                 fe
             })
             .collect();
