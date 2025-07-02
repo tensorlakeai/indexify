@@ -249,17 +249,13 @@ class FunctionExecutorController:
             ),
         )
 
-    async def shutdown(
-        self, termination_reason: FunctionExecutorTerminationReason
-    ) -> None:
+    async def shutdown(self) -> None:
         """Shutsdown the Function Executor and frees all of its resources.
 
         No task outcomes and outputs are getting reported to Server after this call.
         Doesn't raise any exceptions. Blocks until the shutdown is complete.
         """
-        self._add_event(
-            ShutdownInitiated(termination_reason=termination_reason), source="shutdown"
-        )
+        self._add_event(ShutdownInitiated(), source="shutdown")
         try:
             await self._control_loop_aio_task
         except asyncio.CancelledError:
@@ -792,8 +788,6 @@ _termination_reason_to_short_name_map = {
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR: "STARTUP_FAILED_INTERNAL_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: "STARTUP_FAILED_FUNCTION_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: "STARTUP_FAILED_FUNCTION_TIMEOUT",
-    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: "EXECUTOR_SHUTDOWN",
-    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: "REMOVED_FROM_DESIRED_STATE",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: "UNHEALTHY",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: "INTERNAL_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: "FUNCTION_TIMEOUT",

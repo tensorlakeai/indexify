@@ -69,6 +69,7 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
+// The reasons why an Executor decided to terminate a Function Executor.
 enum FunctionExecutorTerminationReason {
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
     // Internal error aka platform error on FE startup.
@@ -79,10 +80,6 @@ enum FunctionExecutorTerminationReason {
     // Timeout on FE startup while running the function constructor.
     FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
 
-    // FE was terminated on Executor shutdown.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN = 10;
-    // FE was removed from the Executor desired state by Server.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE = 11;
     // FE was terminated because it failed a health check.
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
     // FE was terminated due to an unrecoverable internal error on Executor.

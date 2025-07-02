@@ -52,12 +52,6 @@ class FunctionExecutorTerminationReason(
     FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: _ClassVar[
         FunctionExecutorTerminationReason
     ]
-    FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: _ClassVar[
-        FunctionExecutorTerminationReason
-    ]
-    FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: _ClassVar[
-        FunctionExecutorTerminationReason
-    ]
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: _ClassVar[
         FunctionExecutorTerminationReason
     ]
@@ -119,12 +113,6 @@ FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR: (
     FunctionExecutorTerminationReason
 )
 FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: (
-    FunctionExecutorTerminationReason
-)
-FUNCTION_EXECUTOR_TERMINATION_REASON_EXECUTOR_SHUTDOWN: (
-    FunctionExecutorTerminationReason
-)
-FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE: (
     FunctionExecutorTerminationReason
 )
 FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY: FunctionExecutorTerminationReason
