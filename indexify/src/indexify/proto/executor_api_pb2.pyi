@@ -274,13 +274,20 @@ class FunctionExecutorDescription(_message.Message):
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status", "termination_reason")
+    __slots__ = (
+        "description",
+        "status",
+        "termination_reason",
+        "allocation_ids_caused_termination",
+    )
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_IDS_CAUSED_TERMINATION_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
     termination_reason: FunctionExecutorTerminationReason
+    allocation_ids_caused_termination: _containers.RepeatedScalarFieldContainer[str]
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
@@ -288,6 +295,7 @@ class FunctionExecutorState(_message.Message):
         termination_reason: _Optional[
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
+        allocation_ids_caused_termination: _Optional[_Iterable[str]] = ...,
     ) -> None: ...
 
 class FunctionExecutorUpdate(_message.Message):
