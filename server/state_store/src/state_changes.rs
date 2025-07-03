@@ -110,13 +110,13 @@ pub fn task_outputs_ingested(
                 compute_graph: request.compute_graph.clone(),
                 compute_fn: request.compute_fn.clone(),
                 invocation_id: request.invocation_id.clone(),
-                task_id: request.task.id.clone(),
+                task_id: request.allocation.task_id.clone(),
                 node_output_key: request.node_output.key(),
                 allocation_key: Some(request.allocation_key.clone()),
             },
         ))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.task.id.clone().to_string())
+        .object_id(request.allocation.task_id.get().to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

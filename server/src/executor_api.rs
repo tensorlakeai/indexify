@@ -691,7 +691,6 @@ impl ExecutorAPIService {
                 compute_graph: compute_graph.compute_graph_name.clone(),
                 compute_fn: compute_fn.to_string(),
                 invocation_id: invocation_id.to_string(),
-                task: task.clone(),
                 node_output,
                 executor_id: executor_id.clone(),
                 allocation,
