@@ -1680,7 +1680,7 @@ pub enum FunctionExecutorState {
     // Function Executor is terminated, all resources are freed.
     Terminated {
         reason: FunctionExecutorTerminationReason,
-        allocs: Vec<String>,
+        failed_alloc_ids: Vec<String>,
     },
 }
 
@@ -2139,7 +2139,7 @@ pub struct TombstoneInvocationEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct ExecutorAddedEvent {
+pub struct ExecutorUpsertedEvent {
     pub executor_id: ExecutorId,
 }
 
@@ -2149,7 +2149,7 @@ pub enum ChangeType {
     AllocationOutputsIngested(AllocationOutputIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
-    ExecutorUpserted(ExecutorAddedEvent),
+    ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
 }

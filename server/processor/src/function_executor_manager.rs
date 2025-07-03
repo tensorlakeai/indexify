@@ -60,7 +60,7 @@ impl FunctionExecutorManager {
             let mut update_fe = fe.clone();
             update_fe.desired_state = FunctionExecutorState::Terminated {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                allocs: Vec::new(),
+                failed_alloc_ids: Vec::new(),
             };
             update.new_function_executors.push(*update_fe);
 
@@ -310,7 +310,7 @@ impl FunctionExecutorManager {
                 if_chain! {
                     if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
                     if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
-                    if let FunctionExecutorState::Terminated { reason: termination_reason, allocs: blame_allocs } = &fe.state;
+                    if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_allocs } = &fe.state;
                     if termination_reason.should_count_against_task_retry_attempts();
                     if blame_allocs.contains(&alloc.id);
                     then {
@@ -413,9 +413,10 @@ impl FunctionExecutorManager {
             .map(|fe| {
                 let mut fec = fe.function_executor.clone();
                 if !matches!(fec.state, FunctionExecutorState::Terminated { .. }) {
-                    fec.state = FunctionExecutorState::Terminated(
-                        FunctionExecutorTerminationReason::ExecutorRemoved,
-                    )
+                    fec.state = FunctionExecutorState::Terminated {
+                        reason: FunctionExecutorTerminationReason::ExecutorRemoved,
+                        failed_alloc_ids: Vec::new(),
+                    };
                 }
                 fec
             })
