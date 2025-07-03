@@ -596,6 +596,8 @@ impl InMemoryState {
                         error!(
                             executor_id = executor_id.get(),
                             task_key = allocation.task_key(),
+                            task_id = allocation.task_id.get(),
+                            allocation_id = allocation.id,
                             namespace = allocation.namespace,
                             graph = allocation.compute_graph,
                             "fn" = allocation.compute_fn,
@@ -815,6 +817,7 @@ impl InMemoryState {
                             graph = &allocation.compute_graph,
                             "fn" = &allocation.compute_fn,
                             executor_id = allocation.target.executor_id.get(),
+                            allocation_id = allocation.id,
                             invocation_id = &allocation.invocation_id,
                             task_id = allocation.task_id.get(),
                             "task not found for new allocation"

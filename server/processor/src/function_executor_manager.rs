@@ -518,9 +518,8 @@ impl FunctionExecutorManager {
 
         tracing::debug!(
             executor_id = executor_id.get(),
-            "reconciling executor state for executor {} - {:#?}",
-            executor_id.get(),
-            executor
+            ?executor,
+            "reconciling executor state for executor",
         );
 
         // Reconcile function executors
