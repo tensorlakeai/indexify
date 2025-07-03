@@ -1130,7 +1130,8 @@ impl TaskFailureReason {
             self,
             TaskFailureReason::InternalError |
                 TaskFailureReason::FunctionError |
-                TaskFailureReason::FunctionTimeout
+                TaskFailureReason::FunctionTimeout |
+                TaskFailureReason::FunctionExecutorTerminated
         )
     }
 }
