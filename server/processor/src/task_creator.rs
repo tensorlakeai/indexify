@@ -272,7 +272,7 @@ impl TaskCreator {
             error!(
                 invocation_id = event.invocation_id.to_string(),
                 namespace = event.namespace,
-                compute_graph = event.compute_graph,
+                graph = event.compute_graph,
                 graph_version = invocation_ctx.graph_version.0,
                 "compute graph version not found",
             );
@@ -381,7 +381,7 @@ impl TaskCreator {
                 task_id = task.id.to_string(),
                 invocation_id = task.invocation_id.to_string(),
                 namespace = task.namespace,
-                compute_graph = task.compute_graph_name,
+                graph = task.compute_graph_name,
                 "fn" = task.compute_fn_name,
                 "compute node not found",
             );
@@ -435,7 +435,7 @@ impl TaskCreator {
             let Some(edge_compute_node) = edge_compute_node else {
                 // This can happen e.g. if the compute graph was updated in non backward
                 // compatible way while the invocation was running.
-                info!(edge = edge, "Edge function not found, failing invocation",);
+                info!(fn = edge, "Edge function not found, failing invocation",);
                 invocation_ctx.complete_invocation(
                     true,
                     GraphInvocationOutcome::Failure(
