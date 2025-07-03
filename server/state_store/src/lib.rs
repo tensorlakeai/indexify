@@ -229,12 +229,6 @@ impl IndexifyState {
             }
             RequestPayload::UpsertExecutor(request) => {
                 let mut upsert_executor_state_changes = vec![];
-                self.executor_states
-                    .write()
-                    .await
-                    .entry(request.executor.id.clone())
-                    .or_default();
-
                 for fe_diagnostics in &request.function_executor_diagnostics {
                     state_machine::upsert_function_executor_diagnostics(
                         self.db.clone(),
@@ -257,6 +251,12 @@ impl IndexifyState {
                     }
                 }
                 if request.executor_state_updated {
+                    self.executor_states
+                        .write()
+                        .await
+                        .entry(request.executor.id.clone())
+                        .or_default();
+
                     upsert_executor_state_changes.extend(
                         state_changes::register_executor(&self.last_state_change_id, &request)
                             .map_err(|e| anyhow!("error getting state changes {}", e))?,
