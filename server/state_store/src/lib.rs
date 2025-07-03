@@ -193,18 +193,6 @@ impl IndexifyState {
                 request,
                 &self.last_state_change_id,
             )?,
-            RequestPayload::IngestTaskOutputs(task_outputs) => {
-                let ingested = state_machine::ingest_task_outputs(
-                    self.db.clone(),
-                    &txn,
-                    task_outputs.clone(),
-                )?;
-                if ingested {
-                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
-                } else {
-                    vec![]
-                }
-            }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::create_namespace(self.db.clone(), &namespace_request)?;
                 vec![]
@@ -240,6 +228,7 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
+                let mut upsert_executor_state_changes = vec![];
                 self.executor_states
                     .write()
                     .await
@@ -254,8 +243,26 @@ impl IndexifyState {
                     )?;
                 }
 
-                state_changes::register_executor(&self.last_state_change_id, &request)
-                    .map_err(|e| anyhow!("error getting state changes {}", e))?
+                for allocation_output in &request.allocation_outputs {
+                    let ingested = state_machine::ingest_task_outputs(
+                        self.db.clone(),
+                        &txn,
+                        allocation_output.clone(),
+                    )?;
+                    if ingested {
+                        upsert_executor_state_changes.extend(state_changes::task_outputs_ingested(
+                            &self.last_state_change_id,
+                            allocation_output,
+                        )?);
+                    }
+                }
+
+                upsert_executor_state_changes.extend(
+                    state_changes::register_executor(&self.last_state_change_id, &request)
+                        .map_err(|e| anyhow!("error getting state changes {}", e))?,
+                );
+
+                upsert_executor_state_changes
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
@@ -327,10 +334,12 @@ impl IndexifyState {
             return;
         }
         match &update_request.payload {
-            RequestPayload::IngestTaskOutputs(task_finished_event) => {
-                let ev =
-                    InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
-                let _ = self.task_event_tx.send(ev);
+            RequestPayload::UpsertExecutor(request) => {
+                for allocation_output in &request.allocation_outputs {
+                    let ev =
+                        InvocationStateChangeEvent::from_task_finished(allocation_output.clone());
+                    let _ = self.task_event_tx.send(ev);
+                }
             }
             RequestPayload::SchedulerUpdate(sched_update) => {
                 for allocation in &sched_update.new_allocations {
@@ -533,6 +542,8 @@ mod tests {
             &UpsertExecutorRequest {
                 executor: test_executor_metadata(TEST_EXECUTOR_ID.into()),
                 function_executor_diagnostics: vec![],
+                executor_state_updated: false,
+                allocation_outputs: vec![],
             },
         )
         .unwrap();

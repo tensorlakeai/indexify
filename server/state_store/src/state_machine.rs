@@ -37,8 +37,8 @@ use tracing::{debug, error, info, info_span, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
+    AllocationOutput,
     DeleteInvocationRequest,
-    IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
     ReductionTasks,
@@ -778,7 +778,7 @@ pub(crate) fn handle_scheduler_update(
 pub fn ingest_task_outputs(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: IngestTaskOutputsRequest,
+    req: AllocationOutput,
 ) -> Result<bool> {
     let span = info_span!(
         "ingest_task_outputs",

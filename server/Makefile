@@ -73,6 +73,9 @@ install: build-release ## Build the application and install it to the system
 package-ui:
 	cd ui && npm install && npm run build
 
+test:
+	cargo test -- --test-threads 1
+
 generate-cloud-openapi:
 	@echo "Generating OpenAPI spec for cloud deployment..."
 	@cargo run -- --gen-public-openapi

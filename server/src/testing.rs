@@ -19,10 +19,11 @@ use data_model::{
 use nanoid::nanoid;
 use state_store::{
     requests::{
+        AllocationOutput,
         DeregisterExecutorRequest,
-        IngestTaskOutputsRequest,
         RequestPayload,
         StateMachineUpdateRequest,
+        UpsertExecutorRequest,
     },
     state_machine::IndexifyObjectsColumns,
 };
@@ -108,12 +109,13 @@ impl TestService {
     }
 
     pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor> {
-        let e = TestExecutor {
+        let mut e = TestExecutor {
             executor_id: executor.id.clone(),
+            executor_metadata: executor.clone(),
             test_service: self,
         };
 
-        e.heartbeat(executor).await?;
+        e.heartbeat(executor.clone()).await?;
 
         Ok(e)
     }
@@ -316,21 +318,41 @@ impl FinalizeTaskArgs {
 
 pub struct TestExecutor<'a> {
     pub executor_id: ExecutorId,
+    pub executor_metadata: ExecutorMetadata,
     pub test_service: &'a TestService,
 }
 
 impl TestExecutor<'_> {
-    pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
-        let function_executor_diagnostics = vec![];
-        self.test_service
+    pub async fn heartbeat(&mut self, executor: ExecutorMetadata) -> Result<()> {
+        let executor_state_changed = self
+            .test_service
             .service
             .executor_manager
-            .heartbeat(executor, function_executor_diagnostics)
+            .heartbeat(&executor)
+            .await?;
+        self.executor_metadata = executor.clone();
+
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
+                executor,
+                function_executor_diagnostics: vec![],
+                executor_state_updated: executor_state_changed,
+                allocation_outputs: vec![],
+            }),
+            processed_state_changes: vec![],
+        };
+        self.test_service
+            .service
+            .indexify_state
+            .write(sm_req)
             .await?;
         Ok(())
     }
 
-    pub async fn update_function_executors(&self, functions: Vec<FunctionExecutor>) -> Result<()> {
+    pub async fn update_function_executors(
+        &mut self,
+        functions: Vec<FunctionExecutor>,
+    ) -> Result<()> {
         // First, get current executor state
         let mut executor = self.get_executor_server_state().await?;
 
@@ -340,12 +362,15 @@ impl TestExecutor<'_> {
 
         // Update state hash and send heartbeat
         executor.state_hash = nanoid!();
-        self.heartbeat(executor).await?;
+        self.heartbeat(executor.clone()).await?;
 
         Ok(())
     }
 
-    pub async fn set_function_executor_states(&self, state: FunctionExecutorState) -> Result<()> {
+    pub async fn set_function_executor_states(
+        &mut self,
+        state: FunctionExecutorState,
+    ) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
@@ -365,7 +390,7 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn mark_function_executors_as_running(&self) -> Result<()> {
+    pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
         self.set_function_executor_states(FunctionExecutorState::Running)
             .await
     }
@@ -510,20 +535,26 @@ impl TestExecutor<'_> {
         allocation.outcome = args.task_outcome.clone();
         allocation.diagnostics = args.diagnostics.clone();
 
+        let ingest_task_outputs_request = AllocationOutput {
+            namespace: task.namespace.clone(),
+            compute_graph: task.compute_graph_name.clone(),
+            compute_fn: task.compute_fn_name.clone(),
+            invocation_id: task.invocation_id.clone(),
+            node_output,
+            executor_id: self.executor_id.clone(),
+            allocation_key: args.allocation_key.clone(),
+            allocation,
+        };
+
         self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
-                    namespace: task.namespace.clone(),
-                    compute_graph: task.compute_graph_name.clone(),
-                    compute_fn: task.compute_fn_name.clone(),
-                    invocation_id: task.invocation_id.clone(),
-                    node_output,
-                    task,
-                    executor_id: self.executor_id.clone(),
-                    allocation_key: args.allocation_key.clone(),
-                    allocation,
+                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
+                    executor: self.executor_metadata.clone(),
+                    function_executor_diagnostics: vec![],
+                    executor_state_updated: false,
+                    allocation_outputs: vec![ingest_task_outputs_request],
                 }),
                 processed_state_changes: vec![],
             })

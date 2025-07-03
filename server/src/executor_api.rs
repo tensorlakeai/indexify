@@ -41,7 +41,12 @@ use executor_api_pb::{
 };
 use metrics::api_io_stats;
 use state_store::{
-    requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest},
+    requests::{
+        AllocationOutput,
+        RequestPayload,
+        StateMachineUpdateRequest,
+        UpsertExecutorRequest,
+    },
     IndexifyState,
 };
 use tokio::sync::watch;
@@ -491,8 +496,8 @@ impl ExecutorAPIService {
         &self,
         executor_id: ExecutorId,
         task_results: Vec<TaskResult>,
-    ) -> Result<()> {
-        let mut requests = Vec::new();
+    ) -> Result<Vec<AllocationOutput>> {
+        let mut allocation_output_updates = Vec::new();
         for task_result in task_results {
             self.api_metrics
                 .fn_outputs
@@ -686,7 +691,7 @@ impl ExecutorAPIService {
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
 
-            let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
+            let request = AllocationOutput {
                 namespace: namespace.to_string(),
                 compute_graph: compute_graph.compute_graph_name.clone(),
                 compute_fn: compute_fn.to_string(),
@@ -695,20 +700,10 @@ impl ExecutorAPIService {
                 executor_id: executor_id.clone(),
                 allocation,
                 allocation_key,
-            });
-
-            requests.push(request);
+            };
+            allocation_output_updates.push(request);
         }
-        for request in requests {
-            self.indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: request,
-                    processed_state_changes: vec![],
-                })
-                .await
-                .map_err(|e| Status::internal(e.to_string()))?;
-        }
-        Ok(())
+        Ok(allocation_output_updates)
     }
 }
 
@@ -752,15 +747,36 @@ impl ExecutorApi for ExecutorAPIService {
 
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        self.executor_manager
-            .heartbeat(executor_metadata, function_executor_diagnostics)
+        let executor_state_updated = self
+            .executor_manager
+            .heartbeat(&executor_metadata)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let task_results = executor_update.task_results.clone();
-        self.handle_task_outcomes(executor_id.clone(), task_results)
+        let allocation_output_updates = self
+            .handle_task_outcomes(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
+                executor: executor_metadata,
+                function_executor_diagnostics,
+                executor_state_updated,
+                allocation_outputs: allocation_output_updates,
+            }),
+            processed_state_changes: vec![],
+        };
+        if let Err(e) = self.indexify_state.write(sm_req).await {
+            error!(
+                executor_id = executor_id.get(),
+                "failed to write state machine update request: {:?}", e
+            );
+            return Err(Status::internal(
+                "failed to write state machine update request",
+            ));
+        }
 
         let duration_sec = start.elapsed().as_secs_f64();
         if duration_sec >= 1.0 {

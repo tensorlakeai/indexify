@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, vec};
+    use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
     use data_model::{
