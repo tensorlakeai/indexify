@@ -461,12 +461,25 @@ class FunctionExecutorController:
         if event.function_executor is None:
             # Server needs to increment attempts counter for all the tasks that were pending while FE was starting up.
             # This prevents infinite retries if FEs consistently fail to start up.
+            # The allocations we marked here also need to not used FE terminated failure reason in their outputs
+            # because FE terminated means that the allocation wasn't the cause of the FE termination.
+            allocation_ids_caused_termination: List[str] = []
+            for task_info in self._tasks.values():
+                task_logger = task_allocation_logger(task_info.allocation, self._logger)
+                task_logger.info(
+                    "marking allocation failed on function executor startup failure"
+                )
+                allocation_ids_caused_termination.append(
+                    task_info.allocation.allocation_id
+                )
+                task_info.output = TaskOutput.function_executor_startup_failed(
+                    allocation=task_info.allocation,
+                    fe_startup_output=event.output,
+                    logger=task_logger,
+                )
             self._start_termination(
                 fe_termination_reason=event.output.termination_reason,
-                allocation_ids_caused_termination=[
-                    task_info.allocation.allocation_id
-                    for task_info in self._tasks.values()
-                ],
+                allocation_ids_caused_termination=allocation_ids_caused_termination,
             )
             return
 
@@ -593,9 +606,11 @@ class FunctionExecutorController:
             _FE_CONTROLLER_STATE.TERMINATING,
             _FE_CONTROLLER_STATE.TERMINATED,
         ]:
-            task_info.output = TaskOutput.function_executor_terminated(
-                task_info.allocation
-            )
+            if task_info.output is None:
+                # The output can be set already by FE startup failure handler.
+                task_info.output = TaskOutput.function_executor_terminated(
+                    task_info.allocation
+                )
             self._start_task_output_upload(task_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
             self._running_task = task_info

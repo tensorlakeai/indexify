@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObject,
@@ -6,10 +6,13 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
+    FunctionExecutorTerminationReason,
     TaskAllocation,
     TaskFailureReason,
     TaskOutcomeCode,
 )
+
+from .function_executor_startup_output import FunctionExecutorStartupOutput
 
 
 class TaskMetrics:
@@ -105,3 +108,52 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
         )
+
+    @classmethod
+    def function_executor_startup_failed(
+        cls,
+        allocation: TaskAllocation,
+        fe_startup_output: FunctionExecutorStartupOutput,
+        logger: Any,
+    ) -> "TaskOutput":
+        """Creates a TaskOutput for the case when we fail a task because its FE startup failed."""
+        output = TaskOutput(
+            allocation=allocation,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=_fe_startup_failure_reason_to_task_failure_reason(
+                fe_startup_output.termination_reason, logger
+            ),
+        )
+        # Use FE startup stdout, stderr for allocations that we failed because FE startup failed.
+        output.uploaded_stdout = fe_startup_output.stdout
+        output.uploaded_stderr = fe_startup_output.stderr
+        return output
+
+
+def _fe_startup_failure_reason_to_task_failure_reason(
+    fe_termination_reason: FunctionExecutorTerminationReason, logger: Any
+) -> TaskFailureReason:
+    # Only need to check FE termination reasons happening on FE startup.
+    if (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+    ):
+        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+    elif (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
+    ):
+        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT
+    elif (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
+    ):
+        return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+    else:
+        logger.error(
+            "unexpected function executor startup failure reason",
+            fe_termination_reason=FunctionExecutorTerminationReason.Name(
+                fe_termination_reason
+            ),
+        )
+        return TaskFailureReason.TASK_FAILURE_REASON_UNKNOWN

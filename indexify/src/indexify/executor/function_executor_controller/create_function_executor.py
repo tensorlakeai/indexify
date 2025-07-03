@@ -5,7 +5,6 @@ from typing import Any, Optional, Tuple
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     SerializedObject,
-    SerializedObjectEncoding,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
@@ -73,25 +72,21 @@ async def create_function_executor(
     except BaseException as e:
         if isinstance(e, asyncio.CancelledError):
             logger.info("function executor startup was cancelled")
-            return FunctionExecutorCreated(
-                function_executor=None,
-                output=FunctionExecutorStartupOutput(
-                    function_executor_description=function_executor_description,
-                    termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_REMOVED_FROM_DESIRED_STATE,
-                ),
-            )
         else:
             logger.error(
                 "failed to create function executor due to platform error",
                 exc_info=e,
             )
-            return FunctionExecutorCreated(
-                function_executor=None,
-                output=FunctionExecutorStartupOutput(
-                    function_executor_description=function_executor_description,
-                    termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR,
-                ),
-            )
+
+        # Cancelled FE startup means that Server removed it from desired state so it doesn't matter what termination_reason we return
+        # in this case cause this FE will be removed from Executor reported state.
+        return FunctionExecutorCreated(
+            function_executor=None,
+            output=FunctionExecutorStartupOutput(
+                function_executor_description=function_executor_description,
+                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR,
+            ),
+        )
 
 
 async def _initialization_result_to_fe_creation_output(
