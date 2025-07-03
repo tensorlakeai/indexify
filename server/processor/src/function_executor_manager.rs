@@ -284,11 +284,12 @@ impl FunctionExecutorManager {
         // Handle allocations for FEs to be removed and update tasks
         for fe in function_executors_to_remove {
             info!(
-                namespace = fe.namespace,
-                compute_graph = fe.compute_graph_name,
-                compute_fn = fe.compute_fn_name,
-                fn_executor_id = fe.id.get(),
-                "removing function executor from executor",
+                fe.namespace,
+                fe.compute_graph = fe.compute_graph_name,
+                fe.compute_fn = fe.compute_fn_name,
+                fe.executor_id = fe.id.get(),
+                ?fe.state,
+                "Removing function executor from executor",
             );
 
             let allocs = in_memory_state
@@ -407,7 +408,15 @@ impl FunctionExecutorManager {
         let function_executors_to_remove = &executor_server_metadata
             .function_executors
             .values()
-            .map(|fe| fe.function_executor.clone())
+            .map(|fe| {
+                let mut fec = fe.function_executor.clone();
+                if !matches!(fec.state, FunctionExecutorState::Terminated { .. }) {
+                    fec.state = FunctionExecutorState::Terminated(
+                        FunctionExecutorTerminationReason::ExecutorRemoved,
+                    )
+                }
+                fec
+            })
             .collect::<Vec<_>>();
 
         self.remove_function_executors(
