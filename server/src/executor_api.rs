@@ -402,7 +402,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
                 FunctionExecutorStatus::Terminated => {
                     data_model::FunctionExecutorState::Terminated {
                         reason: termination_reason,
-                        allocs: function_executor_state.allocation_ids_caused_termination,
+                        failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
                     }
                 }
             },

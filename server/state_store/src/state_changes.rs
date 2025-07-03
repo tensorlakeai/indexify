@@ -7,9 +7,9 @@ use anyhow::Result;
 use data_model::{
     AllocationOutputIngestedEvent,
     ChangeType,
-    ExecutorAddedEvent,
     ExecutorId,
     ExecutorRemovedEvent,
+    ExecutorUpsertedEvent,
     InvokeComputeGraphEvent,
     StateChange,
     StateChangeBuilder,
@@ -164,13 +164,13 @@ pub fn tombstone_executor(
     Ok(vec![state_change])
 }
 
-pub fn register_executor(
+pub fn upsert_executor(
     last_state_change_id: &AtomicU64,
     request: &UpsertExecutorRequest,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
-        .change_type(ChangeType::ExecutorUpserted(ExecutorAddedEvent {
+        .change_type(ChangeType::ExecutorUpserted(ExecutorUpsertedEvent {
             executor_id: request.executor.id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())

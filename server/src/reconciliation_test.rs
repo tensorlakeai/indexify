@@ -206,7 +206,7 @@ mod tests {
                 if fe.compute_fn_name == "fn_a" {
                     fe.state = FunctionExecutorState::Terminated {
                         reason: FunctionExecutorTerminationReason::FunctionCancelled,
-                        allocs: Vec::new(),
+                        failed_alloc_ids: Vec::new(),
                     };
                 }
             }
@@ -275,7 +275,10 @@ mod tests {
                 .cloned()
                 .collect();
             executor
-                .set_function_executor_states(FunctionExecutorState::Terminated { reason, allocs })
+                .set_function_executor_states(FunctionExecutorState::Terminated {
+                    reason,
+                    failed_alloc_ids: allocs,
+                })
                 .await?;
 
             // validate the task retry attempt number was incremented
@@ -480,7 +483,10 @@ mod tests {
             .cloned()
             .collect();
         executor
-            .set_function_executor_states(FunctionExecutorState::Terminated { reason, allocs })
+            .set_function_executor_states(FunctionExecutorState::Terminated {
+                reason,
+                failed_alloc_ids: allocs,
+            })
             .await?;
 
         // validate the task retry attempt number was not changed
