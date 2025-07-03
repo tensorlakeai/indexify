@@ -284,11 +284,11 @@ impl FunctionExecutorManager {
         // Handle allocations for FEs to be removed and update tasks
         for fe in function_executors_to_remove {
             info!(
-                fe.namespace,
-                fe.compute_graph = fe.compute_graph_name,
-                fe.compute_fn = fe.compute_fn_name,
-                fe.executor_id = fe.id.get(),
-                ?fe.state,
+                namespace = fe.namespace,
+                graph = fe.compute_graph_name,
+                fn = fe.compute_fn_name,
+                executor_id = fe.id.get(),
+                fe_state = ?fe.state,
                 "Removing function executor from executor",
             );
 
