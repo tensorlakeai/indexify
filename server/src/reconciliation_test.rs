@@ -164,7 +164,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Register executor in dev mode
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -247,7 +247,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -442,7 +442,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;

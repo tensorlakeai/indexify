@@ -626,51 +626,6 @@ impl InMemoryState {
                 self.invocation_ctx
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
-            RequestPayload::IngestTaskOutputs(req) => {
-                // Remove the allocation
-                {
-                    self.allocations_by_executor
-                        .entry(req.executor_id.clone())
-                        .and_modify(|fe_allocations| {
-                            // TODO: This can be optimized by keeping a new index of task_id to FE,
-                            //       we should measure the overhead.
-                            fe_allocations.iter_mut().for_each(|(_, allocations)| {
-                                if let Some(index) = allocations
-                                    .iter()
-                                    .position(|a| a.key() == req.allocation_key)
-                                {
-                                    let allocation = &allocations[index];
-                                    // Record metrics
-                                    self.allocation_running_latency.record(
-                                        get_elapsed_time(
-                                            allocation.created_at,
-                                            TimeUnit::Milliseconds,
-                                        ),
-                                        &[KeyValue::new(
-                                            "outcome",
-                                            req.allocation.outcome.to_string(),
-                                        )],
-                                    );
-
-                                    // Remove the allocation
-                                    allocations.remove(index);
-                                }
-                            });
-
-                            // Remove the function if no allocations left
-                            fe_allocations.retain(|_, f| !f.is_empty());
-                        });
-
-                    // Executor's allocation is removed
-                    changed_executors.insert(req.executor_id.clone());
-                }
-
-                // Record metrics
-                self.allocation_completion_latency.record(
-                    get_elapsed_time(req.allocation.created_at, TimeUnit::Milliseconds),
-                    &[KeyValue::new("outcome", req.allocation.outcome.to_string())],
-                );
-            }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
             }
@@ -950,6 +905,59 @@ impl InMemoryState {
                             }
                         }
                     });
+
+                for allocation_output in &req.allocation_outputs {
+                    // Remove the allocation
+                    {
+                        self.allocations_by_executor
+                            .entry(allocation_output.executor_id.clone())
+                            .and_modify(|fe_allocations| {
+                                // TODO: This can be optimized by keeping a new index of task_id to
+                                // FE,       we should measure the
+                                // overhead.
+                                fe_allocations.iter_mut().for_each(|(_, allocations)| {
+                                    if let Some(index) = allocations
+                                        .iter()
+                                        .position(|a| a.key() == allocation_output.allocation_key)
+                                    {
+                                        let allocation = &allocations[index];
+                                        // Record metrics
+                                        self.allocation_running_latency.record(
+                                            get_elapsed_time(
+                                                allocation.created_at,
+                                                TimeUnit::Milliseconds,
+                                            ),
+                                            &[KeyValue::new(
+                                                "outcome",
+                                                allocation_output.allocation.outcome.to_string(),
+                                            )],
+                                        );
+
+                                        // Remove the allocation
+                                        allocations.remove(index);
+                                    }
+                                });
+
+                                // Remove the function if no allocations left
+                                fe_allocations.retain(|_, f| !f.is_empty());
+                            });
+
+                        // Executor's allocation is removed
+                        changed_executors.insert(allocation_output.executor_id.clone());
+                    }
+
+                    // Record metrics
+                    self.allocation_completion_latency.record(
+                        get_elapsed_time(
+                            allocation_output.allocation.created_at,
+                            TimeUnit::Milliseconds,
+                        ),
+                        &[KeyValue::new(
+                            "outcome",
+                            allocation_output.allocation.outcome.to_string(),
+                        )],
+                    );
+                }
             }
             RequestPayload::DeregisterExecutor(req) => {
                 let executor = self.executors.get_mut(&req.executor_id);

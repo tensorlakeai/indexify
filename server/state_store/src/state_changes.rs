@@ -20,10 +20,10 @@ use data_model::{
 use indexify_utils::get_epoch_time_in_ms;
 
 use crate::requests::{
+    AllocationOutput,
     DeleteComputeGraphRequest,
     DeleteInvocationRequest,
     DeregisterExecutorRequest,
-    IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
     UpsertExecutorRequest,
 };
@@ -97,7 +97,7 @@ pub fn tombstone_invocation(
 
 pub fn task_outputs_ingested(
     last_change_id: &AtomicU64,
-    request: &IngestTaskOutputsRequest,
+    request: &AllocationOutput,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()

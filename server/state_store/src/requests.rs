@@ -27,7 +27,6 @@ pub struct StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
-    IngestTaskOutputs(IngestTaskOutputsRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
@@ -81,7 +80,7 @@ impl SchedulerUpdateRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct IngestTaskOutputsRequest {
+pub struct AllocationOutput {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -141,6 +140,8 @@ pub struct DeleteInvocationRequest {
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
+    pub executor_state_updated: bool,
+    pub allocation_outputs: Vec<AllocationOutput>,
 }
 
 #[derive(Debug, Clone)]
