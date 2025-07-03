@@ -646,7 +646,10 @@ impl InMemoryState {
                                             allocation.created_at,
                                             TimeUnit::Milliseconds,
                                         ),
-                                        &[KeyValue::new("outcome", req.allocation.outcome.to_string())],
+                                        &[KeyValue::new(
+                                            "outcome",
+                                            req.allocation.outcome.to_string(),
+                                        )],
                                     );
 
                                     // Remove the allocation
