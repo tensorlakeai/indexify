@@ -256,11 +256,12 @@ impl IndexifyState {
                         )?);
                     }
                 }
-
-                upsert_executor_state_changes.extend(
-                    state_changes::register_executor(&self.last_state_change_id, &request)
-                        .map_err(|e| anyhow!("error getting state changes {}", e))?,
-                );
+                if request.executor_state_updated {
+                    upsert_executor_state_changes.extend(
+                        state_changes::register_executor(&self.last_state_change_id, &request)
+                            .map_err(|e| anyhow!("error getting state changes {}", e))?,
+                    );
+                }
 
                 upsert_executor_state_changes
             }
