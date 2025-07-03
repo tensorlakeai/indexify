@@ -74,7 +74,7 @@ package-ui:
 	cd ui && npm install && npm run build
 
 test:
-	cargo test -- --test-threads 1
+	cargo test --workspace -- --test-threads 1
 
 generate-cloud-openapi:
 	@echo "Generating OpenAPI spec for cloud deployment..."
