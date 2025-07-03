@@ -1315,7 +1315,10 @@ impl InMemoryState {
             .range(task_prefixes_for_fe.clone()..)
             .into_iter()
             .take_while(|(k, _v)| k.starts_with(&task_prefixes_for_fe))
-            .filter(|(_k, v)| v.compute_fn_name == fe_meta.function_executor.compute_fn_name)
+            .filter(|(_k, v)| {
+                v.compute_fn_name == fe_meta.function_executor.compute_fn_name &&
+                    v.graph_version == fe_meta.function_executor.version
+            })
             .any(|(_k, v)| !v.outcome.is_terminal())
     }
 
