@@ -786,7 +786,7 @@ pub fn ingest_task_outputs(
         graph = &req.compute_graph,
         invocation_id = &req.invocation_id,
         "fn" = &req.compute_fn,
-        task_id = req.task.id.get(),
+        task_id = req.allocation.task_id.get(),
     );
     let _guard = span.enter();
 
@@ -869,15 +869,6 @@ pub fn ingest_task_outputs(
         &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
         &output_key,
         serialized_output,
-    )?;
-
-    let existing_task = req.task;
-
-    let task_bytes = JsonEncoder::encode(&existing_task)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        existing_task.key(),
-        task_bytes,
     )?;
 
     Ok(true)

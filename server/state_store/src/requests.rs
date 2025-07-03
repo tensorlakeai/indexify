@@ -86,7 +86,6 @@ pub struct IngestTaskOutputsRequest {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub task: Task,
     pub allocation: Allocation,
     pub node_output: NodeOutput,
     pub executor_id: ExecutorId,

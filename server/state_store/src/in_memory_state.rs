@@ -627,19 +627,6 @@ impl InMemoryState {
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
             RequestPayload::IngestTaskOutputs(req) => {
-                // Update task
-                let invocation_ctx_key = GraphInvocationCtx::key_from(
-                    &req.task.namespace,
-                    &req.task.compute_graph_name,
-                    &req.task.invocation_id,
-                );
-                // Only update tasks for running invocations, this can happen if
-                // the invocation failed with pending allocations on executors.
-                if self.invocation_ctx.get(&invocation_ctx_key).is_some() {
-                    self.tasks
-                        .insert(req.task.key(), Box::new(req.task.clone()));
-                }
-
                 // Remove the allocation
                 {
                     self.allocations_by_executor
@@ -659,7 +646,7 @@ impl InMemoryState {
                                             allocation.created_at,
                                             TimeUnit::Milliseconds,
                                         ),
-                                        &[KeyValue::new("outcome", req.task.outcome.to_string())],
+                                        &[KeyValue::new("outcome", req.allocation.outcome.to_string())],
                                     );
 
                                     // Remove the allocation
