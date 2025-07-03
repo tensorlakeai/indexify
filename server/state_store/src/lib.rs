@@ -174,7 +174,7 @@ impl IndexifyState {
                     "invoke_compute_graph",
                     namespace = invoke_compute_graph_request.namespace.clone(),
                     invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
-                    compute_graph = invoke_compute_graph_request.compute_graph_name.clone(),
+                    graph = invoke_compute_graph_request.compute_graph_name.clone(),
                 );
                 let state_changes = state_changes::invoke_compute_graph(
                     &self.last_state_change_id,

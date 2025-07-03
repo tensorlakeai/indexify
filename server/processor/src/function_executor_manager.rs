@@ -517,6 +517,7 @@ impl FunctionExecutorManager {
             .clone();
 
         tracing::debug!(
+            executor_id = executor_id.get(),
             "reconciling executor state for executor {} - {:#?}",
             executor_id.get(),
             executor
