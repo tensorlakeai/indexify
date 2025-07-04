@@ -12,8 +12,6 @@ use data_model::{
     FunctionResources,
     GraphInvocationCtx,
     Task,
-    TaskFailureReason,
-    TaskOutcome,
     TaskStatus,
 };
 use if_chain::if_chain;
@@ -323,8 +321,7 @@ impl FunctionExecutorManager {
                         } else {
                             // The task cannot be retried.
                             task.status = TaskStatus::Completed;
-                            task.outcome =
-                                TaskOutcome::Failure(TaskFailureReason::FunctionError);
+                            task.outcome = alloc.outcome.clone();
                             failed_tasks += 1;
                         }
                     }
