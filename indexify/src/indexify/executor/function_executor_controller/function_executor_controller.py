@@ -252,7 +252,7 @@ class FunctionExecutorController:
         """Shutsdown the Function Executor and frees all of its resources.
 
         No task outcomes and outputs are getting reported to Server after this call.
-        Doesn't raise any exceptions. Blocks until the shutdown is complete.
+        Doesn't raise any exceptions. Blocks until the shutdown is complete. Idempotent.
         """
         self._add_event(ShutdownInitiated(), source="shutdown")
         try:
@@ -261,10 +261,9 @@ class FunctionExecutorController:
             pass  # Expected exception on shutdown
         except Exception as e:
             self._logger.error(
-                "function executor controller control loop raised unexpected exception",
+                "function executor controller control loop task raised unexpected exception",
                 exc_info=e,
             )
-        self._logger.info("function executor controller shutdown finished")
 
     def _update_internal_state(self, new_state: _FE_CONTROLLER_STATE) -> None:
         """Updates the internal state of the Function Executor Controller.
@@ -802,7 +801,7 @@ class FunctionExecutorController:
         self._state_reporter.remove_function_executor_state(self.function_executor_id())
         self._state_reporter.schedule_state_report()
 
-        self._logger.info("function executor controller control loop finished")
+        self._logger.info("function executor controller shutdown finished")
         debug_print_events(events=self._events, logger=self._logger)
 
 
