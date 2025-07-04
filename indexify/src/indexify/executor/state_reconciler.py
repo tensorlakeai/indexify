@@ -66,6 +66,7 @@ class ExecutorStateReconciler:
         self._desired_states_reader_task: Optional[asyncio.Task] = None
         self._reconciliation_loop_task: Optional[asyncio.Task] = None
         self._function_executor_controllers: Dict[str, FunctionExecutorController] = {}
+        self._shutting_down_fe_ids: Set[str] = set()
         self._last_server_clock: Optional[int] = None
 
         self._last_desired_state_lock = asyncio.Lock()
@@ -320,13 +321,34 @@ class ExecutorStateReconciler:
             logger.error("failed adding Function Executor", exc_info=e)
 
     def _remove_function_executor_controller(self, function_executor_id: str) -> None:
-        fe_controller: FunctionExecutorController = (
-            self._function_executor_controllers.pop(function_executor_id)
-        )
+        # Don't remove the FE controller from self._function_executor_controllers until
+        # its shutdown is complete. Otherwise, if Server re-adds the FE to desired state
+        # before FE shutdown completes then we'll have two FE controllers for the same
+        # FE ID which results in many bugs.
+        if function_executor_id in self._shutting_down_fe_ids:
+            return
+
+        self._shutting_down_fe_ids.add(function_executor_id)
         asyncio.create_task(
-            fe_controller.shutdown(),
+            self._shutdown_function_executor_controller(function_executor_id),
             name=f"Shutdown Function Executor {function_executor_id}",
         )
+
+    async def _shutdown_function_executor_controller(
+        self, function_executor_id: str
+    ) -> None:
+        # We are not cancelling this aio task in self.shutdown(). Because of this the code here should
+        # not fail if the FE controller is not found in internal data structures. It can be removed
+        # by self.shutdown() at any time while we're running this aio task.
+        fe_controller: Optional[FunctionExecutorController] = (
+            self._function_executor_controllers.get(function_executor_id)
+        )
+        if fe_controller is None:
+            return
+
+        await fe_controller.shutdown()
+        self._function_executor_controllers.pop(function_executor_id, None)
+        self._shutting_down_fe_ids.discard(function_executor_id)
 
     def _reconcile_tasks(self, task_allocations: Iterable[TaskAllocation]):
         valid_task_allocations: List[TaskAllocation] = self._valid_task_allocations(
@@ -393,8 +415,6 @@ class ExecutorStateReconciler:
                 task_allocation.function_executor_id
                 not in self._function_executor_controllers
             ):
-                # Current policy: don't report task outcomes for tasks that didn't run.
-                # This is required to simplify the protocol so Server doesn't need to care about task states.
                 logger.error(
                     "received TaskAllocation for a Function Executor that doesn't exist, dropping it from desired state"
                 )
