@@ -22,6 +22,8 @@ use state_store::{
 };
 use tracing::{error, info, trace};
 
+use crate::task_policy::TaskRetryPolicy;
+
 #[derive(Debug, Default)]
 pub struct TaskCreationResult {
     pub tasks: Vec<Task>,
@@ -180,24 +182,18 @@ impl TaskCreator {
                 return Ok(SchedulerUpdateRequest::default());
             };
 
-            if let TaskOutcome::Failure(failure_reason) = &allocation.outcome {
-                let uses_attempt = failure_reason.should_count_against_task_retry_attempts();
-                if let Some(max_retries) = compute_graph_version.task_max_retries(&task) {
-                    if failure_reason.is_retriable() &&
-                        (task.attempt_number < max_retries || !uses_attempt)
-                    {
-                        task.status = TaskStatus::Pending;
-                        if uses_attempt {
-                            task.attempt_number += 1;
-                        }
-                        scheduler_update.updated_tasks =
-                            HashMap::from([(task.id.clone(), *task.clone())]);
-                        return Ok(scheduler_update);
-                    }
-                }
+            // Use the common task policy handler for allocation outcomes
+            TaskRetryPolicy::handle_allocation_outcome(
+                &mut task,
+                &allocation.outcome,
+                &compute_graph_version,
+            );
+
+            // If task is pending (being retried), return early
+            if task.status == TaskStatus::Pending {
+                scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
+                return Ok(scheduler_update);
             }
-            task.status = TaskStatus::Completed;
-            task.outcome = allocation.outcome;
             scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
             in_memory_state.update_state(
                 self.clock,

@@ -22,6 +22,8 @@ use state_store::{
 };
 use tracing::{debug, error, info, info_span};
 
+use crate::task_policy::TaskRetryPolicy;
+
 pub struct FunctionExecutorManager {
     clock: u64,
     queue_size: u32,
@@ -306,33 +308,29 @@ impl FunctionExecutorManager {
                 }
 
                 if_chain! {
-                    if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
-                    if let Some(max_retries) = compute_graph_version.task_max_retries(&task);
-                    if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_allocs } = &fe.state;
-                    if termination_reason.should_count_against_task_retry_attempts();
-                    if blame_allocs.contains(&alloc.id);
-                    then {
-                        // The alloc's task should be retried iff it has remaining retry
-                        // attempts.
-                        if task.attempt_number < max_retries {
-                            // The task can be retried.
-                            task.attempt_number += 1;
+                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
+                        if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_allocs } = &fe.state;
+                then {
+                            let task_failure_reason = (*termination_reason).into();
+
+                            TaskRetryPolicy::handle_function_executor_termination(
+                                &mut task,
+                                task_failure_reason,
+                                blame_allocs,
+                                &alloc.id,
+                                &compute_graph_version,
+                            );
+
+                            // Count failed tasks for logging
+                            if task.status == TaskStatus::Completed {
+                                failed_tasks += 1;
+                            }
+                        }
+                else {
+                            // Could not get compute graph version, or function executor not terminated; set task to pending
                             task.status = TaskStatus::Pending;
-                        } else {
-                            // The task cannot be retried.
-                            task.status = TaskStatus::Completed;
-                            task.outcome = alloc.outcome.clone();
-                            failed_tasks += 1;
                         }
                     }
-                    else {
-                        // Either we weren't able to get the info we
-                        // needed, or this termination reason doesn't
-                        // count against the task's retry attempts;
-                        // just set the task to Pending.
-                        task.status = TaskStatus::Pending;
-                    }
-                }
                 update.updated_tasks.insert(task.id.clone(), *task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
                     &task.namespace,
