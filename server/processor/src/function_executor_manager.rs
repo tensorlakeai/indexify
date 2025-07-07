@@ -20,7 +20,7 @@ use state_store::{
     in_memory_state::InMemoryState,
     requests::{RequestPayload, SchedulerUpdateRequest},
 };
-use tracing::{error, info, info_span};
+use tracing::{debug, error, info, info_span};
 
 pub struct FunctionExecutorManager {
     clock: u64,
@@ -47,7 +47,7 @@ impl FunctionExecutorManager {
         let function_executors_to_mark =
             in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
 
-        info!(
+        debug!(
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len(),
         );
@@ -93,7 +93,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
-            info!("no candidates found for task, running vacuum");
+            debug!("no candidates found for task, running vacuum");
             let fe_resource = in_memory_state.fe_resource_for_task(&task)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
@@ -104,7 +104,7 @@ impl FunctionExecutorManager {
             )?;
             candidates = in_memory_state.candidate_executors(task)?;
         }
-        info!(
+        debug!(
             "found {} candidates for creating function executor",
             candidates.len()
         );
@@ -442,7 +442,7 @@ impl FunctionExecutorManager {
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            info!("no function executors found for task, creating one");
+            debug!("no function executors found for task, creating one");
             let fe_update = self.create_function_executor(in_memory_state, task)?;
             update.extend(fe_update);
             in_memory_state.update_state(
@@ -454,7 +454,7 @@ impl FunctionExecutorManager {
                 in_memory_state.candidate_function_executors(task, self.queue_size)?;
         }
 
-        info!(
+        debug!(
             num_function_executors = function_executors.function_executors.len(),
             num_pending_function_executors = function_executors.num_pending_function_executors,
             "found function executors for task",

@@ -20,7 +20,7 @@ use tokio::{
     sync::{watch, Mutex, RwLock},
     time::Instant,
 };
-use tracing::{error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     executor_api::{
@@ -232,7 +232,7 @@ impl ExecutorManager {
         };
 
         if should_update {
-            info!(
+            debug!(
                 executor_id = executor.id.get(),
                 state_hash = executor.state_hash,
                 clock = executor.clock,
