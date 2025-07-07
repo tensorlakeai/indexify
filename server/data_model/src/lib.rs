@@ -1712,18 +1712,37 @@ pub enum FunctionExecutorTerminationReason {
     ExecutorRemoved,
 }
 
-impl FunctionExecutorTerminationReason {
-    pub fn should_count_against_task_retry_attempts(self) -> bool {
-        matches!(
-            self,
-            Self::StartupFailedInternalError |
-                Self::StartupFailedFunctionError |
-                Self::StartupFailedFunctionTimeout |
-                Self::Unhealthy |
-                Self::InternalError |
-                Self::FunctionError |
-                Self::FunctionTimeout
-        )
+impl From<FunctionExecutorTerminationReason> for TaskFailureReason {
+    fn from(reason: FunctionExecutorTerminationReason) -> Self {
+        match reason {
+            FunctionExecutorTerminationReason::Unknown => {
+                TaskFailureReason::FunctionExecutorTerminated
+            }
+            FunctionExecutorTerminationReason::StartupFailedInternalError => {
+                TaskFailureReason::InternalError
+            }
+            FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+                TaskFailureReason::FunctionError
+            }
+            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+                TaskFailureReason::FunctionTimeout
+            }
+            FunctionExecutorTerminationReason::Unhealthy => TaskFailureReason::FunctionTimeout,
+            FunctionExecutorTerminationReason::InternalError => TaskFailureReason::InternalError,
+            FunctionExecutorTerminationReason::FunctionError => TaskFailureReason::FunctionError,
+            FunctionExecutorTerminationReason::FunctionTimeout => {
+                TaskFailureReason::FunctionTimeout
+            }
+            FunctionExecutorTerminationReason::FunctionCancelled => {
+                TaskFailureReason::TaskCancelled
+            }
+            FunctionExecutorTerminationReason::DesiredStateRemoved => {
+                TaskFailureReason::FunctionExecutorTerminated
+            }
+            FunctionExecutorTerminationReason::ExecutorRemoved => {
+                TaskFailureReason::FunctionExecutorTerminated
+            }
+        }
     }
 }
 

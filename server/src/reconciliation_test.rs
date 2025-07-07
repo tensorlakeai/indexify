@@ -237,7 +237,8 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        assert!(reason.should_count_against_task_retry_attempts());
+        let task_failure_reason: data_model::TaskFailureReason = reason.into();
+        assert!(task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
@@ -444,7 +445,8 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        assert!(!reason.should_count_against_task_retry_attempts());
+        let task_failure_reason: data_model::TaskFailureReason = reason.into();
+        assert!(!task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
