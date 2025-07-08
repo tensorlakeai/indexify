@@ -49,7 +49,7 @@ impl ExecutorState {
 
     pub fn notify(&mut self) {
         if let Err(err) = self.new_state_channel.send(()) {
-            error!(
+            debug!(
                 "failed to notify executor state change, ignoring: {:?}",
                 err
             );
