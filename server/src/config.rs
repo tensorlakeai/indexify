@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, net::SocketAddr};
+use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
 
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
@@ -15,7 +15,7 @@ pub struct ServerConfig {
     pub listen_addr: String,
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
-    pub tracing: TracingConfig,
+    pub telemetry: TelemetryConfig,
     pub executor: ExecutorConfig,
     pub queue_size: u32,
 }
@@ -29,7 +29,7 @@ impl Default for ServerConfig {
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
-            tracing: TracingConfig::default(),
+            telemetry: TelemetryConfig::default(),
             executor: ExecutorConfig::default(),
             queue_size: 2,
         }
@@ -64,13 +64,30 @@ impl ServerConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TracingConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryConfig {
     // Enable tracing.
-    pub enabled: bool,
-    // OpenTelemetry collector grpc endpoint. Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var
-    // or to localhost:4317 if empty.
+    pub enable_tracing: bool,
+    // Enable metrics.
+    pub enable_metrics: bool,
+    // OpenTelemetry collector grpc endpoint for both traces and metrics.
+    // If specified, both traces and metrics will be sent to this endpoint.
+    // Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var or to localhost:4317 if empty.
     pub endpoint: Option<String>,
+    // Metrics export interval. Defaults to 10 seconds.
+    #[serde(with = "duration_serde")]
+    pub metrics_interval: Duration,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enable_tracing: false,
+            enable_metrics: false,
+            endpoint: None,
+            metrics_interval: Duration::from_secs(10),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,5 +144,27 @@ impl Default for ExecutorConfig {
                 .map(|s| s.to_string())
                 .collect(),
         }
+    }
+}
+
+// Serde module for Duration serialization/deserialization
+mod duration_serde {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(duration.as_secs())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let seconds = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(seconds))
     }
 }

@@ -85,7 +85,7 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
         .with(env_filter_layer)
         .with(log_layer);
 
-    if !config.tracing.enabled {
+    if !config.telemetry.enable_tracing {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
             error!("logger was already initiated, continuing: {:?}", e);
         }
@@ -93,7 +93,7 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
     }
 
     let mut span_exporter = SpanExporter::builder().with_tonic();
-    if let Some(endpoint) = &config.tracing.endpoint {
+    if let Some(endpoint) = &config.telemetry.endpoint {
         span_exporter = span_exporter.with_endpoint(endpoint.clone());
     }
     let span_exporter = span_exporter.build()?;

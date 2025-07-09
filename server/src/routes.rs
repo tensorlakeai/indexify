@@ -23,7 +23,6 @@ use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
 use metrics::api_io_stats;
 use nanoid::nanoid;
-use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
     requests::{
@@ -156,7 +155,6 @@ pub struct RouteState {
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
-    pub registry: Arc<prometheus::Registry>,
     pub metrics: Arc<api_io_stats::Metrics>,
 }
 
@@ -222,7 +220,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
-        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
         .layer(cors)
         .layer(DefaultBodyLimit::disable())
 }
@@ -1171,22 +1168,4 @@ async fn get_ctx_state_key(
             .body(Body::empty())
             .unwrap()),
     }
-}
-
-#[axum::debug_handler]
-async fn service_metrics(
-    State(state): State<RouteState>,
-) -> Result<Response<Body>, IndexifyAPIError> {
-    let metric_families = state.registry.gather();
-    let mut buffer = vec![];
-    let encoder = prometheus::TextEncoder::new();
-    encoder.encode(&metric_families, &mut buffer).map_err(|e| {
-        tracing::error!("failed to encode metrics: {:?}", e);
-        IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to encode metrics",
-        )
-    })?;
-
-    Ok(Response::new(Body::from(buffer)))
 }
