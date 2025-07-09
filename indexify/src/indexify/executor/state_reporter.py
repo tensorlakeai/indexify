@@ -36,6 +36,7 @@ from .metrics.state_reporter import (
 )
 
 _REPORTING_INTERVAL_SEC = 5
+_REPORTING_BACKOFF_SEC = 5
 _REPORT_RPC_TIMEOUT_SEC = 5
 
 
@@ -49,7 +50,6 @@ class ExecutorStateReporter:
         channel_manager: ChannelManager,
         host_resources_provider: HostResourcesProvider,
         logger: Any,
-        reporting_interval_sec: int = _REPORTING_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
         self._version: str = version
@@ -58,7 +58,6 @@ class ExecutorStateReporter:
         self._hostname: str = gethostname()
         self._channel_manager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
-        self._reporting_interval_sec: int = reporting_interval_sec
         self._allowed_functions: List[AllowedFunction] = _to_allowed_function_protos(
             function_allowlist
         )
@@ -180,7 +179,7 @@ class ExecutorStateReporter:
     async def _periodic_state_report_scheduler_loop(self) -> None:
         while True:
             self._state_report_scheduled_event.set()
-            await asyncio.sleep(self._reporting_interval_sec)
+            await asyncio.sleep(_REPORTING_INTERVAL_SEC)
 
     async def _state_report_worker_loop(self) -> None:
         """Runs the state reporter.
@@ -202,9 +201,10 @@ class ExecutorStateReporter:
                     self._state_reported_event.set()
                 except Exception as e:
                     self._logger.error(
-                        f"failed to report state to the server, retrying in {self._reporting_interval_sec} sec.",
+                        f"failed to report state to the server, backing-off for {_REPORTING_BACKOFF_SEC} sec.",
                         exc_info=e,
                     )
+                    await asyncio.sleep(_REPORTING_BACKOFF_SEC)
                     break  # exit the inner loop to recreate the channel if needed
 
     async def _report_state(self, stub: ExecutorAPIStub):
