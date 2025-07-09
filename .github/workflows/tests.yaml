@@ -29,7 +29,7 @@ jobs:
 
   build_server:
     name: Build Indexify Server
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-rust-builder-amd64
     steps:
       - name: Install protobuf package
         run: sudo apt install -y protobuf-compiler
