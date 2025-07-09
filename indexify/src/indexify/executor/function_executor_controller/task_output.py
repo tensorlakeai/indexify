@@ -37,7 +37,6 @@ class TaskOutput:
         next_functions: List[str] = [],
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
-        reducer: bool = False,
         metrics: Optional[TaskMetrics] = None,
     ):
         self.task = allocation.task
@@ -46,7 +45,6 @@ class TaskOutput:
         self.next_functions = next_functions
         self.stdout = stdout
         self.stderr = stderr
-        self.reducer = reducer
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
         self.invocation_error_output = invocation_error_output

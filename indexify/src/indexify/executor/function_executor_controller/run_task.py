@@ -159,7 +159,6 @@ def _task_output_from_function_executor_response(
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
     response_validator.required_field("stderr")
-    response_validator.required_field("is_reducer")
     response_validator.required_field("outcome_code")
 
     metrics = TaskMetrics(counters={}, timers={})
@@ -200,7 +199,6 @@ def _task_output_from_function_executor_response(
         next_functions=response.next_functions,
         stdout=response.stdout,
         stderr=response.stderr,
-        reducer=response.is_reducer,
         metrics=metrics,
     )
 
