@@ -5,7 +5,6 @@ use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::init_provider;
 use processor::{gc::Gc, graph_processor::GraphProcessor, task_cache};
-use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
@@ -39,7 +38,6 @@ pub struct Service {
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
-    pub metrics_registry: Arc<Registry>,
     pub task_cache: Arc<task_cache::TaskCache>,
     pub graph_processor: Arc<GraphProcessor>,
 }
@@ -47,8 +45,11 @@ pub struct Service {
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
         let config = Arc::new(config);
-        let registry = init_provider()?;
-        let metrics_registry = Arc::new(registry);
+        init_provider(
+            config.telemetry.enable_metrics,
+            config.telemetry.endpoint.clone(),
+            config.telemetry.metrics_interval,
+        )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let blob_storage = Arc::new(
             BlobStorage::new(config.blob_storage.clone())
@@ -91,7 +92,6 @@ impl Service {
             executor_manager,
             kvs,
             gc_executor,
-            metrics_registry,
             task_cache,
             graph_processor,
         })
@@ -133,7 +133,6 @@ impl Service {
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage.clone(),
             executor_manager: self.executor_manager.clone(),
-            registry: self.metrics_registry.clone(),
             metrics: api_metrics.clone(),
         };
         let gc_executor = self.gc_executor.clone();

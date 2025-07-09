@@ -6,9 +6,8 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 opentelemetry = {workspace=true}
-opentelemetry-prometheus = {workspace=true}
 opentelemetry_sdk = { workspace=true }
-prometheus = {workspace=true}
+opentelemetry-otlp = {workspace=true}
 pin-project-lite = {workspace=true}
 serde={workspace = true}
 once_cell = {workspace=true}

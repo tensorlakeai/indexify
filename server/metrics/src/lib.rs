@@ -7,8 +7,6 @@ use std::{
 
 use anyhow::Result;
 use pin_project_lite::pin_project;
-use prometheus::Registry;
-
 pub fn low_latency_boundaries() -> Vec<f64> {
     vec![
         0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0,
@@ -101,25 +99,44 @@ where
     }
 }
 
-use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
+use opentelemetry_otlp::{MetricExporter, WithExportConfig};
+use opentelemetry_sdk::{
+    metrics::{PeriodicReader, SdkMeterProvider},
+    Resource,
+};
 
-pub fn init_provider() -> Result<Registry> {
-    let registry = prometheus::Registry::new();
-    let exporter = opentelemetry_prometheus::exporter()
-        .with_registry(registry.clone())
-        .build()?;
+pub fn init_provider(
+    enable_metrics: bool,
+    endpoint: Option<String>,
+    interval: Duration,
+) -> Result<()> {
+    // Early exit if metrics are disabled
+    if !enable_metrics {
+        return Ok(());
+    }
+
+    let resource = Resource::builder()
+        .with_attribute(KeyValue::new("service.name", "indexify-server"))
+        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
+        .build();
+
+    let mut exporter = MetricExporter::builder().with_tonic();
+    if let Some(endpoint) = endpoint {
+        exporter = exporter.with_endpoint(endpoint);
+    }
+    let exporter = exporter.build()?;
+
+    let reader = PeriodicReader::builder(exporter)
+        .with_interval(interval)
+        .build();
+
     let provider = SdkMeterProvider::builder()
-        .with_resource(
-            Resource::builder()
-                .with_attribute(KeyValue::new("service.name", "indexify-server"))
-                .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
-                .build(),
-        )
-        .with_reader(exporter)
+        .with_resource(resource)
+        .with_reader(reader)
         .build();
 
     opentelemetry::global::set_meter_provider(provider);
-    Ok(registry)
+    Ok(())
 }
 
 pub mod api_io_stats {
