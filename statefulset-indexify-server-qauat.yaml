@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  creationTimestamp: "2025-05-28T17:21:39Z"
+  generation: 2
+  labels:
+    app.kubernetes.io/name: indexify-server-qauat
+  name: indexify-server-qauat
+  namespace: dev
+  resourceVersion: "25624701"
+  uid: 96ad2b44-792a-475f-9dc7-b8714bf6131f
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: indexify-server-qauat
+  serviceName: indexify-server-qauat
+  template:
+    metadata:
+      annotations:
+        ad.datadoghq.com/indexify-server-qauat.checks: '{"openmetrics":{"instances":[{"collect_counters_with_distributions":true,"histogram_buckets_as_distributions":true,"metrics":[".*"],"namespace":"indexify","openmetrics_endpoint":"http://%%host%%:8900/metrics/service"}]}}'
+      labels:
+        app.kubernetes.io/name: indexify-server-qauat
+    spec:
+      automountServiceAccountToken: true
+      containers:
+        - args:
+            - infinity
+          command:
+            - sleep
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: AWS_REGION
+              value: us-east-1
+            - name: RUST_BACKTRACE
+              value: full
+          image: 347620126581.dkr.ecr.us-east-1.amazonaws.com/indexify-server:9603d5566eb9c82518faa236dd37446e0a86bb84t
+          imagePullPolicy: Always
+          livenessProbe:
+            exec:
+              command:
+                - echo
+                - Please make a real liveness probe
+            failureThreshold: 3
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: indexify-server-qauat
+          ports:
+            - containerPort: 8900
+              name: http
+              protocol: TCP
+            - containerPort: 8901
+              name: grpc
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - echo
+                - Please make a real liveness probe
+            failureThreshold: 3
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 8Gi
+            requests:
+              cpu: 250m
+              memory: 50Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/indexify
+              mountPropagation: None
+              name: config
+            - mountPath: /data/indexify/state
+              mountPropagation: None
+              name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: indexify-server-qauat
+      serviceAccountName: indexify-server-qauat
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+              - key: config.yaml
+                path: config.yaml
+            name: indexify-server-qauat
+            optional: false
+          name: config
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+        namespace: dev
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        storageClassName: ebs-indexify
+        volumeMode: Filesystem
+      status:
+        phase: Pending
+status:
+  availableReplicas: 0
+  collisionCount: 0
+  currentRevision: indexify-server-qauat-59d448f789
+  observedGeneration: 2
+  replicas: 1
+  updateRevision: indexify-server-qauat-557d87779c
+  updatedReplicas: 1
