@@ -19,6 +19,7 @@ mod tests {
 
     use crate::{
         assert_task_counts,
+        executors::EXECUTOR_TIMEOUT,
         service::Service,
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
@@ -658,7 +659,7 @@ mod tests {
         };
 
         // register executor2, no tasks assigned to it
-        let executor2 = {
+        let mut executor2 = {
             let executor2 = test_srv
                 .create_executor(test_executor_metadata("executor_2".into()))
                 .await?;
@@ -674,13 +675,48 @@ mod tests {
             executor2
         };
 
-        // verify tasks are reassigned to executor2 when executor1 deregisters
+        // simulate network partition by pausing time and advancing it
         {
-            executor1.deregister().await?;
+            // pause time to control clock advancement
+            tokio::time::pause();
 
+            // advance time to almost the EXECUTOR_TIMEOUT
+            tokio::time::advance(EXECUTOR_TIMEOUT - std::time::Duration::from_secs(1)).await;
+
+            // heartbeat executor2 to ensure it's still considered alive
+            executor2
+                .heartbeat(executor2.executor_metadata.clone())
+                .await?;
             test_srv.process_all_state_changes().await?;
 
-            // verify that the tasks are still allocated
+            // verify that both executors are still alive and tasks are still on executor1
+            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+            let desired_state = executor1.desired_state().await;
+            assert_eq!(
+                desired_state.task_allocations.len(),
+                1,
+                "Executor1 tasks: {:#?}",
+                desired_state.task_allocations
+            );
+            let desired_state = executor2.desired_state().await;
+            assert!(
+                desired_state.task_allocations.is_empty(),
+                "Executor2 tasks: {:#?}",
+                desired_state.task_allocations
+            );
+
+            // advance time past the EXECUTOR_TIMEOUT to trigger executor1 timeout
+            tokio::time::advance(std::time::Duration::from_secs(2)).await;
+
+            // process lapsed executors to trigger reassignment
+            test_srv
+                .service
+                .executor_manager
+                .process_lapsed_executors()
+                .await?;
+            test_srv.process_all_state_changes().await?;
+
+            // verify that the tasks are still allocated but moved to executor2
             assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             // verify that the tasks are reassigned to executor2
@@ -688,19 +724,12 @@ mod tests {
             assert_eq!(
                 desired_state.task_allocations.len(),
                 1,
-                "Executor tasks: {:#?}",
+                "Executor2 tasks: {:#?}",
                 desired_state.task_allocations
             );
-        }
 
-        // verify tasks are unallocated when executor2 deregisters
-        {
-            executor2.deregister().await?;
-
-            test_srv.process_all_state_changes().await?;
-
-            // verify that the tasks become unallocated
-            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+            // resume time
+            tokio::time::resume();
         }
 
         Ok(())
