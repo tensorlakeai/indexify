@@ -84,7 +84,7 @@ opentelemetry-prometheus = { version = "0.29.1" }
 prometheus = { version = "0.14.0" }
 tracing-opentelemetry = "0.30.0"
 dashmap = "6.1.0"
-tower-otel-http-metrics = "0.15.0"
+tower-otel-http-metrics = { version = "0.15.0", features = ["axum"] }
 im = { version = "15.1.0" }
 base64 = "0.22.1"
 clap = { version = "4.5.40", features = ["derive"] }
