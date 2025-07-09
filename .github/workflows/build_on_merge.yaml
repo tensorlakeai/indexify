@@ -12,14 +12,33 @@ permissions:
   pull-requests: write
 
 jobs:
+  extract-version:
+    name: Extract Version Number
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_extraction.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version_extraction
+        run:
+          echo "version=$(cargo metadata --format-version 1 | jq '.packages[] |
+          select(.name == "indexify-server") | .version' | xargs)" >>
+          "$GITHUB_OUTPUT"
+
   build_dev_ecr:
     uses: ./.github/workflows/build_ecr_image.yaml
     with: 
       environment: dev
+      version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
+    needs:
+      - extract-version
 
   build_prod_ecr:
     uses: ./.github/workflows/build_ecr_image.yaml
     with: 
       environment: prod
+      version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
+    needs:
+      - extract-version

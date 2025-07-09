@@ -7,6 +7,10 @@ on:
         description: 'Environment to post the image to'
         required: true
         type: string
+      version:
+        description: 'Version tag to apply to image'
+        required: true
+        type: string
 
   workflow_call:
     inputs:
@@ -15,6 +19,11 @@ on:
         required: true
         type: string
 
+      version:
+        description: 'Version tag to apply to image'
+        required: true
+        type: string
+        
 permissions:
   id-token: write
   contents: read
@@ -44,4 +53,6 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - run: |
-          docker buildx build --platform=linux/amd64 --push . -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }} -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:latest -f dockerfiles/Dockerfile.local
+          docker buildx build --platform=linux/amd64 --push . -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }} -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:latest -t ${{ steps.login-ecr.outputs.registry }}/indexify-server:$VERSION_TAG -t -f dockerfiles/Dockerfile.local
+        env:
+          VERSION_TAG: ${{inputs.version}}
