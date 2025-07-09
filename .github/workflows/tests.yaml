@@ -32,7 +32,7 @@ jobs:
     runs-on: namespace-profile-rust-builder-amd64
     steps:
       - name: Install protobuf package
-        run: sudo apt install -y protobuf-compiler
+        run: sudo apt update && sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v4
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
