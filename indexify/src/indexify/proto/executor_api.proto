@@ -262,7 +262,6 @@ message TaskResult {
     optional string graph_version = 5;
     optional string function_name = 6;
     optional string graph_invocation_id = 7;
-    optional bool reducer = 8;
     optional TaskOutcomeCode outcome_code = 9;
     optional TaskFailureReason failure_reason = 10;
     // Edges that the function wants the invocation to be routed to.

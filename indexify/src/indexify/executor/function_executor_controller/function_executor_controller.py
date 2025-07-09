@@ -853,7 +853,6 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         graph_version=output.allocation.task.graph_version,
         function_name=output.allocation.task.function_name,
         graph_invocation_id=output.allocation.task.graph_invocation_id,
-        reducer=output.reducer,
         outcome_code=output.outcome_code,
         failure_reason=output.failure_reason,
         next_functions=output.next_functions,

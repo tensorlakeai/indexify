@@ -536,7 +536,6 @@ class TaskResult(_message.Message):
         "graph_version",
         "function_name",
         "graph_invocation_id",
-        "reducer",
         "outcome_code",
         "failure_reason",
         "next_functions",
@@ -552,7 +551,6 @@ class TaskResult(_message.Message):
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    REDUCER_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
     NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -567,7 +565,6 @@ class TaskResult(_message.Message):
     graph_version: str
     function_name: str
     graph_invocation_id: str
-    reducer: bool
     outcome_code: TaskOutcomeCode
     failure_reason: TaskFailureReason
     next_functions: _containers.RepeatedScalarFieldContainer[str]
@@ -584,7 +581,6 @@ class TaskResult(_message.Message):
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
-        reducer: bool = ...,
         outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
         failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
         next_functions: _Optional[_Iterable[str]] = ...,
