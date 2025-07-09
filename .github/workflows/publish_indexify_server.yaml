@@ -51,7 +51,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    runs-on: namespace-profile-rust-builder-amd64
+    runs-on: namespace-profile-indexify-builder
     needs:
       - build-release-packages
       - extract-version
@@ -171,7 +171,7 @@ jobs:
 
   build-and-push-docker-images:
     name: Build and Push Docker Images
-    runs-on: namespace-profile-rust-builder-amd64
+    runs-on: namespace-profile-indexify-builder
     needs:
       - extract-version
       - create-release

@@ -27,7 +27,7 @@ jobs:
   build-and-push:
     name: Build indexify server and push to ${{ inputs.environment }}
     environment: ${{ inputs.environment }}
-    runs-on: namespace-profile-rust-builder-amd64
+    runs-on: namespace-profile-indexify-builder
     steps:
       - name: Checkout
         uses: actions/checkout@v4
