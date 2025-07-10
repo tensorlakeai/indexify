@@ -11,6 +11,9 @@ endpoint = "http://localhost:4317"
 metrics_interval = 5
 # Optional path to write local logs to a rotating file
 local_log_file = "/tmp/indexify/local.log"
+# Instance ID for this Indexify server instance
+# Used as a metric attribute "indexify.instance.id"
+instance_id = "indexify-server-1"
 
 # List of targets and their log levels for local logging
 [telemetry.local_log_targets]

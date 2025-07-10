@@ -47,8 +47,10 @@ impl Service {
         let config = Arc::new(config);
         init_provider(
             config.telemetry.enable_metrics,
-            config.telemetry.endpoint.clone(),
+            config.telemetry.endpoint.as_ref(),
             config.telemetry.metrics_interval,
+            config.telemetry.instance_id.as_ref(),
+            env!("CARGO_PKG_VERSION"),
         )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let blob_storage = Arc::new(
