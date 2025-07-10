@@ -9,5 +9,8 @@ telemetry:
   endpoint: "http://localhost:4317"
   # Metrics export interval in seconds (defaults to 10 if not specified)
   metrics_interval: 5
-  # Optional path to write processor debug logs to a rotating file
-  processor_debug_log_file: "/tmp/indexify/processor.log"
+  # Optional path to write local logs to a rotating file
+  local_log_file: "/tmp/indexify/local.log"
+  # List of targets and their log levels for local logging
+  local_log_targets:
+    scheduler: "debug"
