@@ -96,7 +96,10 @@ where
     let mut targets = tracing_subscriber::filter::Targets::new();
     for (target, level_str) in &config.telemetry.local_log_targets {
         let level = tracing::Level::from_str(level_str).unwrap_or_else(|_| {
-            error!("Invalid log level '{}' for target '{}', defaulting to DEBUG", level_str, target);
+            error!(
+                "Invalid log level '{}' for target '{}', defaulting to DEBUG",
+                level_str, target
+            );
             tracing::Level::DEBUG
         });
         targets = targets.with_target(target, level);
