@@ -1,8 +1,5 @@
 state_store_path: indexify_server_state 
 listen_addr: 0.0.0.0:8900
-blob_storage:
-  path: "s3://indexifyblobs"
-  dynamodb_table: kvs_cas_table 
 
 telemetry:
   enable_tracing: false
@@ -12,3 +9,5 @@ telemetry:
   endpoint: "http://localhost:4317"
   # Metrics export interval in seconds (defaults to 10 if not specified)
   metrics_interval: 5
+  # Optional path to write processor debug logs to a rotating file
+  processor_debug_log_file: "/tmp/indexify/processor.log"
