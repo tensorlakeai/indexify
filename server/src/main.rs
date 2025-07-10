@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Ok, Result};
 use clap::Parser;
@@ -7,7 +10,8 @@ use opentelemetry::global;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
-use tracing::error;
+use tracing::{error, Level};
+use tracing_appender;
 use tracing_subscriber::{
     fmt::{
         self,
@@ -77,13 +81,47 @@ where
     Box::new(tracing_subscriber::fmt::layer().compact())
 }
 
+fn get_processor_debug_layer<S>(config: &ServerConfig) -> Box<dyn Layer<S> + Send + Sync + 'static>
+where
+    S: for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+    S: tracing::Subscriber,
+{
+    let Some(log_file_path) = &config.telemetry.processor_debug_log_file else {
+        // Return Identity layer if no debug log file is configured
+        return Box::new(tracing_subscriber::layer::Identity::new());
+    };
+
+    let file_appender = tracing_appender::rolling::daily(
+        Path::new(log_file_path).parent().unwrap_or(Path::new(".")),
+        Path::new(log_file_path)
+            .file_name()
+            .unwrap_or(OsStr::new("processor.log")),
+    );
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false) // No ANSI colors for file output
+        .with_filter(tracing_subscriber::filter::FilterFn::new(|metadata| {
+            let Some(path) = metadata.module_path() else {
+                return false;
+            };
+            *metadata.level() <= Level::DEBUG && path.starts_with("processor::")
+        }));
+
+    // Store the guard to prevent it from being dropped
+    std::mem::forget(_guard);
+
+    Box::new(file_layer)
+}
+
 fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
     let structured_logging = !config.dev;
     let env_filter_layer = get_env_filter();
     let log_layer = get_log_layer(structured_logging);
+    let processor_debug_layer = get_processor_debug_layer(&config);
     let subscriber = tracing_subscriber::Registry::default()
-        .with(env_filter_layer)
-        .with(log_layer);
+        .with(log_layer.with_filter(env_filter_layer))
+        .with(processor_debug_layer);
 
     if !config.telemetry.enable_tracing {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {

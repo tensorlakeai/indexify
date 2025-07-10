@@ -77,6 +77,9 @@ pub struct TelemetryConfig {
     // Metrics export interval. Defaults to 10 seconds.
     #[serde(with = "duration_serde")]
     pub metrics_interval: Duration,
+    // Optional path to write processor debug logs to a rotating
+    // file.
+    pub processor_debug_log_file: Option<String>,
 }
 
 impl Default for TelemetryConfig {
@@ -86,6 +89,7 @@ impl Default for TelemetryConfig {
             enable_metrics: false,
             endpoint: None,
             metrics_interval: Duration::from_secs(10),
+            processor_debug_log_file: None,
         }
     }
 }
