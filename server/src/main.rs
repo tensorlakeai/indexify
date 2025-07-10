@@ -82,6 +82,13 @@ where
     Box::new(tracing_subscriber::fmt::layer().compact())
 }
 
+/// Builds up a configuration for the local log layer.
+///
+/// The idea here is that we want to be able to use a separate local log file
+/// with detailed event information (more detailed than we want to send to our
+/// log collector). So we allow the user to configure a target->level map for
+/// local logs; to keep these from growing too crazily large, we make sure to
+/// rotate them on a daily basis.
 fn get_local_log_layer<S>(config: &ServerConfig) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: for<'a> tracing_subscriber::registry::LookupSpan<'a>,
