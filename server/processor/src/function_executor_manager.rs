@@ -22,7 +22,7 @@ use state_store::{
 };
 use tracing::{debug, error, info, info_span};
 
-use crate::task_policy::TaskRetryPolicy;
+use crate::{targets, task_policy::TaskRetryPolicy};
 
 pub struct FunctionExecutorManager {
     clock: u64,
@@ -50,7 +50,7 @@ impl FunctionExecutorManager {
             in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
 
         debug!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len(),
         );
@@ -66,7 +66,7 @@ impl FunctionExecutorManager {
             update.new_function_executors.push(*update_fe);
 
             info!(
-                target: "scheduler",
+                target: targets::SCHEDULER,
                 fn_executor_id = fe.function_executor.id.get(),
                 executor_id = fe.executor_id.get(),
                 "Marked function executor {} on executor {} for termination",
@@ -84,7 +84,7 @@ impl FunctionExecutorManager {
         task: &Task,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             "create_function_executor",
             namespace = task.namespace,
             invocation_id = task.invocation_id,
@@ -98,7 +98,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
-            debug!(target: "scheduler", "no candidates found for task, running vacuum");
+            debug!(target: targets::SCHEDULER, "no candidates found for task, running vacuum");
             let fe_resource = in_memory_state.fe_resource_for_task(&task)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
@@ -110,7 +110,7 @@ impl FunctionExecutorManager {
             candidates = in_memory_state.candidate_executors(task)?;
         }
         debug!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             "found {} candidates for creating function executor",
             candidates.len()
         );
@@ -147,7 +147,7 @@ impl FunctionExecutorManager {
             .build()?;
 
         info!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             executor_id = executor_id.get(),
             fn_executor_id = function_executor.id.get(),
             "created function executor"
@@ -276,7 +276,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
 
         let span = info_span!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             "remove_function_executors",
             executor_id = executor_server_metadata.executor_id.get(),
             num_function_executors = function_executors_to_remove.len(),
@@ -291,7 +291,7 @@ impl FunctionExecutorManager {
         // Handle allocations for FEs to be removed and update tasks
         for fe in function_executors_to_remove {
             info!(
-                target: "scheduler",
+                target: targets::SCHEDULER,
                 namespace = fe.namespace,
                 graph = fe.compute_graph_name,
                 fn = fe.compute_fn_name,
@@ -360,7 +360,7 @@ impl FunctionExecutorManager {
         }
 
         info!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             num_failed_allocations = failed_tasks,
             "failed allocations on executor due to function executor terminations",
         );
@@ -383,7 +383,7 @@ impl FunctionExecutorManager {
                 );
             } else {
                 error!(
-                    target: "scheduler",
+                    target: targets::SCHEDULER,
                     fn_executor_id = fe.id.get(),
                     "resources not freed: function executor is not claiming resources on executor",
                 );
@@ -403,7 +403,7 @@ impl FunctionExecutorManager {
             in_memory_state.executor_states.get(executor_id).cloned()
         else {
             error!(
-                target: "scheduler",
+                target: targets::SCHEDULER,
                 executor_id = executor_id.get(),
                 "executor {} not found while removing function executors",
                 executor_id.get()
@@ -450,7 +450,7 @@ impl FunctionExecutorManager {
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            debug!(target: "scheduler", "no function executors found for task, creating one");
+            debug!(target: targets::SCHEDULER, "no function executors found for task, creating one");
             let fe_update = self.create_function_executor(in_memory_state, task)?;
             update.extend(fe_update);
             in_memory_state.update_state(
@@ -463,7 +463,7 @@ impl FunctionExecutorManager {
         }
 
         debug!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             num_function_executors = function_executors.function_executors.len(),
             num_pending_function_executors = function_executors.num_pending_function_executors,
             "found function executors for task",
@@ -523,7 +523,7 @@ impl FunctionExecutorManager {
             .clone();
 
         tracing::debug!(
-            target: "scheduler",
+            target: targets::SCHEDULER,
             executor_id = executor_id.get(),
             ?executor,
             "reconciling executor state for executor",
