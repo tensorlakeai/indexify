@@ -3,7 +3,7 @@ use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use figment::{
-    providers::{Format, Serialized, Yaml},
+    providers::{Format, Serialized, Toml, Yaml},
     Figment,
 };
 use serde::{Deserialize, Serialize};
@@ -39,9 +39,16 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn from_path(path: &str) -> Result<ServerConfig> {
         let config_str = std::fs::read_to_string(path)?;
-        let config: ServerConfig = Figment::from(Serialized::defaults(ServerConfig::default()))
-            .merge(Yaml::string(&config_str))
-            .extract()?;
+        let figment = Figment::from(Serialized::defaults(ServerConfig::default()));
+
+        let config: ServerConfig = if path.ends_with(".toml") {
+            figment.merge(Toml::string(&config_str))
+        } else {
+            // Default to YAML for .yaml, .yml, or any other extension
+            figment.merge(Yaml::string(&config_str))
+        }
+        .extract()?;
+
         config.validate()?;
         Ok(config)
     }
