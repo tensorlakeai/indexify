@@ -90,6 +90,9 @@ pub struct TelemetryConfig {
     // Format: {"target_name": "log_level"}, e.g., {"scheduler": "debug"}
     #[serde(default)]
     pub local_log_targets: std::collections::HashMap<String, String>,
+    // Instance ID for this Indexify server instance.
+    // Used as a metric attribute "indexify.instance.id".
+    pub instance_id: Option<String>,
 }
 
 impl Default for TelemetryConfig {
@@ -101,6 +104,7 @@ impl Default for TelemetryConfig {
             metrics_interval: Duration::from_secs(10),
             local_log_file: None,
             local_log_targets: std::collections::HashMap::new(),
+            instance_id: None,
         }
     }
 }

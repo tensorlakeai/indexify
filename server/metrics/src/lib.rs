@@ -107,22 +107,36 @@ use opentelemetry_sdk::{
 
 pub fn init_provider(
     enable_metrics: bool,
-    endpoint: Option<String>,
+    endpoint: Option<&String>,
     interval: Duration,
+    instance_id: Option<&String>,
+    service_version: &str,
 ) -> Result<()> {
     // Early exit if metrics are disabled
     if !enable_metrics {
         return Ok(());
     }
 
-    let resource = Resource::builder()
+    let mut resource_builder = Resource::builder()
+        .with_attribute(KeyValue::new("service.namespace", "indexify"))
         .with_attribute(KeyValue::new("service.name", "indexify-server"))
-        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
-        .build();
+        .with_attribute(KeyValue::new(
+            "service.version",
+            service_version.to_string(),
+        ));
+
+    if let Some(instance_id) = instance_id {
+        resource_builder = resource_builder.with_attribute(KeyValue::new(
+            "indexify.instance.id",
+            instance_id.to_owned(),
+        ));
+    }
+
+    let resource = resource_builder.build();
 
     let mut exporter = MetricExporter::builder().with_tonic();
     if let Some(endpoint) = endpoint {
-        exporter = exporter.with_endpoint(endpoint);
+        exporter = exporter.with_endpoint(endpoint.to_owned());
     }
     let exporter = exporter.build()?;
 

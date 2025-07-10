@@ -14,3 +14,6 @@ telemetry:
   # List of targets and their log levels for local logging
   local_log_targets:
     scheduler: "debug"
+  # Instance ID for this Indexify server instance
+  # Used as a metric attribute "indexify.instance.id"
+  instance_id: "indexify-server-1"
