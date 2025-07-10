@@ -77,9 +77,12 @@ pub struct TelemetryConfig {
     // Metrics export interval. Defaults to 10 seconds.
     #[serde(with = "duration_serde")]
     pub metrics_interval: Duration,
-    // Optional path to write processor debug logs to a rotating
-    // file.
-    pub processor_debug_log_file: Option<String>,
+    // Optional path to write local logs to a rotating file.
+    pub local_log_file: Option<String>,
+    // List of targets and their log levels for local logging.
+    // Format: {"target_name": "log_level"}, e.g., {"scheduler": "debug"}
+    #[serde(default)]
+    pub local_log_targets: std::collections::HashMap<String, String>,
 }
 
 impl Default for TelemetryConfig {
@@ -89,7 +92,8 @@ impl Default for TelemetryConfig {
             enable_metrics: false,
             endpoint: None,
             metrics_interval: Duration::from_secs(10),
-            processor_debug_log_file: None,
+            local_log_file: None,
+            local_log_targets: std::collections::HashMap::new(),
         }
     }
 }
