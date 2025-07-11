@@ -31,10 +31,7 @@ use indexify_utils::{get_elapsed_time, TimeUnit};
 use metrics::low_latency_boundaries;
 use opentelemetry::{
     metrics::{Histogram, ObservableGauge},
-    Array,
     KeyValue,
-    StringValue,
-    Value,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
