@@ -41,14 +41,14 @@ impl GraphProcessor {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let processor_processing_latency = meter
-            .f64_histogram("processor_processing_latency")
+            .f64_histogram("indexify.processor_processing_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("processor task processing latency in seconds")
             .build();
 
         let state_transition_latency = meter
-            .f64_histogram("state_transition_latency")
+            .f64_histogram("indexify.state_transition_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Latency of state transitions before processing in seconds")

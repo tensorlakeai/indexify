@@ -177,7 +177,7 @@ impl InMemoryMetrics {
         let unallocated_tasks_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("unallocated_tasks")
+                .u64_observable_gauge("indexify.unallocated_tasks")
                 .with_description("Number of unallocated tasks, reported from in_memory_state")
                 .with_callback(move |observer| {
                     // Use a block scope to ensure the lock is dropped automatically
@@ -197,7 +197,7 @@ impl InMemoryMetrics {
         let active_tasks_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("active_tasks")
+                .u64_observable_gauge("indexify.active_tasks")
                 .with_description("Number of active tasks, reported from in_memory_state")
                 .with_callback(move |observer| {
                     if let Ok(state) = state_clone.try_read() {
@@ -220,7 +220,7 @@ impl InMemoryMetrics {
         let active_invocations_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("active_invocations_gauge")
+                .u64_observable_gauge("indexify.active_invocations_gauge")
                 .with_description("Number of active invocations, reported from in_memory_state")
                 .with_callback(move |observer| {
                     if let Ok(state) = state_clone.try_read() {
@@ -237,7 +237,7 @@ impl InMemoryMetrics {
         let active_allocations_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("active_allocations_gauge")
+                .u64_observable_gauge("indexify.active_allocations_gauge")
                 .with_description("Number of active allocations, reported from in_memory_state")
                 .with_callback(move |observer| {
                     // Clone data within a minimal scope to auto-drop the lock immediately
@@ -301,7 +301,7 @@ impl InMemoryMetrics {
         let max_invocation_age_gauge = {
             let state_clone = state.clone();
             meter
-                .f64_observable_gauge("max_invocation_age")
+                .f64_observable_gauge("indexify.max_invocation_age")
                 .with_unit("s")
                 .with_description("Maximum age of any non-completed invocation in seconds")
                 .with_callback(move |observer| {
@@ -343,7 +343,7 @@ impl InMemoryMetrics {
         let max_task_age_gauge = {
             let state_clone = state.clone();
             meter
-                .f64_observable_gauge("max_task_age")
+                .f64_observable_gauge("indexify.max_task_age")
                 .with_unit("s")
                 .with_description("Maximum age of any non-terminal task in seconds")
                 .with_callback(move |observer| {
@@ -398,21 +398,21 @@ impl InMemoryState {
 
         // Create histogram metrics for task latency measurements
         let task_pending_latency = meter
-            .f64_histogram("task_pending_latency")
+            .f64_histogram("indexify.task_pending_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from creation to running")
             .build();
 
         let allocation_running_latency = meter
-            .f64_histogram("allocation_running_latency")
+            .f64_histogram("indexify.allocation_running_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from running to completion")
             .build();
 
         let allocation_completion_latency = meter
-            .f64_histogram("allocation_completion_latency")
+            .f64_histogram("indexify.allocation_completion_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from creation to completion")

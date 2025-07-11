@@ -130,6 +130,11 @@ pub fn init_provider(
             "indexify.instance.id",
             instance_id.to_owned(),
         ));
+
+        // Temporary non-compliant instance-id attribute to avoid observability gap
+        // while we migrate rest of stack.
+        resource_builder = resource_builder
+            .with_attribute(KeyValue::new("indexify-instance", instance_id.to_owned()));
     }
 
     let resource = resource_builder.build();
@@ -271,7 +276,7 @@ pub mod blob_storage {
             let meter = opentelemetry::global::meter("blob-storage");
 
             let operations = meter
-                .f64_histogram("blob_operations_duration")
+                .f64_histogram("indexify.blob_operations_duration")
                 .with_unit("s")
                 .with_boundaries(low_latency_boundaries())
                 .with_description("blob store latencies in seconds")
@@ -304,14 +309,14 @@ pub mod kv_storage {
             let meter = opentelemetry::global::meter("kv-storage");
 
             let reads = meter
-                .f64_histogram("kv_storage_read_duration")
+                .f64_histogram("indexify.kv_storage_read_duration")
                 .with_unit("s")
                 .with_boundaries(low_latency_boundaries())
                 .with_description("K/V store read latencies in seconds")
                 .build();
 
             let writes = meter
-                .f64_histogram("kv_storage_write_duration")
+                .f64_histogram("indexify.kv_storage_write_duration")
                 .with_unit("s")
                 .with_boundaries(low_latency_boundaries())
                 .with_description("k/v store write latencies in seconds")
@@ -371,21 +376,21 @@ impl StateStoreMetrics {
         let meter = opentelemetry::global::meter("state_store");
 
         let state_write = meter
-            .f64_histogram("state_machine_write_duration")
+            .f64_histogram("indexify.state_machine_write_duration")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("State machine writing latency in seconds")
             .build();
 
         let state_read = meter
-            .f64_histogram("state_machine_read_duration")
+            .f64_histogram("indexify.state_machine_read_duration")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("State machine reading latency in seconds")
             .build();
 
         let state_metrics_write = meter
-            .f64_histogram("state_metrics_write_duration")
+            .f64_histogram("indexify.state_metrics_write_duration")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("State metrics writing latency in seconds")
