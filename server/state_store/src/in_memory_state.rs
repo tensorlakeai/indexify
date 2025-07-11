@@ -252,44 +252,15 @@ impl InMemoryMetrics {
 
                     match allocations_by_executor {
                         Some(allocations_by_executor) => {
-                            let mut total_allocations = 0u64;
-                            let mut fn_uris = HashSet::new();
-
                             // Process the cloned data outside the lock scope
-                            for (_, fn_map) in allocations_by_executor.iter() {
+                            for (executor_id, fn_map) in allocations_by_executor.iter() {
                                 for (_, allocations) in fn_map.iter() {
-                                    if allocations.is_empty() {
-                                        continue;
-                                    }
-                                    total_allocations += allocations.len() as u64;
-
-                                    // Get the function URI from the first allocation
-                                    if let Some(allocation) = allocations.iter().next() {
-                                        fn_uris.insert(allocation.fn_uri());
-                                    }
+                                    observer.observe(
+                                        allocations.len() as u64,
+                                        &[KeyValue::new("executor_id", executor_id.to_string())],
+                                    );
                                 }
                             }
-
-                            let executor_ids: Vec<StringValue> = allocations_by_executor
-                                .keys()
-                                .map(|executor_id| StringValue::from(executor_id.get().to_string()))
-                                .collect();
-
-                            let fn_uris: Vec<StringValue> = fn_uris
-                                .into_iter()
-                                .map(|uri| StringValue::from(uri))
-                                .collect();
-
-                            observer.observe(
-                                total_allocations,
-                                &[
-                                    KeyValue::new(
-                                        "executor_ids",
-                                        Value::Array(Array::String(executor_ids)),
-                                    ),
-                                    KeyValue::new("fn_uris", Value::Array(Array::String(fn_uris))),
-                                ],
-                            );
                         }
                         None => {}
                     }
