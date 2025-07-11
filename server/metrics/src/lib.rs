@@ -131,7 +131,7 @@ pub fn init_provider(
             instance_id.to_owned(),
         ));
 
-        // Temporary non-compliant until migrate rest of stack.
+        // Temporary non-compliant instance-id attribute to avoid observability gap while we migrate rest of stack.
         resource_builder = resource_builder
             .with_attribute(KeyValue::new("indexify-instance", instance_id.to_owned()));
     }
