@@ -4,7 +4,7 @@ use state_store::{
     in_memory_state::InMemoryState,
     requests::{RequestPayload, SchedulerUpdateRequest},
 };
-use tracing::{debug, info, info_span};
+use tracing::{debug, info, info_span, warn};
 
 use crate::function_executor_manager::FunctionExecutorManager;
 
@@ -29,7 +29,30 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut update = SchedulerUpdateRequest::default();
 
         for task in tasks {
-            update.extend(self.create_allocation(in_memory_state, &task)?);
+            match self.create_allocation(in_memory_state, &task) {
+                Ok(allocation_update) => {
+                    update.extend(allocation_update);
+                }
+                Err(err) => {
+                    // Check if this is a state store error we can handle gracefully
+                    if let Some(state_store_error) =
+                        err.downcast_ref::<state_store::in_memory_state::Error>()
+                    {
+                        warn!(
+                            task_id = task.id.get(),
+                            namespace = task.namespace,
+                            graph = task.compute_graph_name,
+                            graph_version = state_store_error.version(),
+                            "fn" = state_store_error.function_name(),
+                            error = %state_store_error,
+                            "Unable to allocate task"
+                        );
+                        continue;
+                    }
+                    // For any other error, return it
+                    return Err(err);
+                }
+            }
         }
 
         Ok(update)

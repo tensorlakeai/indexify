@@ -43,6 +43,48 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub enum Error {
+    ComputeGraphVersionNotFound {
+        version: String,
+        function_name: String,
+    },
+    ComputeFunctionNotFound {
+        version: String,
+        function_name: String,
+    },
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::ComputeGraphVersionNotFound { version, .. } => {
+                write!(f, "Compute graph version not found: {}", version)
+            }
+            Error::ComputeFunctionNotFound { function_name, .. } => {
+                write!(f, "Compute function not found: {}", function_name)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl Error {
+    pub fn version(&self) -> &str {
+        match self {
+            Error::ComputeGraphVersionNotFound { version, .. } => version,
+            Error::ComputeFunctionNotFound { version, .. } => version,
+        }
+    }
+
+    pub fn function_name(&self) -> &str {
+        match self {
+            Error::ComputeGraphVersionNotFound { function_name, .. } => function_name,
+            Error::ComputeFunctionNotFound { function_name, .. } => function_name,
+        }
+    }
+}
+#[derive(Debug, Clone)]
 pub struct DesiredStateTask {
     pub task: Box<Task>,
     pub allocation_id: String,
@@ -984,11 +1026,17 @@ impl InMemoryState {
                 &task.compute_graph_name,
                 &task.graph_version,
             ))
-            .ok_or(anyhow!("Compute graph version not found"))?;
+            .ok_or_else(|| Error::ComputeGraphVersionNotFound {
+                version: task.graph_version.0.clone(),
+                function_name: task.compute_fn_name.clone(),
+            })?;
         let compute_fn = compute_graph
             .nodes
             .get(&task.compute_fn_name)
-            .ok_or(anyhow!("Compute function not found"))?;
+            .ok_or_else(|| Error::ComputeFunctionNotFound {
+                version: task.graph_version.0.clone(),
+                function_name: task.compute_fn_name.clone(),
+            })?;
         let mut candidates = Vec::new();
         for (_, executor_state) in &self.executor_states {
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
