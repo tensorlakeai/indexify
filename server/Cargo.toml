@@ -71,6 +71,7 @@ rocksdb = { version = "0.23.0" }
 tokio = { version = "1.45.1", features = ["full", "test-util"] }
 
 [build-dependencies]
+anyhow = "1.0.98"
 # All features enabled
 vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
 tonic-build = "0.13.1"

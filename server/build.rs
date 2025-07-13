@@ -1,8 +1,26 @@
-use std::{env, error::Error, path::PathBuf};
+use std::{env, path::PathBuf, process::Command};
 
+use anyhow::{anyhow, Result};
 use vergen::{BuildBuilder, Emitter, SysinfoBuilder};
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
+    println!("cargo:rerun-if-changed=ui/src");
+    println!("cargo:rerun-if-changed=ui/tsconfig.json");
+    println!("cargo:rerun-if-changed=ui/package.json");
+    println!("cargo:rerun-if-changed=ui/package-lock.json");
+    println!("cargo:rerun-if-changed=ui/public");
+
+    if !Command::new("sh")
+        .arg("-c")
+        .arg("cd ui && npm ci && npm run build")
+        .status()?
+        .success()
+    {
+        return Err(anyhow!(
+            "Failed to execute npm commands in the 'ui' directory"
+        ));
+    }
+
     let build = BuildBuilder::all_build()?;
     let si = SysinfoBuilder::all_sysinfo()?;
 
@@ -20,5 +38,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .file_descriptor_set_path(out_dir.join("executor_api_descriptor.bin"))
         .protoc_arg("--experimental_allow_proto3_optional") // Required for building on Ubuntu 22.04
         .compile_protos(&proto_files, &["proto"])?;
+
     Ok(())
 }
