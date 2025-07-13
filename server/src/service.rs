@@ -2,10 +2,6 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum_server::Handle;
-use blob_store::BlobStorage;
-use metrics::init_provider;
-use processor::{gc::Gc, graph_processor::GraphProcessor, task_cache};
-use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
     signal,
@@ -16,10 +12,14 @@ use tracing::info;
 
 use super::routes::RouteState;
 use crate::{
+    blob_store::BlobStorage,
     config::ServerConfig,
     executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
     executors::ExecutorManager,
+    metrics::{self, init_provider},
+    processor::{gc::Gc, graph_processor::GraphProcessor, task_cache},
     routes::create_routes,
+    state_store::{kv::KVS, IndexifyState},
 };
 
 pub mod executor_api_descriptor {

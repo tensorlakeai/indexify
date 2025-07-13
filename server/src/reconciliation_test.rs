@@ -1,20 +1,20 @@
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use data_model::{
-        test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
-        FunctionAllowlist,
-        FunctionExecutorState,
-        FunctionExecutorTerminationReason,
-        GraphVersion,
-        TaskOutcome,
-    };
-    use state_store::test_state_store;
 
     use crate::{
         assert_executor_state,
         assert_task_counts,
+        data_model::{
+            test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
+            FunctionAllowlist,
+            FunctionExecutorState,
+            FunctionExecutorTerminationReason,
+            GraphVersion,
+            TaskOutcome,
+        },
         service::Service,
+        state_store::test_state_store,
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 
@@ -196,7 +196,7 @@ mod tests {
 
         // Remove fn_a from function executors
         {
-            let mut fes: Vec<data_model::FunctionExecutor> = executor
+            let mut fes: Vec<crate::data_model::FunctionExecutor> = executor
                 .get_executor_server_state()
                 .await?
                 .function_executors
@@ -237,7 +237,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: data_model::TaskFailureReason = reason.into();
+        let task_failure_reason: crate::data_model::TaskFailureReason = reason.into();
         assert!(task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
@@ -445,7 +445,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: data_model::TaskFailureReason = reason.into();
+        let task_failure_reason: crate::data_model::TaskFailureReason = reason.into();
         assert!(!task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;

@@ -3,24 +3,24 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
-    use data_model::{
-        test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
-        Task,
-        TaskFailureReason,
-        TaskOutcome,
-    };
     use rocksdb::{IteratorMode, TransactionDB};
-    use state_store::{
-        requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
-        state_machine::IndexifyObjectsColumns,
-        test_state_store,
-    };
     use strum::IntoEnumIterator;
 
     use crate::{
         assert_task_counts,
+        data_model::{
+            test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
+            Task,
+            TaskFailureReason,
+            TaskOutcome,
+        },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
+        state_store::{
+            requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+            state_machine::IndexifyObjectsColumns,
+            test_state_store,
+        },
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
 

@@ -1,12 +1,13 @@
 use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
 
 use anyhow::Result;
-use blob_store::BlobStorageConfig;
 use figment::{
     providers::{Format, Serialized, Toml, Yaml},
     Figment,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::{blob_store::BlobStorageConfig, data_model};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {

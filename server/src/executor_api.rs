@@ -6,24 +6,6 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
-use blob_store::BlobStorage;
-use data_model::{
-    Allocation,
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorMetadataBuilder,
-    FunctionAllowlist,
-    FunctionExecutor,
-    FunctionExecutorDiagnostics,
-    FunctionExecutorId,
-    GPUResources,
-    GraphVersion,
-    NodeOutputBuilder,
-    TaskDiagnostics,
-    TaskFailureReason,
-    TaskOutcome,
-};
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
     AllowedFunction,
@@ -39,24 +21,43 @@ use executor_api_pb::{
     ReportExecutorStateResponse,
     TaskResult,
 };
-use metrics::api_io_stats;
-use state_store::{
-    requests::{
-        AllocationOutput,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        UpsertExecutorRequest,
-    },
-    IndexifyState,
-};
 use tokio::sync::watch;
 use tokio_stream::{wrappers::WatchStream, Stream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
+    blob_store::{self, BlobStorage},
+    data_model::{
+        self,
+        Allocation,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorMetadataBuilder,
+        FunctionAllowlist,
+        FunctionExecutor,
+        FunctionExecutorDiagnostics,
+        FunctionExecutorId,
+        GPUResources,
+        GraphVersion,
+        NodeOutputBuilder,
+        TaskDiagnostics,
+        TaskFailureReason,
+        TaskOutcome,
+    },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
+    metrics::api_io_stats,
+    state_store::{
+        requests::{
+            AllocationOutput,
+            RequestPayload,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
+        },
+        IndexifyState,
+    },
 };
 
 impl TryFrom<AllowedFunction> for FunctionAllowlist {

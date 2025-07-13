@@ -4,11 +4,9 @@ use axum::{
     extract::{Path, State},
     http::Response,
 };
-use blob_store::BlobStorage;
-use data_model::DataPayload;
 
 use super::RouteState;
-use crate::http_objects::IndexifyAPIError;
+use crate::{blob_store::BlobStorage, data_model::DataPayload, http_objects::IndexifyAPIError};
 
 #[utoipa::path(
     get,

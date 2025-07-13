@@ -23,16 +23,23 @@ use tracing_subscriber::{
 };
 use utoipa::OpenApi;
 
+mod blob_store;
 mod config;
+mod data_model;
 mod executor_api;
 mod executors;
 mod gc_test;
 mod http_objects;
+mod indexify_ui;
 mod integration_test;
+mod metrics;
 mod openapi;
+mod processor;
 mod reconciliation_test;
 mod routes;
 mod service;
+mod state_store;
+mod utils;
 
 #[cfg(test)]
 mod testing;

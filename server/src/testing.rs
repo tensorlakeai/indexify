@@ -1,39 +1,39 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use blob_store::BlobStorageConfig;
-use data_model::{
-    test_objects::tests::test_node_fn_output,
-    Allocation,
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    FunctionExecutor,
-    FunctionExecutorState,
-    GraphVersion,
-    Task,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskStatus,
-};
 use nanoid::nanoid;
-use state_store::{
-    requests::{
-        AllocationOutput,
-        DeregisterExecutorRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        UpsertExecutorRequest,
-    },
-    state_machine::IndexifyObjectsColumns,
-};
 use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 use crate::{
+    blob_store::BlobStorageConfig,
     config::ServerConfig,
+    data_model::{
+        test_objects::tests::test_node_fn_output,
+        Allocation,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        FunctionExecutor,
+        FunctionExecutorState,
+        GraphVersion,
+        Task,
+        TaskDiagnostics,
+        TaskOutcome,
+        TaskStatus,
+    },
     executor_api::executor_api_pb::TaskAllocation,
     service::Service,
+    state_store::{
+        requests::{
+            AllocationOutput,
+            DeregisterExecutorRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
+        },
+        state_machine::IndexifyObjectsColumns,
+    },
 };
 
 pub struct TestService {
