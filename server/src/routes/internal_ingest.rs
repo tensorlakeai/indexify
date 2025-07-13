@@ -5,15 +5,17 @@ use axum::{
     extract::{multipart::Field, Multipart, State},
     response::Json,
 };
-use blob_store::{BlobStorage, PutResult};
-use data_model::DataPayload;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 use utoipa::ToSchema;
 
 use super::RouteState;
-use crate::http_objects::IndexifyAPIError;
+use crate::{
+    blob_store::{BlobStorage, PutResult},
+    data_model::{self, DataPayload},
+    http_objects::IndexifyAPIError,
+};
 
 #[derive(Serialize, Deserialize)]
 pub enum TaskOutput {

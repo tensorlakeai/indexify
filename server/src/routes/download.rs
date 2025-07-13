@@ -4,12 +4,14 @@ use axum::{
     extract::{Path, State},
     response::Response,
 };
-use blob_store::BlobStorage;
-use data_model::GraphInvocationError;
 use futures::TryStreamExt;
 
 use super::RouteState;
-use crate::http_objects::{IndexifyAPIError, InvocationError};
+use crate::{
+    blob_store::BlobStorage,
+    data_model::GraphInvocationError,
+    http_objects::{IndexifyAPIError, InvocationError},
+};
 
 pub async fn download_invocation_payload(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,

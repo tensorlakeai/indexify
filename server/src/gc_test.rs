@@ -4,26 +4,29 @@ mod tests {
 
     use anyhow::Result;
     use bytes::Bytes;
-    use data_model::{
-        test_objects::tests::{test_graph_a, TEST_NAMESPACE},
-        GraphInvocationCtx,
-        InvocationPayload,
-        NodeOutput,
-    };
     use futures::stream;
-    use indexify_utils::get_epoch_time_in_ms;
-    use state_store::{
-        requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-        },
-        serializer::{JsonEncode, JsonEncoder},
-        state_machine::IndexifyObjectsColumns,
-    };
 
-    use crate::{service::Service, testing};
+    use crate::{
+        data_model::{
+            test_objects::tests::{test_graph_a, TEST_NAMESPACE},
+            GraphInvocationCtx,
+            InvocationPayload,
+            NodeOutput,
+        },
+        service::Service,
+        state_store::{
+            requests::{
+                CreateOrUpdateComputeGraphRequest,
+                DeleteComputeGraphRequest,
+                RequestPayload,
+                StateMachineUpdateRequest,
+            },
+            serializer::{JsonEncode, JsonEncoder},
+            state_machine::IndexifyObjectsColumns,
+        },
+        testing,
+        utils::get_epoch_time_in_ms,
+    };
 
     #[tokio::test]
     async fn test_gc() -> Result<()> {
@@ -72,7 +75,7 @@ mod tests {
                 id: "invocation_id".to_string(),
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph_name: compute_graph.name.clone(),
-                payload: data_model::DataPayload {
+                payload: crate::data_model::DataPayload {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
@@ -96,8 +99,8 @@ mod tests {
                     namespace: TEST_NAMESPACE.to_string(),
                     graph_version: compute_graph.version.clone(),
                     completed: false,
-                    outcome: data_model::GraphInvocationOutcome::Failure(
-                        data_model::GraphInvocationFailureReason::InternalError,
+                    outcome: crate::data_model::GraphInvocationOutcome::Failure(
+                        crate::data_model::GraphInvocationFailureReason::InternalError,
                     ),
                     outstanding_tasks: 0,
                     outstanding_reducer_tasks: 0,
@@ -113,7 +116,7 @@ mod tests {
                 compute_fn_name: "fn_a".to_string(),
                 compute_graph_name: compute_graph.name.clone(),
                 invocation_id: invocation.id.clone(),
-                payloads: vec![data_model::DataPayload {
+                payloads: vec![crate::data_model::DataPayload {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),

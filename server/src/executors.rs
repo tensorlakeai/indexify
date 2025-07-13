@@ -8,14 +8,7 @@ use std::{
 };
 
 use anyhow::Result;
-use data_model::{ExecutorId, ExecutorMetadata};
-use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
-use state_store::{
-    in_memory_state::DesiredStateFunctionExecutor,
-    requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
-    IndexifyState,
-};
 use tokio::{
     sync::{watch, Mutex, RwLock},
     time::Instant,
@@ -23,6 +16,7 @@ use tokio::{
 use tracing::{debug, error, trace};
 
 use crate::{
+    data_model::{self, ExecutorId, ExecutorMetadata},
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
@@ -35,6 +29,12 @@ use crate::{
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
+    state_store::{
+        in_memory_state::DesiredStateFunctionExecutor,
+        requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
+        IndexifyState,
+    },
+    utils::dynamic_sleep::DynamicSleepFuture,
 };
 
 /// Executor timeout duration for heartbeat
@@ -618,12 +618,15 @@ fn compute_function_executors_hash(
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use data_model::{ExecutorId, ExecutorMetadata};
-    use state_store::requests::UpsertExecutorRequest;
     use tokio::time;
 
     use super::*;
-    use crate::{service::Service, testing};
+    use crate::{
+        data_model::{ExecutorId, ExecutorMetadata},
+        service::Service,
+        state_store::requests::UpsertExecutorRequest,
+        testing,
+    };
 
     async fn heartbeat_and_upsert_executor(
         test_srv: &testing::TestService,
