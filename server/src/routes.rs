@@ -62,7 +62,7 @@ use download::{
     download_invocation_payload,
 };
 use internal_ingest::ingest_fn_outputs;
-use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
+use invoke::{invoke_with_object, wait_until_invocation_completed};
 use logs::download_allocation_logs;
 
 use crate::{
@@ -284,10 +284,6 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/compute_graphs/{compute_graph}/invocations",
             get(graph_invocations).with_state(route_state.clone()),
-        )
-        .route(
-            "/compute_graphs/{compute_graph}/invoke_file",
-            post(invoke_with_file).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs/{compute_graph}/invoke_object",
