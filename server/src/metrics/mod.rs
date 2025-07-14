@@ -148,19 +148,19 @@ pub mod api_io_stats {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("service-api");
             let invocations = meter
-                .u64_counter("invocations")
+                .u64_counter("indexify.invocations")
                 .with_description("number of invocations")
                 .build();
             let invocation_bytes = meter
-                .u64_counter("invocation_bytes")
+                .u64_counter("indexify.invocation_bytes")
                 .with_description("number of bytes ingested during invocations")
                 .build();
             let fn_outputs = meter
-                .u64_counter("fn_outputs")
+                .u64_counter("indexify.fn_outputs")
                 .with_description("number of fn outputs")
                 .build();
             let fn_output_bytes = meter
-                .u64_counter("fn_output_bytes")
+                .u64_counter("indexify.fn_output_bytes")
                 .with_description("number of bytes ingested for fn outputs")
                 .build();
             Metrics {
