@@ -14,6 +14,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use filter::LabelsFilter;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strum::Display;
@@ -169,23 +170,13 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("attempt_number is required"))?;
 
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        compute_graph.hash(&mut hasher);
-        compute_fn.hash(&mut hasher);
-        task_id.get().hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        retry_number.hash(&mut hasher);
-        target.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
-
         let outcome = self
             .outcome
             .clone()
             .ok_or(anyhow!("allocation outcome is required"))?;
 
         Ok(Allocation {
-            id,
+            id: nanoid!(),
             target,
             task_id,
             namespace,
