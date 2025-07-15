@@ -39,6 +39,10 @@
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
+  "overrides": {
+    "postcss": "^8.4.31",
+    "brace-expansion": "^1.1.12"
+  },
   "scripts": {
     "start": "serve build --single",
     "dev": "react-scripts start",
