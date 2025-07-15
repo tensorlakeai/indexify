@@ -297,7 +297,8 @@ impl FunctionExecutorManager {
                 namespace = fe.namespace,
                 graph = fe.compute_graph_name,
                 fn = fe.compute_fn_name,
-                executor_id = fe.id.get(),
+                executor_id = executor_server_metadata.executor_id.get(),
+                fn_executor_id = fe.id.get(),
                 fe_state = ?fe.state,
                 "Removing function executor from executor",
             );
