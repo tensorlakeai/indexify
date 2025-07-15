@@ -20,12 +20,13 @@ python = "^3.10"
 # httpx is provided by tensorlake
 
 # Executor only
-aiohttp = "^3.11.0"
-prometheus-client = "^0.21.1"
+aiohttp = "^3.12.14"
+prometheus-client = "^0.22.1"
 psutil = "^7.0.0"
+boto3 = "^1.39.4"
 # Adds function-executor binary, utils lib, sdk used in indexify-cli commands.
 # We need to specify the tensorlake version exactly because pip install doesn't respect poetry.lock files.
-tensorlake = "0.2.15"
+tensorlake = "0.2.24"
 # Uncomment the next line to use local tensorlake package (only for development!)
 # tensorlake = { path = "../tensorlake", develop = true }
 # pydantic is provided by tensorlake
@@ -35,11 +36,10 @@ tensorlake = "0.2.15"
 # CLI only
 # nanoid is provided by tensorlake
 # click is provided by tensorlake
-boto3 = "^1.37.30"
 
 [tool.poetry.group.dev.dependencies]
-black = "^24.10.0"
-pylint = "^3.3.0"
+black = "25.1.0"
+isort = "^6.0.1"
 parameterized = "^0.9.0"
 
 [build-system]
