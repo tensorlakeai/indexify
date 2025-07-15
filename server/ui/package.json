@@ -42,7 +42,7 @@
   "overrides": {
     "postcss": "<8.4.31",
     "brace-expansion": "<=1.1.11",
-    "webpack-dev-server": "<=5.2.0"
+    "webpack-dev-server": "4.15.2"
   },
   "scripts": {
     "start": "serve build --single",
