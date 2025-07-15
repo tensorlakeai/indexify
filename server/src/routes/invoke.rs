@@ -135,7 +135,7 @@ async fn create_invocation_event_stream(
 /// Invoke Compute Graph
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
@@ -243,7 +243,7 @@ pub async fn invoke_with_object(
 
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
     tag = "operations",
     responses(
         (status = 200, description = "SSE events of an invocation"),

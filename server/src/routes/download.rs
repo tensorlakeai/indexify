@@ -93,7 +93,7 @@ pub async fn download_invocation_error(
 /// Get function output
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
     tag = "retrieve",
     responses(
         (status = 200, description = "Function output"),
