@@ -19,12 +19,13 @@ use executor_api_pb::{
     HostResources,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
+    TaskAllocation,
     TaskResult,
 };
 use tokio::sync::watch;
 use tokio_stream::{wrappers::WatchStream, Stream};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, info_span, trace, warn};
 
 use crate::{
     blob_store::{self, BlobStorage},
@@ -829,11 +830,14 @@ impl ExecutorApi for ExecutorAPIService {
         }));
         let executor_manager = self.executor_manager.clone();
         tokio::spawn(async move {
+            let loop_span = info_span!("Executor update loop", executor_id = executor_id.get());
+
             // 1. Mark the state as changed to trigger the first change notification to the
             //    executor. This is important because between the report_executor_state and
             //    the get_desired_executor_states requests, the executor state may received
             //    a new desired state.
             state_rx.mark_changed();
+            let mut last_sent_state = DesiredExecutorState::default();
             loop {
                 // 2. Wait for a state change for this executor
                 if let Err(err) = state_rx.changed().await {
@@ -865,14 +869,61 @@ impl ExecutorApi for ExecutorAPIService {
                     "get_desired_executor_states: got desired state: {:#?}", desired_state
                 );
 
+                // Log state differences
+                {
+                    let _enter_loop_span = loop_span.enter();
+
+                    let mut last_assignments: HashMap<String, String> = HashMap::default();
+                    for ta in &last_sent_state.task_allocations {
+                        if let (Some(fe_id), Some(alloc_id)) =
+                            (&ta.function_executor_id, &ta.allocation_id)
+                        {
+                            last_assignments.insert(fe_id.clone(), alloc_id.clone());
+                        }
+                    }
+
+                    for TaskAllocation {
+                        function_executor_id: fn_executor_id_option,
+                        allocation_id: allocation_id_option,
+                        ..
+                    } in &desired_state.task_allocations
+                    {
+                        if let (Some(fn_executor_id), Some(allocation_id)) =
+                            (fn_executor_id_option, allocation_id_option)
+                        {
+                            match last_assignments.get(fn_executor_id) {
+                                Some(last_allocation_id) => {
+                                    if allocation_id != last_allocation_id {
+                                        info!(
+                                            fn_executor_id,
+                                            allocation_id, last_allocation_id, "re-assigning FE"
+                                        )
+                                    }
+                                    last_assignments.remove(fn_executor_id);
+                                }
+                                None => {
+                                    info!(fn_executor_id, allocation_id, "assigning FE")
+                                }
+                            }
+                        }
+                    }
+
+                    for (fn_executor_id, last_allocation_id) in last_assignments {
+                        info!(fn_executor_id, last_allocation_id, "idling FE")
+                    }
+                } // Drop loop span guard
+
                 // 4. Send the state to the executor
-                if let Err(err) = tx.send(Ok(desired_state)) {
+                if let Err(err) = tx.send(Ok(desired_state.clone())) {
                     info!(
                         executor_id = executor_id.get(),
                         "get_desired_executor_states: grpc stream closing: {}", err
                     );
                     break;
                 }
+
+                // Store the sent state for next comparison
+                last_sent_state = desired_state;
             }
         });
 
