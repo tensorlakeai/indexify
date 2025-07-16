@@ -10,15 +10,23 @@ from .metrics.channel_manager import (
     metric_grpc_server_channel_creation_retries,
     metric_grpc_server_channel_creations,
 )
+from .monitoring.health_checker.health_checker import HealthChecker
 
 _RETRY_INTERVAL_SEC = 5
 _CONNECT_TIMEOUT_SEC = 5
 
 
 class ChannelManager:
-    def __init__(self, server_address: str, config_path: Optional[str], logger: Any):
+    def __init__(
+        self,
+        server_address: str,
+        config_path: Optional[str],
+        health_checker: HealthChecker,
+        logger: Any,
+    ):
         self._logger: Any = logger.bind(module=__name__, server_address=server_address)
         self._server_address: str = server_address
+        self._health_checker: HealthChecker = health_checker
         self._channel_credentials: Optional[grpc.ChannelCredentials] = None
         # This lock protects the fields below.
         self._lock = asyncio.Lock()
@@ -85,11 +93,19 @@ class ChannelManager:
         # Use the lock to ensure that we only create one channel without race conditions.
         async with self._lock:
             if self._channel is None:
+                # Only called on Executor startup when we establish the channel for the first time.
                 self._channel = await self._create_ready_channel()
             elif not await self._locked_channel_is_healthy():
                 self._logger.info("grpc channel to server is unhealthy")
+                self._health_checker.server_connection_state_changed(
+                    is_healthy=False,
+                    status_message="grpc channel to server is unhealthy",
+                )
                 await self._destroy_locked_channel()
                 self._channel = await self._create_ready_channel()
+                self._health_checker.server_connection_state_changed(
+                    is_healthy=True, status_message="grpc channel to server is healthy"
+                )
 
             return self._channel
 

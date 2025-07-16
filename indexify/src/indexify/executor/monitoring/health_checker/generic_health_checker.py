@@ -1,6 +1,8 @@
+from typing import Optional
+
 from .health_checker import HealthChecker, HealthCheckResult
 
-HEALTH_CHECKER_NAME = "GenericHealthChecker"
+_HEALTH_CHECKER_NAME = "GenericHealthChecker"
 
 
 class GenericHealthChecker(HealthChecker):
@@ -10,11 +12,25 @@ class GenericHealthChecker(HealthChecker):
     """
 
     def __init__(self):
-        pass
+        self._server_connection_unhealthy_status_message: Optional[str] = None
+
+    def server_connection_state_changed(self, is_healthy: bool, status_message: str):
+        """Handle changes in server connection state."""
+        if is_healthy:
+            self._server_connection_unhealthy_status_message = None
+        else:
+            self._server_connection_unhealthy_status_message = status_message
 
     async def check(self) -> HealthCheckResult:
+        if self._server_connection_unhealthy_status_message is not None:
+            return HealthCheckResult(
+                is_success=False,
+                status_message=self._server_connection_unhealthy_status_message,
+                checker_name=_HEALTH_CHECKER_NAME,
+            )
+
         return HealthCheckResult(
             is_success=True,
-            status_message="The health check is always successful",
-            checker_name=HEALTH_CHECKER_NAME,
+            status_message="Successful",
+            checker_name=_HEALTH_CHECKER_NAME,
         )
