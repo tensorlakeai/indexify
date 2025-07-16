@@ -10,7 +10,7 @@ use crate::{blob_store::BlobStorage, data_model::DataPayload, http_objects::Inde
 
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/allocations/{allocation_id}/logs/{file}",
     tag = "operations",
     responses(
         (status = 200, description = "Log file for a given allocation"),
@@ -49,7 +49,7 @@ pub async fn download_allocation_logs(
 
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/compute_functions/{compute_function}/versions/{version}/function_executors/{function_executor_id}/startup_logs/{file}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/compute_functions/{compute_function}/versions/{version}/function_executors/{function_executor_id}/startup_logs/{file}",
     tag = "operations",
     responses(
         (status = 200, description = "Log file for a given function executor"),

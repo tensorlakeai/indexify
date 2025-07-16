@@ -173,11 +173,23 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(namespaces).with_state(route_state.clone()),
         )
         .route(
+            "/v1/namespaces",
+            get(namespaces).with_state(route_state.clone()),
+        )
+        .route(
             "/namespaces",
+            post(create_namespace).with_state(route_state.clone()),
+        )
+        .route(
+            "/v1/namespaces",
             post(create_namespace).with_state(route_state.clone()),
         )
         .nest(
             "/namespaces/{namespace}",
+            namespace_routes(route_state.clone()),
+        )
+        .nest(
+            "/v1/namespaces/{namespace}",
             namespace_routes(route_state.clone()),
         )
         .route(
@@ -354,7 +366,7 @@ async fn namespace_middleware(
 /// Create a new namespace
 #[utoipa::path(
     post,
-    path = "/namespaces",
+    path = "/v1/namespaces",
     request_body = CreateNamespace,
     tag = "operations",
     responses(
@@ -385,7 +397,7 @@ async fn create_namespace(
 /// List all namespaces
 #[utoipa::path(
     get,
-    path = "/namespaces",
+    path = "/v1/namespaces",
     tag = "operations",
     responses(
         (status = 200, description = "List all namespaces", body = NamespaceList),
@@ -414,7 +426,7 @@ struct ComputeGraphCreateType {
 /// Create compute graph
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs",
+    path = "/v1/namespaces/{namespace}/compute_graphs",
     tag = "operations",
     request_body(content_type = "multipart/form-data", content = inline(ComputeGraphCreateType)),
     responses(
@@ -520,7 +532,7 @@ async fn create_or_update_compute_graph(
 /// Delete compute graph
 #[utoipa::path(
     delete,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}",
     tag = "operations",
     responses(
         (status = 200, description = "Extraction graph deleted successfully"),
@@ -551,7 +563,7 @@ async fn delete_compute_graph(
 /// List compute graphs
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs",
+    path = "/v1/namespaces/{namespace}/compute_graphs",
     tag = "operations",
     params(
         ListParams
@@ -584,7 +596,7 @@ async fn list_compute_graphs(
 /// Get a compute graph definition
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}",
     tag = "operations",
     responses(
         (status = 200, description = "Compute Graph Definition", body = ComputeGraph),
@@ -609,7 +621,7 @@ async fn get_compute_graph(
 /// List Graph invocations
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
     tag = "ingestion",
     params(
         ListParams
@@ -800,7 +812,7 @@ async fn list_unallocated_tasks(
 /// List tasks for an invocation
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
     tag = "operations",
     params(
         ListParams
@@ -861,7 +873,7 @@ async fn list_tasks(
 /// Get accounting information for a compute graph invocation
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/context",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/context",
     tag = "operations",
     responses(
         (status = 200, description = "Accounting information for an invocation id", body = Tasks),
@@ -883,7 +895,7 @@ async fn get_context(
 /// Get outputs of a function
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
     tag = "retrieve",
     responses(
         (status = 200, description = "List outputs for a given invocation id", body = Tasks),
@@ -948,7 +960,7 @@ async fn list_outputs(
 
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
     tag = "retrieve",
     responses(
         (status = 200, description = "Details about a given invocation", body = Invocation),
@@ -977,7 +989,7 @@ async fn find_invocation(
 /// Delete a specific invocation
 #[utoipa::path(
     delete,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    path = "/v1/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
     tag = "operations",
     responses(
         (status = 200, description = "Invocation has been deleted"),
