@@ -140,6 +140,9 @@ class ChannelManager:
                         duration_sec=time.monotonic() - create_channel_start,
                     )
 
+                    self._logger.info(
+                        "waiting for grpc server channel to get established (ready)"
+                    )
                     channel_ready_start = time.monotonic()
                     await asyncio.wait_for(
                         channel.channel_ready(),
@@ -151,10 +154,12 @@ class ChannelManager:
                     )
 
                     return channel
-                except BaseException:
+                except BaseException as e:
                     self._logger.error(
-                        f"failed establishing grpc server channel in {_CONNECT_TIMEOUT_SEC} sec, retrying in {_RETRY_INTERVAL_SEC} sec"
+                        f"failed establishing grpc server channel in {_CONNECT_TIMEOUT_SEC} sec, retrying in {_RETRY_INTERVAL_SEC} sec",
+                        exc_info=e,
                     )
+
                     try:
                         await channel.close()
                     except BaseException as e:
