@@ -45,7 +45,7 @@
     "webpack-dev-server": "4.15.2"
   },
   "scripts": {
-    "start": "serve build",
+    "start": "serve build --single",
     "dev": "react-scripts start",
     "build": "cross-env NODE_ENV=production react-scripts build",
     "test": "react-scripts test",
