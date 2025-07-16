@@ -1,5 +1,5 @@
 import asyncio
-import os
+import time
 from typing import Any, Dict, Optional
 
 import grpc.aio
@@ -18,7 +18,6 @@ _CONNECT_TIMEOUT_SEC = 5
 class ChannelManager:
     def __init__(self, server_address: str, config_path: Optional[str], logger: Any):
         self._logger: Any = logger.bind(module=__name__, server_address=server_address)
-        self._keep_alive_period_sec: int = _keep_alive_period_sec_from_env(logger)
         self._server_address: str = server_address
         self._channel_credentials: Optional[grpc.ChannelCredentials] = None
         # This lock protects the fields below.
@@ -97,20 +96,14 @@ class ChannelManager:
     def create_channel(self) -> grpc.aio.Channel:
         """Creates a new channel to the gRPC server.
 
-        The channel is not be ready to use. Raises an exception on failure.
+        The channel is not ready to use. Raises an exception on failure.
         """
-        channel_options: list[tuple[str, int]] = _channel_options(
-            self._keep_alive_period_sec
-        )
         if self._channel_credentials is None:
-            return grpc.aio.insecure_channel(
-                target=self._server_address, options=channel_options
-            )
+            return grpc.aio.insecure_channel(target=self._server_address)
         else:
             return grpc.aio.secure_channel(
                 target=self._server_address,
                 credentials=self._channel_credentials,
-                options=channel_options,
             )
 
     async def _create_ready_channel(self) -> grpc.aio.Channel:
@@ -119,25 +112,36 @@ class ChannelManager:
         Returns a ready to use channel. Blocks until the channel
         is ready, never raises any exceptions.
         """
-        self._logger.info("creating new grpc server channel")
-
         with metric_grpc_server_channel_creation_latency.time():
             metric_grpc_server_channel_creations.inc()
             while True:
                 try:
-                    channel = self.create_channel()
+                    self._logger.info("creating new grpc server channel")
+                    create_channel_start = time.monotonic()
+                    channel: grpc.Channel = self.create_channel()
+                    self._logger.info(
+                        "grpc server channel created",
+                        duration_sec=time.monotonic() - create_channel_start,
+                    )
+
+                    channel_ready_start = time.monotonic()
                     await asyncio.wait_for(
                         channel.channel_ready(),
                         timeout=_CONNECT_TIMEOUT_SEC,
                     )
+                    self._logger.info(
+                        "grpc server channel is established (ready)",
+                        duration_sec=time.monotonic() - channel_ready_start,
+                    )
+
                     return channel
-                except Exception:
+                except BaseException:
                     self._logger.error(
                         f"failed establishing grpc server channel in {_CONNECT_TIMEOUT_SEC} sec, retrying in {_RETRY_INTERVAL_SEC} sec"
                     )
                     try:
                         await channel.close()
-                    except Exception as e:
+                    except BaseException as e:
                         self._logger.error(
                             "failed closing not established channel", exc_info=e
                         )
@@ -173,45 +177,3 @@ class ChannelManager:
         except Exception as e:
             self._logger.error("failed closing channel", exc_info=e)
         self._channel = None
-
-
-def _channel_options(keep_alive_period_sec: int) -> list[tuple[str, int]]:
-    """Returns the gRPC channel options."""
-    # See https://grpc.io/docs/guides/keepalive/.
-    #
-    # NB: Rust Tonic framework that we're using in Server is not using gRPC core and doesn't support
-    # these options. From https://github.com/hyperium/tonic/issues/258 it supports gRPC PINGs when
-    # there are in-flight RPCs (and streams) without any extra configuration.
-    return [
-        ("grpc.keepalive_time_ms", keep_alive_period_sec * 1000),
-        (
-            "grpc.http2.max_pings_without_data",
-            -1,
-        ),  # Allow any number of empty PING messages
-        (
-            "grpc.keepalive_permit_without_calls",
-            0,
-        ),  # Don't send PINGs when there are no in-flight RPCs (and streams)
-    ]
-
-
-def _keep_alive_period_sec_from_env(logger: Any) -> int:
-    """Returns the keep alive period in seconds."""
-    # We have to use gRPC keep alive (PING) to prevent proxies/load-balancers from closing underlying HTTP/2
-    # (TCP) connections due to periods of idleness in gRPC streams that we use between Executor and Server.
-    # If a proxy/load-balancer closes the connection, then we see it as gRPC stream errors which results in
-    # a lot of error logs noise.
-    #
-    # The default period of 50 sec is used for one of the standard proxy/load-balancer timeouts of 1 minute.
-    DEFAULT_KEEP_ALIVE_PERIOD_SEC = "50"
-    keep_alive_period_sec = int(
-        os.getenv(
-            "INDEXIFY_EXECUTOR_GRPC_KEEP_ALIVE_PERIOD_SEC",
-            DEFAULT_KEEP_ALIVE_PERIOD_SEC,
-        )
-    )
-    if keep_alive_period_sec != int(DEFAULT_KEEP_ALIVE_PERIOD_SEC):
-        logger.info(
-            f"gRPC keep alive (PING) period is set to {keep_alive_period_sec} sec"
-        )
-    return keep_alive_period_sec
