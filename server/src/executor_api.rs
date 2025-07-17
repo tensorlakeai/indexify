@@ -21,8 +21,8 @@ use executor_api_pb::{
     ReportExecutorStateResponse,
     TaskResult,
 };
-use tokio::sync::watch;
-use tokio_stream::{wrappers::WatchStream, Stream};
+use tokio::sync::mpsc;
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, trace, warn};
 
@@ -822,11 +822,7 @@ impl ExecutorApi for ExecutorAPIService {
             }
         };
 
-        let (tx, rx) = watch::channel(Result::Ok(DesiredExecutorState {
-            function_executors: vec![],
-            task_allocations: vec![],
-            clock: Some(0),
-        }));
+        let (tx, rx) = mpsc::channel(128);
         let executor_manager = self.executor_manager.clone();
         tokio::spawn(async move {
             // 1. Mark the state as changed to trigger the first change notification to the
@@ -866,7 +862,7 @@ impl ExecutorApi for ExecutorAPIService {
                 );
 
                 // 4. Send the state to the executor
-                if let Err(err) = tx.send(Ok(desired_state)) {
+                if let Err(err) = tx.try_send(Ok(desired_state)) {
                     info!(
                         executor_id = executor_id.get(),
                         "get_desired_executor_states: grpc stream closing: {}", err
@@ -874,9 +870,13 @@ impl ExecutorApi for ExecutorAPIService {
                     break;
                 }
             }
+            info!(
+                executor_id = executor_id.get(),
+                "get_desired_executor_states: grpc stream closed"
+            );
         });
 
-        let output_stream = WatchStream::from_changes(rx);
+        let output_stream = ReceiverStream::new(rx);
         Ok(Response::new(
             Box::pin(output_stream) as Self::get_desired_executor_statesStream
         ))
