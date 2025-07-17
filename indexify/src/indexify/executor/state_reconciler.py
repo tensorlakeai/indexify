@@ -1,6 +1,15 @@
 import asyncio
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Iterable, List, Optional, Set
+from typing import (
+    Any,
+    AsyncIterable,
+    AsyncIterator,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+)
 
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
@@ -33,6 +42,10 @@ from .state_reporter import ExecutorStateReporter
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 _RECONCILIATION_RETRIES = 3
+# If we didn't get a new desired state from the stream within this timeout then the stream might
+# not be healthy due to network disruption. In this case we need to recreate the stream to make
+# sure that Server really doesn't want to send us a new state.
+_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC = 5 * 60  # 5 minutes
 
 
 class ExecutorStateReconciler:
@@ -142,12 +155,12 @@ class ExecutorStateReconciler:
         """
         while True:
             try:
-                stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+                stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
                 # Report state once before starting the stream so Server
                 # doesn't use stale state it knew about this Executor in the past.
                 await self._state_reporter.report_state_and_wait_for_completion()
 
-                desired_states_stream: AsyncGenerator[DesiredExecutorState, None] = (
+                desired_states_stream: AsyncIterable[DesiredExecutorState] = (
                     stub.get_desired_executor_states(
                         GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
                     )
@@ -159,6 +172,9 @@ class ExecutorStateReconciler:
                     f"error while processing desired states stream",
                     exc_info=e,
                 )
+            finally:
+                # Cleanup resources, just in case, no docs ask to do this
+                desired_states_stream.cancel()
 
             self._logger.info(
                 f"desired states stream closed, reconnecting in {self._server_backoff_interval_sec} sec"
@@ -166,10 +182,21 @@ class ExecutorStateReconciler:
             await asyncio.sleep(self._server_backoff_interval_sec)
 
     async def _process_desired_states_stream(
-        self, desired_states: AsyncGenerator[DesiredExecutorState, None]
+        self, desired_states: AsyncIterable[DesiredExecutorState]
     ):
-        async for new_state in desired_states:
-            new_state: DesiredExecutorState
+        desired_states_iter: AsyncIterator[DesiredExecutorState] = aiter(desired_states)
+        while True:
+            try:
+                new_state: DesiredExecutorState = await asyncio.wait_for(
+                    anext(desired_states_iter),
+                    timeout=_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                self._logger.info(
+                    f"No desired state received from Server within {_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC} sec, recreating the stream to ensure it is healthy"
+                )
+                break  # Timeout reached, stream might be unhealthy, exit the loop to recreate the stream.
+
             validator: MessageValidator = MessageValidator(new_state)
             try:
                 validator.required_field("clock")

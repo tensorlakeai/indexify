@@ -30,10 +30,11 @@ from .function_executor_controller.loggers import task_result_logger
 from .host_resources.host_resources import HostResources, HostResourcesProvider
 from .host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .metrics.state_reporter import (
-    metric_state_report_errors,
-    metric_state_report_latency,
+    metric_state_report_rpc_errors,
+    metric_state_report_rpc_latency,
     metric_state_report_rpcs,
 )
+from .monitoring.health_checker.health_checker import HealthChecker
 
 _REPORTING_INTERVAL_SEC = 5
 _REPORTING_BACKOFF_SEC = 5
@@ -49,6 +50,7 @@ class ExecutorStateReporter:
         function_allowlist: List[FunctionURI],
         channel_manager: ChannelManager,
         host_resources_provider: HostResourcesProvider,
+        health_checker: HealthChecker,
         logger: Any,
     ):
         self._executor_id: str = executor_id
@@ -57,6 +59,7 @@ class ExecutorStateReporter:
         self._labels.update(_executor_labels())
         self._hostname: str = gethostname()
         self._channel_manager = channel_manager
+        self._health_checker: HealthChecker = health_checker
         self._logger: Any = logger.bind(module=__name__)
         self._allowed_functions: List[AllowedFunction] = _to_allowed_function_protos(
             function_allowlist
@@ -167,10 +170,15 @@ class ExecutorStateReporter:
         # Don't retry state report if it failed during shutdown.
         # We only do best effort last state report and Server might not be available.
         try:
-            async with self._channel_manager.create_channel() as channel:
-                stub = ExecutorAPIStub(channel)
-                await self._report_state(stub)
-        except BaseException as e:
+            async with self._channel_manager.create_standalone_channel() as channel:
+                await ExecutorAPIStub(channel).report_executor_state(
+                    ReportExecutorStateRequest(
+                        executor_state=self._current_executor_state(),
+                        executor_update=self._remove_pending_update(),
+                    ),
+                    timeout=_REPORT_RPC_TIMEOUT_SEC,
+                )
+        except Exception as e:
             self._logger.error(
                 "failed to report state during shutdown",
                 exc_info=e,
@@ -187,60 +195,48 @@ class ExecutorStateReporter:
         Never raises any exceptions.
         """
         while True:
-            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+            stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
             while True:
                 await self._state_report_scheduled_event.wait()
                 # Clear the event immidiately to report again asap if needed. This reduces latency in the system.
                 self._state_report_scheduled_event.clear()
                 try:
-                    # The periodic state reports serve as channel health monitoring requests
-                    # (same as TCP keep-alive). Channel Manager returns the same healthy channel
-                    # for all RPCs that we do from Executor to Server. So all the RPCs benefit
-                    # from this channel health monitoring.
-                    await self._report_state(stub)
+                    state: ExecutorState = self._current_executor_state()
+                    update: ExecutorUpdate = self._remove_pending_update()
+                    _log_reported_executor_update(update, self._logger)
+
+                    with (
+                        metric_state_report_rpc_errors.count_exceptions(),
+                        metric_state_report_rpc_latency.time(),
+                    ):
+                        metric_state_report_rpcs.inc()
+                        await stub.report_executor_state(
+                            ReportExecutorStateRequest(
+                                executor_state=state, executor_update=update
+                            ),
+                            timeout=_REPORT_RPC_TIMEOUT_SEC,
+                        )
                     self._state_reported_event.set()
+                    self._health_checker.server_connection_state_changed(
+                        is_healthy=True, status_message="grpc server channel is healthy"
+                    )
                 except Exception as e:
+                    self._add_to_pending_update(update)
                     self._logger.error(
                         f"failed to report state to the server, backing-off for {_REPORTING_BACKOFF_SEC} sec.",
                         exc_info=e,
                     )
+                    # The periodic state reports serve as channel health monitoring requests
+                    # (same as TCP keep-alive). Channel Manager returns the same healthy channel
+                    # for all RPCs that we do from Executor to Server. So all the RPCs benefit
+                    # from this channel health monitoring.
+                    self._health_checker.server_connection_state_changed(
+                        is_healthy=False,
+                        status_message="grpc server channel is unhealthy",
+                    )
+                    await self._channel_manager.fail_shared_channel()
                     await asyncio.sleep(_REPORTING_BACKOFF_SEC)
-                    break  # exit the inner loop to recreate the channel if needed
-
-    async def _report_state(self, stub: ExecutorAPIStub):
-        """Reports the current state to the server represented by the supplied stub.
-
-        Raises an exception on failure.
-        """
-        with (
-            metric_state_report_errors.count_exceptions(),
-            metric_state_report_latency.time(),
-        ):
-            metric_state_report_rpcs.inc()
-            state: ExecutorState = self._current_executor_state()
-            update: ExecutorUpdate = self._remove_pending_update()
-
-            for task_result in update.task_results:
-                task_result_logger(task_result, self._logger).info(
-                    "reporting task outcome",
-                    outcome_code=TaskOutcomeCode.Name(task_result.outcome_code),
-                    failure_reason=(
-                        TaskFailureReason.Name(task_result.failure_reason)
-                        if task_result.HasField("failure_reason")
-                        else "None"
-                    ),
-                )
-
-            try:
-                await stub.report_executor_state(
-                    ReportExecutorStateRequest(
-                        executor_state=state, executor_update=update
-                    ),
-                    timeout=_REPORT_RPC_TIMEOUT_SEC,
-                )
-            except Exception as e:
-                self._add_to_pending_update(update)
-                raise
+                    break  # exit the inner loop to use the recreated channel
 
     def _current_executor_state(self) -> ExecutorState:
         """Returns the current executor state."""
@@ -282,6 +278,28 @@ class ExecutorStateReporter:
             self.add_completed_task_result(task_result)
         for function_executor_update in update.function_executor_updates:
             self.add_function_executor_update(function_executor_update)
+
+
+def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
+    """Logs the reported executor update.
+
+    Doesn't raise any exceptions."""
+    try:
+        for task_result in update.task_results:
+            task_result_logger(task_result, logger).info(
+                "reporting task outcome",
+                outcome_code=TaskOutcomeCode.Name(task_result.outcome_code),
+                failure_reason=(
+                    TaskFailureReason.Name(task_result.failure_reason)
+                    if task_result.HasField("failure_reason")
+                    else "None"
+                ),
+            )
+    except Exception as e:
+        logger.error(
+            "failed to log reported executor update",
+            exc_info=e,
+        )
 
 
 def _to_allowed_function_protos(

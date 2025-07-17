@@ -10,10 +10,8 @@ from .metrics.channel_manager import (
     metric_grpc_server_channel_creation_retries,
     metric_grpc_server_channel_creations,
 )
-from .monitoring.health_checker.health_checker import HealthChecker
 
 _RETRY_INTERVAL_SEC = 5
-_CONNECT_TIMEOUT_SEC = 5
 
 
 class ChannelManager:
@@ -21,16 +19,14 @@ class ChannelManager:
         self,
         server_address: str,
         config_path: Optional[str],
-        health_checker: HealthChecker,
         logger: Any,
     ):
         self._logger: Any = logger.bind(module=__name__, server_address=server_address)
         self._server_address: str = server_address
-        self._health_checker: HealthChecker = health_checker
         self._channel_credentials: Optional[grpc.ChannelCredentials] = None
-        # This lock protects the fields below.
-        self._lock = asyncio.Lock()
-        self._channel: Optional[grpc.aio.Channel] = None
+        # Shared channel used by different Executor components to communicate with Server.
+        self._shared_channel_lock = asyncio.Lock()
+        self._shared_channel: Optional[grpc.aio.Channel] = None
 
         self._init_tls(config_path)
 
@@ -79,122 +75,93 @@ class ChannelManager:
         )
 
     async def destroy(self):
-        if self._channel is not None:
-            await self._destroy_locked_channel()
+        # Okay to not hold the lock here as we're destroying the server channel forever.
+        if self._shared_channel is not None:
+            await self._destroy_shared_channel()
 
-    async def get_channel(self) -> grpc.aio.Channel:
-        """Returns a channel to the gRPC server.
+    async def fail_shared_channel(self) -> None:
+        """Marks the shared channel as unhealthy and creates a new one.
 
-        Returns a ready to use channel. Blocks until the channel is ready,
-        never raises any exceptions.
-        If previously returned channel is healthy then returns it again.
-        Otherwise, returns a new channel but closes the previously returned one.
+        Doesn't raise any exceptions.
+        """
+        async with self._shared_channel_lock:
+            if self._shared_channel is None:
+                self._logger.error(
+                    "grpc server channel doesn't exist, can't mark it unhealthy"
+                )
+                return
+
+            self._logger.info("marking grpc server channel as unhealthy")
+            # All the channel users will see it failing cause we destroyed it and call get_channel() again.
+            await self._destroy_shared_channel()
+
+    async def get_shared_channel(self) -> grpc.aio.Channel:
+        """Returns shared channel to the gRPC server.
+
+        The health of the shared channel is constantly monitored so it's more reliable than using a
+        standalone channel created for a particular short term need. Doesn't raise any exceptions.
         """
         # Use the lock to ensure that we only create one channel without race conditions.
-        async with self._lock:
-            if self._channel is None:
-                # Only called on Executor startup when we establish the channel for the first time.
-                self._channel = await self._create_ready_channel()
-            elif not await self._locked_channel_is_healthy():
-                self._logger.info("grpc channel to server is unhealthy")
-                self._health_checker.server_connection_state_changed(
-                    is_healthy=False,
-                    status_message="grpc channel to server is unhealthy",
-                )
-                await self._destroy_locked_channel()
-                self._channel = await self._create_ready_channel()
-                self._health_checker.server_connection_state_changed(
-                    is_healthy=True, status_message="grpc channel to server is healthy"
-                )
+        async with self._shared_channel_lock:
+            if self._shared_channel is None:
+                await self._create_shared_channel()
 
-            return self._channel
+            return self._shared_channel
 
-    def create_channel(self) -> grpc.aio.Channel:
+    def create_standalone_channel(self) -> grpc.aio.Channel:
         """Creates a new channel to the gRPC server.
 
-        The channel is not ready to use. Raises an exception on failure.
+        Used for one-off RPCs where we don't need to monitor channel health or retry its creation indefinitely.
+        Raises an exception on failure.
         """
-        if self._channel_credentials is None:
-            return grpc.aio.insecure_channel(target=self._server_address)
-        else:
-            return grpc.aio.secure_channel(
-                target=self._server_address,
-                credentials=self._channel_credentials,
-            )
-
-    async def _create_ready_channel(self) -> grpc.aio.Channel:
-        """Creates a new channel to the gRPC server."
-
-        Returns a ready to use channel. Blocks until the channel
-        is ready, never raises any exceptions.
-        """
-        with metric_grpc_server_channel_creation_latency.time():
+        with (
+            metric_grpc_server_channel_creation_retries.count_exceptions(),
+            metric_grpc_server_channel_creation_latency.time(),
+        ):
             metric_grpc_server_channel_creations.inc()
-            while True:
-                try:
-                    self._logger.info("creating new grpc server channel")
-                    create_channel_start = time.monotonic()
-                    channel: grpc.Channel = self.create_channel()
-                    self._logger.info(
-                        "grpc server channel created",
-                        duration_sec=time.monotonic() - create_channel_start,
-                    )
+            if self._channel_credentials is None:
+                return grpc.aio.insecure_channel(target=self._server_address)
+            else:
+                return grpc.aio.secure_channel(
+                    target=self._server_address,
+                    credentials=self._channel_credentials,
+                )
 
-                    self._logger.info(
-                        "waiting for grpc server channel to get established (ready)"
-                    )
-                    channel_ready_start = time.monotonic()
-                    await asyncio.wait_for(
-                        channel.channel_ready(),
-                        timeout=_CONNECT_TIMEOUT_SEC,
-                    )
-                    self._logger.info(
-                        "grpc server channel is established (ready)",
-                        duration_sec=time.monotonic() - channel_ready_start,
-                    )
+    async def _create_shared_channel(self) -> None:
+        """Creates new shared channel.
 
-                    return channel
-                except BaseException as e:
-                    self._logger.error(
-                        f"failed establishing grpc server channel in {_CONNECT_TIMEOUT_SEC} sec, retrying in {_RETRY_INTERVAL_SEC} sec",
-                        exc_info=e,
-                    )
+        self._shared_channel_lock must be acquired before calling this method.
+        Never raises any exceptions.
+        """
+        while True:
+            try:
+                create_channel_start = time.monotonic()
+                self._logger.info("creating new grpc channel to server")
+                self._shared_channel = self.create_standalone_channel()
+                # Ensure the channel tried to connect to not get "channel closed errors" without actually trying to connect.
+                self._shared_channel.get_state(try_to_connect=True)
+                self._logger.info(
+                    "created new grpc channel to server",
+                    duration_sec=time.monotonic() - create_channel_start,
+                )
+                break
+            except Exception as e:
+                self._logger.error(
+                    f"failed creating grpc channel to server, retrying in {_RETRY_INTERVAL_SEC} seconds",
+                    exc_info=e,
+                )
+                await asyncio.sleep(_RETRY_INTERVAL_SEC)
 
-                    try:
-                        await channel.close()
-                    except BaseException as e:
-                        self._logger.error(
-                            "failed closing not established channel", exc_info=e
-                        )
+    async def _destroy_shared_channel(self) -> None:
+        """Closes the existing shared channel.
 
-                    metric_grpc_server_channel_creation_retries.inc()
-                    await asyncio.sleep(_RETRY_INTERVAL_SEC)
-
-    async def _locked_channel_is_healthy(self) -> bool:
-        """Checks if the channel is healthy.
-
-        Returns True if the channel is healthy, False otherwise.
-        self._lock must be acquired before calling this method.
+        self._shared_channel_lock must be acquired before calling this method.
         Never raises any exceptions.
         """
         try:
-            return self._channel.get_state() == grpc.ChannelConnectivity.READY
+            self._logger.info("closing grpc channel to server")
+            await self._shared_channel.close()
+            self._logger.info("closed grpc channel to server")
         except Exception as e:
-            # Assume that the channel is healthy because get_state() method is marked as experimental
-            # so we can't fully trust it.
-            self._logger.error(
-                "failed getting channel state, assuming channel is healthy", exc_info=e
-            )
-            return True
-
-    async def _destroy_locked_channel(self):
-        """Closes the existing channel.
-
-        self._lock must be acquired before calling this method.
-        Never raises any exceptions.
-        """
-        try:
-            await self._channel.close()
-        except Exception as e:
-            self._logger.error("failed closing channel", exc_info=e)
-        self._channel = None
+            self._logger.error("failed closing grpc channel to server", exc_info=e)
+        self._shared_channel = None

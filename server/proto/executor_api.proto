@@ -288,7 +288,5 @@ service ExecutorAPI {
 
     // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
     // it puts a message on the stream with the new desired state of the Executor.
-    //
-    // Deprecated HTTP API is used to download the serialized graph and task inputs.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 }
