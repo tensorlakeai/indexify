@@ -674,7 +674,7 @@ impl InMemoryState {
                         .range(invocation_key_prefix.clone()..)
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&invocation_key_prefix))
-                        .map(|(k, _v)| k.clone())
+                        .map(|(_k, v)| v.invocation_id.clone())
                         .collect::<Vec<String>>();
                     for k in invocations_to_remove {
                         self.delete_invocation(&req.namespace, &req.name, &k);
