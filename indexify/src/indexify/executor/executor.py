@@ -69,7 +69,6 @@ class Executor:
         self._channel_manager = ChannelManager(
             server_address=grpc_server_addr,
             config_path=config_path,
-            health_checker=health_checker,
             logger=self._logger,
         )
         function_allowlist: List[FunctionURI] = parse_function_uris(function_uris)
@@ -80,6 +79,7 @@ class Executor:
             function_allowlist=function_allowlist,
             channel_manager=self._channel_manager,
             host_resources_provider=host_resources_provider,
+            health_checker=health_checker,
             logger=self._logger,
         )
         self._state_reporter.update_executor_status(
