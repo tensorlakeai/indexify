@@ -821,16 +821,6 @@ impl InMemoryState {
                     if let Some(executor) = self.executor_states.get_mut(executor_id) {
                         executor.free_resources = free_resources.clone();
                     }
-                    // } else {
-                    //     self.executor_states.insert(
-                    //         executor_id.clone(),
-                    //         Box::new(ExecutorServerMetadata {
-                    //             executor_id: executor_id.clone(),
-                    //             function_executors: im::HashMap::new(),
-                    //             free_resources: host_resources.clone(),
-                    //         }),
-                    //     );
-                    // }
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
@@ -847,20 +837,6 @@ impl InMemoryState {
                         }),
                     );
                 }
-                req.executor
-                    .function_executors
-                    .iter()
-                    .for_each(|executor_fe_entry| {
-                        let executor_fe = executor_fe_entry.1;
-                        let fn_uri = FunctionURI::from(executor_fe);
-                        if let Some(index_fe_map) =
-                            self.function_executors_by_fn_uri.get_mut(&fn_uri)
-                        {
-                            if let Some(index_fe_meta) = index_fe_map.get_mut(&executor_fe.id) {
-                                index_fe_meta.function_executor.update(executor_fe);
-                            }
-                        }
-                    });
 
                 for allocation_output in &req.allocation_outputs {
                     // Remove the allocation
