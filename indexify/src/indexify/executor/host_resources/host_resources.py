@@ -1,13 +1,14 @@
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 import psutil
-from pydantic import BaseModel
 
 from .nvidia_gpu import NvidiaGPUInfo
 from .nvidia_gpu_allocator import NvidiaGPUAllocator
 
 
-class HostResources(BaseModel):
+@dataclass
+class HostResources:
     cpu_count: int
     memory_mb: int
     disk_mb: int
