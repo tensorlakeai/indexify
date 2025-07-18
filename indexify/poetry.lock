@@ -1738,14 +1738,14 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "tensorlake"
-version = "0.2.27"
+version = "0.2.28"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Workflows"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.2.27-py3-none-any.whl", hash = "sha256:23abe21706dc40a6cc8c7d6bb43adc0da6cfef7ad9fe6960409c5caddc9b101d"},
-    {file = "tensorlake-0.2.27.tar.gz", hash = "sha256:b65aed084360d8a3e50b464b0d8eec989e06881344b8a092e6627f3f33f38fa1"},
+    {file = "tensorlake-0.2.28-py3-none-any.whl", hash = "sha256:b34a5e42ec917c6c0fb9cea7006616143bde4a0c9334bfd0c6483ed042d61fed"},
+    {file = "tensorlake-0.2.28.tar.gz", hash = "sha256:80135d6c2ae84f7da18a19f83639fe2f5949cf69a1a99223a8f13e8b40d86448"},
 ]
 
 [package.dependencies]
@@ -1755,7 +1755,7 @@ cloudpickle = ">=3.1.0,<4.0.0"
 docker = ">=7.1.0,<8.0.0"
 grpcio = "1.73.1"
 grpcio-tools = "1.73.1"
-httpx = {version = "0.27.2", extras = ["http2"]}
+httpx = {version = ">=0.27.2,<1.0", extras = ["http2"]}
 httpx-sse = ">=0.4.1,<0.5.0"
 nanoid = ">=2.0.0,<3.0.0"
 pydantic = ">=2.0,<3.0"
@@ -2001,4 +2001,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "c02f06865689cc5018650b4a54481998ad35772d8cf0733d210f1afe141a79d6"
+content-hash = "09201f77b0a569118a8ef7d247d398bfe18844ae3535f5bd3b563197f6c8a422"

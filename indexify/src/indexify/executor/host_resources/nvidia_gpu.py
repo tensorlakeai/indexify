@@ -1,8 +1,7 @@
 import subprocess
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List
-
-from pydantic import BaseModel
 
 
 # Only NVIDIA GPUs currently supported in Tensorlake SDK are listed here.
@@ -17,7 +16,8 @@ class NVIDIA_GPU_MODEL(str, Enum):
     A10 = "A10"
 
 
-class NvidiaGPUInfo(BaseModel):
+@dataclass
+class NvidiaGPUInfo:
     index: str
     uuid: str
     product_name: str  # The official product name.
