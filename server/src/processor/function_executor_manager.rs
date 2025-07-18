@@ -227,20 +227,25 @@ impl FunctionExecutorManager {
             }
         }
         for (executor_fe_id, executor_fe) in &executor.function_executors {
+            // If the Executor FE is also in the server's tracked FE lets sync them.
             if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
+
+                // If the executor's FE state is Terminated lets remove it from the server.
                 if matches!(executor_fe.state, FunctionExecutorState::Terminated { .. }) {
                     function_executors_to_remove.push(executor_fe.clone());
                     continue;
                 }
+
+                // If the server's FE state is terminated we don't need to do anything heres
                 if matches!(
                     server_fe.desired_state,
                     FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
                 }
-                if executor_fe.state != server_fe.desired_state {
+                if executor_fe.state != server_fe.function_executor.state {
                     let mut server_fe_clone = server_fe.clone();
-                    server_fe_clone.function_executor.state = executor_fe.state.clone();
+                    server_fe_clone.function_executor.update(executor_fe);
                     new_function_executors.push(*server_fe_clone);
                 }
             }
