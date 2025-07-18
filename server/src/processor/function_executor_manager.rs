@@ -229,7 +229,6 @@ impl FunctionExecutorManager {
         for (executor_fe_id, executor_fe) in &executor.function_executors {
             // If the Executor FE is also in the server's tracked FE lets sync them.
             if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
-
                 // If the executor's FE state is Terminated lets remove it from the server.
                 if matches!(executor_fe.state, FunctionExecutorState::Terminated { .. }) {
                     function_executors_to_remove.push(executor_fe.clone());
