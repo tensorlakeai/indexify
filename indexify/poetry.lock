@@ -266,18 +266,18 @@ uvloop = ["uvloop (>=0.15.2)"]
 
 [[package]]
 name = "boto3"
-version = "1.39.7"
+version = "1.39.8"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "boto3-1.39.7-py3-none-any.whl", hash = "sha256:c8c0e11fff7bb85f903b860b6bfd4f509a4d749decf38bb6a409ffe5d6eb0c91"},
-    {file = "boto3-1.39.7.tar.gz", hash = "sha256:28daeb005e3381808e0e12995056ee8951056ddd43506c07482a15b40ae785b0"},
+    {file = "boto3-1.39.8-py3-none-any.whl", hash = "sha256:dcea5270ccced0b4b962eb5874cb71b6232ccfc6203e05bf834a314442e4a79c"},
+    {file = "boto3-1.39.8.tar.gz", hash = "sha256:456ea6baef037eb6205d64e012259d14f0c9300c9b30603890746c1a0882fa01"},
 ]
 
 [package.dependencies]
-botocore = ">=1.39.7,<1.40.0"
+botocore = ">=1.39.8,<1.40.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.13.0,<0.14.0"
 
@@ -286,14 +286,14 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.39.7"
+version = "1.39.8"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "botocore-1.39.7-py3-none-any.whl", hash = "sha256:1d11ba9f3cb46856bb541ed010db160093201a224d21ef854249513ae3af7e77"},
-    {file = "botocore-1.39.7.tar.gz", hash = "sha256:431e342ef97ecb387cea9df1ae8c4e0edc1b0c9c50d2e121cca77699f24f8dc1"},
+    {file = "botocore-1.39.8-py3-none-any.whl", hash = "sha256:ab43f79c6893271934faba7ae1987a313d59576361c544c70a5391ade560891d"},
+    {file = "botocore-1.39.8.tar.gz", hash = "sha256:3848bd9057ea8dbc059e7764eda63bda575727ad1101dbd03636ab4a6f283fa5"},
 ]
 
 [package.dependencies]
@@ -1738,14 +1738,14 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "tensorlake"
-version = "0.2.25"
+version = "0.2.27"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Workflows"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.2.25-py3-none-any.whl", hash = "sha256:88cb3b13b57ddc3f145cf95d18a48014707a6c2e907d12f973db0b58daae8d90"},
-    {file = "tensorlake-0.2.25.tar.gz", hash = "sha256:983a93e0f7812ef59ddbe03d5febbb53dae8c449faa93a6fe5fc31ef45256fbb"},
+    {file = "tensorlake-0.2.27-py3-none-any.whl", hash = "sha256:23abe21706dc40a6cc8c7d6bb43adc0da6cfef7ad9fe6960409c5caddc9b101d"},
+    {file = "tensorlake-0.2.27.tar.gz", hash = "sha256:b65aed084360d8a3e50b464b0d8eec989e06881344b8a092e6627f3f33f38fa1"},
 ]
 
 [package.dependencies]
@@ -2001,4 +2001,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "624a8e7273aa8e8e1bd117debdbb3740add27d2b241271096e404c75609edd64"
+content-hash = "c02f06865689cc5018650b4a54481998ad35772d8cf0733d210f1afe141a79d6"
