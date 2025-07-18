@@ -154,16 +154,15 @@ class ExecutorStateReconciler:
         Never raises any exceptions. Get cancelled via aio task cancellation.
         """
         while True:
+            desired_states_stream: Optional[AsyncIterable[DesiredExecutorState]] = None
             try:
                 stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
                 # Report state once before starting the stream so Server
                 # doesn't use stale state it knew about this Executor in the past.
                 await self._state_reporter.report_state_and_wait_for_completion()
 
-                desired_states_stream: AsyncIterable[DesiredExecutorState] = (
-                    stub.get_desired_executor_states(
-                        GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
-                    )
+                desired_states_stream = stub.get_desired_executor_states(
+                    GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
                 )
                 self._logger.info("created new desired states stream")
                 await self._process_desired_states_stream(desired_states_stream)
@@ -173,8 +172,10 @@ class ExecutorStateReconciler:
                     exc_info=e,
                 )
             finally:
-                # Cleanup resources, just in case, no docs ask to do this
-                desired_states_stream.cancel()
+                # Cleanly signal Server that the stream is closed by client.
+                # See https://stackoverflow.com/questions/72207914/how-to-stop-listening-on-a-stream-in-python-grpc-client
+                if desired_states_stream is not None:
+                    desired_states_stream.cancel()
 
             self._logger.info(
                 f"desired states stream closed, reconnecting in {self._server_backoff_interval_sec} sec"
