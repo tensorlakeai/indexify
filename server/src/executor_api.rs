@@ -810,7 +810,7 @@ impl ExecutorApi for ExecutorAPIService {
             "Got get_desired_executor_states request",
         );
 
-        let mut state_rx = match self.executor_manager.subscribe(&executor_id).await {
+        let mut executor_state_rx = match self.executor_manager.subscribe(&executor_id).await {
             Some(state_rx) => state_rx,
             None => {
                 let msg = "executor not found, or not yet registered";
@@ -822,7 +822,7 @@ impl ExecutorApi for ExecutorAPIService {
             }
         };
 
-        let (tx, rx) = watch::channel(Result::Ok(DesiredExecutorState {
+        let (grpc_tx, grpc_rx) = watch::channel(Result::Ok(DesiredExecutorState {
             function_executors: vec![],
             task_allocations: vec![],
             clock: Some(0),
@@ -833,15 +833,26 @@ impl ExecutorApi for ExecutorAPIService {
             //    executor. This is important because between the report_executor_state and
             //    the get_desired_executor_states requests, the executor state may received
             //    a new desired state.
-            state_rx.mark_changed();
+            executor_state_rx.mark_changed();
             loop {
-                // 2. Wait for a state change for this executor
-                if let Err(err) = state_rx.changed().await {
-                    info!(
-                        executor_id = executor_id.get(),
-                        "get_desired_executor_states: state machine watcher closing: {}", err
-                    );
-                    break;
+                // 2. Wait for a state change for this executor or grpc stream closing.
+                tokio::select! {
+                    _ = grpc_tx.closed() => {
+                        info!(
+                            executor_id = executor_id.get(),
+                            "get_desired_executor_states: grpc stream closed"
+                        );
+                        break;
+                    }
+                    result = executor_state_rx.changed() => {
+                        if let Err(err) = result {
+                            info!(
+                                executor_id = executor_id.get(),
+                                "get_desired_executor_states: state machine watcher closing: {}", err
+                            );
+                            break;
+                        }
+                    }
                 }
 
                 // 3. Get the latest state
@@ -866,7 +877,7 @@ impl ExecutorApi for ExecutorAPIService {
                 );
 
                 // 4. Send the state to the executor
-                if let Err(err) = tx.send(Ok(desired_state)) {
+                if let Err(err) = grpc_tx.send(Ok(desired_state)) {
                     info!(
                         executor_id = executor_id.get(),
                         "get_desired_executor_states: grpc stream closing: {}", err
@@ -876,9 +887,9 @@ impl ExecutorApi for ExecutorAPIService {
             }
         });
 
-        let output_stream = WatchStream::from_changes(rx);
+        let grpc_stream = WatchStream::from_changes(grpc_rx);
         Ok(Response::new(
-            Box::pin(output_stream) as Self::get_desired_executor_statesStream
+            Box::pin(grpc_stream) as Self::get_desired_executor_statesStream
         ))
     }
 }
