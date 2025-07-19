@@ -58,6 +58,11 @@ impl Service {
                 .context("error initializing BlobStorage")?,
         );
 
+        let kv_storage = Arc::new(
+            BlobStorage::new(config.kv_storage.clone())
+                .context("error initializing KVStorage")?,
+        );
+
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
         let blob_store_url_scheme = blob_storage.get_url_scheme();
         let blob_store_url = blob_storage.get_url();
@@ -75,7 +80,7 @@ impl Service {
         )));
 
         let kvs = Arc::new(
-            KVS::new(blob_storage.clone(), "graph_ctx_state")
+            KVS::new(kv_storage, "graph_ctx_state")
                 .await
                 .context("error initializing KVS")?,
         );
