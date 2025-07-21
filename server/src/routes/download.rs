@@ -90,16 +90,7 @@ pub async fn download_invocation_error(
     }));
 }
 
-/// Get function output
-#[utoipa::path(
-    get,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{index}",
-    tag = "retrieve",
-    responses(
-        (status = 200, description = "function output"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
-    ),
-)]
+
 pub async fn download_fn_output_payload(
     Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
         String,
@@ -125,6 +116,84 @@ pub async fn download_fn_output_payload(
             &invocation_id,
             &fn_name,
             &node_output_id,
+        )
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "failed to download invocation payload: {}",
+                e
+            ))
+        })?
+        .ok_or(IndexifyAPIError::not_found(
+            format!(
+                "fn output not found: {}/{}/{}/{}",
+                namespace, compute_graph, invocation_id, fn_name
+            )
+            .as_str(),
+        ))?;
+
+    let encoding = output.encoding.clone();
+
+    let payload = &output.payloads[index];
+    let storage_reader = state
+        .blob_storage
+        .get(&payload.path)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    // Check if the content type is JSON
+    if encoding == "application/json" {
+        let json_bytes = storage_reader
+            .map_ok(|chunk| chunk.to_vec())
+            .try_concat()
+            .await
+            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
+
+        return Response::builder()
+            .header("Content-Type", encoding)
+            .header("Content-Hash", payload.sha256_hash.clone())
+            .header("Content-Length", payload.size.to_string())
+            .body(Body::from(json_bytes))
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
+    Response::builder()
+        .header("Content-Type", encoding)
+        .header("Content-Length", payload.size.to_string())
+        .header("Content-Hash", payload.sha256_hash.clone())
+        .body(Body::from_stream(storage_reader))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+}
+
+
+/// Get function output
+#[utoipa::path(
+    get,
+    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "function output"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+    ),
+)]
+pub async fn v1_download_fn_output_payload(
+    Path((namespace, compute_graph, invocation_id, fn_name, id, index)): Path<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        usize,
+    )>,
+    State(state): State<RouteState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let output = state
+        .indexify_state
+        .reader()
+        .fn_output_payload(
+            &namespace,
+            &compute_graph,
+            &invocation_id,
+            &fn_name,
+            &id,
         )
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
