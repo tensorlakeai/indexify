@@ -17,7 +17,7 @@ use crate::{
     data_model::{self, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
     http_objects::{IndexifyAPIError, RequestId, RequestQueryParams},
     state_store::{
-        invocation_events::{RequestFinishedEvent, InvocationStateChangeEvent},
+        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
 };

@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    data_model::TaskOutcome,
-    state_store::requests::AllocationOutput,
-};
+use crate::{data_model::TaskOutcome, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
@@ -27,18 +24,19 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { id }) => {
-                id.clone()
-            }
-            InvocationStateChangeEvent::TaskCreated(TaskCreated { request_id: invocation_id, .. }) => {
-                invocation_id.clone()
-            }
-            InvocationStateChangeEvent::TaskAssigned(TaskAssigned { request_id: invocation_id, .. }) => {
-                invocation_id.clone()
-            }
-            InvocationStateChangeEvent::TaskCompleted(TaskCompleted { request_id: invocation_id, .. }) => {
-                invocation_id.clone()
-            }
+            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { id }) => id.clone(),
+            InvocationStateChangeEvent::TaskCreated(TaskCreated {
+                request_id: invocation_id,
+                ..
+            }) => invocation_id.clone(),
+            InvocationStateChangeEvent::TaskAssigned(TaskAssigned {
+                request_id: invocation_id,
+                ..
+            }) => invocation_id.clone(),
+            InvocationStateChangeEvent::TaskCompleted(TaskCompleted {
+                request_id: invocation_id,
+                ..
+            }) => invocation_id.clone(),
             InvocationStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
                 request_id: invocation_id,
                 ..
