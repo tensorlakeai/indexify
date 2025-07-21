@@ -155,7 +155,7 @@ pub async fn invoke_with_object(
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
         .map(|s| s.to_string())
-        .unwrap_or("application/cbor".to_string());
+        .unwrap_or("application/octet-stream".to_string());
 
     state.metrics.invocations.add(1, &[]);
     let should_block = params.block_until_finish.unwrap_or(false);
