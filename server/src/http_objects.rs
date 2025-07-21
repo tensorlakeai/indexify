@@ -159,37 +159,37 @@ impl From<data_model::ImageInformation> for ImageInformation {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct NodeTimeoutSeconds(pub u32);
+pub struct TimeoutSeconds(pub u32);
 
-impl NodeTimeoutSeconds {
+impl TimeoutSeconds {
     fn validate(&self) -> Result<(), IndexifyAPIError> {
         if self.0 == 0 {
             return Err(IndexifyAPIError::bad_request(
-                "Node timeout must be greater than 0",
+                "timeout must be greater than 0",
             ));
         }
         if self.0 > 24 * 60 * 60 {
             return Err(IndexifyAPIError::bad_request(
-                "Node timeout must be less than or equal 24 hours",
+                "timeout must be less than or equal 24 hours",
             ));
         }
         Ok(())
     }
 }
 
-impl From<NodeTimeoutSeconds> for data_model::NodeTimeoutMS {
-    fn from(value: NodeTimeoutSeconds) -> Self {
+impl From<TimeoutSeconds> for data_model::NodeTimeoutMS {
+    fn from(value: TimeoutSeconds) -> Self {
         data_model::NodeTimeoutMS(value.0 * 1000)
     }
 }
 
-impl From<data_model::NodeTimeoutMS> for NodeTimeoutSeconds {
-    fn from(value: data_model::NodeTimeoutMS) -> NodeTimeoutSeconds {
-        NodeTimeoutSeconds(value.0 / 1000)
+impl From<data_model::NodeTimeoutMS> for TimeoutSeconds {
+    fn from(value: data_model::NodeTimeoutMS) -> TimeoutSeconds {
+        TimeoutSeconds(value.0 / 1000)
     }
 }
 
-impl Default for NodeTimeoutSeconds {
+impl Default for TimeoutSeconds {
     fn default() -> Self {
         data_model::NodeTimeoutMS::default().into()
     }
@@ -417,7 +417,7 @@ pub struct ComputeFn {
     #[serde(default)]
     pub secret_names: Vec<String>,
     #[serde(default, rename = "timeout_sec")]
-    pub timeout: NodeTimeoutSeconds,
+    pub timeout: TimeoutSeconds,
     #[serde(default)]
     pub resources: NodeResources,
     #[serde(default)]
@@ -528,8 +528,6 @@ pub struct ComputeGraph {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub runtime_information: RuntimeInformation,
-    #[serde(skip_deserializing)]
-    pub replaying: bool,
 }
 
 impl ComputeGraph {
@@ -563,7 +561,6 @@ impl ComputeGraph {
             edges: self.edges.clone(),
             created_at: 0,
             runtime_information: self.runtime_information.into(),
-            replaying: false,
             tombstoned: self.tombstoned,
         };
         Ok(compute_graph)
@@ -588,7 +585,6 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             edges: compute_graph.edges,
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
-            replaying: compute_graph.replaying,
             tombstoned: compute_graph.tombstoned,
         }
     }
@@ -729,7 +725,7 @@ pub struct Task {
     pub input_payload: Option<DataPayload>,
     pub reducer_input_payload: Option<DataPayload>,
     pub output_payload_uri_prefix: Option<String>,
-    pub timeout: NodeTimeoutSeconds,
+    pub timeout: TimeoutSeconds,
     pub resources: NodeResources,
     pub retry_policy: NodeRetryPolicy,
     pub allocations: Vec<Allocation>,
@@ -827,7 +823,7 @@ impl From<GraphInvocationFailureReason> for InvocationFailureReason {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct InvocationError {
+pub struct RequestError {
     pub function_name: String,
     pub message: String,
 }
@@ -859,7 +855,7 @@ pub struct Invocation {
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
     pub created_at: u64,
-    pub invocation_error: Option<InvocationError>,
+    pub invocation_error: Option<RequestError>,
 }
 
 impl From<GraphInvocationCtx> for Invocation {
@@ -1139,7 +1135,7 @@ pub struct ExecutorsAllocationsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InvocationQueryParams {
+pub struct RequestQueryParams {
     pub block_until_finish: Option<bool>,
 }
 

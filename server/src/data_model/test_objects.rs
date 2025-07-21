@@ -146,7 +146,6 @@ pub mod tests {
                 minor_version: 10,
                 sdk_version: "1.2.3".to_string(),
             },
-            replaying: false,
         }
     }
 
