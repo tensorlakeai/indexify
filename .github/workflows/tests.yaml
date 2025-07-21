@@ -40,12 +40,12 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-directories: |
-            server/target
+            target
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-directories: |
-            server/target
+            target
       - name: Build indexify-server
         run: |
           cd server
@@ -62,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: indexify-server
-          path: server/target/debug/indexify-server
+          path: target/debug/indexify-server
 
   lint_python_packages:
     name: Lint Python packages

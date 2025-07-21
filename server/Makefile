@@ -7,7 +7,7 @@ PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
 # Target executable
-TARGET = ./target/release/$(APPLICATION_NAME)
+TARGET = ../target/release/$(APPLICATION_NAME)
 
 .PHONY: build
 build: ## Build rust application
