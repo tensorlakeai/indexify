@@ -32,12 +32,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-server-linux-amd64
-          path: server/target/x86_64-unknown-linux-gnu/release/indexify-server
+          path: target/x86_64-unknown-linux-gnu/release/indexify-server
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-server-deb-linux-amd64
-          path: server/target/x86_64-unknown-linux-gnu/debian/indexify-server_*.deb
+          path: target/x86_64-unknown-linux-gnu/debian/indexify-server_*.deb
           if-no-files-found: error
 
   build-linux-arm64-package:
@@ -55,12 +55,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-server-linux-aarch64
-          path: server/target/aarch64-unknown-linux-gnu/release/indexify-server
+          path: target/aarch64-unknown-linux-gnu/release/indexify-server
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-server-deb-linux-aarch64
-          path: server/target/aarch64-unknown-linux-gnu/debian/indexify-server_*.deb
+          path: target/aarch64-unknown-linux-gnu/debian/indexify-server_*.deb
           if-no-files-found: error
 
   build-macos-package:
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: indexify-server-darwin-arm64
-          path: server/target/release/indexify-server
+          path: target/release/indexify-server
           if-no-files-found: error
 
   # build-macos-package-x86:
@@ -99,7 +99,7 @@ jobs:
   #     - uses: actions/upload-artifact@v4
   #       with:
   #         name: indexify-server-darwin-amd64
-  #         path: server/target/release/indexify-server
+  #         path: target/release/indexify-server
   #         if-no-files-found: error
 
   # build-windows-package:
@@ -117,5 +117,5 @@ jobs:
   #     - uses: actions/upload-artifact@v4
   #       with:
   #         name: indexify-server-windows-amd64.exe
-  #         path: server/target/release/indexify-server.exe
+  #         path: target/release/indexify-server.exe
   #         if-no-files-found: error
