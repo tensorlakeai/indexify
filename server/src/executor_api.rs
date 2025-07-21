@@ -506,6 +506,12 @@ impl ExecutorAPIService {
             self.api_metrics
                 .fn_outputs
                 .add(task_result.function_outputs.len() as u64, &[]);
+
+            // TODO: unwrap_or(0) is for backwards compatibility with old executor API.
+            // Remove this once we've migrated all executors to the new API.
+            let execution_duration_s = task_result
+                .execution_duration_s
+                .unwrap_or(0);
             let task_id = task_result
                 .task_id
                 .clone()
@@ -632,6 +638,7 @@ impl ExecutorAPIService {
                 .allocation_id(allocation_id.clone())
                 .invocation_error_payload(invocation_error_payload)
                 .reducer_output(compute_fn_node.reducer)
+                .execution_duration_s(execution_duration_s)
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
 

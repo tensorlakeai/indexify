@@ -127,6 +127,7 @@ mod tests {
                 next_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
                 encoding: "application/octet-stream".to_string(),
                 invocation_error_payload: None,
+                execution_duration_s: 0,
             };
             let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;

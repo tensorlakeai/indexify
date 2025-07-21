@@ -563,6 +563,9 @@ pub struct NodeOutput {
     pub allocation_id: String,
     pub invocation_error_payload: Option<DataPayload>,
 
+    #[serde(default)]
+    pub execution_duration_s: u64,
+
     // If this is the output of an individual reducer
     // We need this here since we are going to filter out the individual reducer outputs
     // and return the accumulated output
@@ -644,6 +647,7 @@ impl NodeOutputBuilder {
             .next_functions
             .clone()
             .ok_or(anyhow!("next_functions is required"))?;
+        let execution_duration_s = self.execution_duration_s.clone().ok_or(anyhow!("execution_duration_s is required"))?;
         let invocation_error_payload = self.invocation_error_payload.clone().flatten();
         let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
@@ -666,6 +670,7 @@ impl NodeOutputBuilder {
             encoding,
             allocation_id,
             invocation_error_payload,
+            execution_duration_s,
             reducer_output,
         })
     }

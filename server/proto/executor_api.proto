@@ -272,6 +272,9 @@ message TaskResult {
     optional DataPayload stderr = 14;
     // User payload for invocation error if task failed with invocation error.
     optional DataPayload invocation_error_output = 15;
+
+    // The time taken to run the function in seconds.
+    optional uint64 execution_duration_s = 16;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
