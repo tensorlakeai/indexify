@@ -15,9 +15,9 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{self, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
-    http_objects::{IndexifyAPIError, InvocationId, RequestQueryParams},
+    http_objects::{IndexifyAPIError, RequestId, RequestQueryParams},
     state_store::{
-        invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
+        invocation_events::{RequestFinishedEvent, InvocationStateChangeEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
 };
@@ -33,7 +33,7 @@ async fn create_invocation_event_stream(
     async_stream::stream! {
         // For invoke endpoint without blocking
         if rx.is_none() {
-            yield Event::default().json_data(InvocationId { id: id.clone() });
+            yield Event::default().json_data(RequestId { id: id.clone() });
             return;
         }
 
@@ -46,8 +46,8 @@ async fn create_invocation_event_stream(
             Ok(Some(invocation)) => {
                 if invocation.completed {
                     yield Event::default().json_data(
-                        InvocationStateChangeEvent::InvocationFinished(
-                            InvocationFinishedEvent {
+                        InvocationStateChangeEvent::RequestFinished(
+                            RequestFinishedEvent {
                                 id: id.clone()
                             }
                         )
@@ -77,7 +77,7 @@ async fn create_invocation_event_stream(
                         if ev.invocation_id() == id {
                             yield Event::default().json_data(ev.clone());
 
-                            if let InvocationStateChangeEvent::InvocationFinished(_) = ev {
+                            if let InvocationStateChangeEvent::RequestFinished(_) = ev {
                                 return;
                             }
                         }
@@ -98,8 +98,8 @@ async fn create_invocation_event_stream(
                             Ok(Some(context)) => {
                                 if context.completed {
                                     yield Event::default().json_data(
-                                        InvocationStateChangeEvent::InvocationFinished(
-                                            InvocationFinishedEvent {
+                                        InvocationStateChangeEvent::RequestFinished(
+                                            RequestFinishedEvent {
                                                 id: id.clone()
                                             }
                                         )
@@ -241,9 +241,10 @@ pub async fn invoke_with_object(
     )
 }
 
+/// Stream progress of a request until it is completed
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
+    path = "/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/progress",
     tag = "operations",
     responses(
         (status = 200, description = "SSE events of an invocation"),

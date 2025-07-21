@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
-use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
+use invocation_events::{RequestFinishedEvent, InvocationStateChangeEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
@@ -339,7 +339,7 @@ impl IndexifyState {
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskAssigned(
                             invocation_events::TaskAssigned {
-                                invocation_id: allocation.invocation_id.clone(),
+                                request_id: allocation.invocation_id.clone(),
                                 fn_name: allocation.compute_fn.clone(),
                                 task_id: allocation.task_id.get().to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
@@ -354,7 +354,7 @@ impl IndexifyState {
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::TaskMatchedCache(
                                     invocation_events::TaskMatchedCache {
-                                        invocation_id: task.invocation_id.clone(),
+                                        request_id: task.invocation_id.clone(),
                                         fn_name: task.compute_fn_name.clone(),
                                         task_id: task.id.to_string(),
                                     },
@@ -364,7 +364,7 @@ impl IndexifyState {
                             .task_event_tx
                             .send(InvocationStateChangeEvent::TaskCreated(
                                 invocation_events::TaskCreated {
-                                    invocation_id: task.invocation_id.clone(),
+                                    request_id: task.invocation_id.clone(),
                                     fn_name: task.compute_fn_name.clone(),
                                     task_id: task.id.to_string(),
                                 },
@@ -375,8 +375,8 @@ impl IndexifyState {
                 for invocation_ctx in &sched_update.updated_invocations_states {
                     if invocation_ctx.completed {
                         let _ = self.task_event_tx.send(
-                            InvocationStateChangeEvent::InvocationFinished(
-                                InvocationFinishedEvent {
+                            InvocationStateChangeEvent::RequestFinished(
+                                RequestFinishedEvent {
                                     id: invocation_ctx.invocation_id.clone(),
                                 },
                             ),

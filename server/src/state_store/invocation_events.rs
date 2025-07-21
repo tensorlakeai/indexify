@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    data_model::{TaskAnalytics, TaskOutcome},
+    data_model::TaskOutcome,
     state_store::requests::AllocationOutput,
 };
 
@@ -13,13 +11,13 @@ pub enum InvocationStateChangeEvent {
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
     TaskMatchedCache(TaskMatchedCache),
-    InvocationFinished(InvocationFinishedEvent),
+    RequestFinished(RequestFinishedEvent),
 }
 
 impl InvocationStateChangeEvent {
     pub fn from_task_finished(event: AllocationOutput) -> Self {
         Self::TaskCompleted(TaskCompleted {
-            invocation_id: event.invocation_id,
+            request_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.allocation.task_id.get().to_string(),
             outcome: (&event.allocation.outcome).into(),
@@ -29,20 +27,20 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent { id }) => {
+            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { id }) => {
                 id.clone()
             }
-            InvocationStateChangeEvent::TaskCreated(TaskCreated { invocation_id, .. }) => {
+            InvocationStateChangeEvent::TaskCreated(TaskCreated { request_id: invocation_id, .. }) => {
                 invocation_id.clone()
             }
-            InvocationStateChangeEvent::TaskAssigned(TaskAssigned { invocation_id, .. }) => {
+            InvocationStateChangeEvent::TaskAssigned(TaskAssigned { request_id: invocation_id, .. }) => {
                 invocation_id.clone()
             }
-            InvocationStateChangeEvent::TaskCompleted(TaskCompleted { invocation_id, .. }) => {
+            InvocationStateChangeEvent::TaskCompleted(TaskCompleted { request_id: invocation_id, .. }) => {
                 invocation_id.clone()
             }
             InvocationStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
-                invocation_id,
+                request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
         }
@@ -50,26 +48,20 @@ impl InvocationStateChangeEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InvocationFinishedEvent {
+pub struct RequestFinishedEvent {
     pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCreated {
-    pub invocation_id: String,
+    pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DiagnosticMessage {
-    pub invocation_id: String,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskAssigned {
-    pub invocation_id: String,
+    pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
     pub allocation_id: String,
@@ -95,7 +87,7 @@ impl From<&TaskOutcome> for TaskOutcomeSummary {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCompleted {
-    pub invocation_id: String,
+    pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
     pub allocation_id: String,
@@ -104,15 +96,7 @@ pub struct TaskCompleted {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskMatchedCache {
-    pub invocation_id: String,
+    pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InvocationFinished {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub analytics: HashMap<String, TaskAnalytics>,
 }
