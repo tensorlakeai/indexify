@@ -1,74 +1,37 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Multipart, Path, Query, RawPathParams, Request, State},
-    http::{Method, Response},
+    extract::{Multipart, Path, Query, RawPathParams, Request, State},
+    http::Response,
     middleware::{self, Next},
     response::{sse::Event, Html, IntoResponse},
     routing::{delete, get, post},
     Json,
     Router,
 };
-use axum_tracing_opentelemetry::{
-    self,
-    middleware::{OtelAxumLayer, OtelInResponseLayer},
-};
 use base64::prelude::*;
-use futures::StreamExt;
-use hyper::StatusCode;
-use nanoid::nanoid;
-use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
-use utoipa::{OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
-
-use crate::{
-    blob_store::{self, PutResult},
-    data_model::ComputeGraphError,
-    http_objects::{
-        from_data_model_executor_metadata,
-        FnOutput,
-        Invocation,
-        StateChangesResponse,
-        UnallocatedTasks,
-    },
-    indexify_ui::Assets as UiAssets,
-    metrics::api_io_stats,
-    routes::logs::download_function_executor_startup_logs,
-    state_store::{
-        self,
-        kv::{ReadContextData, WriteContextData, KVS},
-        requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            DeleteInvocationRequest,
-            NamespaceRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-        },
-        IndexifyState,
-    },
-};
-
-mod download;
-mod internal_ingest;
-mod invoke;
-mod logs;
 use download::{
     download_fn_output_payload,
     download_invocation_error,
     download_invocation_payload,
 };
+use futures::StreamExt;
+use hyper::StatusCode;
 use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_object, wait_until_invocation_completed};
 use logs::download_allocation_logs;
+use nanoid::nanoid;
+use tracing::info;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    config::ServerConfig,
-    executors::ExecutorManager,
+    blob_store::PutResult,
+    data_model::ComputeGraphError,
     http_objects::{
+        from_data_model_executor_metadata,
         Allocation,
         CacheKey,
         ComputeFn,
@@ -78,18 +41,43 @@ use crate::{
         CursorDirection,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
+        FnOutput,
         FnOutputs,
         GraphInvocations,
         GraphVersion,
         ImageInformation,
         IndexifyAPIError,
+        Invocation,
         ListParams,
         Namespace,
         NamespaceList,
         RuntimeInformation,
+        StateChangesResponse,
         Task,
         TaskOutcome,
         Tasks,
+        UnallocatedTasks,
+    },
+    indexify_ui::Assets as UiAssets,
+    routes::{
+        download,
+        internal_ingest,
+        invoke,
+        logs,
+        logs::download_function_executor_startup_logs,
+        routes_state::RouteState,
+    },
+    state_store::{
+        self,
+        kv::{ReadContextData, WriteContextData},
+        requests::{
+            CreateOrUpdateComputeGraphRequest,
+            DeleteComputeGraphRequest,
+            DeleteInvocationRequest,
+            NamespaceRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+        },
     },
 };
 
@@ -98,23 +86,12 @@ use crate::{
         paths(
             create_namespace,
             namespaces,
-            invoke::invoke_with_object,
-            graph_invocations,
-            find_invocation,
-            create_or_update_compute_graph,
-            list_compute_graphs,
-            get_compute_graph,
-            delete_compute_graph,
-            list_tasks,
-            list_outputs,
-            delete_invocation,
             logs::download_allocation_logs,
             logs::download_function_executor_startup_logs,
             list_executors,
             list_allocations,
             list_unallocated_tasks,
             list_unprocessed_state_changes,
-            download::download_fn_output_payload,
         ),
         components(
             schemas(
@@ -149,24 +126,9 @@ use crate::{
 
 pub struct ApiDoc;
 
-#[derive(Clone)]
-pub struct RouteState {
-    pub config: Arc<ServerConfig>,
-    pub indexify_state: Arc<IndexifyState>,
-    pub blob_storage: Arc<blob_store::BlobStorage>,
-    pub kvs: Arc<KVS>,
-    pub executor_manager: Arc<ExecutorManager>,
-    pub metrics: Arc<api_io_stats::Metrics>,
-}
-
-pub fn create_routes(route_state: RouteState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::DELETE])
-        .allow_origin(Any)
-        .allow_headers(Any);
-
+pub fn configure_internal_routes(route_state: RouteState) -> Router {
     Router::new()
-        .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/docs/internal/swagger").url("/docs/internal/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
         .route(
             "/namespaces",
@@ -216,13 +178,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .layer(OtelInResponseLayer)
-        .layer(OtelAxumLayer::default())
-        // No tracing starting here.
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
-        .layer(cors)
-        .layer(DefaultBodyLimit::disable())
 }
 
 async fn index() -> impl IntoResponse {

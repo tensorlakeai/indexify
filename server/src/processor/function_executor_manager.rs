@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use if_chain::if_chain;
 use rand::seq::IndexedRandom;
-use tracing::{debug, error, info, info_span};
+use tracing::{debug, error, info, info_span, warn};
 
 use crate::{
     data_model::{
@@ -409,7 +409,7 @@ impl FunctionExecutorManager {
         let Some(mut executor_server_metadata) =
             in_memory_state.executor_states.get(executor_id).cloned()
         else {
-            error!(
+            warn!(
                 target: targets::SCHEDULER,
                 executor_id = executor_id.get(),
                 "executor {} not found while removing function executors",

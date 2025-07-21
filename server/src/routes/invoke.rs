@@ -12,10 +12,10 @@ use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use super::RouteState;
+use super::routes_state::RouteState;
 use crate::{
     data_model::{self, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
-    http_objects::{IndexifyAPIError, InvocationId, InvocationQueryParams},
+    http_objects::{IndexifyAPIError, InvocationId, RequestQueryParams},
     state_store::{
         invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -132,21 +132,21 @@ async fn create_invocation_event_stream(
     }
 }
 
-/// Invoke Compute Graph
+/// Make a request to a workflow
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
-        (status = 200, description = "invocation successful"),
+        (status = 200, description = "request successful"),
         (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
-    Query(params): Query<InvocationQueryParams>,
+    Query(params): Query<RequestQueryParams>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,

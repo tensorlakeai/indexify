@@ -1,16 +1,19 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
+use axum::{extract::DefaultBodyLimit, Router};
 use axum_server::Handle;
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
+use hyper::Method;
 use tokio::{
     self,
     signal,
     sync::{watch, Mutex},
 };
 use tonic::transport::Server;
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
-use super::routes::RouteState;
 use crate::{
     blob_store::BlobStorage,
     config::ServerConfig,
@@ -18,7 +21,9 @@ use crate::{
     executors::ExecutorManager,
     metrics::{self, init_provider},
     processor::{gc::Gc, graph_processor::GraphProcessor, task_cache},
-    routes::create_routes,
+    routes::routes_state::RouteState,
+    routes_internal::configure_internal_routes,
+    routes_v1::configure_v1_routes,
     state_store::{kv::KVS, IndexifyState},
 };
 
@@ -186,10 +191,23 @@ impl Service {
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
-        let routes = create_routes(route_state).layer(otel_metrics_service_layer);
+        let internal_routes = configure_internal_routes(route_state.clone());
+        let v1_routes = configure_v1_routes(route_state.clone());
+        let cors = CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::DELETE])
+            .allow_origin(Any)
+            .allow_headers(Any);
+        let router = Router::new()
+            .merge(internal_routes)
+            .merge(v1_routes)
+            .layer(otel_metrics_service_layer)
+            .layer(OtelInResponseLayer)
+            .layer(OtelAxumLayer::default())
+            .layer(cors)
+            .layer(DefaultBodyLimit::disable());
         axum_server::bind(addr)
             .handle(handle)
-            .serve(routes.into_make_service())
+            .serve(router.into_make_service())
             .await?;
 
         Ok(())

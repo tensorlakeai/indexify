@@ -30,6 +30,7 @@ mod executor_api;
 mod executors;
 mod gc_test;
 mod http_objects;
+mod http_objects_v1;
 mod indexify_ui;
 mod integration_test;
 mod metrics;
@@ -37,6 +38,8 @@ mod openapi;
 mod processor;
 mod reconciliation_test;
 mod routes;
+mod routes_internal;
+mod routes_v1;
 mod service;
 mod state_store;
 mod utils;
@@ -176,10 +179,12 @@ async fn main() {
     };
 
     if cli.gen_cloud_openapi {
-        let api_docs_yaml = routes::ApiDoc::openapi().to_yaml().unwrap_or_else(|err| {
-            eprintln!("Failed to generate OpenAPI spec: {}", err);
-            std::process::exit(1);
-        });
+        let api_docs_yaml = routes_internal::ApiDoc::openapi()
+            .to_yaml()
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to generate OpenAPI spec: {}", err);
+                std::process::exit(1);
+            });
 
         openapi::generate_cloud_openapi(api_docs_yaml);
         std::process::exit(0);
