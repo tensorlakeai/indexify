@@ -90,7 +90,6 @@ pub async fn download_invocation_error(
     }));
 }
 
-
 pub async fn download_fn_output_payload(
     Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
         String,
@@ -163,7 +162,6 @@ pub async fn download_fn_output_payload(
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
-
 /// Get function output
 #[utoipa::path(
     get,
@@ -188,13 +186,7 @@ pub async fn v1_download_fn_output_payload(
     let output = state
         .indexify_state
         .reader()
-        .fn_output_payload(
-            &namespace,
-            &compute_graph,
-            &invocation_id,
-            &fn_name,
-            &id,
-        )
+        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
                 "failed to download invocation payload: {}",

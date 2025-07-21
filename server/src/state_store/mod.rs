@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
-use invocation_events::{RequestFinishedEvent, InvocationStateChangeEvent};
+use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
@@ -374,13 +374,13 @@ impl IndexifyState {
 
                 for invocation_ctx in &sched_update.updated_invocations_states {
                     if invocation_ctx.completed {
-                        let _ = self.task_event_tx.send(
-                            InvocationStateChangeEvent::RequestFinished(
-                                RequestFinishedEvent {
-                                    id: invocation_ctx.invocation_id.clone(),
-                                },
-                            ),
-                        );
+                        let _ =
+                            self.task_event_tx
+                                .send(InvocationStateChangeEvent::RequestFinished(
+                                    RequestFinishedEvent {
+                                        id: invocation_ctx.invocation_id.clone(),
+                                    },
+                                ));
                     }
                 }
             }
