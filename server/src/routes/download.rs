@@ -6,11 +6,11 @@ use axum::{
 };
 use futures::TryStreamExt;
 
-use super::RouteState;
+use super::routes_state::RouteState;
 use crate::{
     blob_store::BlobStorage,
     data_model::GraphInvocationError,
-    http_objects::{IndexifyAPIError, InvocationError},
+    http_objects::{IndexifyAPIError, RequestError},
 };
 
 pub async fn download_invocation_payload(
@@ -56,7 +56,7 @@ pub async fn download_invocation_payload(
 pub async fn download_invocation_error(
     invocation_error: Option<GraphInvocationError>,
     blob_storage: &BlobStorage,
-) -> Result<Option<InvocationError>, IndexifyAPIError> {
+) -> Result<Option<RequestError>, IndexifyAPIError> {
     let Some(invocation_error) = invocation_error else {
         return Ok(None);
     };
@@ -84,7 +84,7 @@ pub async fn download_invocation_error(
         ))
     })?;
 
-    return Ok(Some(InvocationError {
+    return Ok(Some(RequestError {
         function_name: invocation_error.function_name,
         message,
     }));
@@ -93,11 +93,11 @@ pub async fn download_invocation_error(
 /// Get function output
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
+    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{index}",
     tag = "retrieve",
     responses(
-        (status = 200, description = "Function output"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+        (status = 200, description = "function output"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
 pub async fn download_fn_output_payload(

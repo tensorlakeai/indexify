@@ -5,7 +5,7 @@ use axum::{
     http::Response,
 };
 
-use super::RouteState;
+use super::routes_state::RouteState;
 use crate::{blob_store::BlobStorage, data_model::DataPayload, http_objects::IndexifyAPIError};
 
 #[utoipa::path(

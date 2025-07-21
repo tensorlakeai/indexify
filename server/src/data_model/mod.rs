@@ -420,8 +420,6 @@ pub struct ComputeGraph {
     pub description: String,
     #[serde(default)]
     pub tags: HashMap<String, String>,
-    #[serde(default)]
-    pub replaying: bool,
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
@@ -2214,7 +2212,6 @@ mod tests {
                 minor_version: 10,
                 sdk_version: "1.2.3".to_string(),
             },
-            replaying: false,
         };
 
         struct TestCase {
@@ -2253,7 +2250,6 @@ mod tests {
                     name: "graph2".to_string(),                  // different
                     version: crate::data_model::GraphVersion::from("100"),   // different
                     created_at: 10,                              // different
-                    replaying: true,                             // different
                     ..original_graph.clone()
                 },
                 expected_graph: ComputeGraph {
