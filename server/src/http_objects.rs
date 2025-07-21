@@ -840,7 +840,7 @@ pub struct FnOutputs {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InvocationId {
+pub struct RequestId {
     pub id: String,
 }
 

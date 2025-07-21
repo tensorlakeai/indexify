@@ -112,7 +112,7 @@ pub struct ComputeGraphsList {
 pub struct ShallowGraphRequest {
     pub id: String,
     pub created_at: u64,
-    pub completed: bool,
+    pub status: RequestStatus,
     pub outcome: RequestOutcome,
 }
 
@@ -121,7 +121,13 @@ impl From<GraphInvocationCtx> for ShallowGraphRequest {
         Self {
             id: ctx.invocation_id.to_string(),
             created_at: ctx.created_at,
-            completed: ctx.completed,
+            status: if ctx.completed {
+                RequestStatus::Finalized
+            } else if ctx.outstanding_tasks > 0 {
+                RequestStatus::Running
+            } else {
+                RequestStatus::Pending
+            },
             outcome: ctx.outcome.into(),
         }
     }
@@ -226,7 +232,7 @@ pub struct Request {
     pub outcome: RequestOutcome,
     pub failure_reason: RequestFailureReason,
     pub outstanding_tasks: u64,
-    pub task_analytics: HashMap<String, TaskAnalytics>,
+    pub request_progress: HashMap<String, RequestProgress>,
     pub graph_version: String,
     pub created_at: u64,
     pub invocation_error: Option<RequestError>,
@@ -243,7 +249,7 @@ impl Request {
         for (k, v) in ctx.fn_task_analytics {
             task_analytics.insert(
                 k,
-                TaskAnalytics {
+                RequestProgress {
                     pending_tasks: v.pending_tasks,
                     successful_tasks: v.successful_tasks,
                     failed_tasks: v.failed_tasks,
@@ -267,7 +273,7 @@ impl Request {
             },
             status,
             outstanding_tasks: ctx.outstanding_tasks,
-            task_analytics,
+            request_progress: task_analytics,
             graph_version: ctx.graph_version.0,
             created_at: ctx.created_at,
             invocation_error,
@@ -277,7 +283,7 @@ impl Request {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct TaskAnalytics {
+pub struct RequestProgress {
     pub pending_tasks: u64,
     pub successful_tasks: u64,
     pub failed_tasks: u64,

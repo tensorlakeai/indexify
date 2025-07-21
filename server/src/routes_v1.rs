@@ -11,7 +11,7 @@ use axum::{
 };
 use base64::prelude::*;
 use compute_graphs::{delete_compute_graph, get_compute_graph, list_compute_graphs};
-use download::{download_fn_output_payload, download_invocation_error};
+use download::download_invocation_error;
 use invoke::invoke_with_object;
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
@@ -46,8 +46,8 @@ use crate::{
     http_objects_v1::{self, GraphRequests},
     routes::{
         compute_graphs::{self, create_or_update_compute_graph_v1},
-        download,
-        invoke,
+        download::{self, v1_download_fn_output_payload},
+        invoke::{self, wait_until_invocation_completed},
         routes_state::RouteState,
     },
     state_store::{
@@ -73,7 +73,7 @@ use crate::{
             compute_graphs::delete_compute_graph,
             list_tasks,
             delete_invocation,
-            download::download_fn_output_payload,
+            download::v1_download_fn_output_payload,
         ),
         components(
             schemas(
@@ -152,6 +152,10 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
             get(find_invocation).with_state(route_state.clone()),
         )
         .route(
+            "/compute-graphs/{compute_graph}/requests/{request_id}/progress",
+            get(wait_until_invocation_completed).with_state(route_state.clone()),
+        )
+        .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}",
             delete(delete_invocation).with_state(route_state.clone()),
         )
@@ -160,8 +164,8 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
             get(list_tasks).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{index}",
-            get(download_fn_output_payload).with_state(route_state.clone()),
+            "/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
+            get(v1_download_fn_output_payload).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)
