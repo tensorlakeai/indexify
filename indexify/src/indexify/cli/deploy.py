@@ -5,7 +5,7 @@ from tensorlake.functions_sdk.workflow_module import (
     WorkflowModuleInfo,
     load_workflow_module_info,
 )
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
+from tensorlake.remote_graph import RemoteGraph
 
 
 @click.command(
