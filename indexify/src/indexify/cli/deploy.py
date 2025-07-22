@@ -1,11 +1,11 @@
 import click
 from tensorlake import Graph
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
+from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from tensorlake.functions_sdk.workflow_module import (
     WorkflowModuleInfo,
     load_workflow_module_info,
 )
-from tensorlake.remote_graph import RemoteGraph
 
 
 @click.command(

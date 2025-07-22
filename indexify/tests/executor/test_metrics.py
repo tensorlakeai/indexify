@@ -9,7 +9,7 @@ from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
 from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.remote_graph import RemoteGraph
+from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from testing import test_graph_name
 
 

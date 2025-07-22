@@ -6,8 +6,8 @@ import time
 import unittest
 from typing import Any, List, Optional
 
-from tensorlake import RemoteGraph
-from tensorlake.error import GraphStillProcessing
+from tensorlake.functions_sdk.exceptions import GraphStillProcessing
+from tensorlake.functions_sdk.remote_graph import RemoteGraph
 
 
 def test_graph_name(test_case: unittest.TestCase) -> str:

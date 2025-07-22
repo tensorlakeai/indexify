@@ -378,7 +378,7 @@ impl IndexifyState {
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::RequestFinished(
                                     RequestFinishedEvent {
-                                        id: invocation_ctx.invocation_id.clone(),
+                                        request_id: invocation_ctx.invocation_id.clone(),
                                     },
                                 ));
                     }
