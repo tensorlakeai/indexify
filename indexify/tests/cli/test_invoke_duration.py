@@ -3,7 +3,7 @@ import unittest
 
 from tensorlake import Graph, TensorlakeCompute, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.remote_graph import RemoteGraph
+from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from testing import test_graph_name
 
 

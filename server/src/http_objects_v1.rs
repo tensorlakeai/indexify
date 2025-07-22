@@ -235,7 +235,7 @@ pub struct Request {
     pub request_progress: HashMap<String, RequestProgress>,
     pub graph_version: String,
     pub created_at: u64,
-    pub invocation_error: Option<RequestError>,
+    pub request_error: Option<RequestError>,
     pub outputs: Vec<FnOutput>,
 }
 
@@ -276,7 +276,7 @@ impl Request {
             request_progress: task_analytics,
             graph_version: ctx.graph_version.0,
             created_at: ctx.created_at,
-            invocation_error,
+            request_error: invocation_error,
             outputs,
         }
     }

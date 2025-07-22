@@ -4,7 +4,7 @@ from typing import List, Set
 
 from tensorlake import Graph, TensorlakeCompute
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.remote_graph import RemoteGraph
+from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from testing import (
     function_executor_id,
     test_graph_name,

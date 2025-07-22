@@ -8,6 +8,7 @@ pub enum InvocationStateChangeEvent {
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
     TaskMatchedCache(TaskMatchedCache),
+    RequestCreated(RequestCreatedEvent),
     RequestFinished(RequestFinishedEvent),
 }
 
@@ -24,7 +25,13 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { id }) => id.clone(),
+            InvocationStateChangeEvent::RequestCreated(RequestCreatedEvent {
+                request_id: id,
+                ..
+            }) => id.clone(),
+            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent {
+                request_id: id,
+            }) => id.clone(),
             InvocationStateChangeEvent::TaskCreated(TaskCreated {
                 request_id: invocation_id,
                 ..
@@ -46,8 +53,13 @@ impl InvocationStateChangeEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RequestCreatedEvent {
+    pub request_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestFinishedEvent {
-    pub id: String,
+    pub request_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

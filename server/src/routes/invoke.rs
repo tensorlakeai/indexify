@@ -48,7 +48,7 @@ async fn create_invocation_event_stream(
                     yield Event::default().json_data(
                         InvocationStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
-                                id: id.clone()
+                                request_id: id.clone()
                             }
                         )
                     );
@@ -100,7 +100,7 @@ async fn create_invocation_event_stream(
                                     yield Event::default().json_data(
                                         InvocationStateChangeEvent::RequestFinished(
                                             RequestFinishedEvent {
-                                                id: id.clone()
+                                                request_id: id.clone()
                                             }
                                         )
                                     );
