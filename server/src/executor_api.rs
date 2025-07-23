@@ -541,6 +541,9 @@ impl ExecutorAPIService {
                 .allocation_id
                 .clone()
                 .ok_or(anyhow::anyhow!("allocation_id is required"))?;
+
+            let execution_duration_ms = task_result.execution_duration_ms.unwrap_or(0);
+
             let Some(task) = self
                 .indexify_state
                 .reader()
@@ -695,6 +698,7 @@ impl ExecutorAPIService {
             };
             allocation.outcome = task_outcome;
             allocation.diagnostics = Some(task_diagnostic.clone());
+            allocation.execution_duration_ms = Some(execution_duration_ms);
 
             let request = AllocationOutput {
                 namespace: namespace.to_string(),

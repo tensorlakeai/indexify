@@ -90,9 +90,11 @@ async def run_task_on_function_executor(
     timeout_sec = task_info.allocation.task.timeout_ms / 1000.0
     try:
         channel: grpc.aio.Channel = function_executor.channel()
+        task_info.execution_start_time = time.monotonic()
         response: RunTaskResponse = await FunctionExecutorStub(channel).run_task(
             request, timeout=timeout_sec
         )
+        task_info.execution_end_time = time.monotonic()
         task_info.output = _task_output_from_function_executor_response(
             allocation=task_info.allocation,
             response=response,

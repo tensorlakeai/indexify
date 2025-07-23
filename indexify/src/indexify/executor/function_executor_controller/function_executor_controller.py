@@ -710,7 +710,7 @@ class FunctionExecutorController:
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
         self._state_reporter.add_completed_task_result(
-            _to_task_result_proto(task_info.output)
+            _to_task_result_proto(task_info)
         )
         self._state_reporter.schedule_state_report()
 
@@ -844,7 +844,18 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_task_result_proto(output: TaskOutput) -> TaskResult:
+def _to_task_result_proto(task_info: TaskInfo) -> TaskResult:
+    output = task_info.output
+    execution_duration_ms = 0
+    if (
+        task_info.execution_start_time is not None
+        and task_info.execution_end_time is not None
+    ):
+        execution_duration_ms = int(
+            (task_info.execution_end_time - task_info.execution_start_time) * 1000
+        )
+        print(f"Diptanu execution_duration_ms: {execution_duration_ms}")
+
     task_result = TaskResult(
         task_id=output.allocation.task.id,
         allocation_id=output.allocation.allocation_id,
@@ -858,6 +869,7 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         next_functions=output.next_functions,
         function_outputs=output.uploaded_data_payloads,
         invocation_error_output=output.uploaded_invocation_error_output,
+        execution_duration_ms=execution_duration_ms,
     )
     if output.uploaded_stdout is not None:
         task_result.stdout.CopyFrom(output.uploaded_stdout)
