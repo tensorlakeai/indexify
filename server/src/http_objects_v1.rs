@@ -147,7 +147,7 @@ pub struct Task {
     pub outcome: TaskOutcome,
     pub graph_version: GraphVersion,
     pub allocations: Vec<Allocation>,
-    pub creation_time_ns: u128,
+    pub created_at: u128,
 }
 
 impl Task {
@@ -158,7 +158,7 @@ impl Task {
             status: task.status.into(),
             graph_version: task.graph_version.into(),
             allocations,
-            creation_time_ns: task.creation_time_ns,
+            created_at: task.creation_time_ns,
         }
     }
 }

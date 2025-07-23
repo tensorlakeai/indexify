@@ -709,9 +709,7 @@ class FunctionExecutorController:
             logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
-        self._state_reporter.add_completed_task_result(
-            _to_task_result_proto(task_info)
-        )
+        self._state_reporter.add_completed_task_result(_to_task_result_proto(task_info))
         self._state_reporter.schedule_state_report()
 
     def _start_termination(
