@@ -23,7 +23,7 @@
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@types/react-router-dom": "^5.3.3",
-    "axios": "^1.8.4",
+    "axios": "^1.11.0",
     "crypto": "^1.0.1",
     "date-fns": "^4.1.0",
     "getindexify": "^0.1.5",
