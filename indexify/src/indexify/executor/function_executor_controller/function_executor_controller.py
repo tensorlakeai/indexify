@@ -1,4 +1,5 @@
 import asyncio
+import math
 import time
 from collections.abc import Coroutine
 from enum import Enum
@@ -475,6 +476,7 @@ class FunctionExecutorController:
                     allocation=task_info.allocation,
                     fe_startup_output=event.output,
                     logger=task_logger,
+                    execution_start_time=task_info.execution_start_time,
                 )
             self._start_termination(
                 fe_termination_reason=event.output.termination_reason,
@@ -552,11 +554,19 @@ class FunctionExecutorController:
         task_info: TaskInfo = event.task_info
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
+            task_info.output = TaskOutput.task_cancelled(
+                task_info.allocation,
+                task_info.execution_start_time,
+                task_info.execution_end_time,
+            )
             self._start_task_output_upload(task_info)
             return
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(task_info.allocation)
+            task_info.output = TaskOutput.internal_error(
+                task_info.allocation,
+                task_info.execution_start_time,
+                task_info.execution_end_time,
+            )
             self._start_task_output_upload(task_info)
             return
 
@@ -599,7 +609,11 @@ class FunctionExecutorController:
         )
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
+            task_info.output = TaskOutput.task_cancelled(
+                task_info.allocation,
+                task_info.execution_start_time,
+                task_info.execution_end_time,
+            )
             self._start_task_output_upload(task_info)
         elif self._internal_state in [
             _FE_CONTROLLER_STATE.TERMINATING,
@@ -608,7 +622,8 @@ class FunctionExecutorController:
             if task_info.output is None:
                 # The output can be set already by FE startup failure handler.
                 task_info.output = TaskOutput.function_executor_terminated(
-                    task_info.allocation
+                    task_info.allocation,
+                    task_info.execution_start_time,
                 )
             self._start_task_output_upload(task_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
@@ -694,7 +709,11 @@ class FunctionExecutorController:
         # Ignore task cancellation because we need to report it to the server anyway.
         task_info: TaskInfo = event.task_info
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(task_info.allocation)
+            task_info.output = TaskOutput.internal_error(
+                task_info.allocation,
+                task_info.execution_start_time,
+                task_info.execution_end_time,
+            )
 
         self._complete_task(event.task_info)
 
@@ -709,7 +728,9 @@ class FunctionExecutorController:
             logger=task_allocation_logger(task_info.allocation, self._logger),
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
-        self._state_reporter.add_completed_task_result(_to_task_result_proto(task_info))
+        self._state_reporter.add_completed_task_result(
+            _to_task_result_proto(task_info.output)
+        )
         self._state_reporter.schedule_state_report()
 
     def _start_termination(
@@ -842,17 +863,15 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_task_result_proto(task_info: TaskInfo) -> TaskResult:
-    output = task_info.output
-    execution_duration_ms = 0
+def _to_task_result_proto(output: TaskOutput) -> TaskResult:
+    execution_duration_ms = None
     if (
-        task_info.execution_start_time is not None
-        and task_info.execution_end_time is not None
+        output.execution_start_time is not None
+        and output.execution_end_time is not None
     ):
-        execution_duration_ms = int(
-            (task_info.execution_end_time - task_info.execution_start_time) * 1000
+        execution_duration_ms = math.ceil(
+            (output.execution_end_time - output.execution_start_time) * 1000
         )
-        print(f"Diptanu execution_duration_ms: {execution_duration_ms}")
 
     task_result = TaskResult(
         task_id=output.allocation.task.id,

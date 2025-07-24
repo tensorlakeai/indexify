@@ -99,6 +99,8 @@ async def run_task_on_function_executor(
             allocation=task_info.allocation,
             response=response,
             logger=logger,
+            execution_start_time=task_info.execution_start_time,
+            execution_end_time=task_info.execution_end_time,
         )
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
@@ -109,21 +111,35 @@ async def run_task_on_function_executor(
             task_info.output = TaskOutput.function_timeout(
                 allocation=task_info.allocation,
                 timeout_sec=timeout_sec,
+                execution_start_time=task_info.execution_start_time,
+                execution_end_time=task_info.execution_end_time,
             )
         else:
             metric_function_executor_run_task_rpc_errors.inc()
             logger.error("task execution failed", exc_info=e)
-            task_info.output = TaskOutput.internal_error(task_info.allocation)
+            task_info.output = TaskOutput.internal_error(
+                task_info.allocation,
+                task_info.execution_start_time,
+                task_info.execution_end_time,
+            )
     except asyncio.CancelledError:
         # The task is still running in FE, we only cancelled the client-side RPC.
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
         )
-        task_info.output = TaskOutput.task_cancelled(task_info.allocation)
+        task_info.output = TaskOutput.task_cancelled(
+            task_info.allocation,
+            task_info.execution_start_time,
+            task_info.execution_end_time,
+        )
     except Exception as e:
         metric_function_executor_run_task_rpc_errors.inc()
         logger.error("task execution failed", exc_info=e)
-        task_info.output = TaskOutput.internal_error(task_info.allocation)
+        task_info.output = TaskOutput.internal_error(
+            task_info.allocation,
+            task_info.execution_start_time,
+            task_info.execution_end_time,
+        )
 
     metric_function_executor_run_task_rpc_latency.observe(time.monotonic() - start_time)
     metric_function_executor_run_task_rpcs_in_progress.dec()
@@ -156,7 +172,11 @@ async def run_task_on_function_executor(
 
 
 def _task_output_from_function_executor_response(
-    allocation: TaskAllocation, response: RunTaskResponse, logger: Any
+    allocation: TaskAllocation,
+    response: RunTaskResponse,
+    logger: Any,
+    execution_start_time: Optional[float],
+    execution_end_time: Optional[float],
 ) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
@@ -202,6 +222,8 @@ def _task_output_from_function_executor_response(
         stdout=response.stdout,
         stderr=response.stderr,
         metrics=metrics,
+        execution_start_time=execution_start_time,
+        execution_end_time=execution_end_time,
     )
 
 
