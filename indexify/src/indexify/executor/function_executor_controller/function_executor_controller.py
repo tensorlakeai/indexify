@@ -476,7 +476,6 @@ class FunctionExecutorController:
                     allocation=task_info.allocation,
                     fe_startup_output=event.output,
                     logger=task_logger,
-                    execution_start_time=task_info.execution_start_time,
                 )
             self._start_termination(
                 fe_termination_reason=event.output.termination_reason,
@@ -555,17 +554,19 @@ class FunctionExecutorController:
 
         if task_info.is_cancelled:
             task_info.output = TaskOutput.task_cancelled(
-                task_info.allocation,
-                task_info.execution_start_time,
-                task_info.execution_end_time,
+                allocation=task_info.allocation,
+                # Task was prepared but never executed
+                execution_start_time=None,
+                execution_end_time=None,
             )
             self._start_task_output_upload(task_info)
             return
         if not event.is_success:
             task_info.output = TaskOutput.internal_error(
-                task_info.allocation,
-                task_info.execution_start_time,
-                task_info.execution_end_time,
+                allocation=task_info.allocation,
+                # Task was prepared but never executed
+                execution_start_time=None,
+                execution_end_time=None,
             )
             self._start_task_output_upload(task_info)
             return
@@ -610,9 +611,10 @@ class FunctionExecutorController:
 
         if task_info.is_cancelled:
             task_info.output = TaskOutput.task_cancelled(
-                task_info.allocation,
-                task_info.execution_start_time,
-                task_info.execution_end_time,
+                allocation=task_info.allocation,
+                # Task is runnable but it was never executed
+                execution_start_time=None,
+                execution_end_time=None,
             )
             self._start_task_output_upload(task_info)
         elif self._internal_state in [
@@ -622,8 +624,7 @@ class FunctionExecutorController:
             if task_info.output is None:
                 # The output can be set already by FE startup failure handler.
                 task_info.output = TaskOutput.function_executor_terminated(
-                    task_info.allocation,
-                    task_info.execution_start_time,
+                    task_info.allocation
                 )
             self._start_task_output_upload(task_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
@@ -706,15 +707,16 @@ class FunctionExecutorController:
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        # Ignore task cancellation because we need to report it to the server anyway.
         task_info: TaskInfo = event.task_info
         if not event.is_success:
+            failed_to_upload_output: TaskOutput = task_info.output  # Never None here
             task_info.output = TaskOutput.internal_error(
-                task_info.allocation,
-                task_info.execution_start_time,
-                task_info.execution_end_time,
+                allocation=task_info.allocation,
+                execution_start_time=failed_to_upload_output.execution_start_time,
+                execution_end_time=failed_to_upload_output.execution_end_time,
             )
 
+        # Ignore task cancellation, we better report real task output to the server cause it's uploaded already.
         self._complete_task(event.task_info)
 
     def _complete_task(self, task_info: TaskInfo) -> None:
@@ -864,11 +866,12 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
 
 
 def _to_task_result_proto(output: TaskOutput) -> TaskResult:
-    execution_duration_ms = None
+    execution_duration_ms: Optional[int] = None
     if (
         output.execution_start_time is not None
         and output.execution_end_time is not None
     ):
+        # <= 0.99 ms functions get billed as 1 ms.
         execution_duration_ms = math.ceil(
             (output.execution_end_time - output.execution_start_time) * 1000
         )

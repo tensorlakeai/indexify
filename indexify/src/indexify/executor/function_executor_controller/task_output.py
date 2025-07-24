@@ -51,12 +51,12 @@ class TaskOutput:
         self.failure_reason = failure_reason
         self.invocation_error_output = invocation_error_output
         self.metrics = metrics
+        self.execution_start_time = execution_start_time
+        self.execution_end_time = execution_end_time
         self.uploaded_data_payloads: List[DataPayload] = []
         self.uploaded_stdout: Optional[DataPayload] = None
         self.uploaded_stderr: Optional[DataPayload] = None
         self.uploaded_invocation_error_output: Optional[DataPayload] = None
-        self.execution_start_time = execution_start_time
-        self.execution_end_time = execution_end_time
 
     @classmethod
     def internal_error(
@@ -115,14 +115,12 @@ class TaskOutput:
     def function_executor_terminated(
         cls,
         allocation: TaskAllocation,
-        execution_start_time: Optional[float],
     ) -> "TaskOutput":
         """Creates a TaskOutput for the case when task didn't run because its FE terminated."""
         return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
-            execution_start_time=execution_start_time,
         )
 
     @classmethod
@@ -131,16 +129,14 @@ class TaskOutput:
         allocation: TaskAllocation,
         fe_startup_output: FunctionExecutorStartupOutput,
         logger: Any,
-        execution_start_time: Optional[float],
     ) -> "TaskOutput":
-        """Creates a TaskOutput for the case when we fail a task because its FE startup failed."""
+        """Creates a TaskOutput for the case when we fail a task that didn't run because its FE startup failed."""
         output = TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=_fe_startup_failure_reason_to_task_failure_reason(
                 fe_startup_output.termination_reason, logger
             ),
-            execution_end_time=execution_start_time,
         )
         # Use FE startup stdout, stderr for allocations that we failed because FE startup failed.
         output.uploaded_stdout = fe_startup_output.stdout

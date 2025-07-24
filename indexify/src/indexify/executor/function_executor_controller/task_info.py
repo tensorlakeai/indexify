@@ -30,8 +30,3 @@ class TaskInfo:
     output: Optional[TaskOutput] = None
     # True if the task is fully completed and was added to state reporter.
     is_completed: bool = False
-
-    # time.monotonic() timestamp when the task execution started.
-    execution_start_time: Optional[float] = None
-    # time.monotonic() timestamp when the task execution ended.
-    execution_end_time: Optional[float] = None
