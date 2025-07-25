@@ -543,6 +543,7 @@ class TaskResult(_message.Message):
         "stdout",
         "stderr",
         "invocation_error_output",
+        "execution_duration_ms",
     )
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
@@ -558,6 +559,7 @@ class TaskResult(_message.Message):
     STDOUT_FIELD_NUMBER: _ClassVar[int]
     STDERR_FIELD_NUMBER: _ClassVar[int]
     INVOCATION_ERROR_OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    EXECUTION_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     allocation_id: str
     namespace: str
@@ -572,6 +574,7 @@ class TaskResult(_message.Message):
     stdout: DataPayload
     stderr: DataPayload
     invocation_error_output: DataPayload
+    execution_duration_ms: int
     def __init__(
         self,
         task_id: _Optional[str] = ...,
@@ -588,4 +591,5 @@ class TaskResult(_message.Message):
         stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
         stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
         invocation_error_output: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        execution_duration_ms: _Optional[int] = ...,
     ) -> None: ...

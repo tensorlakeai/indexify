@@ -1056,6 +1056,7 @@ pub struct Allocation {
     pub created_at: u128,
     pub outcome: TaskOutcome,
     pub attempt_number: u32,
+    pub execution_duration_ms: Option<u64>,
 }
 
 impl From<data_model::Allocation> for Allocation {
@@ -1072,6 +1073,7 @@ impl From<data_model::Allocation> for Allocation {
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
+            execution_duration_ms: allocation.execution_duration_ms,
         }
     }
 }

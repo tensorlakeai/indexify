@@ -84,7 +84,7 @@ enum FunctionExecutorTerminationReason {
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
     // FE was terminated due to an unrecoverable internal error on Executor.
     FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
-    // FE was terminated because Function code exceeded its cofigured timeout.
+    // FE was terminated because Function code exceeded its configured timeout.
     // FE termination is the only way to reliably stop the function code execution.
     FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
     // FE was terminated because function allocation currently running on it was removed
@@ -244,7 +244,7 @@ enum TaskFailureReason {
     TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
     // Clear function code failure typically by raising an exception from the function code.
     TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
-    // Function code run time exceeded its cofigured timeout.
+    // Function code run time exceeded its configured timeout.
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
     // Function code raised InvocationError to mark the invocation as permanently failed.
     TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
@@ -272,6 +272,8 @@ message TaskResult {
     optional DataPayload stderr = 14;
     // User payload for invocation error if task failed with invocation error.
     optional DataPayload invocation_error_output = 15;
+
+    optional uint64 execution_duration_ms = 16;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.

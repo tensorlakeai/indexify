@@ -102,6 +102,7 @@ pub struct Allocation {
     pub outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
+    pub execution_duration_ms: Option<u64>,
 }
 
 impl Allocation {
@@ -187,6 +188,7 @@ impl AllocationBuilder {
             outcome,
             diagnostics: None,
             attempt_number: retry_number,
+            execution_duration_ms: None,
         })
     }
 }

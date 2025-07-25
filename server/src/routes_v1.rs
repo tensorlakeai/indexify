@@ -271,7 +271,7 @@ async fn graph_requests(
 /// List tasks for a request
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/tasks",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/tasks",
     tag = "operations",
     params(
         ListParams
@@ -336,7 +336,7 @@ async fn list_tasks(
 /// Get request status by id
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
     tag = "retrieve",
     responses(
         (status = 200, description = "Details about a given invocation", body = Invocation),
@@ -382,7 +382,7 @@ async fn find_invocation(
 /// Delete a specific request
 #[utoipa::path(
     delete,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
     tag = "operations",
     responses(
         (status = 200, description = "request has been deleted"),

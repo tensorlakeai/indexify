@@ -38,6 +38,8 @@ class TaskOutput:
         stdout: Optional[str] = None,
         stderr: Optional[str] = None,
         metrics: Optional[TaskMetrics] = None,
+        execution_start_time: Optional[float] = None,
+        execution_end_time: Optional[float] = None,
     ):
         self.task = allocation.task
         self.allocation = allocation
@@ -49,6 +51,8 @@ class TaskOutput:
         self.failure_reason = failure_reason
         self.invocation_error_output = invocation_error_output
         self.metrics = metrics
+        self.execution_start_time = execution_start_time
+        self.execution_end_time = execution_end_time
         self.uploaded_data_payloads: List[DataPayload] = []
         self.uploaded_stdout: Optional[DataPayload] = None
         self.uploaded_stderr: Optional[DataPayload] = None
@@ -58,6 +62,8 @@ class TaskOutput:
     def internal_error(
         cls,
         allocation: TaskAllocation,
+        execution_start_time: Optional[float],
+        execution_end_time: Optional[float],
     ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
@@ -66,6 +72,8 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
             stderr="Platform failed to execute the function.",
+            execution_start_time=execution_start_time,
+            execution_end_time=execution_end_time,
         )
 
     @classmethod
@@ -73,6 +81,8 @@ class TaskOutput:
         cls,
         allocation: TaskAllocation,
         timeout_sec: float,
+        execution_start_time: Optional[float],
+        execution_end_time: Optional[float],
     ) -> "TaskOutput":
         """Creates a TaskOutput for an function timeout error."""
         # Task stdout, stderr is not available.
@@ -81,18 +91,24 @@ class TaskOutput:
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
             stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
+            execution_start_time=execution_start_time,
+            execution_end_time=execution_end_time,
         )
 
     @classmethod
     def task_cancelled(
         cls,
         allocation: TaskAllocation,
+        execution_start_time: Optional[float],
+        execution_end_time: Optional[float],
     ) -> "TaskOutput":
         """Creates a TaskOutput for the case when task didn't finish because its allocation was removed by Server."""
         return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED,
+            execution_start_time=execution_start_time,
+            execution_end_time=execution_end_time,
         )
 
     @classmethod
@@ -114,7 +130,7 @@ class TaskOutput:
         fe_startup_output: FunctionExecutorStartupOutput,
         logger: Any,
     ) -> "TaskOutput":
-        """Creates a TaskOutput for the case when we fail a task because its FE startup failed."""
+        """Creates a TaskOutput for the case when we fail a task that didn't run because its FE startup failed."""
         output = TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import time
 from collections.abc import Coroutine
 from enum import Enum
@@ -552,11 +553,21 @@ class FunctionExecutorController:
         task_info: TaskInfo = event.task_info
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
+            task_info.output = TaskOutput.task_cancelled(
+                allocation=task_info.allocation,
+                # Task was prepared but never executed
+                execution_start_time=None,
+                execution_end_time=None,
+            )
             self._start_task_output_upload(task_info)
             return
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(task_info.allocation)
+            task_info.output = TaskOutput.internal_error(
+                allocation=task_info.allocation,
+                # Task was prepared but never executed
+                execution_start_time=None,
+                execution_end_time=None,
+            )
             self._start_task_output_upload(task_info)
             return
 
@@ -599,7 +610,12 @@ class FunctionExecutorController:
         )
 
         if task_info.is_cancelled:
-            task_info.output = TaskOutput.task_cancelled(task_info.allocation)
+            task_info.output = TaskOutput.task_cancelled(
+                allocation=task_info.allocation,
+                # Task is runnable but it was never executed
+                execution_start_time=None,
+                execution_end_time=None,
+            )
             self._start_task_output_upload(task_info)
         elif self._internal_state in [
             _FE_CONTROLLER_STATE.TERMINATING,
@@ -691,11 +707,16 @@ class FunctionExecutorController:
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        # Ignore task cancellation because we need to report it to the server anyway.
         task_info: TaskInfo = event.task_info
         if not event.is_success:
-            task_info.output = TaskOutput.internal_error(task_info.allocation)
+            failed_to_upload_output: TaskOutput = task_info.output  # Never None here
+            task_info.output = TaskOutput.internal_error(
+                allocation=task_info.allocation,
+                execution_start_time=failed_to_upload_output.execution_start_time,
+                execution_end_time=failed_to_upload_output.execution_end_time,
+            )
 
+        # Ignore task cancellation, we better report real task output to the server cause it's uploaded already.
         self._complete_task(event.task_info)
 
     def _complete_task(self, task_info: TaskInfo) -> None:
@@ -845,6 +866,16 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
 
 
 def _to_task_result_proto(output: TaskOutput) -> TaskResult:
+    execution_duration_ms: Optional[int] = None
+    if (
+        output.execution_start_time is not None
+        and output.execution_end_time is not None
+    ):
+        # <= 0.99 ms functions get billed as 1 ms.
+        execution_duration_ms = math.ceil(
+            (output.execution_end_time - output.execution_start_time) * 1000
+        )
+
     task_result = TaskResult(
         task_id=output.allocation.task.id,
         allocation_id=output.allocation.allocation_id,
@@ -858,6 +889,7 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
         next_functions=output.next_functions,
         function_outputs=output.uploaded_data_payloads,
         invocation_error_output=output.uploaded_invocation_error_output,
+        execution_duration_ms=execution_duration_ms,
     )
     if output.uploaded_stdout is not None:
         task_result.stdout.CopyFrom(output.uploaded_stdout)
