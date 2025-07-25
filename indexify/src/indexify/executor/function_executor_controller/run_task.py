@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AwaitTaskRequest,
+    DeleteTaskRequest,
     RunTaskRequest,
     RunTaskResponse,
     SerializedObject,
@@ -15,6 +17,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     TaskOutcomeCode as FETaskOutcomeCode,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    TaskStreamResponse,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
@@ -89,13 +94,32 @@ async def run_task_on_function_executor(
     # let the AioRpcError to be raised here.
     timeout_sec = task_info.allocation.task.timeout_ms / 1000.0
     try:
+        last_response = None
         channel: grpc.aio.Channel = function_executor.channel()
-        response: RunTaskResponse = await FunctionExecutorStub(channel).run_task(
-            request, timeout=timeout_sec
-        )
+        fe = FunctionExecutorStub(channel)
+        await fe.start_task(request, timeout=timeout_sec)
+        try:
+            async for response in fe.await_task(
+                AwaitTaskRequest(task_id=request.task_id), timeout=timeout_sec
+            ):
+                last_response = response
+        finally:
+            await fe.delete_task(
+                DeleteTaskRequest(task_id=request.task_id), timeout=timeout_sec
+            )
+
+        if last_response and last_response.WhichOneof("response") == "task_result":
+            result = last_response.task_result
+        else:
+            result = RunTaskResponse(
+                task_id=request.task_id,
+                outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+                failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
+            )
+
         task_info.output = _task_output_from_function_executor_response(
             allocation=task_info.allocation,
-            response=response,
+            response=result,
             logger=logger,
         )
     except grpc.aio.AioRpcError as e:
