@@ -7,10 +7,10 @@ from typing import Any, Optional
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AwaitTaskRequest,
+    CreateTaskRequest,
     DeleteTaskRequest,
-    RunTaskRequest,
-    RunTaskResponse,
     SerializedObject,
+    Task,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     TaskFailureReason as FETaskFailureReason,
@@ -19,7 +19,8 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     TaskOutcomeCode as FETaskOutcomeCode,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    TaskStreamResponse,
+    TaskRequest,
+    TaskResult,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
@@ -58,21 +59,21 @@ async def run_task_on_function_executor(
     Doesn't raise any exceptions.
     """
     logger = logger.bind(module=__name__)
-    request: RunTaskRequest = RunTaskRequest(
+    task = Task(
+        task_id=task_info.allocation.task.id,
         namespace=task_info.allocation.task.namespace,
         graph_name=task_info.allocation.task.graph_name,
         graph_version=task_info.allocation.task.graph_version,
         function_name=task_info.allocation.task.function_name,
         graph_invocation_id=task_info.allocation.task.graph_invocation_id,
-        task_id=task_info.allocation.task.id,
         allocation_id=task_info.allocation.allocation_id,
-        function_input=task_info.input,
+        request=TaskRequest(function_input=task_info.input),
     )
     # Don't keep the input in memory after we started running the task.
     task_info.input = None
 
     if task_info.init_value is not None:
-        request.function_init_value.CopyFrom(task_info.init_value)
+        task.request.function_init_value.CopyFrom(task_info.init_value)
         # Don't keep the init value in memory after we started running the task.
         task_info.init_value = None
 
@@ -97,29 +98,30 @@ async def run_task_on_function_executor(
         last_response = None
         channel: grpc.aio.Channel = function_executor.channel()
         fe = FunctionExecutorStub(channel)
-        await fe.start_task(request, timeout=timeout_sec)
+        await fe.create_task(CreateTaskRequest(task=task), timeout=timeout_sec)
         try:
             async for response in fe.await_task(
-                AwaitTaskRequest(task_id=request.task_id), timeout=timeout_sec
+                AwaitTaskRequest(task_id=task.task_id), timeout=timeout_sec
             ):
                 last_response = response
         finally:
             await fe.delete_task(
-                DeleteTaskRequest(task_id=request.task_id), timeout=timeout_sec
+                DeleteTaskRequest(task_id=task.task_id), timeout=timeout_sec
             )
 
         if last_response and last_response.WhichOneof("response") == "task_result":
             result = last_response.task_result
         else:
-            result = RunTaskResponse(
-                task_id=request.task_id,
+            result = TaskResult(
                 outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
                 failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
+                stdout="",
+                stderr="",
             )
 
-        task_info.output = _task_output_from_function_executor_response(
+        task_info.output = _task_output_from_function_executor_result(
             allocation=task_info.allocation,
-            response=result,
+            result=result,
             logger=logger,
         )
     except grpc.aio.AioRpcError as e:
@@ -177,22 +179,22 @@ async def run_task_on_function_executor(
     )
 
 
-def _task_output_from_function_executor_response(
-    allocation: TaskAllocation, response: RunTaskResponse, logger: Any
+def _task_output_from_function_executor_result(
+    allocation: TaskAllocation, result: TaskResult, logger: Any
 ) -> TaskOutput:
-    response_validator = MessageValidator(response)
+    response_validator = MessageValidator(result)
     response_validator.required_field("stdout")
     response_validator.required_field("stderr")
     response_validator.required_field("outcome_code")
 
     metrics = TaskMetrics(counters={}, timers={})
-    if response.HasField("metrics"):
+    if result.HasField("metrics"):
         # Can be None if e.g. function failed.
-        metrics.counters = dict(response.metrics.counters)
-        metrics.timers = dict(response.metrics.timers)
+        metrics.counters = dict(result.metrics.counters)
+        metrics.timers = dict(result.metrics.timers)
 
     outcome_code: TaskOutcomeCode = _to_task_outcome_code(
-        response.outcome_code, logger=logger
+        result.outcome_code, logger=logger
     )
     failure_reason: Optional[TaskFailureReason] = None
     invocation_error_output: Optional[SerializedObject] = None
@@ -200,11 +202,11 @@ def _task_output_from_function_executor_response(
     if outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
         response_validator.required_field("failure_reason")
         failure_reason: Optional[TaskFailureReason] = _to_task_failure_reason(
-            response.failure_reason, logger
+            result.failure_reason, logger
         )
         if failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR:
             response_validator.required_field("invocation_error_output")
-            invocation_error_output = response.invocation_error_output
+            invocation_error_output = result.invocation_error_output
 
     if _ENABLE_INJECT_TASK_CANCELLATIONS:
         logger.warning("injecting cancellation failure for the task allocation")
@@ -219,10 +221,10 @@ def _task_output_from_function_executor_response(
         outcome_code=outcome_code,
         failure_reason=failure_reason,
         invocation_error_output=invocation_error_output,
-        function_outputs=response.function_outputs,
-        next_functions=response.next_functions,
-        stdout=response.stdout,
-        stderr=response.stderr,
+        function_outputs=result.function_outputs,
+        next_functions=result.next_functions,
+        stdout=result.stdout,
+        stderr=result.stderr,
         metrics=metrics,
     )
 
