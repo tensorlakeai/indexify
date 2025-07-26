@@ -1136,11 +1136,6 @@ pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RequestQueryParams {
-    pub block_until_finish: Option<bool>,
-}
-
 #[cfg(test)]
 mod tests {
     use crate::http_objects::ComputeFn;
