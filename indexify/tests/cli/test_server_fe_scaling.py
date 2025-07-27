@@ -80,7 +80,7 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
 
         invocation_ids: List[str] = []
         for _ in range(_FE_ALLOCATIONS_QUEUE_SIZE):
-            invocation_id = graph.run(block_until_done=False, sleep_secs=0.01)
+            invocation_id = graph.call(sleep_secs=0.01)
             invocation_ids.append(invocation_id)
 
         fe_ids: Set[str] = set()
