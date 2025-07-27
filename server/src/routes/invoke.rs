@@ -3,12 +3,13 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::anyhow;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::{sse::Event, IntoResponse},
     Json,
 };
 use futures::{Stream, StreamExt};
+use serde::Deserialize;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -145,7 +146,7 @@ async fn create_invocation_progress_stream(
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
-pub async fn invoke_with_object(
+pub async fn invoke_with_object_v1(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
     headers: HeaderMap,
@@ -242,6 +243,117 @@ pub async fn invoke_with_object(
         })?;
 
     if accept_header.contains("application/json") {
+        return Ok(Json(RequestId {
+            id: graph_invocation_ctx.invocation_id,
+        })
+        .into_response());
+    }
+
+    let invocation_event_stream =
+        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
+    Ok(axum::response::Sse::new(invocation_event_stream)
+        .keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        )
+        .into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestQueryParam {
+    pub block_until_finish: Option<bool>,
+}
+
+#[axum::debug_handler]
+pub async fn invoke_with_object(
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    Query(params): Query<RequestQueryParam>,
+    State(state): State<RouteState>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let encoding = headers
+        .get("Content-Type")
+        .and_then(|value| value.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("application/octet-stream".to_string());
+
+    state.metrics.invocations.add(1, &[]);
+    let should_block = params.block_until_finish.unwrap_or(false);
+    let payload_key = Uuid::new_v4().to_string();
+    let payload_stream = body
+        .into_data_stream()
+        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+    let put_result = state
+        .blob_storage
+        .put(&payload_key, Box::pin(payload_stream))
+        .await
+        .map_err(|e| {
+            error!("failed to write to blob store: {:?}", e);
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let data_payload = data_model::DataPayload {
+        path: put_result.url,
+        size: put_result.size_bytes,
+        sha256_hash: put_result.sha256_hash,
+    };
+    state.metrics.invocation_bytes.add(data_payload.size, &[]);
+    let invocation_payload = InvocationPayloadBuilder::default()
+        .namespace(namespace.clone())
+        .compute_graph_name(compute_graph.clone())
+        .payload(data_payload)
+        .encoding(encoding)
+        .build()
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let id = invocation_payload.id.clone();
+
+    // subscribing to task event stream before creation to not loose events once
+    // invocation is created.
+    let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
+    if should_block {
+        rx.replace(state.indexify_state.task_event_stream());
+    }
+
+    let compute_graph = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &compute_graph)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
+        })?
+        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(namespace.to_string())
+        .compute_graph_name(compute_graph.name.to_string())
+        .graph_version(compute_graph.version.clone())
+        .invocation_id(invocation_payload.id.clone())
+        .fn_task_analytics(HashMap::new())
+        .created_at(invocation_payload.created_at)
+        .build(compute_graph.clone())
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph.name.clone(),
+        invocation_payload,
+        ctx: graph_invocation_ctx.clone(),
+    });
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request.clone(),
+            processed_state_changes: vec![],
+        })
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+
+    if !should_block {
         return Ok(Json(RequestId {
             id: graph_invocation_ctx.invocation_id,
         })

@@ -12,7 +12,7 @@ use axum::{
 use base64::prelude::*;
 use compute_graphs::{delete_compute_graph, get_compute_graph, list_compute_graphs};
 use download::download_invocation_error;
-use invoke::invoke_with_object;
+use invoke::invoke_with_object_v1;
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -64,7 +64,7 @@ use crate::{
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            invoke::invoke_with_object,
+            invoke::invoke_with_object_v1,
             graph_requests,
             find_invocation,
             compute_graphs::create_or_update_compute_graph_v1,
@@ -141,7 +141,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/compute-graphs/{compute_graph}",
-            post(invoke_with_object).with_state(route_state.clone()),
+            post(invoke_with_object_v1).with_state(route_state.clone()),
         )
         .route(
             "/compute-graphs/{compute_graph}/requests",
