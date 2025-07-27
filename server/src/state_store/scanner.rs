@@ -698,26 +698,6 @@ impl StateReader {
         Ok(Some(invocation_ctx))
     }
 
-    pub fn invocation_payload(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-    ) -> Result<InvocationPayload> {
-        let kvs = &[KeyValue::new("op", "invocation_payload")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = InvocationPayload::key_from(namespace, compute_graph, invocation_id);
-        let value = self.db.get_cf(
-            &IndexifyObjectsColumns::GraphInvocations.cf_db(&self.db),
-            &key,
-        )?;
-        match value {
-            Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Err(anyhow!("invocation payload not found")),
-        }
-    }
-
     pub fn fn_output_payload(
         &self,
         namespace: &str,

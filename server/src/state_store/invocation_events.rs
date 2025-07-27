@@ -105,6 +105,13 @@ pub struct TaskCompleted {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FunctionOutput {
+    pub request_id: String,
+    pub fn_name: String,
+    pub output_uri_path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskMatchedCache {
     pub request_id: String,
     pub fn_name: String,

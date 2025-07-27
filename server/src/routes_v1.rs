@@ -47,7 +47,7 @@ use crate::{
     routes::{
         compute_graphs::{self, create_or_update_compute_graph_v1},
         download::{self, v1_download_fn_output_payload},
-        invoke::{self, wait_until_invocation_completed},
+        invoke::{self, progress_stream},
         routes_state::RouteState,
     },
     state_store::{
@@ -153,7 +153,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}/progress",
-            get(wait_until_invocation_completed).with_state(route_state.clone()),
+            get(progress_stream).with_state(route_state.clone()),
         )
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}",
@@ -219,7 +219,7 @@ struct ComputeGraphCreateType {
 /// List requests for a workflow
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/requests",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests",
     tag = "ingestion",
     params(
         ListParams

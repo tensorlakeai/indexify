@@ -2,5 +2,19 @@
     "python.analysis.extraPaths": [
         "./indexify/src",
         "./tensorlake/src"
+    ],
+    "cSpell.words": [
+        "cpus",
+        "nanos",
+        "readahead",
+        "retriable",
+        "rocksdb",
+        "sched",
+        "schedulable",
+        "strs",
+        "tensorlake",
+        "tombstoned",
+        "Upserted",
+        "utoipa"
     ]
 }

@@ -339,6 +339,10 @@ pub struct ComputeFn {
     #[serde(default)]
     pub retry_policy: FunctionRetryPolicy,
     pub cache_key: Option<CacheKey>,
+    #[serde(default)]
+    pub parameters: Vec<ParameterMetadata>,
+    #[serde(default)]
+    pub return_type: Option<serde_json::Value>,
 }
 
 impl ComputeFn {
@@ -412,6 +416,14 @@ pub struct RuntimeInformation {
     pub minor_version: u8,
     #[serde(default)]
     pub sdk_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ParameterMetadata {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub data_type: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1048,7 +1060,7 @@ pub enum TaskFailureReason {
     InternalError,
     // Clear function code failure typically by raising an exception from the function code.
     FunctionError,
-    // Function code run time exceeded its cofigured timeout.
+    // Function code run time exceeded its configured timeout.
     FunctionTimeout,
     // Function code raised InvocationError to mark the invocation as permanently failed.
     InvocationError,

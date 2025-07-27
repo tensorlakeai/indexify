@@ -24,7 +24,7 @@ use crate::{
 };
 
 // New shared function for creating SSE streams
-async fn create_invocation_event_stream(
+async fn create_invocation_progress_stream(
     id: String,
     rx: Option<Receiver<InvocationStateChangeEvent>>,
     state: RouteState,
@@ -136,7 +136,7 @@ async fn create_invocation_event_stream(
 /// Make a request to a workflow
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
@@ -249,7 +249,7 @@ pub async fn invoke_with_object(
     }
 
     let invocation_event_stream =
-        create_invocation_event_stream(id, rx, state, namespace, compute_graph.name).await;
+        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
@@ -270,14 +270,14 @@ pub async fn invoke_with_object(
     ),
 )]
 #[axum::debug_handler]
-pub async fn wait_until_invocation_completed(
+pub async fn progress_stream(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let rx = state.indexify_state.task_event_stream();
 
     let invocation_event_stream =
-        create_invocation_event_stream(invocation_id, Some(rx), state, namespace, compute_graph)
+        create_invocation_progress_stream(invocation_id, Some(rx), state, namespace, compute_graph)
             .await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
