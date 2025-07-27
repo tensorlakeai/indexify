@@ -152,9 +152,9 @@ pub async fn invoke_with_object(
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let accept_header = headers
-        .get("accept")
+        .get("Accept")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("application/json");
 
     if !accept_header.contains("application/json") && !accept_header.contains("text/event-stream") {
         return Err(IndexifyAPIError::bad_request(
