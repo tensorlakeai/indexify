@@ -12,7 +12,7 @@ use crate::{
 pub struct RouteState {
     pub config: Arc<ServerConfig>,
     pub indexify_state: Arc<IndexifyState>,
-    pub blob_storage: Arc<blob_store::BlobStorage>,
+    pub blob_storage: Arc<blob_store::registry::BlobStorageRegistry>,
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
     pub metrics: Arc<api_io_stats::Metrics>,

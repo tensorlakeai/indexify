@@ -30,6 +30,7 @@ use crate::{
         FunctionURI,
         GraphInvocationCtx,
         GraphVersion,
+        Namespace,
         ReduceTask,
         Task,
         TaskStatus,
@@ -40,7 +41,7 @@ use crate::{
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
     },
-    utils::{get_elapsed_time, TimeUnit},
+    utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
 };
 
 #[derive(Debug, Clone)]
@@ -155,7 +156,7 @@ pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
 
-    pub namespaces: im::HashMap<String, [u8; 0]>,
+    pub namespaces: im::HashMap<String, Box<Namespace>>,
 
     // Namespace|CG Name -> ComputeGraph
     pub compute_graphs: im::HashMap<String, Box<ComputeGraph>>,
@@ -436,7 +437,7 @@ impl InMemoryState {
             let all_ns = reader.get_all_namespaces()?;
             for ns in &all_ns {
                 // Creating Namespaces
-                namespaces.insert(ns.name.clone(), [0; 0]);
+                namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
 
                 // Creating Compute Graphs and Versions
                 let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
@@ -582,7 +583,20 @@ impl InMemoryState {
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
             RequestPayload::CreateNameSpace(req) => {
-                self.namespaces.insert(req.name.clone(), [0; 0]);
+                // If the namespace already exists, get its created_at time
+                let created_at = if let Some(existing_ns) = self.namespaces.get(&req.name) {
+                    existing_ns.created_at
+                } else {
+                    get_epoch_time_in_ms()
+                };
+                self.namespaces.insert(
+                    req.name.clone(),
+                    Box::new(Namespace {
+                        name: req.name.clone(),
+                        created_at,
+                        blob_storage_bucket: req.blob_storage_bucket.clone(),
+                    }),
+                );
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 self.compute_graphs

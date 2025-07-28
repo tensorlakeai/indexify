@@ -28,7 +28,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    blob_store::{self, BlobStorage},
+    blob_store::{self, registry::BlobStorageRegistry},
     data_model::{
         self,
         Allocation,
@@ -415,7 +415,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
 
 fn to_function_executor_diagnostics(
     function_executor_update: &executor_api_pb::FunctionExecutorUpdate,
-    blob_storage: &BlobStorage,
+    blob_storage_registry: &BlobStorageRegistry,
 ) -> Result<FunctionExecutorDiagnostics> {
     let description = function_executor_update
         .description
@@ -441,15 +441,19 @@ fn to_function_executor_diagnostics(
         .graph_version
         .clone()
         .ok_or(anyhow::anyhow!("graph_version is required"))?;
+    let blob_storage_url_schema = blob_storage_registry
+        .get_blob_store(&namespace)
+        .get_url_scheme();
+    let blob_storage_url = blob_storage_registry.get_blob_store(&namespace).get_url();
     let startup_stdout = prepare_data_payload(
         function_executor_update.startup_stdout.clone(),
-        &blob_storage.get_url_scheme(),
-        &blob_storage.get_url(),
+        &blob_storage_url_schema,
+        &blob_storage_url,
     );
     let startup_stderr = prepare_data_payload(
         function_executor_update.startup_stderr.clone(),
-        &blob_storage.get_url_scheme(),
-        &blob_storage.get_url(),
+        &blob_storage_url_schema,
+        &blob_storage_url,
     );
 
     Ok(data_model::FunctionExecutorDiagnostics {
@@ -465,12 +469,12 @@ fn to_function_executor_diagnostics(
 
 fn to_function_executor_diagnostics_vector(
     function_executor_updates: &Vec<executor_api_pb::FunctionExecutorUpdate>,
-    blob_storage: &BlobStorage,
+    blob_storage_registry: &BlobStorageRegistry,
 ) -> Result<Vec<FunctionExecutorDiagnostics>> {
     function_executor_updates
         .iter()
         .map(|function_executor_update| {
-            to_function_executor_diagnostics(function_executor_update, blob_storage)
+            to_function_executor_diagnostics(function_executor_update, blob_storage_registry)
         })
         .collect()
 }
@@ -479,7 +483,7 @@ pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
     api_metrics: Arc<api_io_stats::Metrics>,
-    blob_storage: Arc<blob_store::BlobStorage>,
+    blob_storage_registry: Arc<blob_store::registry::BlobStorageRegistry>,
 }
 
 impl ExecutorAPIService {
@@ -487,13 +491,13 @@ impl ExecutorAPIService {
         indexify_state: Arc<IndexifyState>,
         executor_manager: Arc<ExecutorManager>,
         api_metrics: Arc<api_io_stats::Metrics>,
-        blob_storage: Arc<blob_store::BlobStorage>,
+        blob_storage_registry: Arc<blob_store::registry::BlobStorageRegistry>,
     ) -> Self {
         Self {
             indexify_state,
             executor_manager,
             api_metrics,
-            blob_storage,
+            blob_storage_registry,
         }
     }
 
@@ -577,16 +581,21 @@ impl ExecutorAPIService {
 
             let mut payloads = Vec::new();
             let mut encoding_str = String::new();
+            let blob_storage_url_schema = self
+                .blob_storage_registry
+                .get_blob_store(&namespace)
+                .get_url_scheme();
+            let blob_storage_url = self
+                .blob_storage_registry
+                .get_blob_store(&namespace)
+                .get_url();
             for output in task_result.function_outputs.clone() {
                 let url = output
                     .uri
                     .ok_or(Status::invalid_argument("uri is required"))?;
 
-                let path = blob_store_url_to_path(
-                    &url,
-                    &self.blob_storage.get_url_scheme(),
-                    &self.blob_storage.get_url(),
-                );
+                let path =
+                    blob_store_url_to_path(&url, &blob_storage_url_schema, &blob_storage_url);
                 let size = output
                     .size
                     .ok_or(Status::invalid_argument("size is required"))?;
@@ -621,8 +630,8 @@ impl ExecutorAPIService {
             }
             let invocation_error_payload = prepare_data_payload(
                 task_result.invocation_error_output.clone(),
-                &self.blob_storage.get_url_scheme(),
-                &self.blob_storage.get_url(),
+                &blob_storage_url_schema,
+                &blob_storage_url,
             );
 
             let node_output = NodeOutputBuilder::default()
@@ -642,13 +651,13 @@ impl ExecutorAPIService {
             let task_diagnostic = TaskDiagnostics {
                 stdout: prepare_data_payload(
                     task_result.stdout.clone(),
-                    &self.blob_storage.get_url_scheme(),
-                    &self.blob_storage.get_url(),
+                    &blob_storage_url_schema,
+                    &blob_storage_url,
                 ),
                 stderr: prepare_data_payload(
                     task_result.stderr.clone(),
-                    &self.blob_storage.get_url_scheme(),
-                    &self.blob_storage.get_url(),
+                    &blob_storage_url_schema,
+                    &blob_storage_url,
                 ),
             };
             let allocation_key = Allocation::key_from(
@@ -849,7 +858,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let function_executor_diagnostics = to_function_executor_diagnostics_vector(
             &executor_update.function_executor_updates,
-            &self.blob_storage,
+            &self.blob_storage_registry,
         )
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 

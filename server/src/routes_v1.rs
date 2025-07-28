@@ -195,6 +195,7 @@ async fn namespace_middleware(
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
+                        blob_storage_bucket: None,
                     }),
                     processed_state_changes: vec![],
                 })
@@ -370,9 +371,11 @@ async fn find_invocation(
         });
     }
 
-    let invocation_error =
-        download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
-            .await?;
+    let invocation_error = download_invocation_error(
+        invocation_ctx.invocation_error.clone(),
+        &state.blob_storage.get_blob_store(&namespace),
+    )
+    .await?;
 
     let request = http_objects_v1::Request::build(invocation_ctx, http_outputs, invocation_error);
 

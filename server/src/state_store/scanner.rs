@@ -14,6 +14,7 @@ use crate::{
         ComputeGraphVersion,
         DataPayload,
         FunctionExecutorDiagnostics,
+        GcUrl,
         GraphInvocationCtx,
         GraphVersion,
         InvocationPayload,
@@ -226,7 +227,7 @@ impl StateReader {
         Ok(None)
     }
 
-    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
+    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<GcUrl>> {
         let kvs = &[KeyValue::new("op", "get_gc_urls")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
@@ -236,8 +237,6 @@ impl StateReader {
         let mut urls = Vec::new();
         for kv in iter {
             if let Ok((key, _)) = kv {
-                let url = String::from_utf8(key.into_vec())?;
-                urls.push(url);
                 if urls.len() >= limit {
                     break;
                 }
@@ -741,6 +740,7 @@ mod tests {
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: name.clone(),
+                        blob_storage_bucket: None,
                     }),
                     processed_state_changes: vec![],
                 })

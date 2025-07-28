@@ -33,7 +33,7 @@ mod tests {
         let test_srv = testing::TestService::new().await?;
         let Service {
             indexify_state,
-            blob_storage,
+            blob_storage_registry,
             gc_executor,
             ..
         } = test_srv.service;
@@ -45,7 +45,10 @@ mod tests {
             let path = format!("{}", &compute_graph.code.path);
 
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
-            let res = blob_storage.put(&path, data_stream).await?;
+            let res = blob_storage_registry
+                .get_blob_store(&TEST_NAMESPACE)
+                .put(&path, data_stream)
+                .await?;
             compute_graph.code.path = res.url;
 
             indexify_state
@@ -68,7 +71,10 @@ mod tests {
             let data = "invocation_payload";
             let path = "invocation_payload";
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
-            let res = blob_storage.put(path, data_stream).await?;
+            let res = blob_storage_registry
+                .get_blob_store(&TEST_NAMESPACE)
+                .put(path, data_stream)
+                .await?;
 
             // Create a graph invocation
             let invocation = InvocationPayload {
@@ -136,7 +142,10 @@ mod tests {
                 &serialized_output,
             )?;
 
-            blob_storage.read_bytes(&res.url).await?;
+            blob_storage_registry
+                .get_blob_store(&TEST_NAMESPACE)
+                .read_bytes(&res.url)
+                .await?;
 
             res
         };
@@ -166,7 +175,10 @@ mod tests {
         let urls = indexify_state.reader().get_gc_urls(None)?;
         assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
 
-        let read_res = blob_storage.read_bytes(&res.url).await;
+        let read_res = blob_storage_registry
+            .get_blob_store(&TEST_NAMESPACE)
+            .read_bytes(&res.url)
+            .await;
         assert!(read_res.is_err(), "file is not deleted: {:#?}", read_res);
 
         Ok(())

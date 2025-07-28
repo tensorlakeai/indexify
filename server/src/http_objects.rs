@@ -91,6 +91,7 @@ pub struct ListParams {
 pub struct Namespace {
     name: String,
     created_at: u64,
+    blob_storage_bucket: Option<String>,
 }
 
 impl From<data_model::Namespace> for Namespace {
@@ -98,6 +99,7 @@ impl From<data_model::Namespace> for Namespace {
         Self {
             name: namespace.name,
             created_at: namespace.created_at,
+            blob_storage_bucket: namespace.blob_storage_bucket,
         }
     }
 }
@@ -630,6 +632,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
+    pub blob_storage_bucket: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

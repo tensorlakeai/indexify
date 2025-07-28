@@ -61,6 +61,7 @@ pub async fn create_or_update_compute_graph_v1(
                 let file_name = format!("{}_{}", namespace, nanoid::nanoid!());
                 let result = state
                     .blob_storage
+                    .get_blob_store(&namespace)
                     .put(&file_name, stream)
                     .await
                     .map_err(IndexifyAPIError::internal_error)?;

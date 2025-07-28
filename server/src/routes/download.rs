@@ -95,6 +95,7 @@ pub async fn download_fn_output_payload(
     let payload = &output.payloads[index];
     let storage_reader = state
         .blob_storage
+        .get_blob_store(&namespace)
         .get(&payload.path)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -166,6 +167,7 @@ pub async fn v1_download_fn_output_payload(
     let payload = &output.payloads[index];
     let storage_reader = state
         .blob_storage
+        .get_blob_store(&namespace)
         .get(&payload.path)
         .await
         .map_err(IndexifyAPIError::internal_error)?;

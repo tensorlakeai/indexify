@@ -186,7 +186,7 @@ impl IndexifyState {
                 &self.last_state_change_id,
             )?,
             RequestPayload::CreateNameSpace(namespace_request) => {
-                state_machine::create_namespace(self.db.clone(), &namespace_request)?;
+                state_machine::upsert_namespace(self.db.clone(), &namespace_request)?;
                 vec![]
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
@@ -433,6 +433,7 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace1".to_string(),
+                    blob_storage_bucket: None,
                 }),
                 processed_state_changes: vec![],
             })
@@ -441,6 +442,7 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace2".to_string(),
+                    blob_storage_bucket: Some("bucket2".to_string()),
                 }),
                 processed_state_changes: vec![],
             })
@@ -459,6 +461,9 @@ mod tests {
         // Check if the namespaces were created
         assert!(namespaces.iter().any(|ns| ns.name == "namespace1"));
         assert!(namespaces.iter().any(|ns| ns.name == "namespace2"));
+        assert!(namespaces
+            .iter()
+            .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string())));
 
         Ok(())
     }

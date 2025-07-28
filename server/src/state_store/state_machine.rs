@@ -28,6 +28,7 @@ use crate::{
         ComputeGraph,
         ComputeGraphError,
         ComputeGraphVersion,
+        GcUrl,
         GraphInvocationCtx,
         InvocationPayload,
         Namespace,
@@ -87,10 +88,11 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
+pub(crate) fn upsert_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
     let ns = Namespace {
         name: req.name.clone(),
         created_at: get_epoch_time_in_ms(),
+        blob_storage_bucket: req.blob_storage_bucket.clone(),
     };
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put_cf(
@@ -566,10 +568,13 @@ pub fn delete_compute_graph(
 pub fn remove_gc_urls(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    urls: Vec<String>,
+    urls: Vec<GcUrl>,
 ) -> Result<()> {
     for url in urls {
-        txn.delete_cf(&IndexifyObjectsColumns::GcUrls.cf_db(&db), &url)?;
+        txn.delete_cf(
+            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+            url.key().as_bytes(),
+        )?;
     }
     Ok(())
 }
