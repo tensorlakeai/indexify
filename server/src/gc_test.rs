@@ -150,7 +150,7 @@ mod tests {
             res
         };
 
-        let urls = indexify_state.reader().get_gc_urls(None)?;
+        let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
         assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
 
         indexify_state
@@ -163,7 +163,7 @@ mod tests {
             })
             .await?;
 
-        let urls = indexify_state.reader().get_gc_urls(None)?;
+        let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
         assert!(
             !urls.is_empty(),
             "all gc urls should not be empty: {:?}",
@@ -172,7 +172,7 @@ mod tests {
 
         gc_executor.lock().await.run().await?;
 
-        let urls = indexify_state.reader().get_gc_urls(None)?;
+        let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
         assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
 
         let read_res = blob_storage_registry

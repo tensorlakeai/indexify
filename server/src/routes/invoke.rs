@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::anyhow;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::{sse::Event, IntoResponse},
     Json,
@@ -176,6 +176,7 @@ pub async fn invoke_with_object_v1(
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
+        .get_blob_store(&namespace)
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
@@ -273,17 +274,6 @@ pub async fn invoke_with_object(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let accept_header = headers
-        .get("accept")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-
-    if !accept_header.contains("application/json") && !accept_header.contains("text/event-stream") {
-        return Err(IndexifyAPIError::bad_request(
-            "accept header must be application/json or text/event-stream",
-        ));
-    }
-
     let encoding = headers
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
@@ -291,6 +281,7 @@ pub async fn invoke_with_object(
         .unwrap_or("application/octet-stream".to_string());
 
     state.metrics.invocations.add(1, &[]);
+    let should_block = params.block_until_finish.unwrap_or(false);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
@@ -324,7 +315,7 @@ pub async fn invoke_with_object(
     // subscribing to task event stream before creation to not loose events once
     // invocation is created.
     let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
-    if accept_header.contains("text/event-stream") {
+    if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
 
@@ -363,13 +354,6 @@ pub async fn invoke_with_object(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-
-    if accept_header.contains("application/json") {
-        return Ok(Json(RequestId {
-            id: graph_invocation_ctx.invocation_id,
-        })
-        .into_response());
-    }
 
     let invocation_event_stream =
         create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
