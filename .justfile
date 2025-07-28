@@ -19,8 +19,14 @@ fmt-indexify:
     poetry run black .
     poetry run isort . --profile black
 
+[doc('Reformat Tensorlake')]
+[working-directory: 'tensorlake']
+fmt-tensorlake:
+    poetry run black .
+    poetry run isort . --profile black
+
 [doc('Reformat all components')]
-fmt: fmt-rust fmt-indexify
+fmt: fmt-rust fmt-indexify fmt-tensorlake
 
 [doc('Check formatting of Rust components')]
 check-rust: nightly-toolchain
@@ -32,8 +38,14 @@ check-indexify:
     poetry run black --check .
     poetry run isort . --check-only --profile black
 
+[doc('Check formatting of Tensorlake')]
+[working-directory: 'tensorlake']
+check-tensorlake:
+    poetry run black --check .
+    poetry run isort . --check-only --profile black
+
 [doc('Check formatting of all components')]
-check: check-rust check-indexify
+check: check-rust check-indexify check-tensorlake
 
 [doc('Build Rust components')]
 build-rust:
@@ -44,8 +56,13 @@ build-rust:
 build-indexify:
     make
 
+[doc('Build Tensorlake')]
+[working-directory: 'tensorlake']
+build-tensorlake:
+    make
+
 [doc('Build all components')]
-build: build-rust build-indexify
+build: build-rust build-indexify build-tensorlake
 
 [doc('Clean Rust components')]
 clean-rust:
@@ -61,7 +78,21 @@ test-rust:
 [doc('Test Indexify')]
 [working-directory: 'indexify/tests']
 test-indexify:
-    ./run-tests.sh
+    ./run_tests.sh
+
+[doc('Test Tensorlake')]
+[working-directory: 'tensorlake/tests']
+test-tensorlake:
+    ./run_tests.sh
 
 [doc('Test all components')]
-test: test-rust test-indexify
+test: test-rust test-indexify test-tensorlake
+
+[doc('Run a dev Indexify server')]
+run-indexify:
+    cargo run -p indexify-server -- --dev
+
+[doc('Run a dev Indexify executor')]
+[working-directory: 'indexify']
+run-executor:
+    poetry run indexify-cli executor --grpc-server-addr localhost:8901 --verbose
