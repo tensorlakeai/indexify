@@ -208,7 +208,6 @@ impl IndexifyState {
                     &request.namespace,
                     &request.name,
                 )?;
-                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::TombstoneInvocation(request) => {
@@ -216,7 +215,6 @@ impl IndexifyState {
             }
             RequestPayload::DeleteInvocationRequest(request) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
-                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -318,6 +316,17 @@ impl IndexifyState {
         }
 
         self.handle_invocation_state_changes(&request).await;
+
+        // This needs to be after the transaction is committed because if the gc
+        // runs before the gc urls are written, the gc process will not see the
+        // urls.
+        match &request.payload {
+            RequestPayload::DeleteComputeGraphRequest(_) |
+            RequestPayload::DeleteInvocationRequest(_) => {
+                self.gc_tx.send(()).unwrap();
+            }
+            _ => {}
+        }
         Ok(())
     }
 

@@ -227,24 +227,18 @@ impl StateReader {
         Ok(None)
     }
 
-    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<GcUrl>> {
+    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "get_gc_urls")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let limit = limit.unwrap_or(usize::MAX);
-        let cf = IndexifyObjectsColumns::GcUrls.cf_db(&self.db);
-        let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
-        let mut urls = Vec::new();
-        for kv in iter {
-            if let Ok((_, value)) = kv {
-                let gc_url = JsonEncoder::decode::<GcUrl>(&value)?;
-                urls.push(gc_url);
-                if urls.len() >= limit {
-                    break;
-                }
-            }
-        }
-        Ok(urls)
+        let (urls, cursor) = self.get_rows_from_cf_with_limits::<GcUrl>(
+            &[],
+            None,
+            IndexifyObjectsColumns::GcUrls,
+            Some(limit),
+        )?;
+        Ok((urls, cursor))
     }
 
     pub fn get_graph_input(

@@ -70,8 +70,7 @@ impl Gc {
         let storage = self.storage.clone();
 
         let mut deleted_urls = Vec::with_capacity(10);
-        let urls = state.reader().get_gc_urls(Some(10))?;
-        let urls_len = urls.len();
+        let (urls, cursor) = state.reader().get_gc_urls(Some(10))?;
         for url in urls.iter() {
             debug!("Deleting url {:?}", url);
             if let Err(e) = storage
@@ -79,7 +78,7 @@ impl Gc {
                 .delete(&url.url)
                 .await
             {
-                error!("Error deleting url {:?}: {:?}", url, e);
+                error!("error deleting url {:?}: {:?}", url, e);
             } else {
                 deleted_urls.push(url.clone());
             }
@@ -94,6 +93,6 @@ impl Gc {
         }
 
         // has more
-        Ok(urls_len == 10)
+        Ok(cursor.is_some())
     }
 }
