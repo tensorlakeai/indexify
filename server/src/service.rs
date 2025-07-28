@@ -62,10 +62,19 @@ impl Service {
             BlobStorage::new(config.kv_storage.clone()).context("error initializing KVStorage")?,
         );
 
+        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
+
         let blob_storage_registry =
             Arc::new(BlobStorageRegistry::new(config.blob_storage.path.as_str())?);
 
-        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
+        let namespaces = indexify_state.reader().get_all_namespaces()?;
+        for namespace in namespaces {
+            if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
+                blob_storage_registry
+                    .create_new_blob_store(&namespace.name, &blob_storage_bucket)?;
+            }
+        }
+
         let executor_manager =
             ExecutorManager::new(indexify_state.clone(), blob_storage_registry.clone()).await;
 
