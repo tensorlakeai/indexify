@@ -44,7 +44,7 @@ pub async fn download_allocation_logs(
             ))
         })?;
 
-    data_payload_response(payload, &state.blob_storage).await
+    data_payload_response(payload, &state.blob_storage.get_blob_store(&namespace)).await
 }
 
 #[utoipa::path(
@@ -79,7 +79,7 @@ pub async fn download_function_executor_startup_logs(
                 e
             ))
         })?;
-    data_payload_response(payload, &state.blob_storage).await
+    data_payload_response(payload, &state.blob_storage.get_blob_store(&namespace)).await
 }
 
 async fn data_payload_response(

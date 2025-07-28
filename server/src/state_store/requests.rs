@@ -8,6 +8,7 @@ use crate::data_model::{
     FunctionExecutorDiagnostics,
     FunctionExecutorId,
     FunctionExecutorServerMetadata,
+    GcUrl,
     GraphInvocationCtx,
     HostResources,
     InvocationPayload,
@@ -34,7 +35,7 @@ pub enum RequestPayload {
     SchedulerUpdate(Box<SchedulerUpdateRequest>),
     UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
-    RemoveGcUrls(Vec<String>),
+    RemoveGcUrls(Vec<GcUrl>),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
     Noop,
@@ -102,6 +103,7 @@ pub struct InvokeComputeGraphRequest {
 #[derive(Debug, Clone)]
 pub struct NamespaceRequest {
     pub name: String,
+    pub blob_storage_bucket: Option<String>,
 }
 
 #[derive(Debug, Clone)]

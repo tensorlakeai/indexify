@@ -16,6 +16,7 @@ use tokio::{
 use tracing::{debug, error, trace};
 
 use crate::{
+    blob_store::registry::BlobStorageRegistry,
     data_model::{self, ExecutorId, ExecutorMetadata},
     executor_api::{
         blob_store_path_to_url,
@@ -118,20 +119,18 @@ impl ExecutorRuntimeData {
 }
 
 pub struct ExecutorManager {
-    blob_store_url_scheme: String,
-    blob_store_url: String,
     heartbeat_deadline_queue: Mutex<PriorityQueue<ExecutorId, ReverseInstant>>,
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
     indexify_state: Arc<IndexifyState>,
     runtime_data: RwLock<HashMap<ExecutorId, ExecutorRuntimeData>>,
+    blob_store_registry: Arc<BlobStorageRegistry>,
 }
 
 impl ExecutorManager {
     pub async fn new(
         indexify_state: Arc<IndexifyState>,
-        blob_store_url_scheme: String,
-        blob_store_url: String,
+        blob_store_registry: Arc<BlobStorageRegistry>,
     ) -> Arc<Self> {
         let (heartbeat_future, heartbeat_sender) = DynamicSleepFuture::new(
             far_future(),
@@ -149,8 +148,7 @@ impl ExecutorManager {
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
-            blob_store_url_scheme,
-            blob_store_url,
+            blob_store_registry,
         };
 
         let em = Arc::new(em);
@@ -387,11 +385,29 @@ impl ExecutorManager {
         let mut function_executors_pb = vec![];
         let mut task_allocations = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
+            let blob_store_url_schema = self
+                .blob_store_registry
+                .get_blob_store(
+                    &desired_state_fe
+                        .function_executor
+                        .function_executor
+                        .namespace,
+                )
+                .get_url_scheme();
+            let blob_store_url = self
+                .blob_store_registry
+                .get_blob_store(
+                    &desired_state_fe
+                        .function_executor
+                        .function_executor
+                        .namespace,
+                )
+                .get_url();
             let code_payload_pb = DataPayload {
                 uri: Some(blob_store_path_to_url(
                     &desired_state_fe.code_payload.path,
-                    &self.blob_store_url_scheme,
-                    &self.blob_store_url,
+                    &blob_store_url_schema,
+                    &blob_store_url,
                 )),
                 size: Some(desired_state_fe.code_payload.size),
                 sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
@@ -399,8 +415,7 @@ impl ExecutorManager {
                 encoding_version: None,
             };
             let fe = &desired_state_fe.function_executor.function_executor;
-            let fe_output_payload_uri_prefix =
-                format!("{}/function_executors", self.blob_store_url,);
+            let fe_output_payload_uri_prefix = format!("{}/function_executors", blob_store_url,);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 namespace: Some(fe.namespace.clone()),
@@ -466,11 +481,19 @@ impl ExecutorManager {
 
     /// Extracts only the computed fields from a data_model::Task
     pub fn extract_computed_fields(&self, task: &data_model::Task) -> anyhow::Result<ComputedTask> {
+        let blob_store_url_schema = self
+            .blob_store_registry
+            .get_blob_store(&task.namespace)
+            .get_url_scheme();
+        let blob_store_url = self
+            .blob_store_registry
+            .get_blob_store(&task.namespace)
+            .get_url();
         let input_payload = DataPayload {
             uri: Some(blob_store_path_to_url(
                 &task.input.path,
-                &self.blob_store_url_scheme,
-                &self.blob_store_url,
+                &blob_store_url_schema,
+                &blob_store_url,
             )),
             size: Some(task.input.size),
             sha256_hash: Some(task.input.sha256_hash.clone()),
@@ -483,8 +506,8 @@ impl ExecutorManager {
         let reducer_input = task.acc_input.clone().map(|input| DataPayload {
             uri: Some(blob_store_path_to_url(
                 &input.path,
-                &self.blob_store_url_scheme,
-                &self.blob_store_url,
+                &blob_store_url_schema,
+                &blob_store_url,
             )),
             size: Some(input.size),
             sha256_hash: Some(input.sha256_hash.clone()),
@@ -499,7 +522,7 @@ impl ExecutorManager {
         // Create output payload URI prefix
         let output_payload_uri_prefix = format!(
             "{}/{}.{}.{}.{}",
-            self.blob_store_url,
+            blob_store_url,
             task.namespace,
             task.compute_graph_name,
             task.compute_fn_name,

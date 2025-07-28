@@ -186,7 +186,7 @@ impl IndexifyState {
                 &self.last_state_change_id,
             )?,
             RequestPayload::CreateNameSpace(namespace_request) => {
-                state_machine::create_namespace(self.db.clone(), &namespace_request)?;
+                state_machine::upsert_namespace(self.db.clone(), &namespace_request)?;
                 vec![]
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
@@ -208,7 +208,6 @@ impl IndexifyState {
                     &request.namespace,
                     &request.name,
                 )?;
-                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::TombstoneInvocation(request) => {
@@ -216,7 +215,6 @@ impl IndexifyState {
             }
             RequestPayload::DeleteInvocationRequest(request) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
-                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -318,6 +316,17 @@ impl IndexifyState {
         }
 
         self.handle_invocation_state_changes(&request).await;
+
+        // This needs to be after the transaction is committed because if the gc
+        // runs before the gc urls are written, the gc process will not see the
+        // urls.
+        match &request.payload {
+            RequestPayload::DeleteComputeGraphRequest(_) |
+            RequestPayload::DeleteInvocationRequest(_) => {
+                self.gc_tx.send(()).unwrap();
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -433,6 +442,7 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace1".to_string(),
+                    blob_storage_bucket: None,
                 }),
                 processed_state_changes: vec![],
             })
@@ -441,6 +451,7 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace2".to_string(),
+                    blob_storage_bucket: Some("bucket2".to_string()),
                 }),
                 processed_state_changes: vec![],
             })
@@ -459,6 +470,9 @@ mod tests {
         // Check if the namespaces were created
         assert!(namespaces.iter().any(|ns| ns.name == "namespace1"));
         assert!(namespaces.iter().any(|ns| ns.name == "namespace2"));
+        assert!(namespaces
+            .iter()
+            .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string())));
 
         Ok(())
     }

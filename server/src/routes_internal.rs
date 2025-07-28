@@ -15,11 +15,10 @@ use base64::prelude::*;
 use download::{download_fn_output_payload, download_invocation_error};
 use futures::StreamExt;
 use hyper::StatusCode;
-use internal_ingest::ingest_fn_outputs;
 use invoke::{invoke_with_object, progress_stream};
 use logs::download_allocation_logs;
 use nanoid::nanoid;
-use tracing::info;
+use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -57,7 +56,6 @@ use crate::{
     indexify_ui::Assets as UiAssets,
     routes::{
         download,
-        internal_ingest,
         invoke,
         logs,
         logs::download_function_executor_startup_logs,
@@ -145,10 +143,6 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/versions/{version}/code",
             get(get_versioned_code).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/ingest_fn_outputs",
-            post(ingest_fn_outputs).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors",
@@ -287,6 +281,7 @@ async fn namespace_middleware(
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
+                        blob_storage_bucket: None,
                     }),
                     processed_state_changes: vec![],
                 })
@@ -315,9 +310,19 @@ async fn create_namespace(
     State(state): State<RouteState>,
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
+    if let Some(blob_storage_bucket) = &namespace.blob_storage_bucket {
+        if let Err(e) = state
+            .blob_storage
+            .create_new_blob_store(&namespace.name, blob_storage_bucket)
+        {
+            error!("failed to create blob storage bucket: {:?}", e);
+            return Err(IndexifyAPIError::internal_error(e));
+        }
+    }
     let req = StateMachineUpdateRequest {
         payload: RequestPayload::CreateNameSpace(NamespaceRequest {
             name: namespace.name.clone(),
+            blob_storage_bucket: namespace.blob_storage_bucket,
         }),
         processed_state_changes: vec![],
     };
@@ -391,6 +396,7 @@ async fn create_or_update_compute_graph(
                 let file_name = format!("{}_{}", namespace, nanoid!());
                 let result = state
                     .blob_storage
+                    .get_blob_store(&namespace)
                     .put(&file_name, stream)
                     .await
                     .map_err(IndexifyAPIError::internal_error)?;
@@ -595,9 +601,11 @@ async fn graph_invocations(
     let mut invocations = vec![];
     for invocation_ctx in invocation_ctxs {
         let mut invocation: Invocation = invocation_ctx.clone().into();
-        invocation.invocation_error =
-            download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
-                .await?;
+        invocation.invocation_error = download_invocation_error(
+            invocation_ctx.invocation_error.clone(),
+            &state.blob_storage.get_blob_store(&namespace),
+        )
+        .await?;
         invocations.push(invocation);
     }
     let prev_cursor = prev_cursor.map(|c| BASE64_STANDARD.encode(c));
@@ -878,9 +886,11 @@ async fn list_outputs(
     }
 
     let mut invocation: Invocation = invocation_ctx.clone().into();
-    invocation.invocation_error =
-        download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
-            .await?;
+    invocation.invocation_error = download_invocation_error(
+        invocation_ctx.invocation_error.clone(),
+        &state.blob_storage.get_blob_store(&namespace),
+    )
+    .await?;
 
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
 
@@ -917,9 +927,11 @@ async fn find_invocation(
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
 
     let mut invocation: Invocation = invocation_ctx.clone().into();
-    invocation.invocation_error =
-        download_invocation_error(invocation_ctx.invocation_error.clone(), &state.blob_storage)
-            .await?;
+    invocation.invocation_error = download_invocation_error(
+        invocation_ctx.invocation_error.clone(),
+        &state.blob_storage.get_blob_store(&namespace),
+    )
+    .await?;
     Ok(Json(invocation))
 }
 
@@ -984,6 +996,7 @@ async fn get_versioned_code(
 
         let storage_reader = state
             .blob_storage
+            .get_blob_store(&namespace)
             .get(&compute_graph_version.code.path)
             .await
             .map_err(|e| {
@@ -1020,6 +1033,7 @@ async fn get_versioned_code(
         compute_graph.ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
     let storage_reader = state
         .blob_storage
+        .get_blob_store(&namespace)
         .get(&compute_graph.code.path)
         .await
         .map_err(|e| {

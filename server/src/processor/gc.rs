@@ -5,7 +5,7 @@ use tokio::time::{self};
 use tracing::{debug, error, info};
 
 use crate::{
-    blob_store::BlobStorage,
+    blob_store::registry::BlobStorageRegistry,
     state_store::{
         requests::{RequestPayload, StateMachineUpdateRequest},
         IndexifyState,
@@ -14,7 +14,7 @@ use crate::{
 
 pub struct Gc {
     state: Arc<IndexifyState>,
-    storage: Arc<BlobStorage>,
+    storage: Arc<BlobStorageRegistry>,
     rx: tokio::sync::watch::Receiver<()>,
     shutdown_rx: tokio::sync::watch::Receiver<()>,
 }
@@ -22,7 +22,7 @@ pub struct Gc {
 impl Gc {
     pub fn new(
         state: Arc<IndexifyState>,
-        storage: Arc<BlobStorage>,
+        storage: Arc<BlobStorageRegistry>,
         shutdown_rx: tokio::sync::watch::Receiver<()>,
     ) -> Self {
         let rx = state.get_gc_watcher();
@@ -70,12 +70,15 @@ impl Gc {
         let storage = self.storage.clone();
 
         let mut deleted_urls = Vec::with_capacity(10);
-        let urls = state.reader().get_gc_urls(Some(10))?;
-        let urls_len = urls.len();
+        let (urls, cursor) = state.reader().get_gc_urls(Some(10))?;
         for url in urls.iter() {
             debug!("Deleting url {:?}", url);
-            if let Err(e) = storage.delete(url).await {
-                error!("Error deleting url {:?}: {:?}", url, e);
+            if let Err(e) = storage
+                .get_blob_store(&url.namespace)
+                .delete(&url.url)
+                .await
+            {
+                error!("error deleting url {:?}: {:?}", url, e);
             } else {
                 deleted_urls.push(url.clone());
             }
@@ -90,6 +93,6 @@ impl Gc {
         }
 
         // has more
-        Ok(urls_len == 10)
+        Ok(cursor.is_some())
     }
 }

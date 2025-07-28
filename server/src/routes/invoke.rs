@@ -176,6 +176,7 @@ pub async fn invoke_with_object_v1(
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
+        .get_blob_store(&namespace)
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
@@ -287,6 +288,7 @@ pub async fn invoke_with_object(
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
+        .get_blob_store(&namespace)
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {

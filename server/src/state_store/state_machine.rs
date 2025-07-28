@@ -28,6 +28,7 @@ use crate::{
         ComputeGraph,
         ComputeGraphError,
         ComputeGraphVersion,
+        GcUrl,
         GraphInvocationCtx,
         InvocationPayload,
         Namespace,
@@ -87,10 +88,11 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
+pub(crate) fn upsert_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
     let ns = Namespace {
         name: req.name.clone(),
         created_at: get_epoch_time_in_ms(),
+        blob_storage_bucket: req.blob_storage_bucket.clone(),
     };
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put_cf(
@@ -255,10 +257,15 @@ pub(crate) fn delete_invocation(
                         .iter()
                         .flatten()
                         .try_for_each(|data| -> Result<()> {
+                            let gc_url = GcUrl {
+                                url: data.path.clone(),
+                                namespace: req.namespace.clone(),
+                            };
+                            let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
                             txn.put_cf(
                                 &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                                data.path.as_bytes(),
-                                [],
+                                gc_url.key().as_bytes(),
+                                &serialized_gc_url,
                             )?;
                             Ok(())
                         })?;
@@ -294,10 +301,15 @@ pub(crate) fn delete_invocation(
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         for payload in value.payloads {
+            let gc_url = GcUrl {
+                url: payload.path.clone(),
+                namespace: req.namespace.clone(),
+            };
+            let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
             txn.put_cf(
                 &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                payload.path.as_bytes(),
-                [],
+                gc_url.key().as_bytes(),
+                &serialized_gc_url,
             )?;
         }
         txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
@@ -549,10 +561,15 @@ pub fn delete_compute_graph(
         let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
 
         // mark all code urls for gc.
+        let gc_url = GcUrl {
+            url: value.code.path.clone(),
+            namespace: namespace.to_string(),
+        };
+        let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put_cf(
             &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-            value.code.path.as_bytes(),
-            [],
+            gc_url.key().as_bytes(),
+            &serialized_gc_url,
         )?;
         txn.delete_cf(
             &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
@@ -566,10 +583,13 @@ pub fn delete_compute_graph(
 pub fn remove_gc_urls(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    urls: Vec<String>,
+    urls: Vec<GcUrl>,
 ) -> Result<()> {
     for url in urls {
-        txn.delete_cf(&IndexifyObjectsColumns::GcUrls.cf_db(&db), &url)?;
+        txn.delete_cf(
+            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+            url.key().as_bytes(),
+        )?;
     }
     Ok(())
 }

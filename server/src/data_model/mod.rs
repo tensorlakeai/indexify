@@ -1774,6 +1774,19 @@ pub struct FunctionExecutorResources {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
+pub struct GcUrl {
+    pub url: String,
+    pub namespace: String,
+}
+
+impl GcUrl {
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.namespace, self.url)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
     pub namespace: String,
@@ -2176,6 +2189,7 @@ impl Display for StateChange {
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
+    pub blob_storage_bucket: Option<String>,
 }
 
 #[cfg(test)]

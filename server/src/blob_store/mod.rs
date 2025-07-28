@@ -23,6 +23,8 @@ use url::Url;
 
 use crate::metrics::{blob_storage, Timer};
 
+pub mod registry;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobStorageConfig {
     pub path: String,

@@ -15,7 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    blob_store::BlobStorage,
+    blob_store::{registry::BlobStorageRegistry, BlobStorage},
     config::ServerConfig,
     executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
     executors::ExecutorManager,
@@ -38,7 +38,7 @@ pub struct Service {
     pub config: Arc<ServerConfig>,
     pub shutdown_tx: watch::Sender<()>,
     pub shutdown_rx: watch::Receiver<()>,
-    pub blob_storage: Arc<BlobStorage>,
+    pub blob_storage_registry: Arc<BlobStorageRegistry>,
     pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
@@ -58,28 +58,29 @@ impl Service {
             env!("CARGO_PKG_VERSION"),
         )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let blob_storage = Arc::new(
-            BlobStorage::new(config.blob_storage.clone())
-                .context("error initializing BlobStorage")?,
-        );
-
         let kv_storage = Arc::new(
             BlobStorage::new(config.kv_storage.clone()).context("error initializing KVStorage")?,
         );
 
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
-        let blob_store_url_scheme = blob_storage.get_url_scheme();
-        let blob_store_url = blob_storage.get_url();
-        let executor_manager = ExecutorManager::new(
-            indexify_state.clone(),
-            blob_store_url_scheme,
-            blob_store_url,
-        )
-        .await;
+
+        let blob_storage_registry =
+            Arc::new(BlobStorageRegistry::new(config.blob_storage.path.as_str())?);
+
+        let namespaces = indexify_state.reader().get_all_namespaces()?;
+        for namespace in namespaces {
+            if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
+                blob_storage_registry
+                    .create_new_blob_store(&namespace.name, &blob_storage_bucket)?;
+            }
+        }
+
+        let executor_manager =
+            ExecutorManager::new(indexify_state.clone(), blob_storage_registry.clone()).await;
 
         let gc_executor = Arc::new(Mutex::new(Gc::new(
             indexify_state.clone(),
-            blob_storage.clone(),
+            blob_storage_registry.clone(),
             shutdown_rx.clone(),
         )));
 
@@ -98,7 +99,7 @@ impl Service {
             config,
             shutdown_tx,
             shutdown_rx,
-            blob_storage,
+            blob_storage_registry,
             indexify_state,
             executor_manager,
             kvs,
@@ -142,7 +143,7 @@ impl Service {
             config: self.config.clone(),
             indexify_state: self.indexify_state.clone(),
             kvs: self.kvs.clone(),
-            blob_storage: self.blob_storage.clone(),
+            blob_storage: self.blob_storage_registry.clone(),
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
         };
@@ -168,7 +169,7 @@ impl Service {
         let mut shutdown_rx = self.shutdown_rx.clone();
         let indexify_state = self.indexify_state.clone();
         let executor_manager = self.executor_manager.clone();
-        let blob_storage = self.blob_storage.clone();
+        let blog_storage_registry = self.blob_storage_registry.clone();
         tokio::spawn(async move {
             info!("server grpc listening on {}", addr_grpc);
             let reflection_service = tonic_reflection::server::Builder::configure()
@@ -180,7 +181,7 @@ impl Service {
                     indexify_state,
                     executor_manager,
                     api_metrics,
-                    blob_storage,
+                    blog_storage_registry,
                 )))
                 .add_service(reflection_service)
                 .serve_with_shutdown(addr_grpc, async move {
