@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::anyhow;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::{sse::Event, IntoResponse},
     Json,
