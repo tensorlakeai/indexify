@@ -12,15 +12,11 @@ use axum::{
     Router,
 };
 use base64::prelude::*;
-use download::{
-    download_fn_output_payload,
-    download_invocation_error,
-    download_invocation_payload,
-};
+use download::{download_fn_output_payload, download_invocation_error};
 use futures::StreamExt;
 use hyper::StatusCode;
 use internal_ingest::ingest_fn_outputs;
-use invoke::{invoke_with_object, wait_until_invocation_completed};
+use invoke::{invoke_with_object, progress_stream};
 use logs::download_allocation_logs;
 use nanoid::nanoid;
 use tracing::info;
@@ -253,15 +249,11 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
-            get(wait_until_invocation_completed).with_state(route_state.clone()),
+            get(progress_stream).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs/{compute_graph}/notify",
             get(notify_on_change).with_state(route_state.clone()),
-        )
-        .route(
-            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/payload",
-            get(download_invocation_payload).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",

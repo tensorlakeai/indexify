@@ -6,8 +6,10 @@ use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
     response::{sse::Event, IntoResponse},
+    Json,
 };
 use futures::{Stream, StreamExt};
+use serde::Deserialize;
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -15,7 +17,7 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{self, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
-    http_objects::{IndexifyAPIError, RequestId, RequestQueryParams},
+    http_objects::{IndexifyAPIError, RequestId},
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -23,7 +25,7 @@ use crate::{
 };
 
 // New shared function for creating SSE streams
-async fn create_invocation_event_stream(
+async fn create_invocation_progress_stream(
     id: String,
     rx: Option<Receiver<InvocationStateChangeEvent>>,
     state: RouteState,
@@ -135,7 +137,7 @@ async fn create_invocation_event_stream(
 /// Make a request to a workflow
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
@@ -144,9 +146,129 @@ async fn create_invocation_event_stream(
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
+pub async fn invoke_with_object_v1(
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    State(state): State<RouteState>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let accept_header = headers
+        .get("Accept")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json");
+
+    if !accept_header.contains("application/json") && !accept_header.contains("text/event-stream") {
+        return Err(IndexifyAPIError::bad_request(
+            "accept header must be application/json or text/event-stream",
+        ));
+    }
+
+    let encoding = headers
+        .get("Content-Type")
+        .and_then(|value| value.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("application/octet-stream".to_string());
+
+    state.metrics.invocations.add(1, &[]);
+    let payload_key = Uuid::new_v4().to_string();
+    let payload_stream = body
+        .into_data_stream()
+        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+    let put_result = state
+        .blob_storage
+        .put(&payload_key, Box::pin(payload_stream))
+        .await
+        .map_err(|e| {
+            error!("failed to write to blob store: {:?}", e);
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let data_payload = data_model::DataPayload {
+        path: put_result.url,
+        size: put_result.size_bytes,
+        sha256_hash: put_result.sha256_hash,
+    };
+    state.metrics.invocation_bytes.add(data_payload.size, &[]);
+    let invocation_payload = InvocationPayloadBuilder::default()
+        .namespace(namespace.clone())
+        .compute_graph_name(compute_graph.clone())
+        .payload(data_payload)
+        .encoding(encoding)
+        .build()
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let id = invocation_payload.id.clone();
+
+    // subscribing to task event stream before creation to not loose events once
+    // invocation is created.
+    let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
+    if accept_header.contains("text/event-stream") {
+        rx.replace(state.indexify_state.task_event_stream());
+    }
+
+    let compute_graph = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &compute_graph)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
+        })?
+        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(namespace.to_string())
+        .compute_graph_name(compute_graph.name.to_string())
+        .graph_version(compute_graph.version.clone())
+        .invocation_id(invocation_payload.id.clone())
+        .fn_task_analytics(HashMap::new())
+        .created_at(invocation_payload.created_at)
+        .build(compute_graph.clone())
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+    let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph.name.clone(),
+        invocation_payload,
+        ctx: graph_invocation_ctx.clone(),
+    });
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request.clone(),
+            processed_state_changes: vec![],
+        })
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
+
+    if accept_header.contains("application/json") {
+        return Ok(Json(RequestId {
+            id: graph_invocation_ctx.invocation_id,
+        })
+        .into_response());
+    }
+
+    let invocation_event_stream =
+        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
+    Ok(axum::response::Sse::new(invocation_event_stream)
+        .keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        )
+        .into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestQueryParam {
+    pub block_until_finish: Option<bool>,
+}
+
+#[axum::debug_handler]
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
-    Query(params): Query<RequestQueryParams>,
+    Query(params): Query<RequestQueryParam>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
@@ -194,6 +316,7 @@ pub async fn invoke_with_object(
     if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
+
     let compute_graph = state
         .indexify_state
         .reader()
@@ -217,7 +340,7 @@ pub async fn invoke_with_object(
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.name.clone(),
         invocation_payload,
-        ctx: graph_invocation_ctx,
+        ctx: graph_invocation_ctx.clone(),
     });
     state
         .indexify_state
@@ -231,14 +354,14 @@ pub async fn invoke_with_object(
         })?;
 
     let invocation_event_stream =
-        create_invocation_event_stream(id, rx, state, namespace, compute_graph.name).await;
-    Ok(
-        axum::response::Sse::new(invocation_event_stream).keep_alive(
+        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
+    Ok(axum::response::Sse::new(invocation_event_stream)
+        .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
                 .text("keep-alive-text"),
-        ),
-    )
+        )
+        .into_response())
 }
 
 /// Stream progress of a request until it is completed
@@ -252,14 +375,14 @@ pub async fn invoke_with_object(
     ),
 )]
 #[axum::debug_handler]
-pub async fn wait_until_invocation_completed(
+pub async fn progress_stream(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let rx = state.indexify_state.task_event_stream();
 
     let invocation_event_stream =
-        create_invocation_event_stream(invocation_id, Some(rx), state, namespace, compute_graph)
+        create_invocation_progress_stream(invocation_id, Some(rx), state, namespace, compute_graph)
             .await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(

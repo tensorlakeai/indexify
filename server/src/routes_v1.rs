@@ -12,7 +12,7 @@ use axum::{
 use base64::prelude::*;
 use compute_graphs::{delete_compute_graph, get_compute_graph, list_compute_graphs};
 use download::download_invocation_error;
-use invoke::invoke_with_object;
+use invoke::invoke_with_object_v1;
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -47,7 +47,7 @@ use crate::{
     routes::{
         compute_graphs::{self, create_or_update_compute_graph_v1},
         download::{self, v1_download_fn_output_payload},
-        invoke::{self, wait_until_invocation_completed},
+        invoke::{self, progress_stream},
         routes_state::RouteState,
     },
     state_store::{
@@ -64,7 +64,7 @@ use crate::{
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            invoke::invoke_with_object,
+            invoke::invoke_with_object_v1,
             graph_requests,
             find_invocation,
             compute_graphs::create_or_update_compute_graph_v1,
@@ -141,7 +141,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/compute-graphs/{compute_graph}",
-            post(invoke_with_object).with_state(route_state.clone()),
+            post(invoke_with_object_v1).with_state(route_state.clone()),
         )
         .route(
             "/compute-graphs/{compute_graph}/requests",
@@ -153,7 +153,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}/progress",
-            get(wait_until_invocation_completed).with_state(route_state.clone()),
+            get(progress_stream).with_state(route_state.clone()),
         )
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}",
@@ -219,7 +219,7 @@ struct ComputeGraphCreateType {
 /// List requests for a workflow
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/requests",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests",
     tag = "ingestion",
     params(
         ListParams

@@ -203,10 +203,10 @@ pub async fn list_compute_graphs(
 /// Get a compute graph definition
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
+    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}",
     tag = "operations",
     responses(
-        (status = 200, description = "compute graph definition", body = http_objects::ComputeGraph),
+        (status = 200, description = "compute graph definition", body = http_objects_v1::ComputeGraph),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]

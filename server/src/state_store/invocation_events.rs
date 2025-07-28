@@ -14,12 +14,28 @@ pub enum InvocationStateChangeEvent {
 
 impl InvocationStateChangeEvent {
     pub fn from_task_finished(event: AllocationOutput) -> Self {
+        let mut output_uri_paths = vec![];
+        for output_index in 0..event.node_output.payloads.len() {
+            output_uri_paths.push(TaskOutput {
+                uri_path: format!(
+                    "/v1/namespaces/{}/compute-graphs/{}/requests/{}/fn/{}/outputs/{}/index/{}",
+                    event.namespace,
+                    event.compute_graph,
+                    event.invocation_id,
+                    event.compute_fn,
+                    event.node_output.id,
+                    output_index,
+                ),
+                mime_type: event.node_output.encoding.clone(),
+            });
+        }
         Self::TaskCompleted(TaskCompleted {
             request_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.allocation.task_id.get().to_string(),
             outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
+            outputs: output_uri_paths,
         })
     }
 
@@ -96,12 +112,19 @@ impl From<&TaskOutcome> for TaskOutcomeSummary {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TaskOutput {
+    pub uri_path: String,
+    pub mime_type: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCompleted {
     pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
     pub allocation_id: String,
     pub outcome: TaskOutcomeSummary,
+    pub outputs: Vec<TaskOutput>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

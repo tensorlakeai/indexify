@@ -13,46 +13,6 @@ use crate::{
     http_objects::{IndexifyAPIError, RequestError},
 };
 
-pub async fn download_invocation_payload(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
-    State(state): State<RouteState>,
-) -> Result<Response<Body>, IndexifyAPIError> {
-    let output = state
-        .indexify_state
-        .reader()
-        .invocation_payload(&namespace, &compute_graph, &invocation_id)
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
-                e
-            ))
-        })?;
-    let storage_reader = state
-        .blob_storage
-        .get(&output.payload.path)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    if output.encoding == "application/json" {
-        let json_bytes = storage_reader
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
-            .await
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
-
-        return Response::builder()
-            .header("Content-Type", output.encoding)
-            .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
-    }
-
-    Response::builder()
-        .header("Content-Type", output.encoding)
-        .header("Content-Length", output.payload.size.to_string())
-        .body(Body::from_stream(storage_reader))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
-}
-
 pub async fn download_invocation_error(
     invocation_error: Option<GraphInvocationError>,
     blob_storage: &BlobStorage,

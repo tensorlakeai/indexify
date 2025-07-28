@@ -424,6 +424,10 @@ pub struct ComputeFn {
     pub retry_policy: NodeRetryPolicy,
     #[serde(rename = "cache_key")]
     pub cache_key: Option<CacheKey>,
+    #[serde(default)]
+    pub parameters: Vec<ParameterMetadata>,
+    #[serde(default)]
+    pub return_type: Option<serde_json::Value>,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -442,6 +446,8 @@ impl From<ComputeFn> for data_model::ComputeFn {
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
             cache_key: val.cache_key.and_then(|v| Some(v.into())),
+            parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: val.return_type,
         }
     }
 }
@@ -461,6 +467,8 @@ impl From<data_model::ComputeFn> for ComputeFn {
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
             cache_key: c.cache_key.and_then(|v| Some(v.into())),
+            parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: c.return_type,
         }
     }
 }
@@ -512,6 +520,35 @@ impl From<data_model::RuntimeInformation> for RuntimeInformation {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ParameterMetadata {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+    pub data_type: serde_json::Value,
+}
+
+impl From<data_model::ParameterMetadata> for ParameterMetadata {
+    fn from(parameter: data_model::ParameterMetadata) -> Self {
+        Self {
+            name: parameter.name,
+            description: parameter.description,
+            required: parameter.required,
+            data_type: parameter.data_type,
+        }
+    }
+}
+
+impl From<ParameterMetadata> for data_model::ParameterMetadata {
+    fn from(parameter: ParameterMetadata) -> Self {
+        Self {
+            name: parameter.name,
+            description: parameter.description,
+            required: parameter.required,
+            data_type: parameter.data_type,
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {
     pub name: String,
@@ -1134,11 +1171,6 @@ pub struct ExecutorAllocations {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RequestQueryParams {
-    pub block_until_finish: Option<bool>,
 }
 
 #[cfg(test)]
