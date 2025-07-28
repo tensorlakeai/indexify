@@ -1,6 +1,11 @@
 import importlib
+from typing import Any, Generator, Tuple
 
 import click
+import docker
+import docker.api.build
+import docker.models
+import docker.models.images
 from tensorlake.functions_sdk.image import Image
 from tensorlake.functions_sdk.workflow_module import (
     WorkflowModuleInfo,
@@ -37,6 +42,9 @@ def build_image(
         )
         raise click.Abort
 
+    docker_client: docker.DockerClient = docker.from_env()
+    docker_client.ping()
+
     indexify_version: str = importlib.metadata.version("indexify")
     for image in workflow_module_info.images.keys():
         image: Image
@@ -49,8 +57,28 @@ def build_image(
         click.echo(f"Building image `{image.image_name}`")
 
         image.run(f"pip install 'indexify=={indexify_version}'")
-        built_image, generator = image.build()
-        for output in generator:
+        built_image, logs_generator = image.build()
+        built_image: docker.models.images.Image
+        for output in logs_generator:
             click.secho(output)
 
         click.secho(f"built image: {built_image.tags[0]}", fg="green")
+
+
+def build(
+    image: Image, docker_client: docker.DockerClient
+) -> Tuple[docker.models.images.Image, Generator[str, Any, None]]:
+    docker_file = image.dockerfile()
+    image_name = f"{image.image_name}:{image.image_tag}"
+
+    docker.api.build.process_dockerfile = lambda dockerfile, path: (
+        "Dockerfile",
+        dockerfile,
+    )
+
+    return docker_client.images.build(
+        path=".",
+        dockerfile=docker_file,
+        tag=image_name,
+        rm=True,
+    )
