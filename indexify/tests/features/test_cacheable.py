@@ -42,7 +42,7 @@ class TestCacheableGraph(unittest.TestCase):
 
     def _stream(self) -> tuple[dict[str, int], str]:
         counts = defaultdict(int)
-        events = self.graph.stream(block_until_done=True, count=2)
+        events = self.graph.stream(count=2)
         try:
             while True:
                 event = next(events)
