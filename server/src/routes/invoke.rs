@@ -262,29 +262,17 @@ pub async fn invoke_with_object_v1(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RequestQueryParam {
+pub struct RequestQueryParams {
     pub block_until_finish: Option<bool>,
 }
 
-#[axum::debug_handler]
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
-    Query(params): Query<RequestQueryParam>,
+    Query(params): Query<RequestQueryParams>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let accept_header = headers
-        .get("accept")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-
-    if !accept_header.contains("application/json") && !accept_header.contains("text/event-stream") {
-        return Err(IndexifyAPIError::bad_request(
-            "accept header must be application/json or text/event-stream",
-        ));
-    }
-
     let encoding = headers
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
@@ -292,6 +280,7 @@ pub async fn invoke_with_object(
         .unwrap_or("application/octet-stream".to_string());
 
     state.metrics.invocations.add(1, &[]);
+    let should_block = params.block_until_finish.unwrap_or(false);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
@@ -325,10 +314,9 @@ pub async fn invoke_with_object(
     // subscribing to task event stream before creation to not loose events once
     // invocation is created.
     let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
-    if accept_header.contains("text/event-stream") {
+    if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
-
     let compute_graph = state
         .indexify_state
         .reader()
@@ -352,7 +340,7 @@ pub async fn invoke_with_object(
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.name.clone(),
         invocation_payload,
-        ctx: graph_invocation_ctx.clone(),
+        ctx: graph_invocation_ctx,
     });
     state
         .indexify_state
@@ -365,22 +353,15 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    if accept_header.contains("application/json") {
-        return Ok(Json(RequestId {
-            id: graph_invocation_ctx.invocation_id,
-        })
-        .into_response());
-    }
-
     let invocation_event_stream =
         create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
-    Ok(axum::response::Sse::new(invocation_event_stream)
-        .keep_alive(
+    Ok(
+        axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
                 .text("keep-alive-text"),
-        )
-        .into_response())
+        ),
+    )
 }
 
 /// Stream progress of a request until it is completed
