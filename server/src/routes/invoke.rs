@@ -353,13 +353,6 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    if !should_block {
-        return Ok(Json(RequestId {
-            id: graph_invocation_ctx.invocation_id,
-        })
-        .into_response());
-    }
-
     let invocation_event_stream =
         create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
