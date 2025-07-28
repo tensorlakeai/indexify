@@ -236,7 +236,9 @@ impl StateReader {
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
         let mut urls = Vec::new();
         for kv in iter {
-            if let Ok((key, _)) = kv {
+            if let Ok((_, value)) = kv {
+                let gc_url = JsonEncoder::decode::<GcUrl>(&value)?;
+                urls.push(gc_url);
                 if urls.len() >= limit {
                     break;
                 }
