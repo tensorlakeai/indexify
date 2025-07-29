@@ -737,6 +737,7 @@ mod tests {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: name.clone(),
                         blob_storage_bucket: None,
+                        blob_storage_region: None,
                     }),
                     processed_state_changes: vec![],
                 })
