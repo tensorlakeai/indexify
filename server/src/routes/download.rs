@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use axum::{
     body::Body,
     extract::{Path, State},
-    response::Response,
+    response::{IntoResponse, NoContent, Response},
 };
 use futures::TryStreamExt;
 
@@ -191,11 +191,10 @@ pub async fn v1_download_fn_output_payload_simple(
                 "failed to download invocation payload: {}",
                 e
             ))
-        })?
-        .ok_or(IndexifyAPIError::not_found(
-            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
-                .as_str(),
-        ))?;
+        })?;
+    let Some(output) = output else {
+        return Ok(NoContent.into_response());
+    };
 
     let encoding = output.encoding.clone();
 
