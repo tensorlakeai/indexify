@@ -1738,14 +1738,14 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "tensorlake"
-version = "0.2.33"
+version = "0.2.35"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Workflows"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.2.33-py3-none-any.whl", hash = "sha256:ab11a1aa9cc4a1b95b89da58aed2edf73b104c9748b183a1fa933dd344e03c52"},
-    {file = "tensorlake-0.2.33.tar.gz", hash = "sha256:26e9a73ebe088d54b6bf4ff21a6ba8402721f1f11e4654f0ded8bb9c0084d23d"},
+    {file = "tensorlake-0.2.35-py3-none-any.whl", hash = "sha256:df4d38b591b807634dd98f9386c048998a6c362be47ebd3ff788e01ff830a122"},
+    {file = "tensorlake-0.2.35.tar.gz", hash = "sha256:ed81787a80c07226998e5267b5aeb98a78e1461511289ab2c81061c699a45397"},
 ]
 
 [package.dependencies]
@@ -1997,4 +1997,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "61a4cc33e4f42a01ac7017dc5335eb29285b99e01bf9d05d8c9e6779d4dae91f"
+content-hash = "067a69fb50b1c9128e2a7453f3af92d58abf4ba6ac6054e1eff65817f590229a"
