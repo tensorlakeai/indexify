@@ -88,9 +88,9 @@ test-tensorlake:
 [doc('Test all components')]
 test: test-rust test-indexify test-tensorlake
 
-[doc('Run a dev Indexify server')]
-run-indexify:
-    cargo run -p indexify-server -- --dev
+[doc('Run a local Indexify server')]
+run-server:
+    cargo run -p indexify-server
 
 [doc('Run a dev Indexify executor')]
 [working-directory: 'indexify']
