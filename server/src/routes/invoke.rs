@@ -262,14 +262,13 @@ pub async fn invoke_with_object_v1(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RequestQueryParam {
+pub struct RequestQueryParams {
     pub block_until_finish: Option<bool>,
 }
 
-#[axum::debug_handler]
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
-    Query(params): Query<RequestQueryParam>,
+    Query(params): Query<RequestQueryParams>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
@@ -318,7 +317,6 @@ pub async fn invoke_with_object(
     if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
-
     let compute_graph = state
         .indexify_state
         .reader()
@@ -342,7 +340,7 @@ pub async fn invoke_with_object(
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.name.clone(),
         invocation_payload,
-        ctx: graph_invocation_ctx.clone(),
+        ctx: graph_invocation_ctx,
     });
     state
         .indexify_state
@@ -357,13 +355,13 @@ pub async fn invoke_with_object(
 
     let invocation_event_stream =
         create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
-    Ok(axum::response::Sse::new(invocation_event_stream)
-        .keep_alive(
+    Ok(
+        axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
                 .text("keep-alive-text"),
-        )
-        .into_response())
+        ),
+    )
 }
 
 /// Stream progress of a request until it is completed
