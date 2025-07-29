@@ -633,6 +633,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
 pub struct CreateNamespace {
     pub name: String,
     pub blob_storage_bucket: Option<String>,
+    pub blob_storage_region: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -104,6 +104,7 @@ pub struct InvokeComputeGraphRequest {
 pub struct NamespaceRequest {
     pub name: String,
     pub blob_storage_bucket: Option<String>,
+    pub blob_storage_region: Option<String>,
 }
 
 #[derive(Debug, Clone)]

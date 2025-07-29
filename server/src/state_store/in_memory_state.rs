@@ -592,6 +592,7 @@ impl InMemoryState {
                         name: req.name.clone(),
                         created_at,
                         blob_storage_bucket: req.blob_storage_bucket.clone(),
+                        blob_storage_region: req.blob_storage_region.clone(),
                     }),
                 );
             }
