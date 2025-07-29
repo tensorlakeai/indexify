@@ -99,7 +99,7 @@ impl StateReader {
         read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
             Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(&key_prefix, Direction::Forward),
+            None => IteratorMode::From(key_prefix, Direction::Forward),
         };
         let iter = self
             .db
@@ -329,11 +329,11 @@ impl StateReader {
             ns = ns_count,
             "Returning unprocessed state changes",
         );
-        return Ok(UnprocessedStateChanges {
+        Ok(UnprocessedStateChanges {
             changes: state_changes,
             last_global_state_change_cursor: global_state_change_cursor,
             last_namespace_state_change_cursor: ns_state_change_cursor,
-        });
+        })
     }
 
     pub fn get_all_rows_from_cf<V>(
@@ -407,7 +407,7 @@ impl StateReader {
         read_options.set_iterate_upper_bound(upper_bound);
 
         let mut lower_bound = key_prefix.clone();
-        lower_bound.extend(&(0 as u64).to_be_bytes());
+        lower_bound.extend(&0_u64.to_be_bytes());
         read_options.set_iterate_lower_bound(lower_bound);
 
         let mut iter = self.db.raw_iterator_cf_opt(
@@ -487,7 +487,7 @@ impl StateReader {
                 GraphInvocationCtx::get_invocation_id_from_secondary_index_key(&key)
             {
                 invocation_prefixes.push(
-                    GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id)
+                    GraphInvocationCtx::key_from(namespace, compute_graph, &invocation_id)
                         .as_bytes()
                         .to_vec(),
                 );
@@ -508,7 +508,7 @@ impl StateReader {
         )?;
 
         Ok((
-            invocations.into_iter().filter_map(|v| v).collect(),
+            invocations.into_iter().flatten().collect(),
             prev_cursor,
             next_cursor,
         ))
@@ -664,7 +664,7 @@ impl StateReader {
 
         let value = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), key)?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Ok(None),
@@ -731,7 +731,7 @@ mod tests {
     async fn test_get_rows_from_cf_with_limits() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         for i in 0..4 {
-            let name = format!("test_{}", i);
+            let name = format!("test_{i}");
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {

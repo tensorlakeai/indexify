@@ -69,7 +69,7 @@ impl Migration for V3SecondaryIndexesMigration {
                 ctx.txn.put_cf(
                     ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex),
                     &secondary_index_key,
-                    &[],
+                    [],
                 )?;
 
                 num_indexed_invocation_ctx += 1;
@@ -247,7 +247,7 @@ mod tests {
                             )?
                             .is_some();
 
-                        assert!(exists, "Secondary index not found for {:?}", ctx_obj);
+                        assert!(exists, "Secondary index not found for {ctx_obj:?}");
                     }
 
                     // Count secondary indexes

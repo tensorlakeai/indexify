@@ -60,10 +60,10 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::ComputeGraphVersionNotFound { version, .. } => {
-                write!(f, "Compute graph version not found: {}", version)
+                write!(f, "Compute graph version not found: {version}")
             }
             Error::ComputeFunctionNotFound { function_name, .. } => {
-                write!(f, "Compute function not found: {}", function_name)
+                write!(f, "Compute function not found: {function_name}")
             }
         }
     }
@@ -291,19 +291,16 @@ impl InMemoryMetrics {
                         }
                     };
 
-                    match allocations_by_executor {
-                        Some(allocations_by_executor) => {
-                            // Process the cloned data outside the lock scope
-                            for (executor_id, fn_map) in allocations_by_executor.iter() {
-                                for (_, allocations) in fn_map.iter() {
-                                    observer.observe(
-                                        allocations.len() as u64,
-                                        &[KeyValue::new("executor_id", executor_id.to_string())],
-                                    );
-                                }
+                    if let Some(allocations_by_executor) = allocations_by_executor {
+                        // Process the cloned data outside the lock scope
+                        for (executor_id, fn_map) in allocations_by_executor.iter() {
+                            for (_, allocations) in fn_map.iter() {
+                                observer.observe(
+                                    allocations.len() as u64,
+                                    &[KeyValue::new("executor_id", executor_id.to_string())],
+                                );
                             }
                         }
-                        None => {}
                     }
                 })
                 .build()
@@ -618,7 +615,6 @@ impl InMemoryState {
                         );
                         self.tasks
                             .range(tasks_key_prefix.clone()..)
-                            .into_iter()
                             .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut task = v.clone();
@@ -641,7 +637,6 @@ impl InMemoryState {
                             );
                         self.invocation_ctx
                             .range(invocation_ctx_key_prefix.clone()..)
-                            .into_iter()
                             .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
@@ -670,7 +665,6 @@ impl InMemoryState {
                     let keys_to_remove = self
                         .compute_graph_versions
                         .range(version_key_prefix.clone()..)
-                        .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
                         .map(|(k, _v)| k.clone())
                         .collect::<Vec<String>>();
@@ -686,7 +680,6 @@ impl InMemoryState {
                     let invocations_to_remove = self
                         .invocation_ctx
                         .range(invocation_key_prefix.clone()..)
-                        .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&invocation_key_prefix))
                         .map(|(_k, v)| v.invocation_id.clone())
                         .collect::<Vec<String>>();
@@ -696,12 +689,11 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate(req) => {
-                for (_, task) in &req.updated_tasks {
+                for task in req.updated_tasks.values() {
                     if task.status == TaskStatus::Pending {
-                        self.unallocated_tasks.insert(UnallocatedTaskId::new(&task));
+                        self.unallocated_tasks.insert(UnallocatedTaskId::new(task));
                     } else {
-                        self.unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(&task));
+                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
                     }
                     self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
@@ -760,8 +752,7 @@ impl InMemoryState {
 
                 for allocation in &req.new_allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
-                        self.unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(&task));
+                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
 
                         self.allocations_by_executor
                             .entry(allocation.target.executor_id.clone())
@@ -794,22 +785,21 @@ impl InMemoryState {
 
                 for (executor_id, function_executors) in &req.remove_function_executors {
                     self.allocations_by_executor
-                        .get_mut(&executor_id)
-                        .and_then(|fe_allocations| {
+                        .get_mut(executor_id)
+                        .map(|fe_allocations| {
                             for function_executor_id in function_executors {
-                                fe_allocations.remove(&function_executor_id);
+                                fe_allocations.remove(function_executor_id);
                             }
-                            Some(())
                         });
                     for function_executor_id in function_executors {
                         let fe =
                             self.executor_states
-                                .get_mut(&executor_id)
+                                .get_mut(executor_id)
                                 .and_then(|executor_state| {
-                                    executor_state.resource_claims.remove(&function_executor_id);
+                                    executor_state.resource_claims.remove(function_executor_id);
                                     executor_state
                                         .function_executors
-                                        .remove(&function_executor_id)
+                                        .remove(function_executor_id)
                                 });
 
                         if let Some(fe) = fe {
@@ -1045,8 +1035,7 @@ impl InMemoryState {
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
-            self.unallocated_tasks
-                .remove(&UnallocatedTaskId::new(&task));
+            self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -1082,12 +1071,10 @@ impl InMemoryState {
         ));
 
         // Remove tasks
-        let key_prefix =
-            Task::key_prefix_for_invocation(&namespace, &compute_graph, &invocation_id);
+        let key_prefix = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
         let mut tasks_to_remove = Vec::new();
         self.tasks
             .range(key_prefix.clone()..)
-            .into_iter()
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .for_each(|(_k, v)| {
                 tasks_to_remove.push(v.clone());
@@ -1247,7 +1234,6 @@ impl InMemoryState {
         );
         self.tasks
             .range(task_prefixes_for_fe.clone()..)
-            .into_iter()
             .take_while(|(k, _v)| k.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
                 v.compute_fn_name == fe_meta.function_executor.compute_fn_name &&
@@ -1270,7 +1256,7 @@ impl InMemoryState {
                     FunctionExecutorState::Terminated { .. }
                 )
             })
-            .map(|fe_meta| fe_meta.clone())
+            .cloned()
             .collect::<Vec<_>>();
 
         let mut function_executors = Vec::new();
@@ -1549,7 +1535,7 @@ mod tests {
         ) -> Task {
             let current_time = SystemTime::now();
             let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
-            let creation_time_ns = duration.as_nanos() as u128;
+            let creation_time_ns = duration.as_nanos();
 
             Task {
                 id: TaskId::from(task_id),

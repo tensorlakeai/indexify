@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use opentelemetry::KeyValue;
-use slatedb::{config::DbOptions, Db};
+use slatedb::{Db, DbBuilder};
 
 use crate::{
     blob_store::BlobStorage,
@@ -32,12 +32,11 @@ pub struct KVS {
 
 impl KVS {
     pub async fn new(blob_store: Arc<BlobStorage>, prefix: &str) -> Result<Self> {
-        let options = DbOptions::default();
-        let kv_store = Db::open_with_opts(
+        let kv_store = DbBuilder::new(
             blob_store.get_path().child(prefix),
-            options,
             blob_store.get_object_store(),
         )
+        .build()
         .await
         .context("error opening kv store")?;
         Ok(KVS {
@@ -60,7 +59,7 @@ impl KVS {
             "{}|{}|{}|{}",
             req.namespace, req.compute_graph, req.invocation_id, req.key
         );
-        let _ = self.kv_store.put(key.as_bytes(), &req.value).await?;
+        self.kv_store.put(key.as_bytes(), &req.value).await?;
         Ok(())
     }
 

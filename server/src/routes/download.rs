@@ -44,10 +44,10 @@ pub async fn download_invocation_error(
         ))
     })?;
 
-    return Ok(Some(RequestError {
+    Ok(Some(RequestError {
         function_name: invocation_error.function_name,
         message,
-    }));
+    }))
 }
 
 pub async fn download_fn_output_payload(
@@ -74,7 +74,7 @@ pub async fn download_fn_output_payload(
             &compute_graph,
             &invocation_id,
             &fn_name,
-            &node_output_id,
+            node_output_id,
         )
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
@@ -83,11 +83,8 @@ pub async fn download_fn_output_payload(
             ))
         })?
         .ok_or(IndexifyAPIError::not_found(
-            format!(
-                "fn output not found: {}/{}/{}/{}",
-                namespace, compute_graph, invocation_id, fn_name
-            )
-            .as_str(),
+            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
+                .as_str(),
         ))?;
 
     let encoding = output.encoding.clone();
@@ -155,11 +152,8 @@ pub async fn v1_download_fn_output_payload(
             ))
         })?
         .ok_or(IndexifyAPIError::not_found(
-            format!(
-                "fn output not found: {}/{}/{}/{}",
-                namespace, compute_graph, invocation_id, fn_name
-            )
-            .as_str(),
+            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
+                .as_str(),
         ))?;
 
     let encoding = output.encoding.clone();

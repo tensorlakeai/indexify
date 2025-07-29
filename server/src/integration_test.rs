@@ -70,8 +70,7 @@ mod tests {
         assert_eq!(
             1,
             unprocessed_state_changes.changes.len(),
-            "{:?}",
-            unprocessed_state_changes
+            "{unprocessed_state_changes:?}"
         );
 
         // Do the processing
@@ -84,8 +83,7 @@ mod tests {
         assert_eq!(
             unprocessed_state_changes.changes.len(),
             0,
-            "{:#?}",
-            unprocessed_state_changes
+            "{unprocessed_state_changes:#?}"
         );
 
         // And now, we should have an unallocated task
@@ -140,7 +138,7 @@ mod tests {
             let task_allocation = desired_state.task_allocations.first().unwrap();
             executor
                 .finalize_task(
-                    &task_allocation,
+                    task_allocation,
                     FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
                         .task_outcome(TaskOutcome::Success),
                 )
@@ -176,12 +174,12 @@ mod tests {
                 .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
                 .unwrap()
                 .0;
-            assert_eq!(tasks.len(), 3, "{:#?}", tasks);
+            assert_eq!(tasks.len(), 3, "{tasks:#?}");
             let successful_tasks: Vec<Task> = tasks
                 .into_iter()
                 .filter(|t| t.outcome == TaskOutcome::Success)
                 .collect();
-            assert_eq!(successful_tasks.len(), 3, "{:#?}", successful_tasks);
+            assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -313,12 +311,12 @@ mod tests {
                 .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
                 .unwrap()
                 .0;
-            assert_eq!(tasks.len(), 3, "{:#?}", tasks);
+            assert_eq!(tasks.len(), 3, "{tasks:#?}");
             let successful_tasks: Vec<Task> = tasks
                 .into_iter()
                 .filter(|t| t.outcome == TaskOutcome::Success)
                 .collect();
-            assert_eq!(successful_tasks.len(), 3, "{:#?}", successful_tasks);
+            assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -455,7 +453,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // loop over retries
@@ -481,10 +479,10 @@ mod tests {
             if attempt_number < max_retries {
                 let tasks = test_srv.get_all_tasks().await?;
                 assert_eq!(1, tasks.len());
-                assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
+                assert_eq!(attempt_number + 1, tasks.first().unwrap().attempt_number);
             }
 
-            attempt_number = attempt_number + 1;
+            attempt_number += 1;
         }
 
         // check for completion
@@ -568,7 +566,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // finalize the starting node task with our retryable failure (not using an
@@ -592,7 +590,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // make sure the task is still allocated iff the reason is retriable.

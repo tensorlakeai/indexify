@@ -120,9 +120,8 @@ impl BlobStorage {
         let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
         let mut hasher = Sha256::new();
         let mut hashed_stream = data.map(|item| {
-            item.map(|bytes| {
-                hasher.update(&bytes);
-                bytes
+            item.inspect(|bytes| {
+                hasher.update(bytes);
             })
         });
 

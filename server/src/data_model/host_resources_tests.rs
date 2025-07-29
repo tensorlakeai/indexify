@@ -262,8 +262,8 @@ mod tests {
                 }),
                 expected_host_resources_after: Some(HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: None,
                 }),
             },
@@ -379,8 +379,8 @@ mod tests {
                 }),
                 expected_host_resources_after: Some(HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: Some(GPUResources {
                         count: 1,
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
@@ -569,8 +569,8 @@ mod tests {
                 description: "free cpu/mem/disk only",
                 host_resources: HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: None,
                 },
                 fe_resources: FunctionExecutorResources {
@@ -591,8 +591,8 @@ mod tests {
                 description: "free with gpu",
                 host_resources: HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: Some(GPUResources {
                         count: 1,
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
@@ -622,8 +622,8 @@ mod tests {
                 description: "free with gpu, wrong model",
                 host_resources: HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: Some(GPUResources {
                         count: 1,
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
@@ -645,8 +645,8 @@ mod tests {
                 description: "free with gpu, no gpu on host",
                 host_resources: HostResources {
                     cpu_ms_per_sec: 1000,
-                    memory_bytes: 1 * 1024 * 1024 * 1024,
-                    disk_bytes: 1 * 1024 * 1024 * 1024,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_bytes: 1024 * 1024 * 1024,
                     gpu: None,
                 },
                 fe_resources: FunctionExecutorResources {

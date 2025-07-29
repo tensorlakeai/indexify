@@ -170,12 +170,12 @@ impl IndexifyState {
                 );
                 let state_changes = state_changes::invoke_compute_graph(
                     &self.last_state_change_id,
-                    &invoke_compute_graph_request,
+                    invoke_compute_graph_request,
                 )?;
                 state_machine::create_invocation(
                     self.db.clone(),
                     &txn,
-                    &invoke_compute_graph_request,
+                    invoke_compute_graph_request,
                 )?;
                 state_changes
             }
@@ -186,7 +186,7 @@ impl IndexifyState {
                 &self.last_state_change_id,
             )?,
             RequestPayload::CreateNameSpace(namespace_request) => {
-                state_machine::upsert_namespace(self.db.clone(), &namespace_request)?;
+                state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
                 vec![]
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
@@ -247,7 +247,7 @@ impl IndexifyState {
                         .entry(request.executor.id.clone())
                         .or_default();
                     upsert_executor_state_changes.extend(
-                        state_changes::upsert_executor(&self.last_state_change_id, &request)
+                        state_changes::upsert_executor(&self.last_state_change_id, request)
                             .map_err(|e| anyhow!("error getting state changes {}", e))?,
                     );
                 }
@@ -263,7 +263,7 @@ impl IndexifyState {
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
-                state_changes::tombstone_executor(&self.last_state_change_id, &request)?
+                state_changes::tombstone_executor(&self.last_state_change_id, request)?
             }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
@@ -300,13 +300,13 @@ impl IndexifyState {
         {
             let mut executor_states = self.executor_states.write().await;
             for executor_id in changed_executors {
-                executor_states.get_mut(&executor_id).map(|executor_state| {
+                if let Some(executor_state) = executor_states.get_mut(&executor_id) {
                     executor_state.notify();
-                });
+                }
             }
         }
 
-        if new_state_changes.len() > 0 {
+        if !new_state_changes.is_empty() {
             if let Err(err) = self.change_events_tx.send(()) {
                 error!(
                     "failed to notify of state change event, ignoring: {:?}",
@@ -357,7 +357,7 @@ impl IndexifyState {
                         ));
                 }
 
-                for (_, task) in &sched_update.updated_tasks {
+                for task in sched_update.updated_tasks.values() {
                     if sched_update.cached_task_outputs.contains_key(&task.key()) {
                         let _ =
                             self.task_event_tx
@@ -415,7 +415,6 @@ mod tests {
         UpsertExecutorRequest,
     };
     use test_state_store::TestStateStore;
-    use tokio;
 
     use super::*;
     use crate::data_model::{
@@ -498,7 +497,7 @@ mod tests {
 
         for i in 2..4 {
             // Update the graph
-            let new_hash = format!("this is a new hash {}", i);
+            let new_hash = format!("this is a new hash {i}");
             let mut compute_graph = test_graph_a(new_hash.clone());
             compute_graph.version = GraphVersion(i.to_string());
 

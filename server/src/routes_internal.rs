@@ -523,7 +523,7 @@ async fn list_compute_graphs(
 ) -> Result<Json<ComputeGraphsList>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()
@@ -581,7 +581,7 @@ async fn graph_invocations(
 ) -> Result<Json<GraphInvocations>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let direction = match params.direction {
         Some(CursorDirection::Forward) => Some(state_store::scanner::CursorDirection::Forward),
         Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
@@ -775,7 +775,7 @@ async fn list_tasks(
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let (tasks, cursor) = state
         .indexify_state
         .reader()
@@ -796,14 +796,14 @@ async fn list_tasks(
     for allocation in allocations {
         allocations_by_task_id
             .entry(allocation.task_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(allocation.into());
     }
     let mut http_tasks = vec![];
     for task in tasks {
         let allocations = allocations_by_task_id
             .get(task.id.get())
-            .map(|a| a.clone())
+            .cloned()
             .clone()
             .unwrap_or_default();
         http_tasks.push(Task::from_data_model_task(task, allocations));
@@ -855,7 +855,7 @@ async fn list_outputs(
 ) -> Result<Json<FnOutputs>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let invocation_ctx = state
         .indexify_state
         .reader()
@@ -1085,8 +1085,7 @@ async fn set_ctx_state_key(
                     .to_vec();
             } else {
                 return Err(IndexifyAPIError::bad_request(&format!(
-                    "unexpected field: {}",
-                    name
+                    "unexpected field: {name}"
                 )));
             }
         }

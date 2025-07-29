@@ -295,7 +295,7 @@ impl FinalizeTaskArgs {
         self.diagnostics = Some(TaskDiagnostics {
             stdout: if stdout {
                 Some(DataPayload {
-                    path: format!("stdout_{}", uuid::Uuid::new_v4().to_string()),
+                    path: format!("stdout_{}", uuid::Uuid::new_v4()),
                     size: 0,
                     sha256_hash: "".to_string(),
                 })
@@ -304,7 +304,7 @@ impl FinalizeTaskArgs {
             },
             stderr: if stderr {
                 Some(DataPayload {
-                    path: format!("stderr_{}", uuid::Uuid::new_v4().to_string()),
+                    path: format!("stderr_{}", uuid::Uuid::new_v4()),
                     size: 0,
                     sha256_hash: "".to_string(),
                 })
@@ -474,8 +474,8 @@ impl TestExecutor<'_> {
             .indexify_state
             .reader()
             .get_compute_graph_version(
-                &task_allocation.task.as_ref().unwrap().namespace(),
-                &task_allocation.task.as_ref().unwrap().graph_name(),
+                task_allocation.task.as_ref().unwrap().namespace(),
+                task_allocation.task.as_ref().unwrap().graph_name(),
                 &GraphVersion(
                     task_allocation
                         .task
@@ -514,11 +514,11 @@ impl TestExecutor<'_> {
             .indexify_state
             .reader()
             .get_task(
-                &task_allocation.task.as_ref().unwrap().namespace(),
-                &task_allocation.task.as_ref().unwrap().graph_name(),
-                &task_allocation.task.as_ref().unwrap().graph_invocation_id(),
-                &task_allocation.task.as_ref().unwrap().function_name(),
-                &task_allocation.task.as_ref().unwrap().id(),
+                task_allocation.task.as_ref().unwrap().namespace(),
+                task_allocation.task.as_ref().unwrap().graph_name(),
+                task_allocation.task.as_ref().unwrap().graph_invocation_id(),
+                task_allocation.task.as_ref().unwrap().function_name(),
+                task_allocation.task.as_ref().unwrap().id(),
             )
             .unwrap()
             .unwrap();
@@ -532,7 +532,7 @@ impl TestExecutor<'_> {
             .unwrap()
             .unwrap();
 
-        allocation.outcome = args.task_outcome.clone();
+        allocation.outcome = args.task_outcome;
         allocation.diagnostics = args.diagnostics.clone();
 
         let ingest_task_outputs_request = AllocationOutput {

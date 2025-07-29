@@ -154,21 +154,21 @@ pub mod tests {
         {
             let now = get_epoch_time_in_ms();
             let elapsed = get_elapsed_time(now.into(), TimeUnit::Milliseconds);
-            assert!(elapsed >= 0.0 && elapsed < 0.1);
+            assert!((0.0..0.1).contains(&elapsed));
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 10; // 10ms ago
             let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
-            assert!(elapsed >= 0.01 && elapsed < 0.21, "{}", elapsed);
+            assert!((0.01..0.21).contains(&elapsed), "{}", elapsed);
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 5000; // 5 seconds ago
             let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
-            assert!(elapsed >= 5.0 && elapsed < 5.1);
+            assert!((5.0..5.1).contains(&elapsed));
         }
 
         {

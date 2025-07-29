@@ -333,6 +333,6 @@ mod tests {
     fn test_compute_fn_deserialization() {
         let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
-        println!("{:?}", compute_fn);
+        println!("{compute_fn:?}");
     }
 }

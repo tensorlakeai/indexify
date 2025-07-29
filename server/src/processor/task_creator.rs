@@ -77,11 +77,7 @@ impl TaskCreator {
                         .into_iter()
                         .map(|t| (t.id.clone(), t))
                         .collect(),
-                    updated_invocations_states: result
-                        .invocation_ctx
-                        .map(|ctx| ctx.clone())
-                        .into_iter()
-                        .collect(),
+                    updated_invocations_states: result.invocation_ctx.into_iter().collect(),
                     reduction_tasks: ReductionTasks {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
@@ -175,7 +171,7 @@ impl TaskCreator {
             let Some(allocation) = self
                 .indexify_state
                 .reader()
-                .get_allocation(&allocation_key)?
+                .get_allocation(allocation_key)?
             else {
                 error!(
                     allocation_key = allocation_key,
@@ -218,11 +214,7 @@ impl TaskCreator {
                 .into_iter()
                 .map(|t| (t.id.clone(), t))
                 .collect(),
-            updated_invocations_states: task_creation_result
-                .invocation_ctx
-                .map(|ctx| ctx.clone())
-                .into_iter()
-                .collect(),
+            updated_invocations_states: task_creation_result.invocation_ctx.into_iter().collect(),
             reduction_tasks: ReductionTasks {
                 new_reduction_tasks: task_creation_result.new_reduction_tasks,
                 processed_reduction_tasks: task_creation_result.processed_reduction_tasks,

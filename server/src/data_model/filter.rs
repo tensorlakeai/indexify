@@ -59,7 +59,7 @@ impl Serialize for Expression {
     where
         S: Serializer,
     {
-        format!("{}", self).serialize(serializer)
+        format!("{self}").serialize(serializer)
     }
 }
 

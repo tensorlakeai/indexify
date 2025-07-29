@@ -12,7 +12,6 @@ use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
 use tracing::error;
-use tracing_appender;
 use tracing_subscriber::{
     fmt::{
         self,
@@ -21,7 +20,6 @@ use tracing_subscriber::{
     layer::SubscriberExt,
     Layer,
 };
-use utoipa::OpenApi;
 
 mod blob_store;
 mod config;
@@ -34,7 +32,6 @@ mod http_objects_v1;
 mod indexify_ui;
 mod integration_test;
 mod metrics;
-mod openapi;
 mod processor;
 mod reconciliation_test;
 mod routes;
@@ -50,14 +47,6 @@ mod testing;
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(short, long, help = "Development mode")]
-    dev: bool,
-    #[arg(
-        short,
-        long,
-        help = "Enable OpenAPI Spec for Tensorlake Cloud consumption"
-    )]
-    gen_cloud_openapi: bool,
     #[arg(short, long, value_name = "config file", help = "Path to config file")]
     config: Option<PathBuf>,
 }
@@ -173,27 +162,10 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let mut config = match cli.config {
+    let config = match cli.config {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
     };
-
-    if cli.gen_cloud_openapi {
-        let api_docs_yaml = routes_internal::ApiDoc::openapi()
-            .to_yaml()
-            .unwrap_or_else(|err| {
-                eprintln!("Failed to generate OpenAPI spec: {}", err);
-                std::process::exit(1);
-            });
-
-        openapi::generate_cloud_openapi(api_docs_yaml);
-        std::process::exit(0);
-    }
-
-    // Override config with cli arguments.
-    if cli.dev {
-        config.dev = true;
-    }
 
     let tracing_provider = setup_tracing(config.clone())
         .inspect_err(|e| {
