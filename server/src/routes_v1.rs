@@ -46,7 +46,7 @@ use crate::{
     http_objects_v1::{self, GraphRequests},
     routes::{
         compute_graphs::{self, create_or_update_compute_graph_v1},
-        download::{self, v1_download_fn_output_payload},
+        download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
         invoke::{self, progress_stream},
         routes_state::RouteState,
     },
@@ -166,6 +166,14 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
             get(v1_download_fn_output_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}/id/{id}/index/{index}",
+            get(v1_download_fn_output_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}",
+            get(v1_download_fn_output_payload_simple).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)

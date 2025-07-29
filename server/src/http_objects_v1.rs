@@ -122,7 +122,7 @@ impl From<GraphInvocationCtx> for ShallowGraphRequest {
             id: ctx.invocation_id.to_string(),
             created_at: ctx.created_at,
             status: if ctx.completed {
-                RequestStatus::Finalized
+                RequestStatus::Complete
             } else if ctx.outstanding_tasks > 0 {
                 RequestStatus::Running
             } else {
@@ -170,13 +170,15 @@ pub struct Tasks {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestStatus {
     Pending,
     Running,
-    Finalized,
+    Complete,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
     Undefined,
     Success,
@@ -194,6 +196,7 @@ impl From<GraphInvocationOutcome> for RequestOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestFailureReason {
     Unknown,
     InternalError,
@@ -257,7 +260,7 @@ impl Request {
             );
         }
         let status = if ctx.completed {
-            RequestStatus::Finalized
+            RequestStatus::Complete
         } else if ctx.outstanding_tasks > 0 {
             RequestStatus::Running
         } else {

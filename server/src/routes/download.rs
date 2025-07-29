@@ -9,7 +9,7 @@ use futures::TryStreamExt;
 use super::routes_state::RouteState;
 use crate::{
     blob_store::BlobStorage,
-    data_model::GraphInvocationError,
+    data_model::{DataPayload, GraphInvocationError},
     http_objects::{IndexifyAPIError, RequestError},
 };
 
@@ -120,7 +120,7 @@ pub async fn download_fn_output_payload(
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
-/// Get function output
+/// Get function output by index
 #[utoipa::path(
     get,
     path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
@@ -159,14 +159,61 @@ pub async fn v1_download_fn_output_payload(
     let encoding = output.encoding.clone();
 
     let payload = &output.payloads[index];
-    let storage_reader = state
-        .blob_storage
-        .get_blob_store(&namespace)
+    let blob_storage = state.blob_storage.get_blob_store(&namespace);
+    stream_data_payload(&payload, &blob_storage, &encoding).await
+}
+
+/// Get function output
+#[utoipa::path(
+    get,
+    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "function output"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+    ),
+)]
+pub async fn v1_download_fn_output_payload_simple(
+    Path((namespace, compute_graph, invocation_id, fn_name)): Path<(
+        String,
+        String,
+        String,
+        String,
+    )>,
+    State(state): State<RouteState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let output = state
+        .indexify_state
+        .reader()
+        .fn_output_payload_first(&namespace, &compute_graph, &invocation_id, &fn_name)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "failed to download invocation payload: {}",
+                e
+            ))
+        })?
+        .ok_or(IndexifyAPIError::not_found(
+            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
+                .as_str(),
+        ))?;
+
+    let encoding = output.encoding.clone();
+
+    let payload = &output.payloads[0];
+    let blob_storage = state.blob_storage.get_blob_store(&namespace);
+    stream_data_payload(&payload, &blob_storage, &encoding).await
+}
+
+async fn stream_data_payload(
+    payload: &DataPayload,
+    blob_storage: &BlobStorage,
+    encoding: &str,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let storage_reader = blob_storage
         .get(&payload.path)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    // Check if the content type is JSON
     if encoding == "application/json" {
         let json_bytes = storage_reader
             .map_ok(|chunk| chunk.to_vec())
