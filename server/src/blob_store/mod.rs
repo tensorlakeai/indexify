@@ -28,6 +28,7 @@ pub mod registry;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobStorageConfig {
     pub path: String,
+    pub region: String,
 }
 
 impl Default for BlobStorageConfig {
@@ -42,6 +43,7 @@ impl Default for BlobStorageConfig {
         );
         BlobStorageConfig {
             path: blob_store_path,
+            region: "".to_string(),
         }
     }
 }
@@ -65,7 +67,7 @@ impl BlobStorage {
     pub fn new(config: BlobStorageConfig) -> Result<Self> {
         let url = &config.path.clone();
         debug!("using blob store path: {}", url);
-        let (object_store, path) = Self::build_object_store(url)?;
+        let (object_store, path) = Self::build_object_store(url, &config.region)?;
         Ok(Self {
             object_store: Arc::new(object_store),
             url_scheme: url.parse::<Url>()?.scheme().to_string(),
@@ -75,7 +77,7 @@ impl BlobStorage {
         })
     }
 
-    pub fn build_object_store(url_str: &str) -> Result<(Box<dyn ObjectStore>, Path)> {
+    pub fn build_object_store(url_str: &str, region: &str) -> Result<(Box<dyn ObjectStore>, Path)> {
         let url = &url_str.parse::<Url>()?;
         let (scheme, _) = ObjectStoreScheme::parse(url)?;
         match scheme {
@@ -86,6 +88,7 @@ impl BlobStorage {
                     .with_url(url_str)
                     .with_allow_http(true)
                     .with_conditional_put(S3ConditionalPut::ETagMatch)
+                    .with_region(region)
                     .build()
                     .expect("failed to create object store");
                 let (_, path) = parse_url(url)?;

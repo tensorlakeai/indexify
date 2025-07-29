@@ -93,6 +93,7 @@ pub(crate) fn upsert_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -
         name: req.name.clone(),
         created_at: get_epoch_time_in_ms(),
         blob_storage_bucket: req.blob_storage_bucket.clone(),
+        blob_storage_region: req.blob_storage_region.clone(),
     };
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put_cf(
