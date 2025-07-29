@@ -282,6 +282,7 @@ async fn namespace_middleware(
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
                         blob_storage_bucket: None,
+                        blob_storage_region: None,
                     }),
                     processed_state_changes: vec![],
                 })
@@ -311,10 +312,16 @@ async fn create_namespace(
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
     if let Some(blob_storage_bucket) = &namespace.blob_storage_bucket {
-        if let Err(e) = state
-            .blob_storage
-            .create_new_blob_store(&namespace.name, blob_storage_bucket)
-        {
+        let Some(blob_storage_region) = &namespace.blob_storage_region else {
+            return Err(IndexifyAPIError::bad_request(
+                "blob storage region is required",
+            ));
+        };
+        if let Err(e) = state.blob_storage.create_new_blob_store(
+            &namespace.name,
+            blob_storage_bucket,
+            &blob_storage_region,
+        ) {
             error!("failed to create blob storage bucket: {:?}", e);
             return Err(IndexifyAPIError::internal_error(e));
         }
@@ -323,6 +330,7 @@ async fn create_namespace(
         payload: RequestPayload::CreateNameSpace(NamespaceRequest {
             name: namespace.name.clone(),
             blob_storage_bucket: namespace.blob_storage_bucket,
+            blob_storage_region: namespace.blob_storage_region,
         }),
         processed_state_changes: vec![],
     };

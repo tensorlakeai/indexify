@@ -2162,6 +2162,7 @@ pub struct Namespace {
     pub name: String,
     pub created_at: u64,
     pub blob_storage_bucket: Option<String>,
+    pub blob_storage_region: Option<String>,
 }
 
 #[cfg(test)]

@@ -91,6 +91,7 @@ mod tests {
                     "file://{}",
                     temp_dir.path().join("blob_store").to_str().unwrap()
                 ),
+                region: "local".to_string(),
             })?),
             "test",
         )

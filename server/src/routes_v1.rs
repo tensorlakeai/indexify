@@ -196,6 +196,7 @@ async fn namespace_middleware(
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
                         blob_storage_bucket: None,
+                        blob_storage_region: None,
                     }),
                     processed_state_changes: vec![],
                 })

@@ -442,6 +442,7 @@ mod tests {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace1".to_string(),
                     blob_storage_bucket: None,
+                    blob_storage_region: None,
                 }),
                 processed_state_changes: vec![],
             })
@@ -451,6 +452,7 @@ mod tests {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace2".to_string(),
                     blob_storage_bucket: Some("bucket2".to_string()),
+                    blob_storage_region: Some("local".to_string()),
                 }),
                 processed_state_changes: vec![],
             })
