@@ -251,7 +251,7 @@ pub async fn invoke_with_object_v1(
     if accept_header.contains("application/json") {
         return Ok(Json(RequestIdV1 {
             id: graph_invocation_ctx.invocation_id.clone(),
-            request_id: graph_invocation_ctx.request_id.clone(),
+            request_id: graph_invocation_ctx.invocation_id.clone(),
         })
         .into_response());
     }
