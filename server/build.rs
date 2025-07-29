@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     let proto_files = ["./proto/executor_api.proto"];
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(false) // Don't build client code as it's not needed for now
         .build_server(true)
         .file_descriptor_set_path(out_dir.join("executor_api_descriptor.bin"))
