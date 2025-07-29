@@ -163,6 +163,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
             "/compute-graphs/{compute_graph}/requests/{request_id}/tasks",
             get(list_tasks).with_state(route_state.clone()),
         )
+        // FIXME: remove this route once we migrate tensorlake sdk to this
         .route(
             "/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
             get(v1_download_fn_output_payload).with_state(route_state.clone()),
