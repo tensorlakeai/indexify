@@ -223,11 +223,7 @@ mod tests {
             .function_executors
             .iter()
             .all(|(_id, fe)| {
-                if fe.compute_fn_name == "fn_a" {
-                    false
-                } else {
-                    true
-                }
+                fe.compute_fn_name != "fn_a"
             }));
 
         Ok(())
@@ -261,7 +257,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // loop over retries
@@ -287,10 +283,10 @@ mod tests {
             if attempt_number < max_retries {
                 let tasks = test_srv.get_all_tasks().await?;
                 assert_eq!(1, tasks.len());
-                assert_eq!(attempt_number + 1, tasks.get(0).unwrap().attempt_number);
+                assert_eq!(attempt_number + 1, tasks.first().unwrap().attempt_number);
             }
 
-            attempt_number = attempt_number + 1;
+            attempt_number += 1;
         }
 
         // check for completion
@@ -471,7 +467,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // update the function executors with our retryable termination reason (not
@@ -495,7 +491,7 @@ mod tests {
         {
             let tasks = test_srv.get_all_tasks().await?;
             assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.get(0).unwrap().attempt_number);
+            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
 
         // make sure the task is still allocated

@@ -116,7 +116,7 @@ impl Allocation {
     }
 
     pub fn key_from(namespace: &str, compute_graph: &str, invocation_id: &str, id: &str) -> String {
-        format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, id,)
+        format!("{namespace}|{compute_graph}|{invocation_id}|{id}",)
     }
 
     pub fn key_prefix_from_invocation(
@@ -124,7 +124,7 @@ impl Allocation {
         compute_graph: &str,
         invocation_id: &str,
     ) -> String {
-        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
+        format!("{namespace}|{compute_graph}|{invocation_id}|")
     }
 
     pub fn task_key(&self) -> String {
@@ -168,12 +168,10 @@ impl AllocationBuilder {
         let created_at: u128 = get_epoch_time_in_ms() as u128;
         let retry_number = self
             .attempt_number
-            .clone()
             .ok_or(anyhow!("attempt_number is required"))?;
 
         let outcome = self
             .outcome
-            .clone()
             .ok_or(anyhow!("allocation outcome is required"))?;
 
         Ok(Allocation {
@@ -215,7 +213,7 @@ impl ImageInformation {
         sdk_version: Option<String>,
     ) -> Self {
         let mut compat_image_hash: String = image_hash;
-        if compat_image_hash == "" {
+        if compat_image_hash.is_empty() {
             // Preserve backwards compatibility with old hash calculation
             let mut image_hasher = Sha256::new();
             image_hasher.update(image_name.clone());
@@ -246,9 +244,9 @@ impl Default for NodeTimeoutMS {
     }
 }
 
-impl Into<NodeTimeoutMS> for u32 {
-    fn into(self) -> NodeTimeoutMS {
-        NodeTimeoutMS(self)
+impl From<u32> for NodeTimeoutMS {
+    fn from(val: u32) -> Self {
+        NodeTimeoutMS(val)
     }
 }
 
@@ -274,7 +272,7 @@ impl Default for FunctionResources {
         FunctionResources {
             cpu_ms_per_sec: 1000,        // 1 full CPU core
             memory_mb: 1024,             // 1 GB
-            ephemeral_disk_mb: 1 * 1024, // 1 GB
+            ephemeral_disk_mb: 1024, // 1 GB
             gpu_configs: vec![],         // No GPUs by default
         }
     }
@@ -450,7 +448,7 @@ impl ComputeGraph {
     }
 
     pub fn key_from(namespace: &str, name: &str) -> String {
-        format!("{}|{}", namespace, name)
+        format!("{namespace}|{name}")
     }
 
     /// Update the compute graph from all the supplied Graph fields.
@@ -519,7 +517,7 @@ impl ComputeGraphVersion {
     }
 
     pub fn key_prefix_from(namespace: &str, name: &str) -> String {
-        format!("{}|{}|", namespace, name)
+        format!("{namespace}|{name}|")
     }
 
     #[cfg(test)]
@@ -613,13 +611,12 @@ impl NodeOutput {
         id: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, compute_fn, id
+            "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{id}"
         )
     }
 
     pub fn key_prefix_from(namespace: &str, compute_graph: &str, invocation_id: &str) -> String {
-        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
+        format!("{namespace}|{compute_graph}|{invocation_id}|")
     }
 }
 
@@ -649,7 +646,7 @@ impl NodeOutputBuilder {
             .allocation_id
             .clone()
             .ok_or(anyhow!("allocation_id is required"))?;
-        let reducer_output = self.reducer_output.clone().unwrap_or(false);
+        let reducer_output = self.reducer_output.unwrap_or(false);
         let payloads = self
             .payloads
             .clone()
@@ -702,7 +699,7 @@ impl InvocationPayload {
     }
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
-        format!("{}|{}|{}", ns, cg, id)
+        format!("{ns}|{cg}|{id}")
     }
 }
 
@@ -801,7 +798,7 @@ impl Display for GraphInvocationFailureReason {
             GraphInvocationFailureReason::InvocationError => "InvocationError",
             GraphInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
         };
-        write!(f, "{}", str_val)
+        write!(f, "{str_val}")
     }
 }
 
@@ -858,7 +855,7 @@ impl GraphInvocationCtx {
             let fn_name = task.compute_fn_name.clone();
             self.fn_task_analytics
                 .entry(fn_name.clone())
-                .or_insert_with(|| TaskAnalytics::default())
+                .or_default()
                 .pending();
         }
         self.outstanding_tasks += tasks.len() as u64;
@@ -868,7 +865,7 @@ impl GraphInvocationCtx {
             let fn_name = reducer_task.compute_fn_name.clone();
             self.fn_task_analytics
                 .entry(fn_name.clone())
-                .or_insert_with(|| TaskAnalytics::default())
+                .or_default()
                 .queued_reducer(1);
         }
     }
@@ -942,11 +939,11 @@ impl GraphInvocationCtx {
     }
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
-        format!("{}|{}|{}", ns, cg, id)
+        format!("{ns}|{cg}|{id}")
     }
 
     pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
-        format!("{}|{}|", namespace, compute_graph)
+        format!("{namespace}|{compute_graph}|")
     }
 }
 
@@ -972,7 +969,7 @@ impl GraphInvocationCtxBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
-        let created_at = self.created_at.unwrap_or_else(|| get_epoch_time_in_ms());
+        let created_at = self.created_at.unwrap_or_else(get_epoch_time_in_ms);
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
@@ -1019,8 +1016,7 @@ impl ReduceTask {
         compute_fn_name: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|",
-            namespace, compute_graph_name, invocation_id, compute_fn_name,
+            "{namespace}|{compute_graph_name}|{invocation_id}|{compute_fn_name}|",
         )
     }
 }
@@ -1082,7 +1078,7 @@ impl Display for TaskFailureReason {
             TaskFailureReason::TaskCancelled => "TaskCancelled",
             TaskFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
         };
-        write!(f, "{}", str_val)
+        write!(f, "{str_val}")
     }
 }
 
@@ -1142,7 +1138,7 @@ impl Display for TaskStatus {
             TaskStatus::Running => "Running",
             TaskStatus::Completed => "Completed",
         };
-        write!(f, "{}", str_val)
+        write!(f, "{str_val}")
     }
 }
 
@@ -1174,7 +1170,7 @@ impl Task {
     }
 
     pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
-        format!("{}|{}|", namespace, compute_graph)
+        format!("{namespace}|{compute_graph}|")
     }
 
     pub fn key_compute_graph_version(&self) -> String {
@@ -1189,7 +1185,7 @@ impl Task {
         compute_graph: &str,
         invocation_id: &str,
     ) -> String {
-        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
+        format!("{namespace}|{compute_graph}|{invocation_id}|")
     }
 
     pub fn key(&self) -> String {
@@ -1212,8 +1208,7 @@ impl Task {
         id: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, fn_name, id
+            "{namespace}|{compute_graph}|{invocation_id}|{fn_name}|{id}"
         )
     }
 }
@@ -1399,6 +1394,7 @@ pub const ALL_GPU_MODELS: [&str; 6] = [
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub struct HostResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
@@ -1409,19 +1405,6 @@ pub struct HostResources {
     pub gpu: Option<GPUResources>,
 }
 
-impl Default for HostResources {
-    fn default() -> Self {
-        // There are no sensible defaults for these values.
-        // If the defaults are ever used then it means that the Executor is not
-        // schedulable.
-        Self {
-            cpu_ms_per_sec: 0,
-            memory_bytes: 0,
-            disk_bytes: 0,
-            gpu: None,
-        }
-    }
-}
 
 impl HostResources {
     // If can't handle, returns error that describes the reason why.
@@ -1450,8 +1433,8 @@ impl HostResources {
 
     // If can't handle, returns error that describes the reason why.
     pub fn can_handle_fe_resources(&self, request: &FunctionExecutorResources) -> Result<()> {
-        let requested_memory_bytes = request.memory_mb as u64 * 1024 * 1024;
-        let requested_disk_bytes = request.ephemeral_disk_mb as u64 * 1024 * 1024;
+        let requested_memory_bytes = request.memory_mb * 1024 * 1024;
+        let requested_disk_bytes = request.ephemeral_disk_mb * 1024 * 1024;
 
         if self.cpu_ms_per_sec < request.cpu_ms_per_sec {
             return Err(anyhow!(
@@ -1477,7 +1460,7 @@ impl HostResources {
             ));
         }
 
-        return self.can_handle_gpu(&request.gpu);
+        self.can_handle_gpu(&request.gpu)
     }
 
     // If can't handle, returns error that describes the reason why.
@@ -1509,8 +1492,8 @@ impl HostResources {
         // Allocate the resources only after all the checks passed to not leak anything
         // on error. Callers rely on this behavior.
         self.cpu_ms_per_sec -= request.cpu_ms_per_sec;
-        self.memory_bytes -= request.memory_mb as u64 * 1024 * 1024;
-        self.disk_bytes -= request.ephemeral_disk_mb as u64 * 1024 * 1024;
+        self.memory_bytes -= request.memory_mb * 1024 * 1024;
+        self.disk_bytes -= request.ephemeral_disk_mb * 1024 * 1024;
         if let Some(requested_gpu) = &request.gpu {
             if let Some(available_gpu) = &mut self.gpu {
                 available_gpu.count -= requested_gpu.count;
@@ -1544,17 +1527,17 @@ impl HostResources {
             }
         }
 
-        return Err(anyhow!(
+        Err(anyhow!(
             "Function asked for GPUs {:?} but executor only has {:?}",
             request.gpu_configs,
             self.gpu
-        ));
+        ))
     }
 
     pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {
         self.cpu_ms_per_sec += allocated_resources.cpu_ms_per_sec;
-        self.memory_bytes += allocated_resources.memory_mb as u64 * 1024 * 1024;
-        self.disk_bytes += allocated_resources.ephemeral_disk_mb as u64 * 1024 * 1024;
+        self.memory_bytes += allocated_resources.memory_mb * 1024 * 1024;
+        self.disk_bytes += allocated_resources.ephemeral_disk_mb * 1024 * 1024;
 
         if let Some(allocated_gpu) = &allocated_resources.gpu {
             if let Some(available_gpu) = &mut self.gpu {
@@ -1696,31 +1679,31 @@ impl FunctionAllowlist {
     pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
-            .map_or(true, |ns| ns == &function_executor.namespace) &&
-            self.compute_graph_name.as_ref().map_or(true, |cg_name| {
+            .is_none_or(|ns| ns == &function_executor.namespace) &&
+            self.compute_graph_name.as_ref().is_none_or(|cg_name| {
                 cg_name == &function_executor.compute_graph_name
             }) &&
-            self.compute_fn_name.as_ref().map_or(true, |fn_name| {
+            self.compute_fn_name.as_ref().is_none_or(|fn_name| {
                 fn_name == &function_executor.compute_fn_name
             }) &&
             self.version
                 .as_ref()
-                .map_or(true, |version| version == &function_executor.version)
+                .is_none_or(|version| version == &function_executor.version)
     }
 
     pub fn matches_task(&self, task: &Task) -> bool {
         self.namespace
             .as_ref()
-            .map_or(true, |ns| ns == &task.namespace) &&
+            .is_none_or(|ns| ns == &task.namespace) &&
             self.compute_graph_name
                 .as_ref()
-                .map_or(true, |cg_name| cg_name == &task.compute_graph_name) &&
+                .is_none_or(|cg_name| cg_name == &task.compute_graph_name) &&
             self.compute_fn_name
                 .as_ref()
-                .map_or(true, |fn_name| fn_name == &task.compute_fn_name) &&
+                .is_none_or(|fn_name| fn_name == &task.compute_fn_name) &&
             self.version
                 .as_ref()
-                .map_or(true, |version| version == &task.graph_version)
+                .is_none_or(|version| version == &task.graph_version)
     }
 }
 
@@ -1745,7 +1728,7 @@ impl FunctionExecutorDiagnostics {
             &self.graph_name,
             &self.function_name,
             &self.graph_version.0,
-            &self.id.get(),
+            self.id.get(),
         )
     }
 
@@ -1757,8 +1740,7 @@ impl FunctionExecutorDiagnostics {
         function_executor_id: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            namespace, graph_name, function_name, graph_version, function_executor_id
+            "{namespace}|{graph_name}|{function_name}|{graph_version}|{function_executor_id}"
         )
     }
 }
@@ -1828,7 +1810,7 @@ impl FunctionExecutor {
 
 impl FunctionExecutorBuilder {
     pub fn build(&mut self) -> Result<FunctionExecutor> {
-        let id = self.id.clone().unwrap_or(FunctionExecutorId::default());
+        let id = self.id.clone().unwrap_or_default();
         let namespace = self
             .namespace
             .clone()
@@ -2540,7 +2522,7 @@ mod tests {
         parent_nodes.sort();
         expected_parents.sort();
 
-        assert_eq!(parent_nodes, expected_parents, "Failed for node: {}", node);
+        assert_eq!(parent_nodes, expected_parents, "Failed for node: {node}");
     }
 
     #[test]

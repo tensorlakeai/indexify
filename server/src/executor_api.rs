@@ -65,7 +65,7 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let version = allowed_function.graph_version.map(|v| GraphVersion(v));
+        let version = allowed_function.graph_version.map(GraphVersion);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
             compute_graph_name: allowed_function.graph_name,
@@ -215,7 +215,7 @@ impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResource
             // int division is okay because all the values were initially in MB and GB.
             memory_mb: (memory_bytes / 1024 / 1024) as u64,
             ephemeral_disk_mb: (ephemeral_disk_bytes / 1024 / 1024) as u64,
-            gpu: from.gpu.map(|g| GPUResources::try_from(g)).transpose()?,
+            gpu: from.gpu.map(GPUResources::try_from).transpose()?,
         })
     }
 }
@@ -226,8 +226,8 @@ impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResource
     fn try_from(from: data_model::FunctionExecutorResources) -> Result<Self, Self::Error> {
         Ok(FunctionExecutorResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
-            memory_bytes: Some(from.memory_mb as u64 * 1024 * 1024),
-            disk_bytes: Some(from.ephemeral_disk_mb as u64 * 1024 * 1024),
+            memory_bytes: Some(from.memory_mb * 1024 * 1024),
+            disk_bytes: Some(from.ephemeral_disk_mb * 1024 * 1024),
             gpu: from
                 .gpu
                 .map(|g| {
@@ -308,7 +308,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(server_clock) = executor_state.server_clock {
             executor_metadata.clock(server_clock);
         }
-        Ok(executor_metadata.build()?)
+        executor_metadata.build()
     }
 }
 
@@ -357,40 +357,34 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         let id = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.id.clone())
-            .flatten()
+            .and_then(|description| description.id.clone())
             .ok_or(anyhow::anyhow!("id is required"))?;
         let namespace = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.namespace.clone())
-            .flatten()
+            .and_then(|description| description.namespace.clone())
             .ok_or(anyhow::anyhow!("namespace is required"))?;
         let compute_graph_name = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.graph_name.clone())
-            .flatten()
+            .and_then(|description| description.graph_name.clone())
             .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
         let compute_fn_name = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.function_name.clone())
-            .flatten()
+            .and_then(|description| description.function_name.clone())
             .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
         let version = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.graph_version.clone())
-            .flatten()
+            .and_then(|description| description.graph_version.clone())
             .ok_or(anyhow::anyhow!("version is required"))?;
         let resources = function_executor_state
             .description
             .as_ref()
-            .map(|description| description.resources.clone())
-            .flatten()
+            .and_then(|description| description.resources)
             .ok_or(anyhow::anyhow!("resources is required"))?;
-        let resources = data_model::FunctionExecutorResources::try_from(resources.clone())?;
+        let resources = data_model::FunctionExecutorResources::try_from(resources)?;
         Ok(FunctionExecutor {
             id: FunctionExecutorId::new(id.clone()),
             namespace: namespace.clone(),
@@ -959,19 +953,11 @@ fn prepare_data_payload(
     blob_store_url_scheme: &str,
     blob_store_url: &str,
 ) -> Option<data_model::DataPayload> {
-    if msg.is_none() {
-        return None;
-    }
+    msg.as_ref()?;
     let msg = msg.unwrap();
-    if msg.uri.is_none() {
-        return None;
-    }
-    if msg.size.as_ref().is_none() {
-        return None;
-    }
-    if msg.sha256_hash.as_ref().is_none() {
-        return None;
-    }
+    msg.uri.as_ref()?;
+    msg.size.as_ref()?;
+    msg.sha256_hash.as_ref()?;
 
     Some(data_model::DataPayload {
         path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
@@ -988,7 +974,7 @@ pub fn blob_store_path_to_url(
     if blob_store_url_scheme == "file" {
         // Local file blob store implementation is always using absolute paths without
         // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        return format!("{}:///{}", blob_store_url_scheme, path);
+        format!("{blob_store_url_scheme}:///{path}")
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
@@ -999,7 +985,7 @@ pub fn blob_store_path_to_url(
             path
         );
     } else {
-        return format!("not supported blob store scheme: {}", blob_store_url_scheme);
+        return format!("not supported blob store scheme: {blob_store_url_scheme}");
     }
 }
 
@@ -1011,12 +997,12 @@ pub fn blob_store_url_to_path(
     if blob_store_url_scheme == "file" {
         // Local file blob store implementation is always using absolute paths without
         // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        return url
-            .strip_prefix(&format!("{}:///", blob_store_url_scheme).to_string())
+        url
+            .strip_prefix(&format!("{blob_store_url_scheme}:///").to_string())
             // The url doesn't include blob_store_scheme if this payload was uploaded to server
             // instead of directly to blob storage.
             .unwrap_or(url)
-            .to_string();
+            .to_string()
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
@@ -1034,7 +1020,7 @@ pub fn blob_store_url_to_path(
             .unwrap_or(url)
             .to_string();
     } else {
-        return format!("not supported blob store scheme: {}", blob_store_url_scheme);
+        return format!("not supported blob store scheme: {blob_store_url_scheme}");
     }
 }
 
@@ -1044,7 +1030,7 @@ fn bucket_name_from_s3_blob_store_url(blob_store_url: &str) -> String {
             Some(bucket) => bucket.into(),
             None => {
                 error!("Didn't find bucket name in S3 url: {}", blob_store_url);
-                return String::new();
+                String::new()
             }
         },
         Err(e) => {
@@ -1052,7 +1038,7 @@ fn bucket_name_from_s3_blob_store_url(blob_store_url: &str) -> String {
                 "Failed to parse blob_store_url: {}. Error: {}",
                 blob_store_url, e
             );
-            return String::new();
+            String::new()
         }
     }
 }

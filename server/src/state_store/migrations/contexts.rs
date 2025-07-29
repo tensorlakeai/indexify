@@ -219,7 +219,7 @@ mod tests {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
-        let cf_names = vec!["test_cf".to_string(), "default".to_string()];
+        let cf_names = ["test_cf".to_string(), "default".to_string()];
         let cf_descriptors: Vec<_> = cf_names
             .iter()
             .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))

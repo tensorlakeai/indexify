@@ -101,7 +101,7 @@ impl FunctionExecutorManager {
         let mut candidates = in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
             debug!(target: targets::SCHEDULER, "no candidates found for task, running vacuum");
-            let fe_resource = in_memory_state.fe_resource_for_task(&task)?;
+            let fe_resource = in_memory_state.fe_resource_for_task(task)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
             in_memory_state.update_state(
@@ -228,7 +228,7 @@ impl FunctionExecutorManager {
         }
         for (executor_fe_id, executor_fe) in &executor.function_executors {
             // If the Executor FE is also in the server's tracked FE lets sync them.
-            if let Some(server_fe) = server_function_executors.get(&executor_fe_id) {
+            if let Some(server_fe) = server_function_executors.get(executor_fe_id) {
                 // If the executor's FE state is Terminated lets remove it from the server.
                 if matches!(executor_fe.state, FunctionExecutorState::Terminated { .. }) {
                     function_executors_to_remove.push(executor_fe.clone());
@@ -332,7 +332,7 @@ impl FunctionExecutorManager {
                                 task_failure_reason,
                                 blame_allocs,
                                 &alloc.id,
-                                &compute_graph_version,
+                                compute_graph_version,
                             );
 
                             // Count failed tasks for logging
@@ -437,7 +437,7 @@ impl FunctionExecutorManager {
         self.remove_function_executors(
             in_memory_state,
             &mut executor_server_metadata,
-            &function_executors_to_remove,
+            function_executors_to_remove,
         )
     }
 
@@ -525,7 +525,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let executor = in_memory_state
             .executors
-            .get(&executor_id)
+            .get(executor_id)
             .ok_or(anyhow!("executor not found"))?
             .clone();
 

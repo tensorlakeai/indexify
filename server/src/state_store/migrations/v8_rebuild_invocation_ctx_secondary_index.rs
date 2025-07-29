@@ -61,7 +61,7 @@ impl Migration for V8RebuildInvocationCtxSecondaryIndexMigration {
                 ctx.txn.put_cf(
                     ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex),
                     &secondary_index_key,
-                    &[],
+                    [],
                 )?;
 
                 num_migrated_invocation_ctx += 1;
@@ -189,13 +189,13 @@ mod tests {
                     db.put_cf(
                         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
                         b"invalid_index_1",
-                        &[],
+                        [],
                     )?;
 
                     db.put_cf(
                         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
                         b"invalid_index_2",
-                        &[],
+                        [],
                     )?;
 
                     Ok(())
@@ -264,7 +264,7 @@ mod tests {
                             )?
                             .is_some();
 
-                        assert!(exists, "Secondary index not found for {:?}", ctx_obj);
+                        assert!(exists, "Secondary index not found for {ctx_obj:?}");
                     }
 
                     // Check total count of secondary indexes

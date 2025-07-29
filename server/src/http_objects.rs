@@ -447,7 +447,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             timeout: val.timeout.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
-            cache_key: val.cache_key.and_then(|v| Some(v.into())),
+            cache_key: val.cache_key.map(|v| v.into()),
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
         }
@@ -464,11 +464,11 @@ impl From<data_model::ComputeFn> for ComputeFn {
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             image_information: c.image_information.into(),
-            secret_names: c.secret_names.unwrap_or(vec![]),
+            secret_names: c.secret_names.unwrap_or_default(),
             timeout: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
-            cache_key: c.cache_key.and_then(|v| Some(v.into())),
+            cache_key: c.cache_key.map(|v| v.into()),
             parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: c.return_type,
         }
@@ -1195,6 +1195,6 @@ mod tests {
     fn test_compute_fn_deserialization() {
         let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
-        println!("{:?}", compute_fn);
+        println!("{compute_fn:?}");
     }
 }

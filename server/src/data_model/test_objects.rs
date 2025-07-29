@@ -31,7 +31,7 @@ pub mod tests {
         };
         ComputeFn {
             name: name.to_string(),
-            description: format!("description {}", name),
+            description: format!("description {name}"),
             fn_name: name.to_string(),
             image_information,
             retry_policy: FunctionRetryPolicy {
@@ -58,7 +58,7 @@ pub mod tests {
             .collect::<String>(); // Generate a random string for the path
         if let Some(reducer_fn) = reducer_fn {
             // Simulating overriding the existing output for accumulators
-            path = format!("{}-{}-{}", invocation_id, graph, reducer_fn);
+            path = format!("{invocation_id}-{graph}-{reducer_fn}");
         }
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())

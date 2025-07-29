@@ -227,13 +227,11 @@ mod tests {
         let elapsed = now.elapsed();
         assert!(
             elapsed >= StdDuration::from_millis(300),
-            "Elapsed time: {:?}",
-            elapsed
+            "Elapsed time: {elapsed:?}"
         );
         assert!(
             elapsed < StdDuration::from_millis(400),
-            "Elapsed time: {:?}",
-            elapsed
+            "Elapsed time: {elapsed:?}"
         ); // Allow some buffer
     }
 }

@@ -44,8 +44,7 @@ impl Migration for V7ResetAllocatedTasksMigration {
 
             // Construct the task key
             let task_key = format!(
-                "{}|{}|{}|{}|{}",
-                namespace, compute_graph, invocation_id, compute_fn, task_id
+                "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{task_id}"
             );
 
             // Update the task status to Pending

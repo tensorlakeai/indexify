@@ -79,7 +79,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
         // Each migration prepares the DB as needed
         let db = migration
             .prepare(&prepare_ctx)
-            .with_context(|| format!("Preparing DB for migration to v{}", to_version))?;
+            .with_context(|| format!("Preparing DB for migration to v{to_version}"))?;
 
         // Apply migration in a transaction
         let txn = db.transaction();
@@ -90,7 +90,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
         // Apply the migration
         migration
             .apply(&migration_ctx)
-            .with_context(|| format!("Applying migration to v{}", to_version))?;
+            .with_context(|| format!("Applying migration to v{to_version}"))?;
 
         // Update metadata in the same transaction
         sm_meta.db_version = to_version;
@@ -98,7 +98,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
 
         info!("Committing migration to v{}", to_version);
         txn.commit()
-            .with_context(|| format!("Committing migration to v{}", to_version))?;
+            .with_context(|| format!("Committing migration to v{to_version}"))?;
 
         // Close DB after each migration to ensure clean state
         drop(db);

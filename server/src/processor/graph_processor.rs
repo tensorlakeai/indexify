@@ -116,17 +116,11 @@ impl GraphProcessor {
                 .indexify_state
                 .reader()
                 .unprocessed_state_changes(&None, &None)?;
-            let _ = match unprocessed_state_changes.last_global_state_change_cursor {
-                Some(cursor) => {
-                    last_global_state_change_cursor.replace(cursor);
-                }
-                None => {}
+            if let Some(cursor) = unprocessed_state_changes.last_global_state_change_cursor {
+                last_global_state_change_cursor.replace(cursor);
             };
-            let _ = match unprocessed_state_changes.last_namespace_state_change_cursor {
-                Some(cursor) => {
-                    last_namespace_state_change_cursor.replace(cursor);
-                }
-                None => {}
+            if let Some(cursor) = unprocessed_state_changes.last_namespace_state_change_cursor {
+                last_namespace_state_change_cursor.replace(cursor);
             };
             let mut state_changes = unprocessed_state_changes.changes;
             state_changes.reverse();
@@ -145,7 +139,7 @@ impl GraphProcessor {
         //
         // 0 = we fetched all current state changes
         // > 1 = we are processing cached state changes, we need to fetch more when done
-        if cached_state_changes.len() > 0 {
+        if !cached_state_changes.is_empty() {
             notify.notify_one();
         }
 
@@ -199,7 +193,7 @@ impl GraphProcessor {
             get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
             &[KeyValue::new(
                 "type",
-                if let Some(_) = state_change.namespace {
+                if state_change.namespace.is_some() {
                     "ns"
                 } else {
                     "global"
@@ -226,16 +220,16 @@ impl GraphProcessor {
             ChangeType::InvokeComputeGraph(_) | ChangeType::AllocationOutputsIngested(_) => {
                 if let ChangeType::AllocationOutputsIngested(req) = &state_change.change_type {
                     self.task_cache
-                        .handle_task_outputs(req, &*indexes_guard)
+                        .handle_task_outputs(req, &indexes_guard)
                         .await;
                 }
 
                 let mut scheduler_update = task_creator
-                    .invoke(&mut *indexes_guard, &state_change.change_type)
+                    .invoke(&mut indexes_guard, &state_change.change_type)
                     .await?;
 
-                scheduler_update.extend(self.task_cache.try_allocate(&mut *indexes_guard).await);
-                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+                scheduler_update.extend(self.task_cache.try_allocate(&mut indexes_guard).await);
+                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
@@ -244,8 +238,8 @@ impl GraphProcessor {
             }
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
-                    fe_manager.reconcile_executor_state(&mut *indexes_guard, &ev.executor_id)?;
-                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+                    fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
+                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
@@ -253,7 +247,7 @@ impl GraphProcessor {
                 }
             }
             ChangeType::ExecutorRemoved(_) => {
-                let scheduler_update = task_allocator.allocate(&mut *indexes_guard)?;
+                let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
@@ -262,8 +256,8 @@ impl GraphProcessor {
             }
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
-                    fe_manager.deregister_executor(&mut *indexes_guard, &ev.executor_id)?;
-                scheduler_update.extend(task_allocator.allocate(&mut *indexes_guard)?);
+                    fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
+                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),

@@ -212,7 +212,7 @@ impl<'a, T: TimerUpdate + Sync> Timer<'a, T> {
 
 impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
     fn drop(&mut self) {
-        self.metric.add(self.start.elapsed(), &self.labels);
+        self.metric.add(self.start.elapsed(), self.labels);
     }
 }
 

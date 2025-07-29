@@ -143,7 +143,7 @@ pub fn create_invocation(
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
         req.ctx.secondary_index_key(),
-        &[],
+        [],
     )?;
 
     info!(
@@ -251,26 +251,23 @@ pub(crate) fn delete_invocation(
             );
 
             txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
-            match value.diagnostics {
-                Some(diagnostic) => {
-                    [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
-                        .iter()
-                        .flatten()
-                        .try_for_each(|data| -> Result<()> {
-                            let gc_url = GcUrl {
-                                url: data.path.clone(),
-                                namespace: req.namespace.clone(),
-                            };
-                            let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-                            txn.put_cf(
-                                &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                                gc_url.key().as_bytes(),
-                                &serialized_gc_url,
-                            )?;
-                            Ok(())
-                        })?;
-                }
-                None => {}
+            if let Some(diagnostic) = value.diagnostics {
+                [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
+                    .iter()
+                    .flatten()
+                    .try_for_each(|data| -> Result<()> {
+                        let gc_url = GcUrl {
+                            url: data.path.clone(),
+                            namespace: req.namespace.clone(),
+                        };
+                        let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
+                        txn.put_cf(
+                            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                            gc_url.key().as_bytes(),
+                            &serialized_gc_url,
+                        )?;
+                        Ok(())
+                    })?;
             }
         }
     }
@@ -285,7 +282,7 @@ pub(crate) fn delete_invocation(
     // Delete Graph Invocation Context Secondary Index
     txn.delete_cf(
         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
-        &invocation_ctx.secondary_index_key(),
+        invocation_ctx.secondary_index_key(),
     )?;
 
     let node_output_prefix =
@@ -606,7 +603,7 @@ pub fn make_prefix_iterator<'a>(
         cf_handle,
         read_options,
         match restart_key {
-            Some(restart_key) => IteratorMode::From(&restart_key, Direction::Forward),
+            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
             None => IteratorMode::From(prefix, Direction::Forward),
         },
     );
@@ -656,12 +653,12 @@ pub(crate) fn handle_scheduler_update(
         let serialized_alloc = JsonEncoder::encode(&alloc)?;
         txn.put_cf(
             &IndexifyObjectsColumns::Allocations.cf_db(&db),
-            &alloc.key(),
+            alloc.key(),
             serialized_alloc,
         )?;
     }
 
-    for (_, task) in &request.updated_tasks {
+    for task in request.updated_tasks.values() {
         info!(
             namespace = task.namespace,
             graph = task.compute_graph_name,
@@ -920,11 +917,11 @@ where
     T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
 {
     let task = txn
-        .get_for_update_cf(cf, &key, exclusive)?
+        .get_for_update_cf(cf, key, exclusive)?
         .ok_or(anyhow::anyhow!("Task not found"))?;
     let mut task = JsonEncoder::decode::<T>(&task)?;
     update_fn(&mut task);
     let serialized_task = JsonEncoder::encode(&task)?;
-    txn.put_cf(cf, &key, &serialized_task)?;
+    txn.put_cf(cf, key, &serialized_task)?;
     Ok(())
 }

@@ -12,7 +12,6 @@ use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
 use tracing::error;
-use tracing_appender;
 use tracing_subscriber::{
     fmt::{
         self,

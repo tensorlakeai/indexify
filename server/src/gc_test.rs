@@ -42,11 +42,11 @@ mod tests {
         let compute_graph = {
             let mut compute_graph = test_graph_a("image_hash".to_string()).clone();
             let data = "code";
-            let path = format!("{}", &compute_graph.code.path);
+            let path = (&compute_graph.code.path).to_string();
 
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
             let res = blob_storage_registry
-                .get_blob_store(&TEST_NAMESPACE)
+                .get_blob_store(TEST_NAMESPACE)
                 .put(&path, data_stream)
                 .await?;
             compute_graph.code.path = res.url;
@@ -72,7 +72,7 @@ mod tests {
             let path = "invocation_payload";
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
             let res = blob_storage_registry
-                .get_blob_store(&TEST_NAMESPACE)
+                .get_blob_store(TEST_NAMESPACE)
                 .put(path, data_stream)
                 .await?;
 
@@ -143,7 +143,7 @@ mod tests {
             )?;
 
             blob_storage_registry
-                .get_blob_store(&TEST_NAMESPACE)
+                .get_blob_store(TEST_NAMESPACE)
                 .read_bytes(&res.url)
                 .await?;
 
@@ -151,7 +151,7 @@ mod tests {
         };
 
         let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
-        assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
+        assert!(urls.is_empty(), "all gc urls are empty: {urls:?}");
 
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -166,20 +166,19 @@ mod tests {
         let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
         assert!(
             !urls.is_empty(),
-            "all gc urls should not be empty: {:?}",
-            urls
+            "all gc urls should not be empty: {urls:?}"
         );
 
         gc_executor.lock().await.run().await?;
 
         let (urls, _) = indexify_state.reader().get_gc_urls(None)?;
-        assert!(urls.is_empty(), "all gc urls are empty: {:?}", urls);
+        assert!(urls.is_empty(), "all gc urls are empty: {urls:?}");
 
         let read_res = blob_storage_registry
-            .get_blob_store(&TEST_NAMESPACE)
+            .get_blob_store(TEST_NAMESPACE)
             .read_bytes(&res.url)
             .await;
-        assert!(read_res.is_err(), "file is not deleted: {:#?}", read_res);
+        assert!(read_res.is_err(), "file is not deleted: {read_res:#?}");
 
         Ok(())
     }

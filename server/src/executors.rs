@@ -415,7 +415,7 @@ impl ExecutorManager {
                 encoding_version: None,
             };
             let fe = &desired_state_fe.function_executor.function_executor;
-            let fe_output_payload_uri_prefix = format!("{}/function_executors", blob_store_url,);
+            let fe_output_payload_uri_prefix = format!("{blob_store_url}/function_executors",);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 namespace: Some(fe.namespace.clone()),
@@ -424,7 +424,7 @@ impl ExecutorManager {
                 function_name: Some(fe.compute_fn_name.clone()),
                 image_uri: Some(desired_state_fe.image_uri.clone()),
                 secret_names: desired_state_fe.secret_names.clone(),
-                customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms.clone()),
+                customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
                 graph: Some(code_payload_pb),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
@@ -467,7 +467,7 @@ impl ExecutorManager {
             }
         }
 
-        if let Some(runtime_data) = self.runtime_data.write().await.get_mut(&executor_id) {
+        if let Some(runtime_data) = self.runtime_data.write().await.get_mut(executor_id) {
             runtime_data
                 .update_function_executors_state(current_fe_hash, desired_executor_state.clock);
         }
@@ -616,7 +616,7 @@ fn compute_function_executors_hash(
     let mut hasher = DefaultHasher::new();
 
     // Sort function executors by ID to ensure consistent hashing
-    let mut sorted_executors = function_executors.into_iter().collect::<Vec<_>>();
+    let mut sorted_executors = function_executors.iter().collect::<Vec<_>>();
     sorted_executors.sort_by(|a, b| {
         a.function_executor
             .function_executor
@@ -754,8 +754,7 @@ mod tests {
             assert_eq!(
                 3,
                 executors.len(),
-                "Expected 3 executors, but found: {:?}",
-                executors
+                "Expected 3 executors, but found: {executors:?}"
             );
         }
 
@@ -781,8 +780,7 @@ mod tests {
             assert_eq!(
                 3,
                 executors.len(),
-                "Expected 3 executors, but found: {:?}",
-                executors
+                "Expected 3 executors, but found: {executors:?}"
             );
         }
 
@@ -805,8 +803,7 @@ mod tests {
             assert_eq!(
                 2,
                 executors.len(),
-                "Expected 2 executors, but found: {:?}",
-                executors
+                "Expected 2 executors, but found: {executors:?}"
             );
         }
 
@@ -833,8 +830,7 @@ mod tests {
                 .clone();
             assert!(
                 executors.is_empty(),
-                "Expected no executors, but found: {:?}",
-                executors
+                "Expected no executors, but found: {executors:?}"
             );
         }
 

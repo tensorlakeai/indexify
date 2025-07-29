@@ -237,7 +237,7 @@ async fn graph_requests(
 ) -> Result<Json<GraphRequests>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let direction = match params.direction {
         Some(CursorDirection::Forward) => Some(state_store::scanner::CursorDirection::Forward),
         Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
@@ -290,7 +290,7 @@ async fn list_tasks(
 ) -> Result<Json<http_objects_v1::Tasks>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let (tasks, cursor) = state
         .indexify_state
         .reader()
@@ -312,14 +312,13 @@ async fn list_tasks(
     for allocation in allocations {
         allocations_by_task_id
             .entry(allocation.task_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(allocation.into());
     }
     let mut http_tasks = vec![];
     for task in tasks {
         let allocations = allocations_by_task_id
-            .get(task.id.get())
-            .map(|a| a.clone())
+            .get(task.id.get()).cloned()
             .clone()
             .unwrap_or_default();
         http_tasks.push(http_objects_v1::Task::from_data_model_task(

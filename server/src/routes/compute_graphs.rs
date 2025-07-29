@@ -188,7 +188,7 @@ pub async fn list_compute_graphs(
 ) -> Result<Json<http_objects_v1::ComputeGraphsList>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()

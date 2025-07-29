@@ -79,7 +79,6 @@ impl TaskCreator {
                         .collect(),
                     updated_invocations_states: result
                         .invocation_ctx
-                        .map(|ctx| ctx.clone())
                         .into_iter()
                         .collect(),
                     reduction_tasks: ReductionTasks {
@@ -175,7 +174,7 @@ impl TaskCreator {
             let Some(allocation) = self
                 .indexify_state
                 .reader()
-                .get_allocation(&allocation_key)?
+                .get_allocation(allocation_key)?
             else {
                 error!(
                     allocation_key = allocation_key,
@@ -220,7 +219,6 @@ impl TaskCreator {
                 .collect(),
             updated_invocations_states: task_creation_result
                 .invocation_ctx
-                .map(|ctx| ctx.clone())
                 .into_iter()
                 .collect(),
             reduction_tasks: ReductionTasks {

@@ -61,8 +61,7 @@ impl V5AllocationKeysMigration {
 
             // Create new allocation key
             let new_allocation_key = format!(
-                "{}|{}|{}|{}|{}|{}",
-                namespace, compute_graph, invocation_id, compute_fn, task_id, executor_id
+                "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{task_id}|{executor_id}"
             );
 
             // Delete the old allocation
@@ -70,7 +69,7 @@ impl V5AllocationKeysMigration {
                 .delete_cf(ctx.cf(&IndexifyObjectsColumns::Allocations), &key)?;
 
             // Check if the allocation is orphaned by ensuring it has a graph invocation ctx
-            let invocation_ctx_key = format!("{}|{}|{}", namespace, compute_graph, invocation_id);
+            let invocation_ctx_key = format!("{namespace}|{compute_graph}|{invocation_id}");
 
             if ctx
                 .db
@@ -111,14 +110,14 @@ impl V5AllocationKeysMigration {
         ctx.iterate_cf(&IndexifyObjectsColumns::Tasks, |key, value| {
             num_total_tasks += 1;
 
-            let task: serde_json::Value = ctx.parse_json(&value)?;
+            let task: serde_json::Value = ctx.parse_json(value)?;
 
             let namespace = ctx.get_string_val(&task, "namespace")?;
             let compute_graph = ctx.get_string_val(&task, "compute_graph_name")?;
             let invocation_id = ctx.get_string_val(&task, "invocation_id")?;
 
             // Check if the task is orphaned
-            let invocation_ctx_key = format!("{}|{}|{}", namespace, compute_graph, invocation_id);
+            let invocation_ctx_key = format!("{namespace}|{compute_graph}|{invocation_id}");
 
             if ctx
                 .db

@@ -26,7 +26,7 @@ impl Migration for V6CleanOrphanedTasksMigration {
         ctx.iterate_cf(&IndexifyObjectsColumns::Tasks, |key, value| {
             num_total_tasks += 1;
 
-            let task: serde_json::Value = serde_json::from_slice(&value)
+            let task: serde_json::Value = serde_json::from_slice(value)
                 .map_err(|e| anyhow::anyhow!("error deserializing Tasks json bytes, {:#?}", e))?;
 
             let namespace = ctx.get_string_val(&task, "namespace")?;
@@ -34,7 +34,7 @@ impl Migration for V6CleanOrphanedTasksMigration {
             let invocation_id = ctx.get_string_val(&task, "invocation_id")?;
 
             // Check if the task is orphaned by ensuring it has a graph invocation
-            let invocation_ctx_key = format!("{}|{}|{}", namespace, compute_graph, invocation_id);
+            let invocation_ctx_key = format!("{namespace}|{compute_graph}|{invocation_id}");
 
             if ctx
                 .db
