@@ -270,10 +270,10 @@ pub struct FunctionResources {
 impl Default for FunctionResources {
     fn default() -> Self {
         FunctionResources {
-            cpu_ms_per_sec: 1000,        // 1 full CPU core
-            memory_mb: 1024,             // 1 GB
+            cpu_ms_per_sec: 1000,    // 1 full CPU core
+            memory_mb: 1024,         // 1 GB
             ephemeral_disk_mb: 1024, // 1 GB
-            gpu_configs: vec![],         // No GPUs by default
+            gpu_configs: vec![],     // No GPUs by default
         }
     }
 }
@@ -610,9 +610,7 @@ impl NodeOutput {
         compute_fn: &str,
         id: &str,
     ) -> String {
-        format!(
-            "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{id}"
-        )
+        format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{id}")
     }
 
     pub fn key_prefix_from(namespace: &str, compute_graph: &str, invocation_id: &str) -> String {
@@ -1015,9 +1013,7 @@ impl ReduceTask {
         invocation_id: &str,
         compute_fn_name: &str,
     ) -> String {
-        format!(
-            "{namespace}|{compute_graph_name}|{invocation_id}|{compute_fn_name}|",
-        )
+        format!("{namespace}|{compute_graph_name}|{invocation_id}|{compute_fn_name}|",)
     }
 }
 
@@ -1207,9 +1203,7 @@ impl Task {
         fn_name: &str,
         id: &str,
     ) -> String {
-        format!(
-            "{namespace}|{compute_graph}|{invocation_id}|{fn_name}|{id}"
-        )
+        format!("{namespace}|{compute_graph}|{invocation_id}|{fn_name}|{id}")
     }
 }
 
@@ -1393,8 +1387,7 @@ pub const ALL_GPU_MODELS: [&str; 6] = [
     GPU_MODEL_NVIDIA_A10,
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct HostResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
@@ -1404,7 +1397,6 @@ pub struct HostResources {
     // Not all Executors have GPUs.
     pub gpu: Option<GPUResources>,
 }
-
 
 impl HostResources {
     // If can't handle, returns error that describes the reason why.
@@ -1680,12 +1672,12 @@ impl FunctionAllowlist {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.compute_graph_name.as_ref().is_none_or(|cg_name| {
-                cg_name == &function_executor.compute_graph_name
-            }) &&
-            self.compute_fn_name.as_ref().is_none_or(|fn_name| {
-                fn_name == &function_executor.compute_fn_name
-            }) &&
+            self.compute_graph_name
+                .as_ref()
+                .is_none_or(|cg_name| cg_name == &function_executor.compute_graph_name) &&
+            self.compute_fn_name
+                .as_ref()
+                .is_none_or(|fn_name| fn_name == &function_executor.compute_fn_name) &&
             self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
@@ -1739,9 +1731,7 @@ impl FunctionExecutorDiagnostics {
         graph_version: &str,
         function_executor_id: &str,
     ) -> String {
-        format!(
-            "{namespace}|{graph_name}|{function_name}|{graph_version}|{function_executor_id}"
-        )
+        format!("{namespace}|{graph_name}|{function_name}|{graph_version}|{function_executor_id}")
     }
 }
 

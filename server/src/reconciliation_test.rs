@@ -222,9 +222,7 @@ mod tests {
         assert!(executor_server_state
             .function_executors
             .iter()
-            .all(|(_id, fe)| {
-                fe.compute_fn_name != "fn_a"
-            }));
+            .all(|(_id, fe)| { fe.compute_fn_name != "fn_a" }));
 
         Ok(())
     }

@@ -693,8 +693,7 @@ impl InMemoryState {
                     if task.status == TaskStatus::Pending {
                         self.unallocated_tasks.insert(UnallocatedTaskId::new(task));
                     } else {
-                        self.unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(task));
+                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
                     }
                     self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
@@ -753,8 +752,7 @@ impl InMemoryState {
 
                 for allocation in &req.new_allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
-                        self.unallocated_tasks
-                            .remove(&UnallocatedTaskId::new(task));
+                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
 
                         self.allocations_by_executor
                             .entry(allocation.target.executor_id.clone())
@@ -792,7 +790,6 @@ impl InMemoryState {
                             for function_executor_id in function_executors {
                                 fe_allocations.remove(function_executor_id);
                             }
-                            
                         });
                     for function_executor_id in function_executors {
                         let fe =
@@ -1038,8 +1035,7 @@ impl InMemoryState {
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
-            self.unallocated_tasks
-                .remove(&UnallocatedTaskId::new(task));
+            self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -1075,8 +1071,7 @@ impl InMemoryState {
         ));
 
         // Remove tasks
-        let key_prefix =
-            Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
+        let key_prefix = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
         let mut tasks_to_remove = Vec::new();
         self.tasks
             .range(key_prefix.clone()..)
@@ -1260,7 +1255,8 @@ impl InMemoryState {
                     fe_meta.desired_state,
                     FunctionExecutorState::Terminated { .. }
                 )
-            }).cloned()
+            })
+            .cloned()
             .collect::<Vec<_>>();
 
         let mut function_executors = Vec::new();

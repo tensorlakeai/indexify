@@ -802,7 +802,8 @@ async fn list_tasks(
     let mut http_tasks = vec![];
     for task in tasks {
         let allocations = allocations_by_task_id
-            .get(task.id.get()).cloned()
+            .get(task.id.get())
+            .cloned()
             .clone()
             .unwrap_or_default();
         http_tasks.push(Task::from_data_model_task(task, allocations));

@@ -997,8 +997,7 @@ pub fn blob_store_url_to_path(
     if blob_store_url_scheme == "file" {
         // Local file blob store implementation is always using absolute paths without
         // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        url
-            .strip_prefix(&format!("{blob_store_url_scheme}:///").to_string())
+        url.strip_prefix(&format!("{blob_store_url_scheme}:///").to_string())
             // The url doesn't include blob_store_scheme if this payload was uploaded to server
             // instead of directly to blob storage.
             .unwrap_or(url)

@@ -300,7 +300,9 @@ impl IndexifyState {
         {
             let mut executor_states = self.executor_states.write().await;
             for executor_id in changed_executors {
-                if let Some(executor_state) = executor_states.get_mut(&executor_id) { executor_state.notify(); }
+                if let Some(executor_state) = executor_states.get_mut(&executor_id) {
+                    executor_state.notify();
+                }
             }
         }
 
@@ -413,7 +415,6 @@ mod tests {
         UpsertExecutorRequest,
     };
     use test_state_store::TestStateStore;
-    
 
     use super::*;
     use crate::data_model::{

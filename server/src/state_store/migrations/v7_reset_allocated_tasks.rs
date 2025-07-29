@@ -43,9 +43,8 @@ impl Migration for V7ResetAllocatedTasksMigration {
             let task_id = ctx.get_string_val(&allocation, "task_id")?;
 
             // Construct the task key
-            let task_key = format!(
-                "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{task_id}"
-            );
+            let task_key =
+                format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{task_id}");
 
             // Update the task status to Pending
             let updated = ctx.update_json(
