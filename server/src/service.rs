@@ -71,12 +71,11 @@ impl Service {
 
         let namespaces = indexify_state.reader().get_all_namespaces()?;
         for namespace in namespaces {
-            let blob_storage_region = namespace
-                .blob_storage_region
-                .as_deref()
-                .unwrap_or("us-east-1");
-
             if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
+                let blob_storage_region = namespace
+                    .blob_storage_region
+                    .unwrap_or_else(|| config.blob_storage.region.clone());
+
                 blob_storage_registry.create_new_blob_store(
                     &namespace.name,
                     &blob_storage_bucket,
