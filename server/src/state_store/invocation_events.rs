@@ -95,6 +95,7 @@ pub struct TaskAssigned {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum TaskOutcomeSummary {
     Unknown,
     Success,

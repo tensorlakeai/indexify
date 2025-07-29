@@ -134,6 +134,11 @@ async fn create_invocation_progress_stream(
     }
 }
 
+struct RequestIdV1 {
+    // FIXME: Remove this once we migrate clients off this.
+    id: String,
+    request_id: String,
+}
 /// Make a request to a workflow
 #[utoipa::path(
     post,
@@ -244,8 +249,9 @@ pub async fn invoke_with_object_v1(
         })?;
 
     if accept_header.contains("application/json") {
-        return Ok(Json(RequestId {
-            id: graph_invocation_ctx.invocation_id,
+        return Ok(Json(RequestIdV1 {
+            id: graph_invocation_ctx.invocation_id.clone(),
+            request_id: graph_invocation_ctx.request_id.clone(),
         })
         .into_response());
     }
