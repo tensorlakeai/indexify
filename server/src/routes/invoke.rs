@@ -9,7 +9,7 @@ use axum::{
     Json,
 };
 use futures::{Stream, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -134,6 +134,7 @@ async fn create_invocation_progress_stream(
     }
 }
 
+#[derive(Serialize)]
 struct RequestIdV1 {
     // FIXME: Remove this once we migrate clients off this.
     id: String,
