@@ -79,7 +79,7 @@ pub enum IndexifyObjectsColumns {
 }
 
 impl IndexifyObjectsColumns {
-    pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> &ColumnFamily {
+    pub fn cf_db<'a>(&self, db: &'a TransactionDB) -> &'a ColumnFamily {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
                 error!("failed to get column family handle for {}", self.as_ref());
