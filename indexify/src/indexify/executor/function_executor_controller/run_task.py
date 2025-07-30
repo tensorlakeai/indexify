@@ -88,7 +88,6 @@ async def run_task_on_function_executor(
 
     metric_function_executor_run_task_rpcs.inc()
     metric_function_executor_run_task_rpcs_in_progress.inc()
-    start_time = time.monotonic()
     # Not None if the Function Executor should be terminated after running the task.
     function_executor_termination_reason: Optional[
         FunctionExecutorTerminationReason
@@ -101,7 +100,7 @@ async def run_task_on_function_executor(
     # let the AioRpcError to be raised here.
     timeout_sec = task_info.allocation.task.timeout_ms / 1000.0
     try:
-        task_result = await _run_task(task, function_executor, timeout_sec)
+        task_result = await _run_task_rpcs(task, function_executor, timeout_sec)
 
         task_info.output = _task_output_from_function_executor_result(
             allocation=task_info.allocation,
@@ -111,7 +110,8 @@ async def run_task_on_function_executor(
             logger=logger,
         )
     except asyncio.TimeoutError:
-        # The task is still running in FE, we only cancelled the client-side RPC.
+        # This is an await_task() RPC timeout - we're not getting
+        # progress messages or a task completion.
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
         )
@@ -122,13 +122,26 @@ async def run_task_on_function_executor(
             execution_end_time=time.monotonic(),
         )
     except grpc.aio.AioRpcError as e:
-        metric_function_executor_run_task_rpc_errors.inc()
-        logger.error("task execution failed", exc_info=e)
-        task_info.output = TaskOutput.internal_error(
-            allocation=task_info.allocation,
-            execution_start_time=execution_start_time,
-            execution_end_time=time.monotonic(),
-        )
+        if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+            # This is either a create_task() RPC timeout or a
+            # delete_task() RPC timeout; either suggests that the FE
+            # is unhealthy.
+            function_executor_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+            )
+            task_info.output = TaskOutput.function_executor_unresponsive(
+                allocation=task_info.allocation,
+                execution_start_time=execution_start_time,
+                execution_end_time=time.monotonic(),
+            )
+        else:
+            metric_function_executor_run_task_rpc_errors.inc()
+            logger.error("task execution failed", exc_info=e)
+            task_info.output = TaskOutput.internal_error(
+                allocation=task_info.allocation,
+                execution_start_time=execution_start_time,
+                execution_end_time=time.monotonic(),
+            )
     except asyncio.CancelledError:
         # The task is still running in FE, we only cancelled the client-side RPC.
         function_executor_termination_reason = (
@@ -148,7 +161,9 @@ async def run_task_on_function_executor(
             execution_end_time=time.monotonic(),
         )
 
-    metric_function_executor_run_task_rpc_latency.observe(time.monotonic() - start_time)
+    metric_function_executor_run_task_rpc_latency.observe(
+        time.monotonic() - execution_start_time
+    )
     metric_function_executor_run_task_rpcs_in_progress.dec()
 
     function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
@@ -178,48 +193,62 @@ async def run_task_on_function_executor(
     )
 
 
-async def _run_task(
+async def _run_task_rpcs(
     task: Task, function_executor: FunctionExecutor, timeout_sec: float
-):
-    """Runs the task, returning the result, reporting errors via exceptions."""
+) -> TaskResult:
+    """Runs the task, returning the result, reporting errors via exceptions.
 
-    last_response: Optional[AwaitTaskProgress] = None
+    Exceptions:
+
+        asyncio.TimeoutError: Timeout while waiting for progress
+            messages from the function executor.
+
+        grpc.aio.AioRpcError(grpc.StatusCode.DEADLINE_EXCEEDED):
+            Timeout in the create_task() or delete_task() RPCs,
+            indicating either an error in the implementation or
+            badly-behaved user code.
+
+        Anything else: Other system failures (incorrect function
+            executor response, unable to connect to the function
+            executor, &c).
+    """
+
+    response: AwaitTaskProgress
     channel: grpc.aio.Channel = function_executor.channel()
     fe_stub = FunctionExecutorStub(channel)
 
-    # Use a single timeout across all three GRPC calls, restarting when await_task() returns responses
-    current_rpc = None
+    # Create task with timeout
+    await fe_stub.create_task(
+        CreateTaskRequest(task=task), timeout=_CREATE_TASK_TIMEOUT_SECS
+    )
 
-    try:
-        # Create task with timeout
-        current_rpc = fe_stub.create_task(CreateTaskRequest(task=task))
-        await asyncio.wait_for(current_rpc, timeout=_CREATE_TASK_TIMEOUT_SECS)
-        current_rpc = None
+    # Await task with timeout resets on each response
+    await_rpc = fe_stub.await_task(AwaitTaskRequest(task_id=task.task_id))
 
-        # Await task with timeout resets on each response
-        current_rpc = fe_stub.await_task(AwaitTaskRequest(task_id=task.task_id))
+    while True:
+        # Wait for next response with fresh timeout each time
+        response = await asyncio.wait_for(await_rpc.read(), timeout=timeout_sec)
+        if response.WhichOneof("response") == "task_result":
+            # We're done waiting; cancel the outstanding RPC to ensure
+            # any resources in use are cleaned up.
+            await_rpc.cancel()
+            break
 
-        while True:
-            # Wait for next response with fresh timeout each time
-            response = await asyncio.wait_for(current_rpc.read(), timeout=timeout_sec)
-            if response == grpc.aio.EOF:
-                current_rpc = None
-                break
-            last_response = response
+        # NB: We don't actually check for other message types
+        # here; any message from the FE is treated as an
+        # indication that it's making forward progress.
 
-        # Delete task with timeout
-        current_rpc = fe_stub.delete_task(DeleteTaskRequest(task_id=task.task_id))
-        await asyncio.wait_for(current_rpc, timeout=_DELETE_TASK_TIMEOUT_SECS)
+        if response == grpc.aio.EOF:
+            raise Exception(
+                "Function Executor didn't return function/task alloc response"
+            )
 
-    finally:
-        # Cancel any outstanding RPCs to clean up our client-side resources
-        if current_rpc is not None:
-            current_rpc.cancel()
+    # Delete task with timeout
+    await fe_stub.delete_task(
+        DeleteTaskRequest(task_id=task.task_id), timeout=_DELETE_TASK_TIMEOUT_SECS
+    )
 
-    if not last_response or last_response.WhichOneof("response") != "task_result":
-        raise Exception("Expected a final task result")
-
-    return last_response.task_result
+    return response.task_result
 
 
 def _task_output_from_function_executor_result(
