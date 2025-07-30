@@ -108,7 +108,7 @@ class TaskOutput:
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
-            stderr=f"Function executor is not producing health check progress reports.",
+            stderr=f"Function executor is not responding to task lifecycle RPCs.",
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )

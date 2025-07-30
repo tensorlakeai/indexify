@@ -225,23 +225,27 @@ async def _run_task_rpcs(
     # Await task with timeout resets on each response
     await_rpc = fe_stub.await_task(AwaitTaskRequest(task_id=task.task_id))
 
-    while True:
-        # Wait for next response with fresh timeout each time
-        response = await asyncio.wait_for(await_rpc.read(), timeout=timeout_sec)
-        if response.WhichOneof("response") == "task_result":
-            # We're done waiting; cancel the outstanding RPC to ensure
-            # any resources in use are cleaned up.
-            await_rpc.cancel()
-            break
+    try:
+        while True:
+            # Wait for next response with fresh timeout each time
+            response = await asyncio.wait_for(await_rpc.read(), timeout=timeout_sec)
+            if response.WhichOneof("response") == "task_result":
+                # We're done waiting.
+                break
 
-        # NB: We don't actually check for other message types
-        # here; any message from the FE is treated as an
-        # indication that it's making forward progress.
+            # NB: We don't actually check for other message types
+            # here; any message from the FE is treated as an
+            # indication that it's making forward progress.
 
-        if response == grpc.aio.EOF:
-            raise Exception(
-                "Function Executor didn't return function/task alloc response"
-            )
+            if response == grpc.aio.EOF:
+                raise Exception(
+                    "Function Executor didn't return function/task alloc response"
+                )
+    finally:
+        # Cancel the outstanding RPC to ensure any resources in use
+        # are cleaned up; note that this is idempotent (in case the
+        # RPC has already completed).
+        await_rpc.cancel()
 
     # Delete task with timeout
     await fe_stub.delete_task(
