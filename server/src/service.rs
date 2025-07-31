@@ -66,20 +66,16 @@ impl Service {
 
         let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
             config.blob_storage.path.as_str(),
-            config.blob_storage.region.as_str(),
+            config.blob_storage.region.clone(),
         )?);
 
         let namespaces = indexify_state.reader().get_all_namespaces()?;
         for namespace in namespaces {
             if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
-                let blob_storage_region = namespace.blob_storage_region.unwrap_or_else(|| {
-                    std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string())
-                });
-
                 blob_storage_registry.create_new_blob_store(
                     &namespace.name,
                     &blob_storage_bucket,
-                    &blob_storage_region,
+                    namespace.blob_storage_region.clone(),
                 )?;
             }
         }
