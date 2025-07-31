@@ -312,7 +312,7 @@ async fn create_namespace(
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
     if let Some(blob_storage_bucket) = &namespace.blob_storage_bucket {
-        let Some(blob_storage_region) = &namespace.blob_storage_region else {
+        let Some(_blob_storage_region) = &namespace.blob_storage_region else {
             return Err(IndexifyAPIError::bad_request(
                 "blob storage region is required",
             ));
@@ -320,7 +320,7 @@ async fn create_namespace(
         if let Err(e) = state.blob_storage.create_new_blob_store(
             &namespace.name,
             blob_storage_bucket,
-            &blob_storage_region,
+            namespace.blob_storage_region.clone(),
         ) {
             error!("failed to create blob storage bucket: {:?}", e);
             return Err(IndexifyAPIError::internal_error(e));
