@@ -93,6 +93,12 @@ async def run_task_on_function_executor(
         FunctionExecutorTerminationReason
     ] = None
 
+    # NB: We start this timer before invoking the first RPC, since
+    # user code should be executing by the time the create_task() RPC
+    # returns, so not attributing the task management RPC overhead to
+    # the user would open a possibility for abuse. (This is somewhat
+    # mitigated by the fact that these RPCs should have a very low
+    # overhead.)
     execution_start_time: Optional[float] = time.monotonic()
 
     # If this RPC failed due to customer code crashing the server we won't be
@@ -122,26 +128,35 @@ async def run_task_on_function_executor(
             execution_end_time=time.monotonic(),
         )
     except grpc.aio.AioRpcError as e:
+        # This indicates some sort of problem communicating with the FE.
+        #
+        # NB: We charge the user in these situations: code within the
+        # FE is not isolated, so not charging would enable abuse.
+        #
+        # This is an unexpected situation, though, so we make sure to
+        # log the situation for further investigation.
+
+        function_executor_termination_reason = (
+            FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+        )
+        metric_function_executor_run_task_rpc_errors.inc()
+
         if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
             # This is either a create_task() RPC timeout or a
             # delete_task() RPC timeout; either suggests that the FE
             # is unhealthy.
-            function_executor_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
-            )
-            task_info.output = TaskOutput.function_executor_unresponsive(
-                allocation=task_info.allocation,
-                execution_start_time=execution_start_time,
-                execution_end_time=time.monotonic(),
-            )
+            logger.error("task management RPC execution deadline exceeded", exc_info=e)
         else:
-            metric_function_executor_run_task_rpc_errors.inc()
-            logger.error("task execution failed", exc_info=e)
-            task_info.output = TaskOutput.internal_error(
-                allocation=task_info.allocation,
-                execution_start_time=execution_start_time,
-                execution_end_time=time.monotonic(),
-            )
+            # This is a status from an unsuccessful RPC; this
+            # shouldn't happen, but we handle it.
+            logger.error("task management RPC failed", exc_info=e)
+
+        task_info.output = TaskOutput.function_executor_unresponsive(
+            allocation=task_info.allocation,
+            execution_start_time=execution_start_time,
+            execution_end_time=time.monotonic(),
+        )
+
     except asyncio.CancelledError:
         # The task is still running in FE, we only cancelled the client-side RPC.
         function_executor_termination_reason = (
@@ -153,8 +168,11 @@ async def run_task_on_function_executor(
             execution_end_time=time.monotonic(),
         )
     except Exception as e:
-        metric_function_executor_run_task_rpc_errors.inc()
-        logger.error("task execution failed", exc_info=e)
+        # This is an unexpected exception; we believe that this
+        # indicates an internal error.
+        logger.error(
+            "Unexpected internal error during task lifecycle RPC sequence", exc_info=e
+        )
         task_info.output = TaskOutput.internal_error(
             allocation=task_info.allocation,
             execution_start_time=execution_start_time,
@@ -196,22 +214,7 @@ async def run_task_on_function_executor(
 async def _run_task_rpcs(
     task: Task, function_executor: FunctionExecutor, timeout_sec: float
 ) -> TaskResult:
-    """Runs the task, returning the result, reporting errors via exceptions.
-
-    Exceptions:
-
-        asyncio.TimeoutError: Timeout while waiting for progress
-            messages from the function executor.
-
-        grpc.aio.AioRpcError(grpc.StatusCode.DEADLINE_EXCEEDED):
-            Timeout in the create_task() or delete_task() RPCs,
-            indicating either an error in the implementation or
-            badly-behaved user code.
-
-        Anything else: Other system failures (incorrect function
-            executor response, unable to connect to the function
-            executor, &c).
-    """
+    """Runs the task, returning the result, reporting errors via exceptions."""
 
     response: AwaitTaskProgress
     channel: grpc.aio.Channel = function_executor.channel()
@@ -238,8 +241,13 @@ async def _run_task_rpcs(
             # indication that it's making forward progress.
 
             if response == grpc.aio.EOF:
-                raise Exception(
-                    "Function Executor didn't return function/task alloc response"
+                # Protocol error: we should get a task_result before
+                # we see the RPC complete.
+                raise grpc.aio.AioRpcError(
+                    grpc.StatusCode.CANCELLED,
+                    None,
+                    None,
+                    "Function Executor didn't return function/task alloc response",
                 )
     finally:
         # Cancel the outstanding RPC to ensure any resources in use
