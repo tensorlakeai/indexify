@@ -96,6 +96,23 @@ class TaskOutput:
         )
 
     @classmethod
+    def function_executor_unresponsive(
+        cls,
+        allocation: TaskAllocation,
+        execution_start_time: Optional[float],
+        execution_end_time: Optional[float],
+    ) -> "TaskOutput":
+        """Creates a TaskOutput for an unresponsive FE."""
+        # Task stdout, stderr is not available.
+        return TaskOutput(
+            allocation=allocation,
+            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
+            execution_start_time=execution_start_time,
+            execution_end_time=execution_end_time,
+        )
+
+    @classmethod
     def task_cancelled(
         cls,
         allocation: TaskAllocation,
