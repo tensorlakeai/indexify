@@ -378,6 +378,33 @@ fn default_encoder() -> String {
     "cloudpickle".to_string()
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Default)]
+pub struct PlacementConstraints {
+    /// List of label filter expressions in the format "key=value",
+    /// "key!=value", etc.
+    #[serde(default)]
+    pub filter_expressions: Vec<String>,
+}
+
+impl From<PlacementConstraints> for data_model::filter::LabelsFilter {
+    fn from(value: PlacementConstraints) -> Self {
+        let expressions = value
+            .filter_expressions
+            .into_iter()
+            .filter_map(|expr| data_model::filter::Expression::from_str(&expr).ok())
+            .collect();
+        data_model::filter::LabelsFilter(expressions)
+    }
+}
+
+impl From<data_model::filter::LabelsFilter> for PlacementConstraints {
+    fn from(value: data_model::filter::LabelsFilter) -> Self {
+        Self {
+            filter_expressions: value.0.into_iter().map(|expr| expr.to_string()).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct CacheKey(String);
 
@@ -430,6 +457,8 @@ pub struct ComputeFn {
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
     pub return_type: Option<serde_json::Value>,
+    #[serde(default)]
+    pub placement_constraints: PlacementConstraints,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -438,7 +467,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             name: val.name.clone(),
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
-            placement_constraints: Default::default(),
+            placement_constraints: val.placement_constraints.into(),
             reducer: val.reducer,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
@@ -471,6 +500,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             cache_key: c.cache_key.map(|v| v.into()),
             parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: c.return_type,
+            placement_constraints: c.placement_constraints.into(),
         }
     }
 }
@@ -845,6 +875,7 @@ pub enum InvocationFailureReason {
     FunctionError,
     InvocationError,
     NextFunctionNotFound,
+    ConstraintUnsatisfiable,
 }
 
 impl From<GraphInvocationFailureReason> for InvocationFailureReason {
@@ -858,6 +889,9 @@ impl From<GraphInvocationFailureReason> for InvocationFailureReason {
             }
             GraphInvocationFailureReason::NextFunctionNotFound => {
                 InvocationFailureReason::NextFunctionNotFound
+            }
+            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
+                InvocationFailureReason::ConstraintUnsatisfiable
             }
         }
     }
@@ -1179,7 +1213,7 @@ pub struct ExecutorsAllocationsResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::ComputeFn;
+    use crate::http_objects::{ComputeFn, PlacementConstraints};
 
     #[test]
     fn test_compute_graph_deserialization() {
@@ -1197,5 +1231,53 @@ mod tests {
         let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         println!("{compute_fn:?}");
+    }
+
+    #[test]
+    fn test_labels_filter_conversion() {
+        // Test HTTP LabelsFilter to data_model conversion
+        let http_filter = PlacementConstraints {
+            filter_expressions: vec![
+                "environment=production".to_string(),
+                "gpu_type=nvidia".to_string(),
+                "region!=us-east".to_string(),
+            ],
+        };
+
+        let data_model_filter: crate::data_model::filter::LabelsFilter = http_filter.clone().into();
+        assert_eq!(data_model_filter.0.len(), 3);
+
+        // Test data_model LabelsFilter to HTTP conversion
+        let converted_back: PlacementConstraints = data_model_filter.into();
+        assert_eq!(converted_back.filter_expressions.len(), 3);
+
+        // The conversion process normalizes string values with quotes
+        let expected_expressions = vec![
+            "environment=\"production\"".to_string(),
+            "gpu_type=\"nvidia\"".to_string(),
+            "region!=\"us-east\"".to_string(),
+        ];
+
+        // Should contain the normalized expressions
+        for expr in &expected_expressions {
+            assert!(
+                converted_back.filter_expressions.contains(expr),
+                "Expression '{}' not found in converted back: {:?}",
+                expr,
+                converted_back.filter_expressions
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_fn_with_placement_constraints() {
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
+
+        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
+        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+
+        // Test conversion to data model
+        let data_model_fn: crate::data_model::ComputeFn = compute_fn.into();
+        assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
     }
 }

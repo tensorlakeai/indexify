@@ -54,6 +54,10 @@ pub enum Error {
         version: String,
         function_name: String,
     },
+    ConstraintUnsatisfiable {
+        function_name: String,
+        constraints: String,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -64,6 +68,16 @@ impl std::fmt::Display for Error {
             }
             Error::ComputeFunctionNotFound { function_name, .. } => {
                 write!(f, "Compute function not found: {function_name}")
+            }
+            Error::ConstraintUnsatisfiable {
+                function_name,
+                constraints,
+            } => {
+                write!(
+                    f,
+                    "No executors in the system can satisfy placement constraints for function '{}': {}",
+                    function_name, constraints
+                )
             }
         }
     }
@@ -76,6 +90,7 @@ impl Error {
         match self {
             Error::ComputeGraphVersionNotFound { version, .. } => version,
             Error::ComputeFunctionNotFound { version, .. } => version,
+            Error::ConstraintUnsatisfiable { .. } => "",
         }
     }
 
@@ -83,6 +98,7 @@ impl Error {
         match self {
             Error::ComputeGraphVersionNotFound { function_name, .. } => function_name,
             Error::ComputeFunctionNotFound { function_name, .. } => function_name,
+            Error::ConstraintUnsatisfiable { function_name, .. } => function_name,
         }
     }
 }
@@ -949,7 +965,12 @@ impl InMemoryState {
                 version: task.graph_version.0.clone(),
                 function_name: task.compute_fn_name.clone(),
             })?;
+
+        // First, check if ANY executor in the system could potentially satisfy
+        // the placement constraints (ignoring resource availability and current state)
+        let mut any_executor_could_match = false;
         let mut candidates = Vec::new();
+
         for (_, executor_state) in &self.executor_states {
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(
@@ -961,16 +982,42 @@ impl InMemoryState {
             if executor.tombstoned || !executor.is_task_allowed(task) {
                 continue;
             }
-            // TODO: Match functions to GPU models according to prioritized order in
-            // gpu_configs.
-            if executor_state
-                .free_resources
-                .can_handle_function_resources(&compute_fn.resources)
-                .is_ok()
-            {
-                candidates.push(executor_state.clone());
+
+            // Check if this executor's labels could potentially match the placement
+            // constraints
+            if compute_fn.placement_constraints.matches(&executor.labels) {
+                any_executor_could_match = true;
+
+                // Now check if it also has the required resources available
+                // TODO: Match functions to GPU models according to prioritized order in
+                // gpu_configs.
+                if executor_state
+                    .free_resources
+                    .can_handle_function_resources(&compute_fn.resources)
+                    .is_ok()
+                {
+                    candidates.push(executor_state.clone());
+                }
             }
         }
+
+        // If no executor in the system could ever satisfy the placement constraints,
+        // return an error instead of waiting indefinitely
+        if !any_executor_could_match {
+            let constraints_str = compute_fn
+                .placement_constraints
+                .0
+                .iter()
+                .map(|expr| format!("{}={}", expr.key, expr.value))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Error::ConstraintUnsatisfiable {
+                function_name: task.compute_fn_name.clone(),
+                constraints: constraints_str,
+            }
+            .into());
+        }
+
         Ok(candidates)
     }
 

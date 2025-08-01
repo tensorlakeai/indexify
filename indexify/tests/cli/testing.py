@@ -39,9 +39,11 @@ class ExecutorProcessContextManager:
         args: List[str],
         keep_std_outputs: bool = True,
         extra_env: Optional[dict] = None,
+        labels: Optional[dict] = None,
     ):
         self._keep_std_outputs = keep_std_outputs
         self._extra_env = extra_env
+        self._labels = labels or {}
         self._temp_dir = tempfile.mkdtemp(prefix="executor_cache_")
         self._process: Optional[subprocess.Popen] = None
         self._args = [
@@ -50,6 +52,11 @@ class ExecutorProcessContextManager:
             "--executor-cache-path",
             self._temp_dir,
         ]
+
+        # Add label arguments in the format --label key=value
+        for key, value in self._labels.items():
+            self._args.extend(["--label", f"{key}={value}"])
+
         self._args.extend(args)
 
     def __enter__(self) -> subprocess.Popen:

@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::{debug, info, info_span, warn};
 
 use crate::{
-    data_model::{AllocationBuilder, Task, TaskOutcome, TaskStatus},
+    data_model::{AllocationBuilder, Task, TaskFailureReason, TaskOutcome, TaskStatus},
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
         self,
@@ -50,6 +50,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                             error = %state_store_error,
                             "Unable to allocate task"
                         );
+
                         continue;
                     }
                     // For any other error, return it
@@ -80,9 +81,52 @@ impl<'a> TaskAllocationProcessor<'a> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Use FunctionExecutorManager to handle function executor selection/creation
-        let (selected_target, fe_update) = self
+        let (selected_target, fe_update) = match self
             .fe_manager
-            .select_or_create_function_executor(in_memory_state, task)?;
+            .select_or_create_function_executor(in_memory_state, task)
+        {
+            Ok(result) => result,
+            Err(err) => {
+                // Explicitly handle ConstraintUnsatisfiable errors by
+                // failing the task and invocation.
+                if let Some(state_store::in_memory_state::Error::ConstraintUnsatisfiable {
+                    ..
+                }) = err.downcast_ref::<state_store::in_memory_state::Error>()
+                {
+                    // Fail the task
+                    let mut failed_task = (*task).clone();
+                    failed_task.status = TaskStatus::Completed;
+                    failed_task.outcome =
+                        TaskOutcome::Failure(TaskFailureReason::ConstraintUnsatisfiable);
+
+                    // Add the failed task to the update
+                    update
+                        .updated_tasks
+                        .insert(failed_task.id.clone(), failed_task);
+
+                    // Get the invocation context and fail it
+                    let invocation_key = crate::data_model::GraphInvocationCtx::key_from(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                    );
+                    if let Some(invocation_ctx_box) =
+                        in_memory_state.invocation_ctx.get(&invocation_key)
+                    {
+                        let mut invocation_ctx = (**invocation_ctx_box).clone();
+                        invocation_ctx.complete_invocation(
+                            true, // force_complete
+                            crate::data_model::GraphInvocationOutcome::Failure(
+                                crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
+                            )
+                        );
+                        update.updated_invocations_states.push(invocation_ctx);
+                    }
+                }
+
+                return Err(err);
+            }
+        };
         update.extend(fe_update);
 
         let Some(target) = selected_target else {

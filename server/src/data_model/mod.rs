@@ -785,6 +785,8 @@ pub enum GraphInvocationFailureReason {
     InvocationError,
     // Next function is not found in the graph (while routing).
     NextFunctionNotFound,
+    // A graph function cannot be scheduled given the specified constraints.
+    ConstraintUnsatisfiable,
 }
 
 impl Display for GraphInvocationFailureReason {
@@ -795,6 +797,7 @@ impl Display for GraphInvocationFailureReason {
             GraphInvocationFailureReason::FunctionError => "FunctionError",
             GraphInvocationFailureReason::InvocationError => "InvocationError",
             GraphInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
+            GraphInvocationFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
         };
         write!(f, "{str_val}")
     }
@@ -817,6 +820,9 @@ impl From<TaskFailureReason> for GraphInvocationFailureReason {
             TaskFailureReason::TaskCancelled => GraphInvocationFailureReason::InternalError,
             TaskFailureReason::FunctionExecutorTerminated => {
                 GraphInvocationFailureReason::InternalError
+            }
+            TaskFailureReason::ConstraintUnsatisfiable => {
+                GraphInvocationFailureReason::ConstraintUnsatisfiable
             }
         }
     }
@@ -1061,6 +1067,8 @@ pub enum TaskFailureReason {
     TaskCancelled,
     // Function Executor terminated - can't run the task allocation on it anymore.
     FunctionExecutorTerminated,
+    // Task cannot be scheduled given its constraints.
+    ConstraintUnsatisfiable,
 }
 
 impl Display for TaskFailureReason {
@@ -1073,6 +1081,7 @@ impl Display for TaskFailureReason {
             TaskFailureReason::InvocationError => "InvocationError",
             TaskFailureReason::TaskCancelled => "TaskCancelled",
             TaskFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
+            TaskFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
         };
         write!(f, "{str_val}")
     }
