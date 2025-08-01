@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "server",
+    "gateway",
 ]
 resolver = "2"

@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package gateway;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+
+service GatewayService {
+  rpc CreateGate(CreateGateRequest) returns (Gate);
+  rpc GetGate(GetGateRequest) returns (Gate);
+  rpc DeleteGate(DeleteGateRequest) returns (google.protobuf.Empty);
+  rpc ListGates(ListGatesRequest) returns (ListGatesResponse);
+}
+
+message Gate {
+  string id = 1;
+  string name = 2;
+  string path = 3;
+  repeated google.protobuf.Any services = 4;
+}
+
+message CreateGateRequest {
+  string gate_id = 1;
+  Gate gate = 2;
+}
+
+message GetGateRequest {
+  string id = 1;
+}
+
+message DeleteGateRequest {
+  string id = 1;
+}
+
+message ListGatesRequest {
+  int32 limit = 1;
+}
+
+message ListGatesResponse {
+  repeated Gate gates = 1;
+}
+
+message Collector {
+  string namespace = 1;
+  string destination = 2;
+}
