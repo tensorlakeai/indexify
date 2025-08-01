@@ -19,6 +19,7 @@ pub struct ServerConfig {
     pub kv_storage: BlobStorageConfig,
     pub telemetry: TelemetryConfig,
     pub executor: ExecutorConfig,
+    pub labels: Vec<std::collections::HashMap<String, String>>,
     pub queue_size: u32,
 }
 
@@ -34,6 +35,7 @@ impl Default for ServerConfig {
             kv_storage: Default::default(),
             telemetry: TelemetryConfig::default(),
             executor: ExecutorConfig::default(),
+            labels: Vec::new(),
             queue_size: 2,
         }
     }

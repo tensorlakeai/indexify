@@ -86,6 +86,7 @@ use crate::{
             list_allocations,
             list_unallocated_tasks,
             list_unprocessed_state_changes,
+            list_labels,
         ),
         components(
             schemas(
@@ -159,6 +160,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unprocessed_state_changes",
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/labels",
+            get(list_labels).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
@@ -1135,4 +1140,20 @@ async fn get_ctx_state_key(
             .body(Body::empty())
             .unwrap()),
     }
+}
+
+/// List configured label sets
+#[utoipa::path(
+    get,
+    path = "/internal/labels",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List all configured label sets", body = Vec<HashMap<String, String>>),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn list_labels(
+    State(state): State<RouteState>,
+) -> Result<Json<Vec<std::collections::HashMap<String, String>>>, IndexifyAPIError> {
+    Ok(Json(state.config.labels.clone()))
 }

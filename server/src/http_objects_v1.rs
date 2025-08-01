@@ -203,6 +203,7 @@ pub enum RequestFailureReason {
     FunctionError,
     InvocationError,
     NextFunctionNotFound,
+    ConstraintUnsatisfiable,
 }
 
 impl From<GraphInvocationFailureReason> for RequestFailureReason {
@@ -214,6 +215,9 @@ impl From<GraphInvocationFailureReason> for RequestFailureReason {
             GraphInvocationFailureReason::InvocationError => RequestFailureReason::InvocationError,
             GraphInvocationFailureReason::NextFunctionNotFound => {
                 RequestFailureReason::NextFunctionNotFound
+            }
+            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
+                RequestFailureReason::ConstraintUnsatisfiable
             }
         }
     }

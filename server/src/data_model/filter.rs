@@ -1,6 +1,7 @@
-use std::fmt::{self, Display};
-#[cfg(test)]
-use std::{cmp::Ordering, collections::HashMap};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+};
 
 use anyhow::Result;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
@@ -10,21 +11,13 @@ use serde_json::Value;
 pub enum Operator {
     Eq,
     Neq,
-    Gt,
-    Lt,
-    GtEq,
-    LtEq,
 }
 
 impl Operator {
     pub fn from_str(operator: &str) -> Result<Self> {
         match operator {
-            "=" => Ok(Self::Eq),
+            "==" => Ok(Self::Eq),
             "!=" => Ok(Self::Neq),
-            ">" => Ok(Self::Gt),
-            "<" => Ok(Self::Lt),
-            ">=" => Ok(Self::GtEq),
-            "<=" => Ok(Self::LtEq),
             _ => Err(anyhow::anyhow!("Invalid filter operator: {}", operator)),
         }
     }
@@ -36,12 +29,8 @@ impl Display for Operator {
             f,
             "{}",
             match self {
-                Operator::Eq => "=",
+                Operator::Eq => "==",
                 Operator::Neq => "!=",
-                Operator::Gt => ">",
-                Operator::Lt => "<",
-                Operator::GtEq => ">=",
-                Operator::LtEq => "<=",
             }
         )
     }
@@ -75,8 +64,9 @@ impl<'de> Deserialize<'de> for Expression {
 
 impl Expression {
     pub fn from_str(str: &str) -> Result<Self> {
-        // This parser must start with the longest operators first.
-        let operators = vec!["!=", ">=", "<=", "=", ">", "<"];
+        // This parser must start with the longest operators first (if
+        // additional operators are added).
+        let operators = vec!["!=", "=="];
         for operator in operators {
             let parts: Vec<&str> = str.split(operator).collect();
             if parts.len() != 2 {
@@ -102,35 +92,17 @@ impl Display for Expression {
     }
 }
 
-#[cfg(test)]
-fn partial_cmp(lhs: &Value, rhs: &Value) -> Option<Ordering> {
-    match (lhs, rhs) {
-        (Value::Number(n), Value::Number(m)) => n.as_f64()?.partial_cmp(&m.as_f64()?),
-        (Value::String(s), Value::String(t)) => s.partial_cmp(t),
-        (Value::Bool(b), Value::Bool(c)) => b.partial_cmp(c),
-        _ => None,
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct LabelsFilter(pub Vec<Expression>);
 
-#[cfg(test)]
 impl LabelsFilter {
     pub fn matches(&self, values: &HashMap<String, Value>) -> bool {
         self.0.iter().all(|expr| {
             let value = values.get(&expr.key);
             match value {
-                Some(value) => match partial_cmp(value, &expr.value) {
-                    Some(ordering) => match expr.operator {
-                        Operator::Eq => ordering == std::cmp::Ordering::Equal,
-                        Operator::Neq => ordering != std::cmp::Ordering::Equal,
-                        Operator::Gt => ordering == std::cmp::Ordering::Greater,
-                        Operator::Lt => ordering == std::cmp::Ordering::Less,
-                        Operator::GtEq => ordering != std::cmp::Ordering::Less,
-                        Operator::LtEq => ordering != std::cmp::Ordering::Greater,
-                    },
-                    None => false,
+                Some(value) => match expr.operator {
+                    Operator::Eq => value == &expr.value,
+                    Operator::Neq => value != &expr.value,
                 },
                 None => false,
             }
@@ -144,29 +116,21 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        let filter = Expression::from_str("key=value").unwrap();
+        let filter = Expression::from_str("key==value").unwrap();
         assert_eq!(filter.operator, Operator::Eq);
         assert_eq!(filter.key, "key");
         assert_eq!(filter.value, serde_json::json!("value"));
 
         let filter_str = filter.to_string();
-        assert_eq!(filter_str, "key=\"value\"");
+        assert_eq!(filter_str, "key==\"value\"");
 
-        let filter = Expression::from_str("key>1").unwrap();
-        assert_eq!(filter.operator, Operator::Gt);
-        assert_eq!(filter.key, "key");
-        assert_eq!(filter.value, serde_json::json!(1));
-
-        let filter_str = filter.to_string();
-        assert_eq!(filter_str, "key>1");
-
-        let filter = Expression::from_str("key>=\"value\"").unwrap();
-        assert_eq!(filter.operator, Operator::GtEq);
+        let filter = Expression::from_str("key!=value").unwrap();
+        assert_eq!(filter.operator, Operator::Neq);
         assert_eq!(filter.key, "key");
         assert_eq!(filter.value, serde_json::json!("value"));
 
         let filter_str = filter.to_string();
-        assert_eq!(filter_str, "key>=\"value\"");
+        assert_eq!(filter_str, "key!=\"value\"");
     }
 
     #[test]
@@ -179,8 +143,8 @@ mod tests {
             },
             Expression {
                 key: "key2".to_string(),
-                value: serde_json::json!(2),
-                operator: Operator::Gt,
+                value: serde_json::json!("test"),
+                operator: Operator::Neq,
             },
         ]);
 
@@ -188,10 +152,24 @@ mod tests {
         values.insert("key1".to_string(), serde_json::json!(1));
         assert!(!filter.matches(&values));
 
-        values.insert("key2".to_string(), serde_json::json!(2));
+        values.insert("key2".to_string(), serde_json::json!("test"));
         assert!(!filter.matches(&values));
 
-        values.insert("key2".to_string(), serde_json::json!(3));
+        values.insert("key2".to_string(), serde_json::json!("other"));
         assert!(filter.matches(&values));
+    }
+
+    #[test]
+    fn test_empty_filter_matches_all() {
+        let empty_filter = LabelsFilter::default();
+
+        // Empty filter should match empty labels
+        let empty_labels = HashMap::new();
+        assert!(empty_filter.matches(&empty_labels));
+
+        // Empty filter should also match non-empty labels
+        let mut labels = HashMap::new();
+        labels.insert("any_key".to_string(), serde_json::json!("any_value"));
+        assert!(empty_filter.matches(&labels));
     }
 }

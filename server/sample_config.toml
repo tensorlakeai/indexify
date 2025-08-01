@@ -18,3 +18,22 @@ instance_id = "indexify-server-1"
 # List of targets and their log levels for local logging
 [telemetry.local_log_targets]
 scheduler = "debug"
+
+# Executor label sets configuration.
+#
+# Each label set defines a collection of key-value pairs that can be
+# used to categorize and filter executors.
+
+[[labels]]
+region = "us-west-2"
+instance_type = "gpu"
+gpu_model = "nvidia-a100"
+
+[[labels]]
+region = "us-east-1"
+instance_type = "cpu"
+
+[[labels]]
+region = "eu-west-1"
+instance_type = "gpu"
+gpu_model = "nvidia-h100"
