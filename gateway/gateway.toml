@@ -1,0 +1,3 @@
+[server]
+socket_path = "/tmp/gateway.sock"
+log_level = "info"
