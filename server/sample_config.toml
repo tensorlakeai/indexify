@@ -23,7 +23,9 @@ scheduler = "debug"
 #
 # Each label set defines a collection of key-value pairs that can be
 # used to categorize and filter executors.
-
+#
+# If no executor label sets are configured below, any executor labels
+# are allowed.
 [[labels]]
 region = "us-west-2"
 instance_type = "gpu"

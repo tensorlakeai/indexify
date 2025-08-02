@@ -30,6 +30,42 @@ struct ComputeGraphCreateType {
     code: String,
 }
 
+async fn validate_placement_constraints_against_executor_label_sets(
+    compute_graph: &crate::data_model::ComputeGraph,
+    state: &RouteState,
+) -> Result<(), IndexifyAPIError> {
+    let lock_guard = state.indexify_state.in_memory_state.read().await;
+
+    let executor_label_sets = &lock_guard.executor_label_sets;
+
+    if executor_label_sets.label_sets.is_empty() {
+        return Ok(());
+    }
+
+    for (function_name, node) in &compute_graph.nodes {
+        let can_be_satisfied = executor_label_sets
+            .label_sets
+            .iter()
+            .any(|label_set| node.placement_constraints.matches(label_set));
+
+        if !can_be_satisfied {
+            let constraints_str = node
+                .placement_constraints
+                .0
+                .iter()
+                .map(|expr| format!("{}", expr))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(IndexifyAPIError::bad_request(&format!(
+                "Function '{}' has unsatisfiable placement constraints [{}].",
+                function_name, constraints_str
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// Create or update a workflow
 #[utoipa::path(
     post,
@@ -107,6 +143,9 @@ pub async fn create_or_update_compute_graph_v1(
         &state.config.executor,
     )?;
     let name = compute_graph.name.clone();
+
+    validate_placement_constraints_against_executor_label_sets(&compute_graph, &state).await?;
+
     info!(
         "creating compute graph {}, upgrade existing tasks and invocations: {}",
         name,

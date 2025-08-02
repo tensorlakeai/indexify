@@ -40,6 +40,7 @@ use crate::{
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
+        ExecutorLabelSet,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
 };
@@ -208,6 +209,9 @@ pub struct InMemoryState {
 
     // Invocation Ctx
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
+
+    // Configured executor label sets
+    pub executor_label_sets: ExecutorLabelSet,
 
     // Histogram metrics for task latency measurements for direct recording
     task_pending_latency: Histogram<f64>,
@@ -418,7 +422,11 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(clock: u64, reader: StateReader) -> Result<Self> {
+    pub fn new(
+        clock: u64,
+        reader: StateReader,
+        executor_label_sets: ExecutorLabelSet,
+    ) -> Result<Self> {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -569,6 +577,7 @@ impl InMemoryState {
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
+            executor_label_sets,
             // metrics
             task_pending_latency,
             allocation_running_latency,
@@ -968,7 +977,7 @@ impl InMemoryState {
 
         // First, check if ANY executor in the system could potentially satisfy
         // the placement constraints (ignoring resource availability and current state)
-        let mut any_executor_could_match = false;
+        let mut found_matching_executor = false;
         let mut candidates = Vec::new();
 
         for (_, executor_state) in &self.executor_states {
@@ -986,7 +995,7 @@ impl InMemoryState {
             // Check if this executor's labels could potentially match the placement
             // constraints
             if compute_fn.placement_constraints.matches(&executor.labels) {
-                any_executor_could_match = true;
+                found_matching_executor = true;
 
                 // Now check if it also has the required resources available
                 // TODO: Match functions to GPU models according to prioritized order in
@@ -1001,14 +1010,24 @@ impl InMemoryState {
             }
         }
 
-        // If no executor in the system could ever satisfy the placement constraints,
-        // return an error instead of waiting indefinitely
-        if !any_executor_could_match {
+        // If no executor currently in the system could ever satisfy
+        // the placement constraints, check if any of the configured
+        // executor label sets could theoretically match.  This
+        // prevents ConstraintUnsatisfiable errors when a matching
+        // executor just hasn't connected yet.
+        if !found_matching_executor &&
+            !self.executor_label_sets.label_sets.is_empty() &&
+            !self
+                .executor_label_sets
+                .label_sets
+                .iter()
+                .any(|label_set| compute_fn.placement_constraints.matches(label_set))
+        {
             let constraints_str = compute_fn
                 .placement_constraints
                 .0
                 .iter()
-                .map(|expr| format!("{}={}", expr.key, expr.value))
+                .map(|expr| format!("{}", expr))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Error::ConstraintUnsatisfiable {
@@ -1397,6 +1416,7 @@ impl InMemoryState {
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
+            executor_label_sets: self.executor_label_sets.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
@@ -1460,6 +1480,7 @@ mod test_helpers {
                 tasks: im::OrdMap::new(),
                 queued_reduction_tasks: im::OrdMap::new(),
                 invocation_ctx: im::OrdMap::new(),
+                executor_label_sets: ExecutorLabelSet::default(),
                 task_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),

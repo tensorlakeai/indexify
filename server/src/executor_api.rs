@@ -269,11 +269,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(addr) = executor_state.hostname {
             executor_metadata.addr(addr);
         }
-        let mut labels = HashMap::new();
-        for (key, value) in executor_state.labels {
-            labels.insert(key, serde_json::Value::String(value));
-        }
-        executor_metadata.labels(labels);
+        executor_metadata.labels(executor_state.labels);
         let mut function_executors = HashMap::new();
         for function_executor_state in executor_state.function_executor_states {
             let function_executor =
@@ -717,6 +713,51 @@ impl ExecutorAPIService {
         }
         Ok(allocation_output_updates)
     }
+
+    async fn validate_executor_labels(
+        &self,
+        executor_id: &ExecutorId,
+        executor_state: &ExecutorState,
+    ) -> Result<(), Status> {
+        // Validate executor labels against configured label sets
+        let executor_labels = &executor_state.labels;
+        let executor_label_sets = &self
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .executor_label_sets;
+
+        if executor_label_sets.label_sets.is_empty() {
+            // No label sets to check against.
+            return Ok(());
+        }
+
+        if executor_label_sets.label_sets.iter().any(|label_set| {
+            // Check if all key-value pairs in the label set match the executor's labels
+            label_set.iter().all(|(key, value)| {
+                executor_labels
+                    .get(key)
+                    .map_or(false, |executor_value| executor_value == value)
+            })
+        }) {
+            // The executor matches at least one configured label set.
+            return Ok(());
+        }
+
+        // There's a mismatch; reject this executor.
+        error!(
+            executor_id = executor_id.get(),
+            ?executor_labels,
+            configured_label_sets = ?executor_label_sets.label_sets,
+            "Rejecting executor with invalid label configuration"
+        );
+
+        Err(Status::permission_denied(format!(
+            "Executor labels {:?} do not match any configured label set. Configured label sets: {:?}",
+            executor_labels, executor_label_sets.label_sets
+        )))
+    }
 }
 
 fn log_desired_executor_state_delta(
@@ -849,6 +890,9 @@ impl ExecutorApi for ExecutorAPIService {
             executor_id = executor_id.get(),
             "Got report_executor_state request"
         );
+
+        self.validate_executor_labels(&executor_id, &executor_state)
+            .await?;
 
         let function_executor_diagnostics = to_function_executor_diagnostics_vector(
             &executor_update.function_executor_updates,

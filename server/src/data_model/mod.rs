@@ -1913,7 +1913,7 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
-    pub labels: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
     pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
     pub host_resources: HostResources,
     pub state: ExecutorState,

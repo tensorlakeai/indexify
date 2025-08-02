@@ -26,6 +26,19 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
 };
 
+#[derive(Debug, Clone)]
+pub struct ExecutorLabelSet {
+    pub label_sets: Vec<std::collections::HashMap<String, String>>,
+}
+
+impl Default for ExecutorLabelSet {
+    fn default() -> Self {
+        ExecutorLabelSet {
+            label_sets: Vec::new(),
+        }
+    }
+}
+
 pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
@@ -88,7 +101,7 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-    pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
+    pub async fn new(path: PathBuf, executor_label_sets: ExecutorLabelSet) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
 
@@ -118,6 +131,7 @@ impl IndexifyState {
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
             scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+            executor_label_sets,
         )?));
         let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
         let s = Arc::new(Self {

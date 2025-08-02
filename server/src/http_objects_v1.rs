@@ -53,9 +53,20 @@ impl ComputeGraph {
         let mut nodes = HashMap::new();
         for (name, node) in self.functions {
             node.validate(executor_config)?;
-            nodes.insert(name, node.into());
+            let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
+                IndexifyAPIError::bad_request(&format!(
+                    "Invalid placement constraints in function '{}': {}",
+                    name, e
+                ))
+            })?;
+            nodes.insert(name, converted_node);
         }
-        let start_fn: data_model::ComputeFn = self.entrypoint.into();
+        let start_fn: data_model::ComputeFn = self.entrypoint.try_into().map_err(|e| {
+            IndexifyAPIError::bad_request(&format!(
+                "Invalid placement constraints in entrypoint: {}",
+                e
+            ))
+        })?;
 
         let compute_graph = data_model::ComputeGraph {
             name: self.name,

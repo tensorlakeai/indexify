@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::Result;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
-use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {
@@ -39,7 +38,7 @@ impl Display for Operator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expression {
     pub key: String,
-    pub value: Value,
+    pub value: String,
     pub operator: Operator,
 }
 
@@ -74,7 +73,7 @@ impl Expression {
             }
 
             let key = parts[0].to_string();
-            let value = serde_json::from_str(parts[1]).unwrap_or(serde_json::json!(parts[1]));
+            let value = parts[1].to_string();
             let operator = Operator::from_str(operator)?;
             return Ok(Self {
                 key,
@@ -82,7 +81,7 @@ impl Expression {
                 operator,
             });
         }
-        Err(anyhow::anyhow!("Invalid filter: {}", str))
+        Err(anyhow::anyhow!("Invalid label filter: {}", str))
     }
 }
 
@@ -96,7 +95,7 @@ impl Display for Expression {
 pub struct LabelsFilter(pub Vec<Expression>);
 
 impl LabelsFilter {
-    pub fn matches(&self, values: &HashMap<String, Value>) -> bool {
+    pub fn matches(&self, values: &HashMap<String, String>) -> bool {
         self.0.iter().all(|expr| {
             let value = values.get(&expr.key);
             match value {
@@ -119,18 +118,18 @@ mod tests {
         let filter = Expression::from_str("key==value").unwrap();
         assert_eq!(filter.operator, Operator::Eq);
         assert_eq!(filter.key, "key");
-        assert_eq!(filter.value, serde_json::json!("value"));
+        assert_eq!(filter.value, "value");
 
         let filter_str = filter.to_string();
-        assert_eq!(filter_str, "key==\"value\"");
+        assert_eq!(filter_str, "key==value");
 
         let filter = Expression::from_str("key!=value").unwrap();
         assert_eq!(filter.operator, Operator::Neq);
         assert_eq!(filter.key, "key");
-        assert_eq!(filter.value, serde_json::json!("value"));
+        assert_eq!(filter.value, "value");
 
         let filter_str = filter.to_string();
-        assert_eq!(filter_str, "key!=\"value\"");
+        assert_eq!(filter_str, "key!=value");
     }
 
     #[test]
@@ -138,24 +137,24 @@ mod tests {
         let filter = LabelsFilter(vec![
             Expression {
                 key: "key1".to_string(),
-                value: serde_json::json!(1),
+                value: "1".to_string(),
                 operator: Operator::Eq,
             },
             Expression {
                 key: "key2".to_string(),
-                value: serde_json::json!("test"),
+                value: "test".to_string(),
                 operator: Operator::Neq,
             },
         ]);
 
         let mut values = HashMap::new();
-        values.insert("key1".to_string(), serde_json::json!(1));
+        values.insert("key1".to_string(), "1".to_string());
         assert!(!filter.matches(&values));
 
-        values.insert("key2".to_string(), serde_json::json!("test"));
+        values.insert("key2".to_string(), "test".to_string());
         assert!(!filter.matches(&values));
 
-        values.insert("key2".to_string(), serde_json::json!("other"));
+        values.insert("key2".to_string(), "other".to_string());
         assert!(filter.matches(&values));
     }
 
@@ -169,7 +168,7 @@ mod tests {
 
         // Empty filter should also match non-empty labels
         let mut labels = HashMap::new();
-        labels.insert("any_key".to_string(), serde_json::json!("any_value"));
+        labels.insert("any_key".to_string(), "any_value".to_string());
         assert!(empty_filter.matches(&labels));
     }
 }

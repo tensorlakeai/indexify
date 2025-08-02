@@ -277,31 +277,6 @@ class TestLabelFilter(unittest.TestCase):
                     f"unrestricted_function (PID {func_executor_pid}, {executors_name[func_executor_pid]}) ran on unknown executor. Known executors: {executors_pid}",
                 )
 
-    def test_no_matching_executor(self):
-        """Test behavior when no executor matches the placement constraints."""
-        # This test verifies that functions with placement constraints
-        # that no executor can satisfy do not cause the system to
-        # hang.
-
-        graph_name = test_graph_name(self)
-        version = str(time.time())
-
-        # Deploy and run the impossible function.
-        graph = Graph(
-            name=graph_name + "_impossible",
-            description="Test impossible placement constraints",
-            start_node=impossible_function,
-            version=version,
-        )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-
-        invocation_id = graph.run(block_until_done=True)
-        output = wait_function_output(graph, invocation_id, "impossible_function")
-
-        self.assertEqual(len(output), 0)
-
 
 if __name__ == "__main__":
     unittest.main()
