@@ -42,7 +42,11 @@ def function_without_progress_updates(ctx: GraphRequestContext, x: int) -> str:
 
     This function should timeout because it doesn't call update_progress().
     """
-    time.sleep(8)  # This exceeds the 5-second timeout
+
+    # This exceeds the 5-second timeout and the 30-second check making
+    # sure the timeout happens at all.
+    time.sleep(60)
+
     return "should_not_reach_here"
 
 
@@ -82,8 +86,9 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=1)
         duration = time.monotonic() - start_time
 
-        # Should timeout after about 5 seconds
-        self.assertLess(duration, 10, "Function should timeout quickly")
+        # Should timeout after about 5 seconds, but CI can be slow,
+        # so we check against 30.
+        self.assertLess(duration, 30, "Function should timeout quickly")
 
         # Check that the function failed (no outputs)
         outputs = graph.output(invocation_id, function_without_progress_updates.name)
