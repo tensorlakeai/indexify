@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use crate::{blob_store::BlobStorageConfig, data_model};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorCatalogEntry {
+    pub name: String,
+    pub regions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub dev: bool,
     pub state_store_path: String,
@@ -19,7 +25,7 @@ pub struct ServerConfig {
     pub kv_storage: BlobStorageConfig,
     pub telemetry: TelemetryConfig,
     pub executor: ExecutorConfig,
-    pub labels: Vec<std::collections::HashMap<String, String>>,
+    pub executor_catalog: Vec<ExecutorCatalogEntry>,
     pub queue_size: u32,
 }
 
@@ -35,7 +41,7 @@ impl Default for ServerConfig {
             kv_storage: Default::default(),
             telemetry: TelemetryConfig::default(),
             executor: ExecutorConfig::default(),
-            labels: Vec::new(),
+            executor_catalog: Vec::new(),
             queue_size: 2,
         }
     }
@@ -168,6 +174,21 @@ impl Default for ExecutorConfig {
                 .map(|s| s.to_string())
                 .collect(),
         }
+    }
+}
+
+impl ExecutorCatalogEntry {
+    // Generate label sets for each region
+    pub fn to_label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
+        self.regions
+            .iter()
+            .map(|region| {
+                let mut labels = std::collections::HashMap::new();
+                labels.insert("sku".to_string(), self.name.clone());
+                labels.insert("region".to_string(), region.clone());
+                labels
+            })
+            .collect()
     }
 }
 

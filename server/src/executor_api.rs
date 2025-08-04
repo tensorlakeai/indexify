@@ -721,20 +721,21 @@ impl ExecutorAPIService {
     ) -> Result<(), Status> {
         // Validate executor labels against configured label sets
         let executor_labels = &executor_state.labels;
-        let executor_label_sets = &self
+        let executor_catalog = &self
             .indexify_state
             .in_memory_state
             .read()
             .await
-            .executor_label_sets;
+            .executor_catalog;
 
-        if executor_label_sets.label_sets.is_empty() {
+        if executor_catalog.allows_any_labels() {
             // No label sets to check against.
             return Ok(());
         }
 
-        if executor_label_sets.label_sets.iter().any(|label_set| {
-            // Check if all key-value pairs in the label set match the executor's labels
+        if executor_catalog.label_sets().iter().any(|label_set| {
+            // Check if the catalog label set is a subset of the executor's labels
+            // (executor can have additional labels beyond what's in the catalog entry)
             label_set.iter().all(|(key, value)| {
                 executor_labels
                     .get(key)
@@ -749,13 +750,13 @@ impl ExecutorAPIService {
         error!(
             executor_id = executor_id.get(),
             ?executor_labels,
-            configured_label_sets = ?executor_label_sets.label_sets,
+            configured_label_sets = ?executor_catalog.label_sets(),
             "Rejecting executor with invalid label configuration"
         );
 
         Err(Status::permission_denied(format!(
             "Executor labels {:?} do not match any configured label set. Configured label sets: {:?}",
-            executor_labels, executor_label_sets.label_sets
+            executor_labels, executor_catalog.label_sets()
         )))
     }
 }

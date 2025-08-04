@@ -1155,5 +1155,11 @@ async fn get_ctx_state_key(
 async fn list_labels(
     State(state): State<RouteState>,
 ) -> Result<Json<Vec<std::collections::HashMap<String, String>>>, IndexifyAPIError> {
-    Ok(Json(state.config.labels.clone()))
+    let label_sets = state
+        .config
+        .executor_catalog
+        .iter()
+        .flat_map(|entry| entry.to_label_sets())
+        .collect();
+    Ok(Json(label_sets))
 }

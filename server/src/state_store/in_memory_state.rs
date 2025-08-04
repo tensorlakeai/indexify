@@ -40,7 +40,7 @@ use crate::{
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
-        ExecutorLabelSet,
+        ExecutorCatalog,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
 };
@@ -211,7 +211,7 @@ pub struct InMemoryState {
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
 
     // Configured executor label sets
-    pub executor_label_sets: ExecutorLabelSet,
+    pub executor_catalog: ExecutorCatalog,
 
     // Histogram metrics for task latency measurements for direct recording
     task_pending_latency: Histogram<f64>,
@@ -422,11 +422,7 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(
-        clock: u64,
-        reader: StateReader,
-        executor_label_sets: ExecutorLabelSet,
-    ) -> Result<Self> {
+    pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -577,7 +573,7 @@ impl InMemoryState {
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
-            executor_label_sets,
+            executor_catalog,
             // metrics
             task_pending_latency,
             allocation_running_latency,
@@ -1016,10 +1012,10 @@ impl InMemoryState {
         // prevents ConstraintUnsatisfiable errors when a matching
         // executor just hasn't connected yet.
         if !found_matching_executor &&
-            !self.executor_label_sets.label_sets.is_empty() &&
+            !self.executor_catalog.allows_any_labels() &&
             !self
-                .executor_label_sets
-                .label_sets
+                .executor_catalog
+                .label_sets()
                 .iter()
                 .any(|label_set| compute_fn.placement_constraints.matches(label_set))
         {
@@ -1416,7 +1412,7 @@ impl InMemoryState {
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
-            executor_label_sets: self.executor_label_sets.clone(),
+            executor_catalog: self.executor_catalog.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
@@ -1480,7 +1476,7 @@ mod test_helpers {
                 tasks: im::OrdMap::new(),
                 queued_reduction_tasks: im::OrdMap::new(),
                 invocation_ctx: im::OrdMap::new(),
-                executor_label_sets: ExecutorLabelSet::default(),
+                executor_catalog: ExecutorCatalog::default(),
                 task_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),

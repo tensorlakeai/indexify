@@ -62,14 +62,14 @@ impl Service {
             BlobStorage::new(config.kv_storage.clone()).context("error initializing KVStorage")?,
         );
 
-        let executor_label_sets = crate::state_store::ExecutorLabelSet {
-            label_sets: config.labels.clone(),
+        let executor_catalog = crate::state_store::ExecutorCatalog {
+            entries: config.executor_catalog.clone(),
         };
-        if executor_label_sets.label_sets.is_empty() {
+        if executor_catalog.allows_any_labels() {
             info!("No configured executor label sets; allowing all executors");
         }
         let indexify_state =
-            IndexifyState::new(config.state_store_path.parse()?, executor_label_sets).await?;
+            IndexifyState::new(config.state_store_path.parse()?, executor_catalog).await?;
 
         let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
             config.blob_storage.path.as_str(),

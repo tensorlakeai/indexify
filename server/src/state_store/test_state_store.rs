@@ -29,7 +29,7 @@ impl TestStateStore {
         let temp_dir = tempfile::tempdir()?;
         let indexify_state = IndexifyState::new(
             temp_dir.path().join("state"),
-            crate::state_store::ExecutorLabelSet::default(),
+            crate::state_store::ExecutorCatalog::default(),
         )
         .await?;
         Ok(TestStateStore { indexify_state })

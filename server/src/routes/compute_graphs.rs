@@ -36,15 +36,15 @@ async fn validate_placement_constraints_against_executor_label_sets(
 ) -> Result<(), IndexifyAPIError> {
     let lock_guard = state.indexify_state.in_memory_state.read().await;
 
-    let executor_label_sets = &lock_guard.executor_label_sets;
+    let executor_catalog = &lock_guard.executor_catalog;
 
-    if executor_label_sets.label_sets.is_empty() {
+    if executor_catalog.allows_any_labels() {
         return Ok(());
     }
 
     for (function_name, node) in &compute_graph.nodes {
-        let can_be_satisfied = executor_label_sets
-            .label_sets
+        let can_be_satisfied = executor_catalog
+            .label_sets()
             .iter()
             .any(|label_set| node.placement_constraints.matches(label_set));
 

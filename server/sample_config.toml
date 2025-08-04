@@ -19,23 +19,25 @@ instance_id = "indexify-server-1"
 [telemetry.local_log_targets]
 scheduler = "debug"
 
-# Executor label sets configuration.
+# Executor catalog configuration.
 #
-# Each label set defines a collection of key-value pairs that can be
-# used to categorize and filter executors.
+# Each catalog entry defines a named executor type and the regions where
+# it can be deployed. This creates a structured catalog of available
+# executor configurations.
 #
-# If no executor label sets are configured below, any executor labels
-# are allowed.
-[[labels]]
-region = "us-west-2"
-instance_type = "gpu"
-gpu_model = "nvidia-a100"
+# Executors connect with labels including "sku" and "region" that must
+# match an entry in this catalog to be accepted.
+#
+# If no catalog entries are configured, executor label checks are not
+# enforced; all executor labels are allowed.
+[[executor_catalog]]
+name = "gpu-xl"
+regions = ["us-west-2", "eu-west-1"]
 
-[[labels]]
-region = "us-east-1"
-instance_type = "cpu"
+[[executor_catalog]]
+name = "cpu-s"
+regions = ["us-east-1", "us-west-2"]
 
-[[labels]]
-region = "eu-west-1"
-instance_type = "gpu"
-gpu_model = "nvidia-h100"
+[[executor_catalog]]
+name = "gpu-xxl"
+regions = ["eu-west-1"]
