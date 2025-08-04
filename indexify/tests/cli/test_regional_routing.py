@@ -3,7 +3,7 @@ import time
 import unittest
 from typing import Dict, List
 
-from tensorlake import Graph, LabelsFilter, tensorlake_function
+from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from testing import (
