@@ -34,6 +34,7 @@ use crate::{
         ComputeGraphsList,
         CreateNamespace,
         CursorDirection,
+        ExecutorCatalog,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
         FnOutput,
@@ -86,7 +87,7 @@ use crate::{
             list_allocations,
             list_unallocated_tasks,
             list_unprocessed_state_changes,
-            list_labels,
+            list_executor_catalog,
         ),
         components(
             schemas(
@@ -112,6 +113,7 @@ use crate::{
                 ExecutorsAllocationsResponse,
                 UnallocatedTasks,
                 StateChangesResponse,
+                ExecutorCatalog,
             )
         ),
         tags(
@@ -162,8 +164,8 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
         )
         .route(
-            "/internal/labels",
-            get(list_labels).with_state(route_state.clone()),
+            "/internal/executor_catalog",
+            get(list_executor_catalog).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
@@ -1142,24 +1144,24 @@ async fn get_ctx_state_key(
     }
 }
 
-/// List configured label sets
+/// Get structured executor catalog
 #[utoipa::path(
     get,
-    path = "/internal/labels",
+    path = "/internal/executor_catalog",
     tag = "operations",
     responses(
-        (status = 200, description = "List all configured label sets", body = Vec<HashMap<String, String>>),
+        (status = 200, description = "Get the structured executor catalog", body = ExecutorCatalog),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-async fn list_labels(
+async fn list_executor_catalog(
     State(state): State<RouteState>,
-) -> Result<Json<Vec<std::collections::HashMap<String, String>>>, IndexifyAPIError> {
-    let label_sets = state
-        .config
-        .executor_catalog
-        .iter()
-        .flat_map(|entry| entry.to_label_sets())
-        .collect();
-    Ok(Json(label_sets))
+) -> Result<Json<ExecutorCatalog>, IndexifyAPIError> {
+    let catalog = &state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .executor_catalog;
+    Ok(Json(ExecutorCatalog::from(catalog)))
 }

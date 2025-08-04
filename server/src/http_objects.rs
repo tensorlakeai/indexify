@@ -1135,6 +1135,40 @@ pub fn from_data_model_executor_metadata(
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ExecutorCatalogEntry {
+    pub name: String,
+    pub regions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ExecutorCatalog {
+    pub entries: Vec<ExecutorCatalogEntry>,
+    pub remark: Option<String>,
+}
+
+impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
+    fn from(catalog: &crate::state_store::ExecutorCatalog) -> Self {
+        let remark = if catalog.allows_any_labels() {
+            Some("Executor catalog is empty - all executor labels are allowed".to_string())
+        } else {
+            None
+        };
+
+        ExecutorCatalog {
+            entries: catalog
+                .entries
+                .iter()
+                .map(|entry| ExecutorCatalogEntry {
+                    name: entry.name.clone(),
+                    regions: entry.regions.clone(),
+                })
+                .collect(),
+            remark,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct Allocation {
     pub id: String,
     pub namespace: String,
