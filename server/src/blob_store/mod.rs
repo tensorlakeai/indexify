@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, sync::Arc};
+use std::{env, fmt::Debug, ops::Range, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -9,6 +9,7 @@ use object_store::{
     aws::{AmazonS3Builder, S3ConditionalPut},
     parse_url,
     path::Path,
+    GetOptions,
     ObjectStore,
     ObjectStoreScheme,
     WriteMultipart,
@@ -154,13 +155,24 @@ impl BlobStorage {
         })
     }
 
-    pub async fn get(&self, path: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
+    // Get an object from the blob storage.
+    // If `range` is provided, it will return a stream of bytes for the specified
+    // range. If `range` is None, it will return the entire object.
+    pub async fn get(
+        &self,
+        path: &str,
+        range: Option<Range<u64>>,
+    ) -> Result<BoxStream<'static, Result<Bytes>>> {
         let timer_kvs = &[KeyValue::new("op", "get")];
         let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
         let client_clone = self.object_store.clone();
         let (tx, rx) = mpsc::unbounded_channel();
+        let options = GetOptions {
+            range: range.map(|r| object_store::GetRange::Bounded(r)),
+            ..Default::default()
+        };
         let get_result = client_clone
-            .get(&path.into())
+            .get_opts(&path.into(), options)
             .await
             .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", path, e))?;
         let path = path.to_string();
@@ -185,7 +197,7 @@ impl BlobStorage {
 
     #[cfg(test)]
     pub async fn read_bytes(&self, key: &str) -> Result<Bytes> {
-        let mut reader = self.get(key).await?;
+        let mut reader = self.get(key, None).await?;
         let mut bytes = BytesMut::new();
         while let Some(chunk) = reader.next().await {
             bytes.extend_from_slice(&chunk?);

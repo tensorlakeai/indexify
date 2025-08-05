@@ -6,7 +6,6 @@ from tensorlake import (
     GraphRequestContext,
     tensorlake_function,
 )
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from testing import remote_or_local_graph, test_graph_name
 
 

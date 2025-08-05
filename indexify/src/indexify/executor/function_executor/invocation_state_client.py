@@ -9,6 +9,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     InvocationStateResponse,
     SerializedObject,
     SerializedObjectEncoding,
+    SerializedObjectManifest,
     SetInvocationStateResponse,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
@@ -202,7 +203,7 @@ class InvocationStateClient:
             f"{self._base_url}/internal/namespaces/{self._namespace}/compute_graphs/{self._graph}/invocations/{invocation_id}/ctx/{key}"
         )
         if (
-            value.encoding
+            value.manifest.encoding
             != SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE
         ):
             raise ValueError(
@@ -285,7 +286,13 @@ def _serialized_object_from_http_response(response: httpx.Response) -> Serialize
         )
 
     return SerializedObject(
+        manifest=SerializedObjectManifest(
+            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
+            encoding_version=0,
+            size=len(response.content),
+            # We don't store any hash on the server side right now and it's not safe
+            # to compute it here as this is user manipulated data.
+            sha256_hash="fake_hash",
+        ),
         data=response.content,
-        encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
-        encoding_version=0,
     )

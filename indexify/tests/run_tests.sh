@@ -37,7 +37,7 @@ rm -f $summary_file
 # Indexify tests.
 indexify_test_files=$(find . -name 'test_*.py')
 # Tensorlke SDK tests verify user visible functionality end-to-end.
-tensorlake_sdk_test_files=$(find ../../tensorlake/tests/tensorlake -name 'test_*.py')
+tensorlake_sdk_test_files=$(find ../../tensorlake/tests/workflows_sdk -name 'test_*.py')
 
 run_test_suite "$indexify_test_files" "Indexify"
 run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"

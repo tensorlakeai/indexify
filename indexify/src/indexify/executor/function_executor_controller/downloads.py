@@ -7,6 +7,7 @@ import nanoid
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObject,
     SerializedObjectEncoding,
+    SerializedObjectManifest,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
@@ -21,15 +22,6 @@ from .metrics.downloads import (
     metric_graph_download_latency,
     metric_graph_downloads,
     metric_graphs_from_cache,
-    metric_reducer_init_value_download_errors,
-    metric_reducer_init_value_download_latency,
-    metric_reducer_init_value_downloads,
-    metric_task_input_download_errors,
-    metric_task_input_download_latency,
-    metric_task_input_downloads,
-    metric_tasks_downloading_graphs,
-    metric_tasks_downloading_inputs,
-    metric_tasks_downloading_reducer_init_value,
 )
 
 
@@ -42,7 +34,6 @@ async def download_graph(
     logger = logger.bind(module=__name__)
     with (
         metric_graph_download_errors.count_exceptions(),
-        metric_tasks_downloading_graphs.track_inprogress(),
         metric_graph_download_latency.time(),
     ):
         metric_graph_downloads.inc()
@@ -52,56 +43,6 @@ async def download_graph(
             blob_store=blob_store,
             logger=logger,
         )
-
-
-async def download_input(
-    data_payload: DataPayload,
-    blob_store: BLOBStore,
-    logger: Any,
-) -> SerializedObject:
-    logger = logger.bind(module=__name__)
-    with (
-        metric_task_input_download_errors.count_exceptions(),
-        metric_tasks_downloading_inputs.track_inprogress(),
-        metric_task_input_download_latency.time(),
-    ):
-        metric_task_input_downloads.inc()
-        return await _download_input(
-            data_payload=data_payload,
-            blob_store=blob_store,
-            logger=logger,
-        )
-
-
-async def download_init_value(
-    data_payload: DataPayload,
-    blob_store: BLOBStore,
-    logger: Any,
-) -> SerializedObject:
-    logger = logger.bind(module=__name__)
-    with (
-        metric_reducer_init_value_download_errors.count_exceptions(),
-        metric_tasks_downloading_reducer_init_value.track_inprogress(),
-        metric_reducer_init_value_download_latency.time(),
-    ):
-        metric_reducer_init_value_downloads.inc()
-        return await _download_input(
-            data_payload=data_payload,
-            blob_store=blob_store,
-            logger=logger,
-        )
-
-
-async def _download_input(
-    data_payload: DataPayload,
-    blob_store: BLOBStore,
-    logger: Any,
-) -> SerializedObject:
-    data: bytes = await blob_store.get(uri=data_payload.uri, logger=logger)
-    return _serialized_object_from_data_payload_proto(
-        data_payload=data_payload,
-        data=data,
-    )
 
 
 async def _download_graph(
@@ -130,8 +71,10 @@ async def _download_graph(
     data: bytes = await blob_store.get(
         uri=function_executor_description.graph.uri, logger=logger
     )
-    graph = _serialized_object_from_data_payload_proto(
-        data_payload=function_executor_description.graph,
+    graph: SerializedObject = SerializedObject(
+        manifest=serialized_object_manifest_from_data_payload_proto(
+            function_executor_description.graph
+        ),
         data=data,
     )
 
@@ -173,38 +116,43 @@ def _write_cached_graph(path: str, graph: SerializedObject, cache_path: Path) ->
     os.replace(tmp_path, path)
 
 
-def _serialized_object_from_data_payload_proto(
-    data_payload: DataPayload, data: bytes
-) -> SerializedObject:
-    """Converts the given data payload and its data into SerializedObject accepted by Function Executor.
+def serialized_object_manifest_from_data_payload_proto(
+    data_payload: DataPayload,
+) -> SerializedObjectManifest:
+    """Converts the given data payload into SerializedObjectManifest accepted by Function Executor.
 
-    Raises ValueError if the supplied data payload can't be converted into serialized object.
+    Raises ValueError if the supplied data payload can't be converted.
     """
+    so_manifest: SerializedObjectManifest = SerializedObjectManifest(
+        # Server currently ignores encoding version so we set it to default 0.
+        encoding_version=(
+            data_payload.encoding_version
+            if data_payload.HasField("encoding_version")
+            else 0
+        ),
+        sha256_hash=data_payload.sha256_hash,
+        size=data_payload.size,
+    )
+
     if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:
-        return SerializedObject(
-            data=data,
-            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
-            encoding_version=data_payload.encoding_version,
+        so_manifest.encoding = (
+            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT:
-        return SerializedObject(
-            data=data,
-            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT,
-            encoding_version=data_payload.encoding_version,
+        so_manifest.encoding = (
+            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON:
-        return SerializedObject(
-            data=data,
-            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON,
-            encoding_version=data_payload.encoding_version,
+        so_manifest.encoding = (
+            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON
         )
     elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_ZIP:
-        return SerializedObject(
-            data=data,
-            encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP,
-            encoding_version=data_payload.encoding_version,
+        so_manifest.encoding = (
+            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP
+        )
+    else:
+        raise ValueError(
+            f"Can't convert data payload {data_payload} into serialized object"
         )
 
-    raise ValueError(
-        f"Can't convert data payload {data_payload} into serialized object"
-    )
+    return so_manifest

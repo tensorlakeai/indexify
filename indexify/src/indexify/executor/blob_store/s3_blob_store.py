@@ -59,7 +59,28 @@ class S3BLOBStore:
             logger.error("failed to get S3 object", uri=uri, exc_info=e)
             raise
 
-    async def put(self, uri: str, value: bytes, logger: Any) -> None:
+    async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
+        """Returns a presigned URI for getting the S3 object at the supplied URI."""
+        self._lazy_create_client()
+        bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+        try:
+            s3_uri: str = await asyncio.to_thread(
+                self._s3_client.generate_presigned_url,
+                ClientMethod="get_object",
+                Params={"Bucket": bucket_name, "Key": key},
+                ExpiresIn=expires_in_sec,
+            )
+            return s3_uri.replace("https://", "s3://", 1)
+        except Exception as e:
+            logger.error(
+                "failed to presign URI for get_object operation",
+                uri=uri,
+                exc_info=e,
+                expires_in_sec=expires_in_sec,
+            )
+            raise
+
+    async def upload(self, uri: str, value: bytes, logger: Any) -> None:
         """Stores the supplied binary value in a S3 object at the supplied URI.
 
         The URI must be S3 URI (starts with "s3://").
@@ -73,6 +94,96 @@ class S3BLOBStore:
             )
         except Exception as e:
             logger.error("failed to set S3 object", uri=uri, exc_info=e)
+            raise
+
+    async def create_multipart_upload(self, uri: str, logger: Any) -> str:
+        """Creates a multipart upload for S3 object and returns the upload ID."""
+        self._lazy_create_client()
+        bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+        try:
+            response = await asyncio.to_thread(
+                self._s3_client.create_multipart_upload,
+                Bucket=bucket_name,
+                Key=key,
+            )
+            return response["UploadId"]
+        except Exception as e:
+            logger.error("failed to create multipart upload", uri=uri, exc_info=e)
+            raise
+
+    async def complete_multipart_upload(
+        self, uri: str, upload_id: str, parts_etags: list[str], logger: Any
+    ) -> None:
+        """Completes a multipart upload for S3 object."""
+        self._lazy_create_client()
+        bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+        try:
+            await asyncio.to_thread(
+                self._s3_client.complete_multipart_upload,
+                Bucket=bucket_name,
+                Key=key,
+                UploadId=upload_id,
+                MultipartUpload={
+                    "Parts": [
+                        {"ETag": etag, "PartNumber": i + 1}
+                        for i, etag in enumerate(parts_etags)
+                    ]
+                },
+            )
+        except Exception as e:
+            logger.error("failed to complete multipart upload", uri=uri, exc_info=e)
+            raise
+
+    async def abort_multipart_upload(
+        self, uri: str, upload_id: str, logger: Any
+    ) -> None:
+        """Aborts a multipart upload for S3 object."""
+        self._lazy_create_client()
+        bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+        try:
+            await asyncio.to_thread(
+                self._s3_client.abort_multipart_upload,
+                Bucket=bucket_name,
+                Key=key,
+                UploadId=upload_id,
+            )
+        except Exception as e:
+            logger.error("failed to abort multipart upload", uri=uri, exc_info=e)
+            raise
+
+    async def presign_upload_part_uri(
+        self,
+        uri: str,
+        part_number: int,
+        upload_id: str,
+        expires_in_sec: int,
+        logger: Any,
+    ) -> str:
+        """Returns a presigned URI for uploading a part in a multipart upload for S3 object."""
+        self._lazy_create_client()
+        bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+        try:
+            response = await asyncio.to_thread(
+                self._s3_client.generate_presigned_url,
+                ClientMethod="upload_part",
+                Params={
+                    "Bucket": bucket_name,
+                    "Key": key,
+                    "UploadId": upload_id,
+                    "PartNumber": part_number,
+                },
+                ExpiresIn=expires_in_sec,
+            )
+            return response
+        except Exception as e:
+            logger.error(
+                "failed to presign URI for upload_part operation",
+                uri=uri,
+                exc_info=e,
+                part_number=part_number,
+                upload_id=upload_id,
+                expires_in_sec=expires_in_sec,
+            )
             raise
 
 

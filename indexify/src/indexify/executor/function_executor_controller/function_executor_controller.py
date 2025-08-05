@@ -6,6 +6,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    SerializedObjectEncoding,
+    SerializedObjectInsideBLOB,
+)
+
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
@@ -14,11 +19,12 @@ from indexify.executor.function_executor.server.function_executor_server_factory
 )
 from indexify.executor.state_reporter import ExecutorStateReporter
 from indexify.proto.executor_api_pb2 import (
+    DataPayload,
+    DataPayloadEncoding,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
-    FunctionExecutorUpdate,
     TaskAllocation,
     TaskResult,
 )
@@ -38,10 +44,10 @@ from .events import (
     ScheduleTaskExecution,
     ShutdownInitiated,
     TaskExecutionFinished,
-    TaskOutputUploadFinished,
+    TaskFinalizationFinished,
     TaskPreparationFinished,
 )
-from .function_executor_startup_output import FunctionExecutorStartupOutput
+from .finalize_task import finalize_task
 from .loggers import function_executor_logger, task_allocation_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED,
@@ -60,9 +66,9 @@ from .metrics.function_executor_controller import (
 from .prepare_task import prepare_task
 from .run_task import run_task_on_function_executor
 from .task_info import TaskInfo
+from .task_input import TaskInput
 from .task_output import TaskOutput
 from .terminate_function_executor import terminate_function_executor
-from .upload_task_output import upload_task_output
 
 
 # Actual FE controller states, they are a bit different from statuses reported to the Server.
@@ -242,10 +248,7 @@ class FunctionExecutorController:
             aio=next_aio,
             on_exception=FunctionExecutorCreated(
                 function_executor=None,
-                output=FunctionExecutorStartupOutput(
-                    function_executor_description=self._fe_description,
-                    termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
-                ),
+                fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
             ),
         )
 
@@ -326,7 +329,7 @@ class FunctionExecutorController:
 
                 try:
                     if event.event_type == EventType.SHUTDOWN_INITIATED:
-                        return await self._shutdown_no_exceptions(event)
+                        return await self._shutdown(event)
 
                     with metric_control_loop_handle_event_latency.time():
                         self._handle_event(event)
@@ -338,6 +341,8 @@ class FunctionExecutorController:
                         exc_info=e,
                         event_type=event.event_type.name,
                     )
+                    if event.event_type == EventType.SHUTDOWN_INITIATED:
+                        return  # Unexpected exception during shutdown, should return anyway.
 
     def _handle_event(self, event: BaseEvent) -> None:
         """Handles the event.
@@ -355,7 +360,7 @@ class FunctionExecutorController:
         elif event.event_type == EventType.TASK_EXECUTION_FINISHED:
             return self._handle_event_task_execution_finished(event)
         elif event.event_type == EventType.TASK_OUTPUT_UPLOAD_FINISHED:
-            return self._handle_event_task_output_upload_finished(event)
+            return self._handle_event_task_finalization_finished(event)
 
         self._logger.warning(
             "unexpected event type received", event_type=event.event_type.name
@@ -402,7 +407,7 @@ class FunctionExecutorController:
         """Spawns an aio task for the supplied coroutine.
 
         The coroutine should return an event that will be added to the FE controller events.
-        The coroutine should not raise any exceptions.
+        The coroutine should not raise any exceptions including BaseException and asyncio.CancelledError.
         on_exception event will be added to the FE controller events if the aio task raises an unexpected exception.
         on_exception is required to not silently stall the task processing due to an unexpected exception.
         If task_info is not None, the aio task will be associated with the task_info while the aio task is running.
@@ -417,8 +422,6 @@ class FunctionExecutorController:
         async def coroutine_wrapper() -> None:
             try:
                 self._add_event(await aio, source=aio_task_name)
-            except asyncio.CancelledError:
-                pass  # Expected exception on aio task cancellation.
             except BaseException as e:
                 logger.error(
                     "unexpected exception in aio task",
@@ -449,15 +452,6 @@ class FunctionExecutorController:
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        self._state_reporter.add_function_executor_update(
-            FunctionExecutorUpdate(
-                description=self._fe_description,
-                startup_stdout=event.output.stdout,
-                startup_stderr=event.output.stderr,
-            )
-        )
-        self._state_reporter.schedule_state_report()
-
         if event.function_executor is None:
             # Server needs to increment attempts counter for all the tasks that were pending while FE was starting up.
             # This prevents infinite retries if FEs consistently fail to start up.
@@ -474,11 +468,11 @@ class FunctionExecutorController:
                 )
                 task_info.output = TaskOutput.function_executor_startup_failed(
                     allocation=task_info.allocation,
-                    fe_startup_output=event.output,
+                    fe_termination_reason=event.fe_termination_reason,
                     logger=task_logger,
                 )
             self._start_termination(
-                fe_termination_reason=event.output.termination_reason,
+                fe_termination_reason=event.fe_termination_reason,
                 allocation_ids_caused_termination=allocation_ids_caused_termination,
             )
             return
@@ -559,16 +553,18 @@ class FunctionExecutorController:
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_output_upload(task_info)
+            self._start_task_finalization(task_info)
             return
+
         if not event.is_success:
+            # Failed to prepare the task inputs.
             task_info.output = TaskOutput.internal_error(
                 allocation=task_info.allocation,
                 # Task was prepared but never executed
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_output_upload(task_info)
+            self._start_task_finalization(task_info)
             return
 
         task_info.prepared_time = time.monotonic()
@@ -616,7 +612,7 @@ class FunctionExecutorController:
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_output_upload(task_info)
+            self._start_task_finalization(task_info)
         elif self._internal_state in [
             _FE_CONTROLLER_STATE.TERMINATING,
             _FE_CONTROLLER_STATE.TERMINATED,
@@ -626,7 +622,7 @@ class FunctionExecutorController:
                 task_info.output = TaskOutput.function_executor_terminated(
                     task_info.allocation
                 )
-            self._start_task_output_upload(task_info)
+            self._start_task_finalization(task_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
             self._running_task = task_info
             next_aio = run_task_on_function_executor(
@@ -677,17 +673,26 @@ class FunctionExecutorController:
                 ],
             )
 
-        # Ignore is_cancelled because cancelling a task still involves uploading its output.
-        # We'll just upload a real output instead of "task cancelled" output.
-        # Adds TaskOutputUploadFinished event when done.
-        self._start_task_output_upload(event.task_info)
+        task_info: TaskInfo = event.task_info
+        if task_info.output is None:
+            # `run_task_on_function_executor` guarantees that the output is set in
+            # all cases including task cancellations. If this didn't happen then some
+            # internal error occurred in our code.
+            task_info.output = TaskOutput.internal_error(
+                allocation=task_info.allocation,
+                execution_start_time=None,
+                execution_end_time=None,
+            )
 
-    def _start_task_output_upload(self, task_info: TaskInfo) -> None:
-        """Starts the task output upload for the given task.
+        self._start_task_finalization(task_info)
+
+    def _start_task_finalization(self, task_info: TaskInfo) -> None:
+        """Starts finalization for the given task.
 
         Doesn't raise any exceptions. Doesn't block.
+        task_info.output should not be None.
         """
-        next_aio = upload_task_output(
+        next_aio = finalize_task(
             task_info=task_info,
             blob_store=self._blob_store,
             logger=task_allocation_logger(task_info.allocation, self._logger),
@@ -695,43 +700,37 @@ class FunctionExecutorController:
         self._spawn_aio_for_task(
             aio=next_aio,
             task_info=task_info,
-            on_exception=TaskOutputUploadFinished(
+            on_exception=TaskFinalizationFinished(
                 task_info=task_info, is_success=False
             ),
         )
 
-    def _handle_event_task_output_upload_finished(
-        self, event: TaskOutputUploadFinished
+    def _handle_event_task_finalization_finished(
+        self, event: TaskFinalizationFinished
     ) -> None:
-        """Handles the task output upload finished event.
+        """Handles the task finalization finished event.
 
         Doesn't raise any exceptions. Doesn't block.
         """
         task_info: TaskInfo = event.task_info
         if not event.is_success:
-            failed_to_upload_output: TaskOutput = task_info.output  # Never None here
+            original_task_output: TaskOutput = task_info.output  # Never None here
             task_info.output = TaskOutput.internal_error(
                 allocation=task_info.allocation,
-                execution_start_time=failed_to_upload_output.execution_start_time,
-                execution_end_time=failed_to_upload_output.execution_end_time,
+                execution_start_time=original_task_output.execution_start_time,
+                execution_end_time=original_task_output.execution_end_time,
             )
 
-        # Ignore task cancellation, we better report real task output to the server cause it's uploaded already.
-        self._complete_task(event.task_info)
-
-    def _complete_task(self, task_info: TaskInfo) -> None:
-        """Marks the task as completed and reports it to the Server.
-
-        Doesn't raise any exceptions. Doesn't block.
-        """
+        logger: Any = task_allocation_logger(task_info.allocation, self._logger)
+        # Ignore task cancellation as it's technically finished at this point.
         task_info.is_completed = True
         emit_completed_task_metrics(
             task_info=task_info,
-            logger=task_allocation_logger(task_info.allocation, self._logger),
+            logger=logger,
         )
         # Reconciler will call .remove_task() once Server signals that it processed this update.
         self._state_reporter.add_completed_task_result(
-            _to_task_result_proto(task_info.output)
+            _to_task_result_proto(task_info, logger)
         )
         self._state_reporter.schedule_state_report()
 
@@ -768,16 +767,6 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination=allocation_ids_caused_termination,
             ),
         )
-
-    async def _shutdown_no_exceptions(self, event: ShutdownInitiated) -> None:
-        try:
-            await self._shutdown(event)
-        except BaseException as e:
-            # This would result in resource leaks.
-            self._logger.error(
-                "unexpected exception in function executor controller shutdown, this should never happen",
-                exc_info=e,
-            )
 
     async def _shutdown(self, event: ShutdownInitiated) -> None:
         """Shuts down the Function Executor and frees all its resources.
@@ -865,7 +854,13 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_task_result_proto(output: TaskOutput) -> TaskResult:
+def _to_task_result_proto(task_info: TaskInfo, logger: Any) -> TaskResult:
+    allocation: TaskAllocation = task_info.allocation
+    # Might be None if the task wasn't prepared successfully.
+    input: Optional[TaskInput] = task_info.input
+    # Never None here as we're completing the task here.
+    output: Optional[TaskOutput] = task_info.output
+
     execution_duration_ms: Optional[int] = None
     if (
         output.execution_start_time is not None
@@ -876,24 +871,72 @@ def _to_task_result_proto(output: TaskOutput) -> TaskResult:
             (output.execution_end_time - output.execution_start_time) * 1000
         )
 
-    task_result = TaskResult(
-        task_id=output.allocation.task.id,
-        allocation_id=output.allocation.allocation_id,
-        namespace=output.allocation.task.namespace,
-        graph_name=output.allocation.task.graph_name,
-        graph_version=output.allocation.task.graph_version,
-        function_name=output.allocation.task.function_name,
-        graph_invocation_id=output.allocation.task.graph_invocation_id,
+    invocation_error_output: Optional[DataPayload] = None
+    if output.invocation_error_output is not None:
+        # input can't be None if invocation_error_output is set because the task ran already.
+        invocation_error_output = _to_data_payload_proto(
+            so=output.invocation_error_output,
+            blob_uri=input.invocation_error_blob_uri,
+            logger=logger,
+        )
+
+    function_outputs: List[DataPayload] = []
+    for function_output in output.function_outputs:
+        # input can't be None if invocation_function_outputs is set because the task ran already.
+        function_output: SerializedObjectInsideBLOB
+        function_outputs.append(
+            _to_data_payload_proto(
+                so=function_output,
+                blob_uri=input.function_outputs_blob_uri,
+                logger=logger,
+            )
+        )
+
+    return TaskResult(
+        task_id=allocation.task.id,
+        allocation_id=allocation.allocation_id,
+        namespace=allocation.task.namespace,
+        graph_name=allocation.task.graph_name,
+        graph_version=allocation.task.graph_version,
+        function_name=allocation.task.function_name,
+        graph_invocation_id=allocation.task.graph_invocation_id,
         outcome_code=output.outcome_code,
         failure_reason=output.failure_reason,
         next_functions=output.next_functions,
-        function_outputs=output.uploaded_data_payloads,
-        invocation_error_output=output.uploaded_invocation_error_output,
+        function_outputs=function_outputs,
+        invocation_error_output=invocation_error_output,
         execution_duration_ms=execution_duration_ms,
     )
-    if output.uploaded_stdout is not None:
-        task_result.stdout.CopyFrom(output.uploaded_stdout)
-    if output.uploaded_stderr is not None:
-        task_result.stderr.CopyFrom(output.uploaded_stderr)
 
-    return task_result
+
+def _to_data_payload_proto(
+    so: SerializedObjectInsideBLOB,
+    blob_uri: str,
+    logger: Any,
+) -> DataPayload:
+    """Converts a serialized object inside BLOB to into a DataPayload."""
+    return DataPayload(
+        size=so.manifest.size,
+        sha256_hash=so.manifest.sha256_hash,
+        uri=blob_uri,
+        encoding=_to_data_payload_encoding(so.manifest.encoding, logger),
+        encoding_version=so.manifest.encoding_version,
+        offset=so.offset,
+    )
+
+
+def _to_data_payload_encoding(
+    encoding: SerializedObjectEncoding, logger: Any
+) -> DataPayloadEncoding:
+    if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
+    else:
+        logger.error(
+            "Unexpected encoding for SerializedObject",
+            encoding=SerializedObjectEncoding.Name(encoding),
+        )
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN

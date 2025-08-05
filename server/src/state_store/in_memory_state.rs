@@ -1356,6 +1356,7 @@ impl InMemoryState {
                     path: cg_version.code.path.clone(),
                     size: cg_version.code.size,
                     sha256_hash: cg_version.code.sha256_hash.clone(),
+                    offset: 0, // Code always uses its full BLOB
                 },
             }));
 
@@ -1615,6 +1616,7 @@ mod tests {
                     path: "test-input".to_string(),
                     size: 100,
                     sha256_hash: "test-hash".to_string(),
+                    offset: 0,
                 },
                 acc_input: None,
                 status: TaskStatus::Pending,

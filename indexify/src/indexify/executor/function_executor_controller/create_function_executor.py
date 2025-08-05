@@ -3,14 +3,17 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    InitializationFailureReason,
+    InitializationOutcomeCode,
     InitializeRequest,
+    InitializeResponse,
     SerializedObject,
 )
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
-    FunctionExecutorInitializationError,
     FunctionExecutorInitializationResult,
 )
 from indexify.executor.function_executor.server.function_executor_server_factory import (
@@ -18,16 +21,12 @@ from indexify.executor.function_executor.server.function_executor_server_factory
     FunctionExecutorServerFactory,
 )
 from indexify.proto.executor_api_pb2 import (
-    DataPayload,
-    DataPayloadEncoding,
     FunctionExecutorDescription,
     FunctionExecutorTerminationReason,
 )
 
 from .downloads import download_graph
 from .events import FunctionExecutorCreated
-from .function_executor_startup_output import FunctionExecutorStartupOutput
-from .upload_task_output import compute_hash
 
 
 async def create_function_executor(
@@ -56,125 +55,114 @@ async def create_function_executor(
             cache_path=cache_path,
             logger=logger,
         )
-        if result.error is not None:
-            await function_executor.destroy()
-            function_executor = None
-
-        return FunctionExecutorCreated(
-            function_executor=function_executor,
-            output=await _initialization_result_to_fe_creation_output(
-                function_executor_description=function_executor_description,
-                result=result,
-                blob_store=blob_store,
-                logger=logger,
-            ),
-        )
-    except BaseException as e:
-        if isinstance(e, asyncio.CancelledError):
-            logger.info("function executor startup was cancelled")
-        else:
-            logger.error(
-                "failed to create function executor due to platform error",
-                exc_info=e,
-            )
-
-        # Cancelled FE startup means that Server removed it from desired state so it doesn't matter what termination_reason we return
-        # in this case cause this FE will be removed from Executor reported state.
+    except asyncio.CancelledError:
+        # Cancelled FE startup means that Server removed this FE from desired state. We don't have FE termination reason for the case
+        # when Server removed FE from desired state because we can't rely on its delivery because FE removed from desired state can get
+        # removed from reported state at any moment. Thus we can use any termination reason here.
         return FunctionExecutorCreated(
             function_executor=None,
-            output=FunctionExecutorStartupOutput(
-                function_executor_description=function_executor_description,
-                termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR,
-            ),
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED,
+        )
+    except BaseException as e:
+        logger.error(
+            "failed to create function executor",
+            exc_info=e,
+        )
+        return FunctionExecutorCreated(
+            function_executor=None,
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR,
         )
 
-
-async def _initialization_result_to_fe_creation_output(
-    function_executor_description: FunctionExecutorDescription,
-    result: FunctionExecutorInitializationResult,
-    blob_store: BLOBStore,
-    logger: Any,
-) -> FunctionExecutorStartupOutput:
-    """Converts FunctionExecutorInitializationResult to FunctionExecutorCreationOutput.
-
-    Uploads stdout and stderr to blob store if they are present. Does only one attempt to do that.
-    Doesn't raise any exceptions."""
-    termination_reason: FunctionExecutorTerminationReason = None
-    if result.error is not None:
-        if result.error == FunctionExecutorInitializationError.FUNCTION_ERROR:
-            termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
-            )
-        elif result.error == FunctionExecutorInitializationError.FUNCTION_TIMEOUT:
-            termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
-            )
-        else:
-            logger.error(
-                "unexpected function executor initialization error code",
-                error_code=FunctionExecutorInitializationError.name(result.error),
-            )
-            termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
-            )
-
-    stdout: Optional[DataPayload] = None
-    if result.stdout is not None:
-        url = f"{function_executor_description.output_payload_uri_prefix}/{function_executor_description.id}/stdout"
-        stdout = await _upload_initialization_output(
-            output_name="stdout",
-            output=result.stdout,
-            output_url=url,
-            blob_store=blob_store,
-            logger=logger,
-        )
-
-    stderr: Optional[DataPayload] = None
-    if result.stderr is not None:
-        url = f"{function_executor_description.output_payload_uri_prefix}/{function_executor_description.id}/stderr"
-        stderr = await _upload_initialization_output(
-            output_name="stderr",
-            output=result.stderr,
-            output_url=url,
-            blob_store=blob_store,
-            logger=logger,
-        )
-
-    return FunctionExecutorStartupOutput(
-        function_executor_description=function_executor_description,
-        termination_reason=termination_reason,
-        stdout=stdout,
-        stderr=stderr,
+    function_executor: FunctionExecutor
+    result: FunctionExecutorInitializationResult
+    # No await here so this call can't be cancelled.
+    fe_created_event: FunctionExecutorCreated = _to_fe_created_event(
+        function_executor=function_executor,
+        result=result,
+        logger=logger,
     )
+    if fe_created_event.function_executor is None:
+        try:
+            await asyncio.shield(function_executor.destroy())
+        except asyncio.CancelledError:
+            # destroy() finished due to the shield, return fe_created_event.
+            pass
+
+    return fe_created_event
 
 
-async def _upload_initialization_output(
-    output_name: str, output: str, output_url: str, blob_store: BLOBStore, logger: Any
-) -> Optional[DataPayload]:
-    """Uploads text to blob store. Returns None if the upload fails.
+def _to_fe_created_event(
+    function_executor: FunctionExecutor,
+    result: FunctionExecutorInitializationResult,
+    logger: Any,
+) -> FunctionExecutorCreated:
+    """Converts FunctionExecutorInitializationResult to FunctionExecutorCreated event.
 
     Doesn't raise any exceptions.
     """
+    if result.is_timeout:
+        return FunctionExecutorCreated(
+            function_executor=None,
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT,
+        )
+
+    if result.response is None:
+        # This is a grey failure where we don't know the exact cause.
+        # Treat it as a customer function error to prevent service abuse by intentionally
+        # triggering function executor creations failures that don't get billed.
+        logger.error("function executor startup failed with no response")
+        return FunctionExecutorCreated(
+            function_executor=None,
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
+        )
+
+    initialize_response: InitializeResponse = result.response
     try:
-        output_bytes: bytes = output.encode()
-        await blob_store.put(output_url, output_bytes, logger)
-        logger.info(
-            f"function executor initialization output {output_name} uploaded to blob store",
-            size=len(output_bytes),
-        )
-        return DataPayload(
-            uri=output_url,
-            size=len(output_bytes),
-            sha256_hash=compute_hash(output_bytes),
-            encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
-            encoding_version=0,
-        )
-    except Exception as e:
+        _validate_initialize_response(initialize_response)
+    except ValueError as e:
+        # Grey failure mode. Treat as customer function error to prevent service abuse but log for future investigations.
         logger.error(
-            f"failed to upload function executor initialization output {output_name} to blob store",
-            exc_info=e,
+            "function executor initialization failed with invalid response", exc_info=e
         )
-        return None
+        return FunctionExecutorCreated(
+            function_executor=None,
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
+        )
+
+    # Print FE logs directly to Executor logs so operators can see them.
+    # Uncomment these lines once we stop printing FE logs to stdout/stderr.
+    # logger.info("Function Executor logs during initialization:")
+    # print(initialize_response.diagnostics.function_executor_log)
+
+    fe_termination_reason: Optional[FunctionExecutorTerminationReason] = None
+    if (
+        initialize_response.outcome_code
+        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE
+    ):
+        if (
+            initialize_response.failure_reason
+            == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR
+        ):
+            fe_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            )
+        else:
+            # Treat all other failure reasons as grey failures. Report them as function errors to prevent service abuse.
+            # Log them for awareness and future investigations.
+            logger.error(
+                "function executor initialization failed",
+                failure_reason=InitializationFailureReason.Name(
+                    initialize_response.failure_reason
+                ),
+            )
+            fe_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            )
+
+    return FunctionExecutorCreated(
+        function_executor=function_executor,
+        fe_termination_reason=fe_termination_reason,
+    )
 
 
 async def _create_function_executor(
@@ -189,7 +177,7 @@ async def _create_function_executor(
 ) -> Tuple[FunctionExecutor, FunctionExecutorInitializationResult]:
     """Creates a function executor.
 
-    Raises Exception on platform error.
+    Raises Exception on internal Executor error.
     """
     graph: SerializedObject = await download_graph(
         function_executor_description=function_executor_description,
@@ -209,15 +197,12 @@ async def _create_function_executor(
         graph_name=function_executor_description.graph_name,
         graph_version=function_executor_description.graph_version,
         function_name=function_executor_description.function_name,
-        image_uri=None,
         secret_names=list(function_executor_description.secret_names),
         cpu_ms_per_sec=function_executor_description.resources.cpu_ms_per_sec,
         memory_bytes=function_executor_description.resources.memory_bytes,
         disk_bytes=function_executor_description.resources.disk_bytes,
         gpu_count=gpu_count,
     )
-    if function_executor_description.HasField("image_uri"):
-        config.image_uri = function_executor_description.image_uri
 
     initialize_request: InitializeRequest = InitializeRequest(
         namespace=function_executor_description.namespace,
@@ -226,11 +211,9 @@ async def _create_function_executor(
         function_name=function_executor_description.function_name,
         graph=graph,
     )
-    customer_code_timeout_sec: Optional[float] = None
-    if function_executor_description.HasField("customer_code_timeout_ms"):
-        customer_code_timeout_sec = (
-            function_executor_description.customer_code_timeout_ms / 1000.0
-        )
+    customer_code_timeout_sec: float = (
+        function_executor_description.customer_code_timeout_ms / 1000.0
+    )
 
     function_executor: FunctionExecutor = FunctionExecutor(
         server_factory=function_executor_server_factory, logger=logger
@@ -248,5 +231,35 @@ async def _create_function_executor(
         )
         return (function_executor, result)
     except BaseException:  # includes asyncio.CancelledError and anything else
-        await function_executor.destroy()
+        # This await is a cancellation point, need to shield to ensure we destroyed the FE.
+        await asyncio.shield(function_executor.destroy())
         raise
+
+
+def _validate_initialize_response(
+    response: InitializeResponse,
+) -> None:
+    """Validates the initialization response.
+
+    Raises ValueError if the response is not valid.
+    """
+    validator: MessageValidator = MessageValidator(response)
+    (validator.required_field("outcome_code").required_field("diagnostics"))
+    if (
+        response.outcome_code
+        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE
+    ):
+        validator.required_field("failure_reason")
+
+    if response.outcome_code not in [
+        InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_SUCCESS,
+        InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE,
+    ]:
+        raise ValueError(f"Invalid outcome code: {response.outcome_code}")
+
+    if response.failure_reason not in [
+        InitializationFailureReason.INITIALIZATION_FAILURE_REASON_UNKNOWN,
+        InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR,
+        InitializationFailureReason.INITIALIZATION_FAILURE_REASON_INTERNAL_ERROR,
+    ]:
+        raise ValueError(f"Invalid failure reason: {response.failure_reason}")

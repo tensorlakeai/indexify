@@ -1,12 +1,15 @@
 from enum import Enum
 from typing import List, Optional
 
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FunctionInputs,
+)
+
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
 )
 from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
 
-from .function_executor_startup_output import FunctionExecutorStartupOutput
 from .task_info import TaskInfo
 
 
@@ -37,17 +40,20 @@ class FunctionExecutorCreated(BaseEvent):
     """
     Event indicating that Function Executor got created or failed.
 
-    The function_executor field is None if the function executor was not created.
+    The function_executor field is None if the function executor creation failed.
+    In this case the fe_termination_reason field is set to the reason why.
     """
 
     def __init__(
         self,
-        output: FunctionExecutorStartupOutput,
-        function_executor: Optional[FunctionExecutor] = None,
+        function_executor: Optional[FunctionExecutor],
+        fe_termination_reason: Optional[FunctionExecutorTerminationReason],
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_CREATED)
         self.function_executor: Optional[FunctionExecutor] = function_executor
-        self.output: FunctionExecutorStartupOutput = output
+        self.fe_termination_reason: Optional[FunctionExecutorTerminationReason] = (
+            fe_termination_reason
+        )
 
 
 class FunctionExecutorTerminated(BaseEvent):
@@ -151,9 +157,9 @@ class TaskExecutionFinished(BaseEvent):
         )
 
 
-class TaskOutputUploadFinished(BaseEvent):
+class TaskFinalizationFinished(BaseEvent):
     """
-    Event indicating that a task output has been uploaded.
+    Event indicating that a task finalization is finished.
     """
 
     def __init__(self, task_info: TaskInfo, is_success: bool):

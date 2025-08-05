@@ -299,6 +299,7 @@ impl FinalizeTaskArgs {
                     path: format!("stdout_{}", uuid::Uuid::new_v4()),
                     size: 0,
                     sha256_hash: "".to_string(),
+                    offset: 0, // stdout always uses its full BLOB
                 })
             } else {
                 None
@@ -308,6 +309,7 @@ impl FinalizeTaskArgs {
                     path: format!("stderr_{}", uuid::Uuid::new_v4()),
                     size: 0,
                     sha256_hash: "".to_string(),
+                    offset: 0, // stderr always uses its full BLOB
                 })
             } else {
                 None

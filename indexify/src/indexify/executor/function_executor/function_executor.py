@@ -1,14 +1,11 @@
 import asyncio
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     InfoRequest,
     InfoResponse,
-    InitializationFailureReason,
-    InitializationOutcomeCode,
     InitializeRequest,
     InitializeResponse,
 )
@@ -17,6 +14,8 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 from tensorlake.utils.http_client import get_httpx_client
+
+from indexify.executor.monitoring.metrics import IdempotentCounterChanger
 
 from .health_checker import HealthChecker
 from .invocation_state_client import InvocationStateClient
@@ -60,19 +59,14 @@ from .server.function_executor_server_factory import (
 )
 
 
-class FunctionExecutorInitializationError(Enum):
-    FUNCTION_TIMEOUT = 1
-    FUNCTION_ERROR = 2
-
-
 @dataclass
 class FunctionExecutorInitializationResult:
     """Result of FunctionExecutor initialization."""
 
-    # None error means success.
-    error: Optional[FunctionExecutorInitializationError] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
+    # If True, timed out waiting for the Function Executor to initialize.
+    is_timeout: bool
+    # FE is unresponsive if response is None.
+    response: Optional[InitializeResponse]
 
 
 class FunctionExecutor:
@@ -89,12 +83,17 @@ class FunctionExecutor:
 
     def __init__(self, server_factory: FunctionExecutorServerFactory, logger: Any):
         self._server_factory: FunctionExecutorServerFactory = server_factory
-        self._logger = logger.bind(module=__name__)
+        self._logger: Any = logger.bind(module=__name__)
         self._server: Optional[FunctionExecutorServer] = None
         self._channel: Optional[grpc.aio.Channel] = None
         self._invocation_state_client: Optional[InvocationStateClient] = None
         self._health_checker: Optional[HealthChecker] = None
-        metric_function_executors_count.inc()
+        self._function_executors_counter_changer: IdempotentCounterChanger = (
+            IdempotentCounterChanger(
+                metric_function_executors_count,
+            )
+        )
+        self._function_executors_counter_changer.inc()
 
     async def initialize(
         self,
@@ -102,11 +101,11 @@ class FunctionExecutor:
         initialize_request: InitializeRequest,
         base_url: str,
         config_path: Optional[str],
-        customer_code_timeout_sec: Optional[float] = None,
+        customer_code_timeout_sec: float,
     ) -> FunctionExecutorInitializationResult:
         """Creates and initializes a FunctionExecutorServer and all resources associated with it.
 
-        Raises an Exception if an internal error occured."""
+        Raises an Exception if an Executor side internal error occured."""
         try:
             with (
                 metric_create_errors.count_exceptions(),
@@ -126,7 +125,7 @@ class FunctionExecutor:
                 await self._create_health_checker(self._channel, stub)
 
                 return await _initialize_server(
-                    stub, initialize_request, customer_code_timeout_sec
+                    stub, initialize_request, customer_code_timeout_sec, self._logger
                 )
         except Exception:
             await self.destroy()
@@ -152,7 +151,7 @@ class FunctionExecutor:
                 metric_destroy_errors.count_exceptions(),
                 metric_destroy_latency.time(),
             ):
-                metric_function_executors_count.dec()
+                self._function_executors_counter_changer.dec()
                 metric_destroys.inc()
                 await self._destroy_health_checker()
                 await self._destroy_invocation_state_client()
@@ -306,7 +305,8 @@ async def _collect_server_info(stub: FunctionExecutorStub) -> None:
 async def _initialize_server(
     stub: FunctionExecutorStub,
     initialize_request: InitializeRequest,
-    customer_code_timeout_sec: Optional[float],
+    customer_code_timeout_sec: float,
+    logger: Any,
 ) -> FunctionExecutorInitializationResult:
     with (
         metric_initialize_rpc_errors.count_exceptions(),
@@ -317,46 +317,22 @@ async def _initialize_server(
                 initialize_request,
                 timeout=customer_code_timeout_sec,
             )
-
-            if (
-                initialize_response.outcome_code
-                == InitializationOutcomeCode.INITIALIZE_OUTCOME_CODE_SUCCESS
-            ):
-                return FunctionExecutorInitializationResult(
-                    stdout=initialize_response.stdout, stderr=initialize_response.stderr
-                )
-            elif (
-                initialize_response.outcome_code
-                == InitializationOutcomeCode.INITIALIZE_OUTCOME_CODE_FAILURE
-            ):
-                if (
-                    initialize_response.failure_reason
-                    == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR
-                ):
-                    return FunctionExecutorInitializationResult(
-                        error=FunctionExecutorInitializationError.FUNCTION_ERROR,
-                        stdout=initialize_response.stdout,
-                        stderr=initialize_response.stderr,
-                    )
-                elif (
-                    initialize_response.failure_reason
-                    == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_INTERNAL_ERROR
-                ):
-                    # Don't add stdout/stderr because this is customer data.
-                    raise RuntimeError("initialize RPC failed with internal error")
-                else:
-                    raise ValueError(
-                        f"unexpected failure reason {InitializationFailureReason.Name(initialize_response.failure_reason)} in initialize RPC response"
-                    )
-            else:
-                raise ValueError(
-                    f"unexpected outcome code {InitializationOutcomeCode.Name(initialize_response.outcome_code)} in initialize RPC response"
-                )
-
+            return FunctionExecutorInitializationResult(
+                is_timeout=False,
+                response=initialize_response,
+            )
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 return FunctionExecutorInitializationResult(
-                    error=FunctionExecutorInitializationError.FUNCTION_TIMEOUT,
-                    stderr=f"Function initialization exceeded its configured timeout of {customer_code_timeout_sec:.3f} sec.",
+                    is_timeout=True,
+                    response=None,
                 )
-            raise
+            else:
+                logger.error(
+                    "Function Executor initialize RPC failed",
+                    exc_info=e,
+                )
+                return FunctionExecutorInitializationResult(
+                    is_timeout=False,
+                    response=None,
+                )

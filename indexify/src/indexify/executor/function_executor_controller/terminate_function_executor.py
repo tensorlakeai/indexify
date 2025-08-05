@@ -29,7 +29,12 @@ async def terminate_function_executor(
             logger.info(
                 "destroying function executor",
             )
-            await function_executor.destroy()
+            try:
+                # This await is a cancellation point, need to shield to ensure we destroyed the FE.
+                await asyncio.shield(function_executor.destroy())
+            except asyncio.CancelledError:
+                # We actually destroyed the FE so we can return without error.
+                pass
 
     return FunctionExecutorTerminated(
         is_success=True,

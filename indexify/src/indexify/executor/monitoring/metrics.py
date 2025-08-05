@@ -243,3 +243,25 @@ def _hours_to_sec(hours: int) -> float:
 
 def _days_to_sec(days: int) -> float:
     return _hours_to_sec(days * 24)
+
+
+class IdempotentCounterChanger:
+    """A wrapper that ensures that inc/dec operations on a counter are done only once.
+
+    This is useful for tracking the number of in-progress operations or objects that exist.
+    """
+
+    def __init__(self, counter: prometheus_client.Counter) -> None:
+        self._counter: prometheus_client.Counter = counter
+        self.is_incremented: bool = False
+        self.is_decremented: bool = False
+
+    def inc(self) -> None:
+        if not self.is_incremented:
+            self._counter.inc()
+            self.is_incremented = True
+
+    def dec(self) -> None:
+        if self.is_incremented and not self.is_decremented:
+            self._counter.dec()
+            self.is_decremented = True

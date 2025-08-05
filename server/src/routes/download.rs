@@ -22,7 +22,13 @@ pub async fn download_invocation_error(
     };
 
     let storage_reader = blob_storage
-        .get(&invocation_error.payload.path)
+        .get(
+            &invocation_error.payload.path,
+            Some(
+                invocation_error.payload.offset..
+                    invocation_error.payload.offset + invocation_error.payload.size,
+            ),
+        )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -93,7 +99,10 @@ pub async fn download_fn_output_payload(
     let storage_reader = state
         .blob_storage
         .get_blob_store(&namespace)
-        .get(&payload.path)
+        .get(
+            &payload.path,
+            Some(payload.offset..payload.offset + payload.size),
+        )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -209,7 +218,10 @@ async fn stream_data_payload(
     encoding: &str,
 ) -> Result<Response<Body>, IndexifyAPIError> {
     let storage_reader = blob_storage
-        .get(&payload.path)
+        .get(
+            &payload.path,
+            Some(payload.offset..payload.offset + payload.size),
+        )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 

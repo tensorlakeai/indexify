@@ -85,6 +85,7 @@ mod tests {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
+                    offset: 0, // All BLOB operations are not offset-aware
                 },
                 created_at: get_epoch_time_in_ms(),
                 encoding: "application/octet-stream".to_string(),
@@ -126,6 +127,7 @@ mod tests {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
+                    offset: 0, // All BLOB operations are not offset-aware
                 }],
                 created_at: 5,
                 reducer_output: false,
