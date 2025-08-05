@@ -20,7 +20,9 @@ use crate::{
     http_objects::{IndexifyAPIError, RequestId},
     state_store::{
         invocation_events::{
-            InvocationStateChangeEvent, RequestFinishedEvent, REQUEST_FINISHED_EVENT_ID,
+            InvocationStateChangeEvent,
+            RequestFinishedEvent,
+            REQUEST_FINISHED_EVENT_ID,
         },
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
