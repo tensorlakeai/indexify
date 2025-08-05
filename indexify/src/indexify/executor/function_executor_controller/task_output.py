@@ -1,18 +1,16 @@
 from typing import Any, Dict, List, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    SerializedObject,
+    BLOB,
+    SerializedObjectInsideBLOB,
 )
 
 from indexify.proto.executor_api_pb2 import (
-    DataPayload,
     FunctionExecutorTerminationReason,
     TaskAllocation,
     TaskFailureReason,
     TaskOutcomeCode,
 )
-
-from .function_executor_startup_output import FunctionExecutorStartupOutput
 
 
 class TaskMetrics:
@@ -30,33 +28,27 @@ class TaskOutput:
         self,
         allocation: TaskAllocation,
         outcome_code: TaskOutcomeCode,
-        # Optional[TaskFailureReason] is not supported in python 3.9
-        failure_reason: TaskFailureReason = None,
-        invocation_error_output: Optional[SerializedObject] = None,
-        function_outputs: List[SerializedObject] = [],
+        failure_reason: Optional[TaskFailureReason] = None,
+        function_outputs: List[SerializedObjectInsideBLOB] = [],
+        uploaded_function_outputs_blob: Optional[BLOB] = None,
+        invocation_error_output: Optional[SerializedObjectInsideBLOB] = None,
+        uploaded_invocation_error_blob: Optional[BLOB] = None,
         next_functions: List[str] = [],
-        stdout: Optional[str] = None,
-        stderr: Optional[str] = None,
         metrics: Optional[TaskMetrics] = None,
         execution_start_time: Optional[float] = None,
         execution_end_time: Optional[float] = None,
     ):
-        self.task = allocation.task
         self.allocation = allocation
-        self.function_outputs = function_outputs
-        self.next_functions = next_functions
-        self.stdout = stdout
-        self.stderr = stderr
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
+        self.function_outputs = function_outputs
+        self.uploaded_function_outputs_blob = uploaded_function_outputs_blob
         self.invocation_error_output = invocation_error_output
+        self.uploaded_invocation_error_blob = uploaded_invocation_error_blob
+        self.next_functions = next_functions
         self.metrics = metrics
         self.execution_start_time = execution_start_time
         self.execution_end_time = execution_end_time
-        self.uploaded_data_payloads: List[DataPayload] = []
-        self.uploaded_stdout: Optional[DataPayload] = None
-        self.uploaded_stderr: Optional[DataPayload] = None
-        self.uploaded_invocation_error_output: Optional[DataPayload] = None
 
     @classmethod
     def internal_error(
@@ -66,12 +58,10 @@ class TaskOutput:
         execution_end_time: Optional[float],
     ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
-        # We are not sharing internal error messages with the customer.
         return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
-            stderr="Platform failed to execute the function.",
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -80,17 +70,14 @@ class TaskOutput:
     def function_timeout(
         cls,
         allocation: TaskAllocation,
-        timeout_sec: float,
         execution_start_time: Optional[float],
         execution_end_time: Optional[float],
     ) -> "TaskOutput":
-        """Creates a TaskOutput for an function timeout error."""
-        # Task stdout, stderr is not available.
+        """Creates a TaskOutput for a function timeout error."""
         return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
-            stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -102,11 +89,13 @@ class TaskOutput:
         execution_start_time: Optional[float],
         execution_end_time: Optional[float],
     ) -> "TaskOutput":
-        """Creates a TaskOutput for an unresponsive FE."""
-        # Task stdout, stderr is not available.
+        """Creates a TaskOutput for an unresponsive FE aka grey failure."""
+        # When FE is unresponsive we don't know exact cause of the failure.
         return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            # Treat the grey failure as a function error and thus charge the customer.
+            # This is to prevent service abuse by intentionally misbehaving functions.
             failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
@@ -144,21 +133,17 @@ class TaskOutput:
     def function_executor_startup_failed(
         cls,
         allocation: TaskAllocation,
-        fe_startup_output: FunctionExecutorStartupOutput,
+        fe_termination_reason: FunctionExecutorTerminationReason,
         logger: Any,
     ) -> "TaskOutput":
         """Creates a TaskOutput for the case when we fail a task that didn't run because its FE startup failed."""
-        output = TaskOutput(
+        return TaskOutput(
             allocation=allocation,
             outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
             failure_reason=_fe_startup_failure_reason_to_task_failure_reason(
-                fe_startup_output.termination_reason, logger
+                fe_termination_reason, logger
             ),
         )
-        # Use FE startup stdout, stderr for allocations that we failed because FE startup failed.
-        output.uploaded_stdout = fe_startup_output.stdout
-        output.uploaded_stderr = fe_startup_output.stderr
-        return output
 
 
 def _fe_startup_failure_reason_to_task_failure_reason(
@@ -180,6 +165,12 @@ def _fe_startup_failure_reason_to_task_failure_reason(
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
     ):
         return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+    elif (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
+    ):
+        # This fe termination reason is used when FE gets deleted by Server from desired state while it's starting up.
+        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
     else:
         logger.error(
             "unexpected function executor startup failure reason",
@@ -187,4 +178,4 @@ def _fe_startup_failure_reason_to_task_failure_reason(
                 fe_termination_reason
             ),
         )
-        return TaskFailureReason.TASK_FAILURE_REASON_UNKNOWN
+        return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR

@@ -1006,7 +1006,7 @@ async fn get_versioned_code(
         let storage_reader = state
             .blob_storage
             .get_blob_store(&namespace)
-            .get(&compute_graph_version.code.path)
+            .get(&compute_graph_version.code.path, None)
             .await
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!(
@@ -1043,7 +1043,7 @@ async fn get_versioned_code(
     let storage_reader = state
         .blob_storage
         .get_blob_store(&namespace)
-        .get(&compute_graph.code.path)
+        .get(&compute_graph.code.path, None)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {}", e))

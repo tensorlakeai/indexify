@@ -235,6 +235,7 @@ pub async fn invoke_with_object_v1(
         path: put_result.url,
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
+        offset: 0, // Whole BLOB was written, so offset is 0
     };
     state.metrics.invocation_bytes.add(data_payload.size, &[]);
     let invocation_payload = InvocationPayloadBuilder::default()
@@ -352,6 +353,7 @@ pub async fn invoke_with_object(
         path: put_result.url,
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
+        offset: 0, // Whole BLOB was written, so offset is 0
     };
     state.metrics.invocation_bytes.add(data_payload.size, &[]);
     let invocation_payload = InvocationPayloadBuilder::default()

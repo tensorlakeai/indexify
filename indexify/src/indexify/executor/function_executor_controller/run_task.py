@@ -1,18 +1,17 @@
 import asyncio
-import os
-import random
 import time
 from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    BLOB,
     AwaitTaskProgress,
     AwaitTaskRequest,
     CreateTaskRequest,
     DeleteTaskRequest,
-    FunctionInputs,
-    SerializedObject,
+    SerializedObjectInsideBLOB,
     Task,
+    TaskDiagnostics,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     TaskFailureReason as FETaskFailureReason,
@@ -47,10 +46,6 @@ from .metrics.run_task import (
 from .task_info import TaskInfo
 from .task_output import TaskMetrics, TaskOutput
 
-_ENABLE_INJECT_TASK_CANCELLATIONS = (
-    os.getenv("INDEXIFY_INJECT_TASK_CANCELLATIONS", "0") == "1"
-)
-
 _CREATE_TASK_TIMEOUT_SECS = 5
 _DELETE_TASK_TIMEOUT_SECS = 5
 
@@ -63,23 +58,31 @@ async def run_task_on_function_executor(
     Doesn't raise any exceptions.
     """
     logger = logger.bind(module=__name__)
+
+    if task_info.input is None:
+        logger.error(
+            "task input is None, this should never happen",
+        )
+        task_info.output = TaskOutput.internal_error(
+            allocation=task_info.allocation,
+            execution_start_time=None,
+            execution_end_time=None,
+        )
+        return TaskExecutionFinished(
+            task_info=task_info,
+            function_executor_termination_reason=None,
+        )
+
     task = Task(
-        task_id=task_info.allocation.task.id,
         namespace=task_info.allocation.task.namespace,
         graph_name=task_info.allocation.task.graph_name,
         graph_version=task_info.allocation.task.graph_version,
         function_name=task_info.allocation.task.function_name,
         graph_invocation_id=task_info.allocation.task.graph_invocation_id,
+        task_id=task_info.allocation.task.id,
         allocation_id=task_info.allocation.allocation_id,
-        request=FunctionInputs(function_input=task_info.input),
+        request=task_info.input.function_inputs,
     )
-    # Don't keep the input in memory after we started running the task.
-    task_info.input = None
-
-    if task_info.init_value is not None:
-        task.request.function_init_value.CopyFrom(task_info.init_value)
-        # Don't keep the init value in memory after we started running the task.
-        task_info.init_value = None
 
     function_executor.invocation_state_client().add_task_to_invocation_id_entry(
         task_id=task_info.allocation.task.id,
@@ -104,9 +107,12 @@ async def run_task_on_function_executor(
     # If this RPC failed due to customer code crashing the server we won't be
     # able to detect this. We'll treat this as our own error for now and thus
     # let the AioRpcError to be raised here.
-    timeout_sec = task_info.allocation.task.timeout_ms / 1000.0
+    timeout_sec: float = task_info.allocation.task.timeout_ms / 1000.0
     try:
+        # This aio task can only be cancelled during this await call.
         task_result = await _run_task_rpcs(task, function_executor, timeout_sec)
+
+        _process_task_diagnostics(task_result.diagnostics, logger)
 
         task_info.output = _task_output_from_function_executor_result(
             allocation=task_info.allocation,
@@ -123,7 +129,6 @@ async def run_task_on_function_executor(
         )
         task_info.output = TaskOutput.function_timeout(
             allocation=task_info.allocation,
-            timeout_sec=timeout_sec,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
@@ -156,8 +161,8 @@ async def run_task_on_function_executor(
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
-
     except asyncio.CancelledError:
+        # Handle aio task cancellation during `await _run_task_rpcs`.
         # The task is still running in FE, we only cancelled the client-side RPC.
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
@@ -192,16 +197,21 @@ async def run_task_on_function_executor(
         task_info.output.outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
         and function_executor_termination_reason is None
     ):
-        # Check if the task failed because the FE is unhealthy to prevent more tasks failing.
-        result: HealthCheckResult = await function_executor.health_checker().check()
-        if not result.is_healthy:
-            function_executor_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
-            )
-            logger.error(
-                "Function Executor health check failed after running task, shutting down Function Executor",
-                health_check_fail_reason=result.reason,
-            )
+        try:
+            # Check if the task failed because the FE is unhealthy to prevent more tasks failing.
+            result: HealthCheckResult = await function_executor.health_checker().check()
+            if not result.is_healthy:
+                function_executor_termination_reason = (
+                    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+                )
+                logger.error(
+                    "Function Executor health check failed after running task, shutting down Function Executor",
+                    health_check_fail_reason=result.reason,
+                )
+        except asyncio.CancelledError:
+            # The aio task was cancelled during the health check await.
+            # We can't conclude anything about the health of the FE here.
+            pass
 
     _log_task_execution_finished(output=task_info.output, logger=logger)
 
@@ -215,8 +225,7 @@ async def _run_task_rpcs(
     task: Task, function_executor: FunctionExecutor, timeout_sec: float
 ) -> TaskResult:
     """Runs the task, returning the result, reporting errors via exceptions."""
-
-    response: AwaitTaskProgress
+    task_result: Optional[TaskResult] = None
     channel: grpc.aio.Channel = function_executor.channel()
     fe_stub = FunctionExecutorStub(channel)
 
@@ -231,24 +240,19 @@ async def _run_task_rpcs(
     try:
         while True:
             # Wait for next response with fresh timeout each time
-            response = await asyncio.wait_for(await_rpc.read(), timeout=timeout_sec)
-            if response.WhichOneof("response") == "task_result":
-                # We're done waiting.
+            response: AwaitTaskProgress = await asyncio.wait_for(
+                await_rpc.read(), timeout=timeout_sec
+            )
+
+            if response == grpc.aio.EOF:
+                break
+            elif response.WhichOneof("response") == "task_result":
+                task_result = response.task_result
                 break
 
             # NB: We don't actually check for other message types
             # here; any message from the FE is treated as an
             # indication that it's making forward progress.
-
-            if response == grpc.aio.EOF:
-                # Protocol error: we should get a task_result before
-                # we see the RPC complete.
-                raise grpc.aio.AioRpcError(
-                    grpc.StatusCode.CANCELLED,
-                    None,
-                    None,
-                    "Function Executor didn't return function/task alloc response",
-                )
     finally:
         # Cancel the outstanding RPC to ensure any resources in use
         # are cleaned up; note that this is idempotent (in case the
@@ -260,7 +264,15 @@ async def _run_task_rpcs(
         DeleteTaskRequest(task_id=task.task_id), timeout=_DELETE_TASK_TIMEOUT_SECS
     )
 
-    return response.task_result
+    if task_result is None:
+        raise grpc.aio.AioRpcError(
+            grpc.StatusCode.CANCELLED,
+            None,
+            None,
+            "Function Executor didn't return function/task alloc result",
+        )
+
+    return task_result
 
 
 def _task_output_from_function_executor_result(
@@ -271,8 +283,6 @@ def _task_output_from_function_executor_result(
     logger: Any,
 ) -> TaskOutput:
     response_validator = MessageValidator(result)
-    response_validator.required_field("stdout")
-    response_validator.required_field("stderr")
     response_validator.required_field("outcome_code")
 
     metrics = TaskMetrics(counters={}, timers={})
@@ -285,7 +295,8 @@ def _task_output_from_function_executor_result(
         result.outcome_code, logger=logger
     )
     failure_reason: Optional[TaskFailureReason] = None
-    invocation_error_output: Optional[SerializedObject] = None
+    invocation_error_output: Optional[SerializedObjectInsideBLOB] = None
+    uploaded_invocation_error_blob: Optional[BLOB] = None
 
     if outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
         response_validator.required_field("failure_reason")
@@ -294,25 +305,22 @@ def _task_output_from_function_executor_result(
         )
         if failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR:
             response_validator.required_field("invocation_error_output")
+            response_validator.required_field("uploaded_invocation_error_blob")
             invocation_error_output = result.invocation_error_output
-
-    if _ENABLE_INJECT_TASK_CANCELLATIONS:
-        logger.warning("injecting cancellation failure for the task allocation")
-        if (
-            random.random() < 0.5
-        ):  # 50% chance to get stable reproduction in manual testing
-            outcome_code = TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
-            failure_reason = TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED
+            uploaded_invocation_error_blob = result.uploaded_invocation_error_blob
+    elif outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS:
+        # function_outputs can have no items, this happens when the function returns None.
+        response_validator.required_field("uploaded_function_outputs_blob")
 
     return TaskOutput(
         allocation=allocation,
         outcome_code=outcome_code,
         failure_reason=failure_reason,
+        function_outputs=list(result.function_outputs),
+        uploaded_function_outputs_blob=result.uploaded_function_outputs_blob,
         invocation_error_output=invocation_error_output,
-        function_outputs=result.function_outputs,
-        next_functions=result.next_functions,
-        stdout=result.stdout,
-        stderr=result.stderr,
+        uploaded_invocation_error_blob=uploaded_invocation_error_blob,
+        next_functions=list(result.next_functions),
         metrics=metrics,
         execution_start_time=execution_start_time,
         execution_end_time=execution_end_time,
@@ -330,6 +338,14 @@ def _log_task_execution_finished(output: TaskOutput, logger: Any) -> None:
             else None
         ),
     )
+
+
+def _process_task_diagnostics(task_diagnostics: TaskDiagnostics, logger: Any) -> None:
+    MessageValidator(task_diagnostics).required_field("function_executor_log")
+    # Uncomment these lines once we stop printing FE logs to stdout/stderr.
+    # Print FE logs directly to Executor logs so operators can see them.
+    # logger.info("Function Executor logs during task execution:")
+    # print(task_diagnostics.function_executor_log)
 
 
 def _to_task_outcome_code(

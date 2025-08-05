@@ -16,12 +16,15 @@ enum DataPayloadEncoding {
 message DataPayload {
     optional uint64 size = 2;
     optional string sha256_hash = 3;
-    // URI of the data.
+    // URI of the BLOB where the data is stored.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix if the data is stored on a local file system.
     optional string uri = 4;
     optional DataPayloadEncoding encoding = 5;
+    // Not set and ignored by Server right now.
     optional uint64 encoding_version = 6;
+    // Offset inside the BLOB.
+    optional uint64 offset = 7;
 }
 
 // ===== report_executor_state RPC =====
@@ -118,6 +121,7 @@ message FunctionExecutorDescription {
     // URI prefix for the startup output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional string output_payload_uri_prefix = 12;
 }
 
@@ -128,6 +132,7 @@ message FunctionExecutorState {
     repeated string allocation_ids_caused_termination = 4;
 }
 
+// Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
 message FunctionExecutorUpdate {
     optional FunctionExecutorDescription description = 1;
     optional DataPayload startup_stdout = 2;
@@ -207,6 +212,8 @@ message Task {
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     optional string output_payload_uri_prefix = 13;
     optional TaskRetryPolicy retry_policy = 14;
+    // BLOB URI prefix for the invocation error payloads.
+    optional string invocation_error_payload_uri_prefix = 15;
 }
 
 message TaskAllocation {
@@ -269,11 +276,11 @@ message TaskResult {
     repeated string next_functions = 11;
     repeated DataPayload function_outputs = 12;
     // Standard output and error streams of the function.
+    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional DataPayload stdout = 13;
     optional DataPayload stderr = 14;
     // User payload for invocation error if task failed with invocation error.
     optional DataPayload invocation_error_output = 15;
-
     optional uint64 execution_duration_ms = 16;
 }
 

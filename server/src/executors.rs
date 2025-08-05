@@ -413,6 +413,7 @@ impl ExecutorManager {
                 sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
                 encoding: Some(DataPayloadEncoding::BinaryZip.into()),
                 encoding_version: None,
+                offset: Some(0), // One code per BLOB
             };
             let fe = &desired_state_fe.function_executor.function_executor;
             let fe_output_payload_uri_prefix = format!("{blob_store_url}/function_executors",);
@@ -459,7 +460,13 @@ impl ExecutorManager {
                         timeout_ms: Some(task.timeout_ms),
                         input: Some(computed_task.input_payload),
                         reducer_input: computed_task.reducer_input_payload,
-                        output_payload_uri_prefix: Some(computed_task.output_payload_uri_prefix),
+                        output_payload_uri_prefix: Some(
+                            computed_task.output_payload_uri_prefix.clone(),
+                        ),
+                        // TODO: https://github.com/tensorlakeai/indexify/issues/1645
+                        invocation_error_payload_uri_prefix: Some(
+                            computed_task.output_payload_uri_prefix.clone(),
+                        ),
                         retry_policy: Some(task.retry_policy.clone().into()),
                     }),
                 };
@@ -501,6 +508,7 @@ impl ExecutorManager {
                 DataPayloadEncoding::try_from("application/octet-stream".to_string())?.into(),
             ),
             encoding_version: None,
+            offset: Some(task.input.offset),
         };
 
         let reducer_input = task.acc_input.clone().map(|input| DataPayload {
@@ -517,6 +525,7 @@ impl ExecutorManager {
                     .into(),
             ),
             encoding_version: None,
+            offset: Some(input.offset),
         });
 
         // Create output payload URI prefix

@@ -138,17 +138,19 @@ TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
 TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
 
 class DataPayload(_message.Message):
-    __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version")
+    __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version", "offset")
     SIZE_FIELD_NUMBER: _ClassVar[int]
     SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
     URI_FIELD_NUMBER: _ClassVar[int]
     ENCODING_FIELD_NUMBER: _ClassVar[int]
     ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
     size: int
     sha256_hash: str
     uri: str
     encoding: DataPayloadEncoding
     encoding_version: int
+    offset: int
     def __init__(
         self,
         size: _Optional[int] = ...,
@@ -156,6 +158,7 @@ class DataPayload(_message.Message):
         uri: _Optional[str] = ...,
         encoding: _Optional[_Union[DataPayloadEncoding, str]] = ...,
         encoding_version: _Optional[int] = ...,
+        offset: _Optional[int] = ...,
     ) -> None: ...
 
 class GPUResources(_message.Message):
@@ -449,6 +452,7 @@ class Task(_message.Message):
         "reducer_input",
         "output_payload_uri_prefix",
         "retry_policy",
+        "invocation_error_payload_uri_prefix",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -461,6 +465,7 @@ class Task(_message.Message):
     REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
+    INVOCATION_ERROR_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -472,6 +477,7 @@ class Task(_message.Message):
     reducer_input: DataPayload
     output_payload_uri_prefix: str
     retry_policy: TaskRetryPolicy
+    invocation_error_payload_uri_prefix: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -485,6 +491,7 @@ class Task(_message.Message):
         reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
         output_payload_uri_prefix: _Optional[str] = ...,
         retry_policy: _Optional[_Union[TaskRetryPolicy, _Mapping]] = ...,
+        invocation_error_payload_uri_prefix: _Optional[str] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):

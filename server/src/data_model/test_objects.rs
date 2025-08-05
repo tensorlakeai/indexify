@@ -73,6 +73,7 @@ pub mod tests {
                         sha256_hash: "3433".to_string(),
                         path: path.clone(),
                         size: 12,
+                        offset: 0,
                     })
                     .collect(),
             )
@@ -89,6 +90,7 @@ pub mod tests {
                 path: "test".to_string(),
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
+                offset: 0,
             })
             .encoding("application/octet-stream".to_string())
             .build()
