@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{data_model::TaskOutcome, state_store::requests::AllocationOutput};
 
+pub const REQUEST_FINISHED_EVENT_ID: &str = "request_finished";
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
     TaskCreated(TaskCreated),
@@ -64,6 +66,13 @@ impl InvocationStateChangeEvent {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
+        }
+    }
+
+    pub fn to_event_id(&self) -> String {
+        match self {
+            InvocationStateChangeEvent::RequestFinished(_) => REQUEST_FINISHED_EVENT_ID.to_string(),
+            _ => "state_change".to_string(),
         }
     }
 }
