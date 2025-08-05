@@ -86,24 +86,17 @@ class TestMetrics(unittest.TestCase):
         expected_sample_names = [
             "python_info",
             # graph downloads
-            "task_graph_downloads_total",
-            "task_graph_download_errors_total",
-            "task_graph_downloads_from_cache_total",
-            "task_graph_download_latency_seconds_count",
-            "task_graph_download_latency_seconds_sum",
-            "tasks_downloading_graphs",
-            # task input downloads
-            "task_input_downloads_total",
-            "task_input_download_errors_total",
-            "task_input_download_latency_seconds_count",
-            "task_input_download_latency_seconds_sum",
-            "tasks_downloading_inputs",
-            # task reducer init value downloads
-            "task_reducer_init_value_downloads_total",
-            "task_reducer_init_value_download_errors_total",
-            "task_reducer_init_value_download_latency_seconds_count",
-            "task_reducer_init_value_download_latency_seconds_sum",
-            "tasks_downloading_reducer_init_value",
+            "graph_downloads_total",
+            "graph_download_errors_total",
+            "graph_downloads_from_cache_total",
+            "graph_download_latency_seconds_count",
+            "graph_download_latency_seconds_sum",
+            # task preparation
+            "task_preparations_total",
+            "task_preparation_errors_total",
+            "task_preparation_latency_seconds_count",
+            "task_preparation_latency_seconds_sum",
+            "tasks_getting_prepared",
             # FE health checker
             "function_executor_failed_health_checks_total",
             "function_executor_health_check_latency_seconds_count",
@@ -181,11 +174,11 @@ class TestMetrics(unittest.TestCase):
             "tasks_completed_total",
             "task_completion_latency_seconds_count",
             "task_completion_latency_seconds_sum",
-            # Task output blob store upload metrics
-            "task_output_blob_store_uploads_total",
-            "task_output_blob_store_upload_errors_total",
-            "task_output_blob_store_upload_latency_seconds_count",
-            "task_output_blob_store_upload_latency_seconds_sum",
+            # Task finalization
+            "task_finalizations_total",
+            "task_finalization_errors_total",
+            "task_finalization_latency_seconds_count",
+            "task_finalization_latency_seconds_sum",
             # Task scheduling
             "schedule_task_latency_seconds_count",
             "schedule_task_latency_seconds_sum",
@@ -266,23 +259,15 @@ class TestMetrics(unittest.TestCase):
 
         expected_sample_diffs: List[SampleSpec] = [
             # graph downloads
-            SampleSpec("task_graph_downloads_total", {}, 1.0),
-            SampleSpec("task_graph_download_errors_total", {}, 0.0),
-            SampleSpec("task_graph_downloads_from_cache_total", {}, 0.0),
-            SampleSpec("task_graph_download_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_downloading_graphs", {}, 0.0),
-            # task input downloads
-            SampleSpec("task_input_downloads_total", {}, 1.0),
-            SampleSpec("task_input_download_errors_total", {}, 0.0),
-            SampleSpec("task_input_download_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_downloading_inputs", {}, 0.0),
-            # task reducer init value downloads
-            SampleSpec("task_reducer_init_value_downloads_total", {}, 0.0),
-            SampleSpec("task_reducer_init_value_download_errors_total", {}, 0.0),
-            SampleSpec(
-                "task_reducer_init_value_download_latency_seconds_count", {}, 0.0
-            ),
-            SampleSpec("tasks_downloading_reducer_init_value", {}, 0.0),
+            SampleSpec("graph_downloads_total", {}, 1.0),
+            SampleSpec("graph_download_errors_total", {}, 0.0),
+            SampleSpec("graph_downloads_from_cache_total", {}, 0.0),
+            SampleSpec("graph_download_latency_seconds_count", {}, 1.0),
+            # task preparations
+            SampleSpec("task_preparations_total", {}, 1.0),
+            SampleSpec("task_preparation_errors_total", {}, 0.0),
+            SampleSpec("task_preparation_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_getting_prepared", {}, 0.0),
             # FE health checker
             SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
             SampleSpec(
@@ -395,10 +380,10 @@ class TestMetrics(unittest.TestCase):
                 0.0,
             ),
             SampleSpec("task_completion_latency_seconds_count", {}, 1.0),
-            # Task output blob store upload metrics
-            SampleSpec("task_output_blob_store_uploads_total", {}, 1.0),
-            SampleSpec("task_output_blob_store_upload_errors_total", {}, 0.0),
-            SampleSpec("task_output_blob_store_upload_latency_seconds_count", {}, 1.0),
+            # Task finalization
+            SampleSpec("task_finalizations_total", {}, 1.0),
+            SampleSpec("task_finalization_errors_total", {}, 0.0),
+            SampleSpec("task_finalization_latency_seconds_count", {}, 1.0),
             # Task scheduling
             SampleSpec("schedule_task_latency_seconds_count", {}, 1.0),
             SampleSpec("runnable_tasks", {}, 0.0),

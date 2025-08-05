@@ -1,4 +1,4 @@
-from tensorlake.utils.logging import (
+from indexify.executor.logging import (
     configure_development_mode_logging,
     configure_logging_early,
     configure_production_mode_logging,
@@ -162,13 +162,6 @@ def executor(
         shutil.rmtree(str(executor_cache_path))
     executor_cache_path.mkdir(parents=True, exist_ok=True)
 
-    blob_store: BLOBStore = BLOBStore(
-        # Local FS mode is used in tests and in cases when user wants to store data on NFS.
-        local=LocalFSBLOBStore(),
-        # S3 is initiliazed lazily so it's okay to create it even if the user is not going to use it.
-        s3=S3BLOBStore(),
-    )
-
     host_resources_provider: HostResourcesProvider = HostResourcesProvider(
         gpu_allocator=NvidiaGPUAllocator(logger),
         # Assuming a simple setup in OSS where Executor container has a single file system
@@ -200,6 +193,6 @@ def executor(
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        blob_store=blob_store,
+        blob_store=BLOBStore(),
         host_resources_provider=host_resources_provider,
     ).run()

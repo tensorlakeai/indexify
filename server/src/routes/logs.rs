@@ -95,7 +95,10 @@ async fn data_payload_response(
     };
 
     let storage_reader = blob_storage
-        .get(&payload.path)
+        .get(
+            &payload.path,
+            Some(payload.offset..payload.offset + payload.size),
+        )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Response::builder()

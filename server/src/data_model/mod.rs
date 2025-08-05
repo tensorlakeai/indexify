@@ -561,6 +561,10 @@ pub struct DataPayload {
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
+    // The default 0 is used for DataPayloads stored in state store
+    // before we introduced multiple DataPayloads stored inside a single BLOB.
+    #[serde(default)]
+    pub offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -22,7 +22,6 @@ class FunctionExecutorServerConfiguration:
     graph_name: str
     function_name: str
     graph_version: str
-    image_uri: Optional[str]
     secret_names: List[str]
     cpu_ms_per_sec: int
     memory_bytes: int

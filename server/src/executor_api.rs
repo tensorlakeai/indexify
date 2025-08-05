@@ -589,6 +589,9 @@ impl ExecutorAPIService {
                 let size = output
                     .size
                     .ok_or(Status::invalid_argument("size is required"))?;
+                // Default to 0 if Executor is not yet storing multiple DataPayloads inside a
+                // single BLOB.
+                let offset = output.offset.unwrap_or(0);
                 let sha256_hash = output
                     .sha256_hash
                     .ok_or(Status::invalid_argument("sha256_hash is required"))?;
@@ -596,6 +599,7 @@ impl ExecutorAPIService {
                     path,
                     size,
                     sha256_hash,
+                    offset,
                 };
                 encoding_str = match output.encoding {
                     Some(value) => {
@@ -959,6 +963,8 @@ fn prepare_data_payload(
         path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
         size: msg.size.unwrap(),
         sha256_hash: msg.sha256_hash.unwrap(),
+        // Default to 0 if Executor is not yet storing multiple DataPayloads inside a single BLOB.
+        offset: msg.offset.unwrap_or(0),
     })
 }
 

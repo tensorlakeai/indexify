@@ -21,12 +21,10 @@ def validate_function_executor_description(
     validator.required_field("graph_name")
     validator.required_field("graph_version")
     validator.required_field("function_name")
-    # image_uri is optional.
     # secret_names can be empty.
     validator.required_field("customer_code_timeout_ms")
     validator.required_field("graph")
     validator.required_field("resources")
-    validator.required_field("output_payload_uri_prefix")
 
     _validate_data_payload(function_executor_description.graph)
 
@@ -81,4 +79,13 @@ def _validate_data_payload(data_payload: DataPayload) -> None:
 
     Raises ValueError if the DataPayload is not valid.
     """
-    (MessageValidator(data_payload).required_field("uri").required_field("encoding"))
+    (
+        MessageValidator(data_payload)
+        .required_field("size")
+        .required_field("sha256_hash")
+        .required_field("uri")
+        .required_field("encoding")
+        # Ignored by Server right now and not set.
+        # .required_field("encoding_version")
+        .required_field("offset")
+    )
