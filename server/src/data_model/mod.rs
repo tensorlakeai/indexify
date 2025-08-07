@@ -425,6 +425,15 @@ pub struct ParameterMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ComputeGraphState {
+    Undefined,
+    Active,
+    Disabled {
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
@@ -440,6 +449,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    pub state: ComputeGraphState,
 }
 
 impl ComputeGraph {
@@ -2200,6 +2210,7 @@ mod tests {
             tombstoned: false,
             description: "description1".to_string(),
             tags: HashMap::new(),
+            state: ComputeGraphState::Active,
             nodes: HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),

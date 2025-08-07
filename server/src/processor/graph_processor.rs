@@ -65,6 +65,12 @@ impl GraphProcessor {
         }
     }
 
+    pub async fn validate_graph_constraints(&self) -> Result<()> {
+        // TODO: Validate whether the graphs is schedulable 
+        // Write a scheduler update where the graphs are updated to be unschedulable
+        Ok(())
+    }
+
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
         let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
