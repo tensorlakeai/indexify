@@ -22,9 +22,38 @@ use tokio::sync::{broadcast, watch, RwLock};
 use tracing::{debug, error, info, span};
 
 use crate::{
+    config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
 };
+
+#[derive(Debug, Clone)]
+pub struct ExecutorCatalog {
+    pub entries: Vec<ExecutorCatalogEntry>,
+}
+
+impl ExecutorCatalog {
+    pub fn label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
+        self.entries
+            .iter()
+            .flat_map(|entry| entry.to_label_sets())
+            .collect()
+    }
+
+    /// Returns true if no catalog entries are configured, meaning any executor
+    /// labels are allowed.
+    pub fn allows_any_labels(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+impl Default for ExecutorCatalog {
+    fn default() -> Self {
+        ExecutorCatalog {
+            entries: Vec::new(),
+        }
+    }
+}
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -88,7 +117,7 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-    pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
+    pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
 
@@ -118,6 +147,7 @@ impl IndexifyState {
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
             scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+            executor_catalog,
         )?));
         let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
         let s = Arc::new(Self {

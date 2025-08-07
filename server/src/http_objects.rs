@@ -378,6 +378,36 @@ fn default_encoder() -> String {
     "cloudpickle".to_string()
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Default)]
+pub struct PlacementConstraints {
+    /// List of label filter expressions in the format "key=value",
+    /// "key!=value", etc.
+    #[serde(default)]
+    pub filter_expressions: Vec<String>,
+}
+
+impl TryFrom<PlacementConstraints> for data_model::filter::LabelsFilter {
+    type Error = anyhow::Error;
+
+    fn try_from(value: PlacementConstraints) -> Result<Self, Self::Error> {
+        let mut expressions = Vec::new();
+        for expr_str in value.filter_expressions {
+            let expression = data_model::filter::Expression::from_str(&expr_str)
+                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {}", e))?;
+            expressions.push(expression);
+        }
+        Ok(data_model::filter::LabelsFilter(expressions))
+    }
+}
+
+impl From<data_model::filter::LabelsFilter> for PlacementConstraints {
+    fn from(value: data_model::filter::LabelsFilter) -> Self {
+        Self {
+            filter_expressions: value.0.into_iter().map(|expr| expr.to_string()).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct CacheKey(String);
 
@@ -430,15 +460,19 @@ pub struct ComputeFn {
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
     pub return_type: Option<serde_json::Value>,
+    #[serde(default)]
+    pub placement_constraints: PlacementConstraints,
 }
 
-impl From<ComputeFn> for data_model::ComputeFn {
-    fn from(val: ComputeFn) -> Self {
-        data_model::ComputeFn {
+impl TryFrom<ComputeFn> for data_model::ComputeFn {
+    type Error = anyhow::Error;
+
+    fn try_from(val: ComputeFn) -> Result<Self, Self::Error> {
+        Ok(data_model::ComputeFn {
             name: val.name.clone(),
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
-            placement_constraints: Default::default(),
+            placement_constraints: val.placement_constraints.try_into()?,
             reducer: val.reducer,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
@@ -450,7 +484,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             cache_key: val.cache_key.map(|v| v.into()),
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
-        }
+        })
     }
 }
 
@@ -471,6 +505,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             cache_key: c.cache_key.map(|v| v.into()),
             parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: c.return_type,
+            placement_constraints: c.placement_constraints.into(),
         }
     }
 }
@@ -580,9 +615,20 @@ impl ComputeGraph {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
             node.validate(executor_config)?;
-            nodes.insert(name, node.into());
+            let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
+                IndexifyAPIError::bad_request(&format!(
+                    "Invalid placement constraints in node '{}': {}",
+                    name, e
+                ))
+            })?;
+            nodes.insert(name, converted_node);
         }
-        let start_fn: data_model::ComputeFn = self.start_node.into();
+        let start_fn: data_model::ComputeFn = self.start_node.try_into().map_err(|e| {
+            IndexifyAPIError::bad_request(&format!(
+                "Invalid placement constraints in start node: {}",
+                e
+            ))
+        })?;
 
         let compute_graph = data_model::ComputeGraph {
             name: self.name,
@@ -845,6 +891,7 @@ pub enum InvocationFailureReason {
     FunctionError,
     InvocationError,
     NextFunctionNotFound,
+    ConstraintUnsatisfiable,
 }
 
 impl From<GraphInvocationFailureReason> for InvocationFailureReason {
@@ -858,6 +905,9 @@ impl From<GraphInvocationFailureReason> for InvocationFailureReason {
             }
             GraphInvocationFailureReason::NextFunctionNotFound => {
                 InvocationFailureReason::NextFunctionNotFound
+            }
+            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
+                InvocationFailureReason::ConstraintUnsatisfiable
             }
         }
     }
@@ -1015,7 +1065,7 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
-    pub labels: HashMap<String, serde_json::Value>,
+    pub labels: HashMap<String, String>,
     pub function_executors: Vec<FunctionExecutorMetadata>,
     pub server_only_function_executors: Vec<FunctionExecutorMetadata>,
     pub host_resources: HostResources,
@@ -1081,6 +1131,40 @@ pub fn from_data_model_executor_metadata(
         tombstoned: executor.tombstoned,
         state_hash: executor.state_hash,
         clock: executor.clock,
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ExecutorCatalogEntry {
+    pub name: String,
+    pub regions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct ExecutorCatalog {
+    pub entries: Vec<ExecutorCatalogEntry>,
+    pub remark: Option<String>,
+}
+
+impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
+    fn from(catalog: &crate::state_store::ExecutorCatalog) -> Self {
+        let remark = if catalog.allows_any_labels() {
+            Some("Executor catalog is empty - all executor labels are allowed".to_string())
+        } else {
+            None
+        };
+
+        ExecutorCatalog {
+            entries: catalog
+                .entries
+                .iter()
+                .map(|entry| ExecutorCatalogEntry {
+                    name: entry.name.clone(),
+                    regions: entry.regions.clone(),
+                })
+                .collect(),
+            remark,
+        }
     }
 }
 
@@ -1179,7 +1263,7 @@ pub struct ExecutorsAllocationsResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::ComputeFn;
+    use crate::http_objects::{ComputeFn, PlacementConstraints};
 
     #[test]
     fn test_compute_graph_deserialization() {
@@ -1197,5 +1281,68 @@ mod tests {
         let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         println!("{compute_fn:?}");
+    }
+
+    #[test]
+    fn test_labels_filter_conversion() {
+        // Test HTTP LabelsFilter to data_model conversion
+        let http_filter = PlacementConstraints {
+            filter_expressions: vec![
+                "environment==production".to_string(),
+                "gpu_type==nvidia".to_string(),
+                "region!=us-east".to_string(),
+            ],
+        };
+
+        let data_model_filter: crate::data_model::filter::LabelsFilter =
+            http_filter.clone().try_into().unwrap();
+        println!("{:?}", data_model_filter);
+        assert_eq!(data_model_filter.0.len(), 3);
+
+        // Test data_model LabelsFilter to HTTP conversion
+        let converted_back: PlacementConstraints = data_model_filter.into();
+        assert_eq!(converted_back.filter_expressions.len(), 3);
+
+        // Test round-tripping
+        let expected_expressions = vec![
+            "environment==production".to_string(),
+            "gpu_type==nvidia".to_string(),
+            "region!=us-east".to_string(),
+        ];
+
+        // Should contain the normalized expressions
+        for expr in &expected_expressions {
+            assert!(
+                converted_back.filter_expressions.contains(expr),
+                "Expression '{}' not found in converted back: {:?}",
+                expr,
+                converted_back.filter_expressions
+            );
+        }
+    }
+
+    #[test]
+    fn test_compute_fn_with_placement_constraints() {
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
+
+        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
+        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+
+        // Test conversion to data model
+        let data_model_fn: crate::data_model::ComputeFn = compute_fn.try_into().unwrap();
+        assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
+    }
+
+    #[test]
+    fn test_compute_fn_with_unparseable_placement_constraints() {
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
+
+        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
+        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+
+        // Test failed conversion to data model
+        assert!(
+            <ComputeFn as TryInto<crate::data_model::ComputeFn>>::try_into(compute_fn).is_err()
+        );
     }
 }

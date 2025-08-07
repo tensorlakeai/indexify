@@ -18,3 +18,26 @@ instance_id = "indexify-server-1"
 # List of targets and their log levels for local logging
 [telemetry.local_log_targets]
 scheduler = "debug"
+
+# Executor catalog configuration.
+#
+# Each catalog entry defines a named executor type and the regions where
+# it can be deployed. This creates a structured catalog of available
+# executor configurations.
+#
+# Executors connect with labels including "sku" and "region" that must
+# match an entry in this catalog to be accepted.
+#
+# If no catalog entries are configured, executor label checks are not
+# enforced; all executor labels are allowed.
+[[executor_catalog]]
+name = "gpu-xl"
+regions = ["us-west-2", "eu-west-1"]
+
+[[executor_catalog]]
+name = "cpu-s"
+regions = ["us-east-1", "us-west-2"]
+
+[[executor_catalog]]
+name = "gpu-xxl"
+regions = ["eu-west-1"]

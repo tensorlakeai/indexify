@@ -40,6 +40,7 @@ use crate::{
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
+        ExecutorCatalog,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
 };
@@ -54,6 +55,10 @@ pub enum Error {
         version: String,
         function_name: String,
     },
+    ConstraintUnsatisfiable {
+        function_name: String,
+        constraints: String,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -64,6 +69,16 @@ impl std::fmt::Display for Error {
             }
             Error::ComputeFunctionNotFound { function_name, .. } => {
                 write!(f, "Compute function not found: {function_name}")
+            }
+            Error::ConstraintUnsatisfiable {
+                function_name,
+                constraints,
+            } => {
+                write!(
+                    f,
+                    "No executors in the system can satisfy placement constraints for function '{}': {}",
+                    function_name, constraints
+                )
             }
         }
     }
@@ -76,6 +91,7 @@ impl Error {
         match self {
             Error::ComputeGraphVersionNotFound { version, .. } => version,
             Error::ComputeFunctionNotFound { version, .. } => version,
+            Error::ConstraintUnsatisfiable { .. } => "",
         }
     }
 
@@ -83,6 +99,7 @@ impl Error {
         match self {
             Error::ComputeGraphVersionNotFound { function_name, .. } => function_name,
             Error::ComputeFunctionNotFound { function_name, .. } => function_name,
+            Error::ConstraintUnsatisfiable { function_name, .. } => function_name,
         }
     }
 }
@@ -192,6 +209,9 @@ pub struct InMemoryState {
 
     // Invocation Ctx
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
+
+    // Configured executor label sets
+    pub executor_catalog: ExecutorCatalog,
 
     // Histogram metrics for task latency measurements for direct recording
     task_pending_latency: Histogram<f64>,
@@ -402,7 +422,7 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(clock: u64, reader: StateReader) -> Result<Self> {
+    pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -553,6 +573,7 @@ impl InMemoryState {
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
+            executor_catalog,
             // metrics
             task_pending_latency,
             allocation_running_latency,
@@ -949,7 +970,12 @@ impl InMemoryState {
                 version: task.graph_version.0.clone(),
                 function_name: task.compute_fn_name.clone(),
             })?;
+
+        // First, check if ANY executor in the system could potentially satisfy
+        // the placement constraints (ignoring resource availability and current state)
+        let mut found_matching_executor = false;
         let mut candidates = Vec::new();
+
         for (_, executor_state) in &self.executor_states {
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(
@@ -961,6 +987,15 @@ impl InMemoryState {
             if executor.tombstoned || !executor.is_task_allowed(task) {
                 continue;
             }
+
+            // Check if this executor's labels could potentially match the placement
+            // constraints
+            if !compute_fn.placement_constraints.matches(&executor.labels) {
+                continue;
+            }
+
+            found_matching_executor = true;
+
             // TODO: Match functions to GPU models according to prioritized order in
             // gpu_configs.
             if executor_state
@@ -971,6 +1006,35 @@ impl InMemoryState {
                 candidates.push(executor_state.clone());
             }
         }
+
+        // If no executor currently in the system could ever satisfy
+        // the placement constraints, check if any of the configured
+        // executor label sets could theoretically match.  This
+        // prevents ConstraintUnsatisfiable errors when a matching
+        // executor just hasn't connected yet.
+        if !found_matching_executor &&
+            !self.executor_catalog.allows_any_labels() &&
+            !self
+                .executor_catalog
+                .label_sets()
+                .iter()
+                .any(|label_set| compute_fn.placement_constraints.matches(label_set))
+        {
+            // TODO: Turn this into a check at server startup.
+            let constraints_str = compute_fn
+                .placement_constraints
+                .0
+                .iter()
+                .map(|expr| format!("{}", expr))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Error::ConstraintUnsatisfiable {
+                function_name: task.compute_fn_name.clone(),
+                constraints: constraints_str,
+            }
+            .into());
+        }
+
         Ok(candidates)
     }
 
@@ -1350,6 +1414,7 @@ impl InMemoryState {
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
+            executor_catalog: self.executor_catalog.clone(),
             // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
@@ -1413,6 +1478,7 @@ mod test_helpers {
                 tasks: im::OrdMap::new(),
                 queued_reduction_tasks: im::OrdMap::new(),
                 invocation_ctx: im::OrdMap::new(),
+                executor_catalog: ExecutorCatalog::default(),
                 task_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),

@@ -269,11 +269,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(addr) = executor_state.hostname {
             executor_metadata.addr(addr);
         }
-        let mut labels = HashMap::new();
-        for (key, value) in executor_state.labels {
-            labels.insert(key, serde_json::Value::String(value));
-        }
-        executor_metadata.labels(labels);
+        executor_metadata.labels(executor_state.labels);
         let mut function_executors = HashMap::new();
         for function_executor_state in executor_state.function_executor_states {
             let function_executor =
