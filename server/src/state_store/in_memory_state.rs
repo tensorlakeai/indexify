@@ -990,19 +990,20 @@ impl InMemoryState {
 
             // Check if this executor's labels could potentially match the placement
             // constraints
-            if compute_fn.placement_constraints.matches(&executor.labels) {
-                found_matching_executor = true;
+            if !compute_fn.placement_constraints.matches(&executor.labels) {
+                continue;
+            }
 
-                // Now check if it also has the required resources available
-                // TODO: Match functions to GPU models according to prioritized order in
-                // gpu_configs.
-                if executor_state
-                    .free_resources
-                    .can_handle_function_resources(&compute_fn.resources)
-                    .is_ok()
-                {
-                    candidates.push(executor_state.clone());
-                }
+            found_matching_executor = true;
+
+            // TODO: Match functions to GPU models according to prioritized order in
+            // gpu_configs.
+            if executor_state
+                .free_resources
+                .can_handle_function_resources(&compute_fn.resources)
+                .is_ok()
+            {
+                candidates.push(executor_state.clone());
             }
         }
 
@@ -1019,6 +1020,7 @@ impl InMemoryState {
                 .iter()
                 .any(|label_set| compute_fn.placement_constraints.matches(label_set))
         {
+            // TODO: Turn this into a check at server startup.
             let constraints_str = compute_fn
                 .placement_constraints
                 .0

@@ -53,6 +53,8 @@ impl<'a> TaskAllocationProcessor<'a> {
 
                         // Check if this is a ConstraintUnsatisfiable error; if it is, we want to
                         // fail the task and invocation.
+                        //
+                        // TODO: Turn this into a check at server startup.
                         if matches!(
                             state_store_error,
                             state_store::in_memory_state::Error::ConstraintUnsatisfiable { .. }

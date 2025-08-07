@@ -713,52 +713,6 @@ impl ExecutorAPIService {
         }
         Ok(allocation_output_updates)
     }
-
-    async fn validate_executor_labels(
-        &self,
-        executor_id: &ExecutorId,
-        executor_state: &ExecutorState,
-    ) -> Result<(), Status> {
-        // Validate executor labels against configured label sets
-        let executor_labels = &executor_state.labels;
-        let executor_catalog = &self
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .executor_catalog;
-
-        if executor_catalog.allows_any_labels() {
-            // No label sets to check against.
-            return Ok(());
-        }
-
-        if executor_catalog.label_sets().iter().any(|label_set| {
-            // Check if the catalog label set is a subset of the executor's labels
-            // (executor can have additional labels beyond what's in the catalog entry)
-            label_set.iter().all(|(key, value)| {
-                executor_labels
-                    .get(key)
-                    .map_or(false, |executor_value| executor_value == value)
-            })
-        }) {
-            // The executor matches at least one configured label set.
-            return Ok(());
-        }
-
-        // There's a mismatch; reject this executor.
-        error!(
-            executor_id = executor_id.get(),
-            ?executor_labels,
-            configured_label_sets = ?executor_catalog.label_sets(),
-            "Rejecting executor with invalid label configuration"
-        );
-
-        Err(Status::permission_denied(format!(
-            "Executor labels {:?} do not match any configured label set. Configured label sets: {:?}",
-            executor_labels, executor_catalog.label_sets()
-        )))
-    }
 }
 
 fn log_desired_executor_state_delta(
@@ -891,9 +845,6 @@ impl ExecutorApi for ExecutorAPIService {
             executor_id = executor_id.get(),
             "Got report_executor_state request"
         );
-
-        self.validate_executor_labels(&executor_id, &executor_state)
-            .await?;
 
         let function_executor_diagnostics = to_function_executor_diagnostics_vector(
             &executor_update.function_executor_updates,
