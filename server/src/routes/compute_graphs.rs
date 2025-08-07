@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 
 use crate::{
     blob_store::PutResult,
-    data_model::ComputeGraphError,
+    data_model::{ComputeGraph, ComputeGraphError},
     http_objects::{self, IndexifyAPIError, ListParams},
     http_objects_v1,
     routes::routes_state::RouteState,
@@ -31,7 +31,7 @@ struct ComputeGraphCreateType {
 }
 
 async fn validate_placement_constraints_against_executor_label_sets(
-    compute_graph: &crate::data_model::ComputeGraph,
+    compute_graph: &ComputeGraph,
     state: &RouteState,
 ) -> Result<(), IndexifyAPIError> {
     let lock_guard = state.indexify_state.in_memory_state.read().await;

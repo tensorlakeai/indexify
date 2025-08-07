@@ -117,6 +117,7 @@ pub mod tests {
 
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
+            state: ComputeGraphState::Active,
             name: "graph_A".to_string(),
             tags: HashMap::from([
                 ("tag1".to_string(), "val1".to_string()),

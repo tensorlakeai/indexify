@@ -16,7 +16,13 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
+    data_model::{
+        self,
+        ComputeGraph,
+        ComputeGraphState,
+        GraphInvocationCtxBuilder,
+        InvocationPayloadBuilder,
+    },
     http_objects::{IndexifyAPIError, RequestId},
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
@@ -25,7 +31,7 @@ use crate::{
 };
 
 async fn validate_placement_constraints_against_executor_catalog(
-    compute_graph: &crate::data_model::ComputeGraph,
+    compute_graph: &ComputeGraph,
     state: &RouteState,
 ) -> Result<(), IndexifyAPIError> {
     let lock_guard = state.indexify_state.in_memory_state.read().await;
@@ -258,8 +264,10 @@ pub async fn invoke_with_object_v1(
         })?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
 
-    // Validate placement constraints against current executor catalog
-    validate_placement_constraints_against_executor_catalog(&compute_graph, &state).await?;
+    if let ComputeGraphState::Disabled { reason } = &compute_graph.state {
+        return Result::Err(IndexifyAPIError::conflict(reason));
+    }
+
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
         .compute_graph_name(compute_graph.name.to_string())
@@ -374,6 +382,7 @@ pub async fn invoke_with_object(
 
     // Validate placement constraints against current executor catalog
     validate_placement_constraints_against_executor_catalog(&compute_graph, &state).await?;
+
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
         .compute_graph_name(compute_graph.name.to_string())

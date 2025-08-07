@@ -57,6 +57,10 @@ impl IndexifyAPIError {
     pub fn bad_request(message: &str) -> Self {
         Self::new(StatusCode::BAD_REQUEST, message)
     }
+
+    pub fn conflict(message: &str) -> Self {
+        Self::new(StatusCode::CONFLICT, message)
+    }
 }
 
 impl IntoResponse for IndexifyAPIError {
@@ -647,6 +651,7 @@ impl ComputeGraph {
             created_at: 0,
             runtime_information: self.runtime_information.into(),
             tombstoned: self.tombstoned,
+            state: data_model::ComputeGraphState::Active,
         };
         Ok(compute_graph)
     }

@@ -16,6 +16,7 @@ use crate::{
     data_model::{
         Allocation,
         ComputeGraph,
+        ComputeGraphState,
         ComputeGraphVersion,
         DataPayload,
         ExecutorId,
@@ -56,8 +57,9 @@ pub enum Error {
         function_name: String,
     },
     ConstraintUnsatisfiable {
+        reason: String,
+        version: String,
         function_name: String,
-        constraints: String,
     },
 }
 
@@ -70,16 +72,7 @@ impl std::fmt::Display for Error {
             Error::ComputeFunctionNotFound { function_name, .. } => {
                 write!(f, "Compute function not found: {function_name}")
             }
-            Error::ConstraintUnsatisfiable {
-                function_name,
-                constraints,
-            } => {
-                write!(
-                    f,
-                    "No executors in the system can satisfy placement constraints for function '{}': {}",
-                    function_name, constraints
-                )
-            }
+            Error::ConstraintUnsatisfiable { reason, .. } => reason.fmt(f),
         }
     }
 }
@@ -91,7 +84,7 @@ impl Error {
         match self {
             Error::ComputeGraphVersionNotFound { version, .. } => version,
             Error::ComputeFunctionNotFound { version, .. } => version,
-            Error::ConstraintUnsatisfiable { .. } => "",
+            Error::ConstraintUnsatisfiable { version, .. } => version,
         }
     }
 
@@ -963,6 +956,19 @@ impl InMemoryState {
                 version: task.graph_version.0.clone(),
                 function_name: task.compute_fn_name.clone(),
             })?;
+
+        // Check to see whether the compute graph state is marked as
+        // active; if not, we do not schedule its tasks, even if there
+        // are executors that could handle this particular task.
+        if let ComputeGraphState::Disabled { reason } = &compute_graph.state {
+            return Err(Error::ConstraintUnsatisfiable {
+                version: compute_graph.version.to_string(),
+                function_name: task.compute_fn_name.clone(),
+                reason: reason.to_owned(),
+            }
+            .into());
+        }
+
         let compute_fn = compute_graph
             .nodes
             .get(&task.compute_fn_name)
@@ -971,9 +977,6 @@ impl InMemoryState {
                 function_name: task.compute_fn_name.clone(),
             })?;
 
-        // First, check if ANY executor in the system could potentially satisfy
-        // the placement constraints (ignoring resource availability and current state)
-        let mut found_matching_executor = false;
         let mut candidates = Vec::new();
 
         for (_, executor_state) in &self.executor_states {
@@ -988,13 +991,11 @@ impl InMemoryState {
                 continue;
             }
 
-            // Check if this executor's labels could potentially match the placement
-            // constraints
+            // Check if this executor's labels matches the function's
+            // placement constraints
             if !compute_fn.placement_constraints.matches(&executor.labels) {
                 continue;
             }
-
-            found_matching_executor = true;
 
             // TODO: Match functions to GPU models according to prioritized order in
             // gpu_configs.
@@ -1005,34 +1006,6 @@ impl InMemoryState {
             {
                 candidates.push(executor_state.clone());
             }
-        }
-
-        // If no executor currently in the system could ever satisfy
-        // the placement constraints, check if any of the configured
-        // executor label sets could theoretically match.  This
-        // prevents ConstraintUnsatisfiable errors when a matching
-        // executor just hasn't connected yet.
-        if !found_matching_executor &&
-            !self.executor_catalog.allows_any_labels() &&
-            !self
-                .executor_catalog
-                .label_sets()
-                .iter()
-                .any(|label_set| compute_fn.placement_constraints.matches(label_set))
-        {
-            // TODO: Turn this into a check at server startup.
-            let constraints_str = compute_fn
-                .placement_constraints
-                .0
-                .iter()
-                .map(|expr| format!("{}", expr))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(Error::ConstraintUnsatisfiable {
-                function_name: task.compute_fn_name.clone(),
-                constraints: constraints_str,
-            }
-            .into());
         }
 
         Ok(candidates)
