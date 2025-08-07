@@ -740,7 +740,7 @@ fn log_desired_executor_state_delta(
             match last_assignments.get(fn_executor_id) {
                 Some(last_allocation_id) => {
                     if allocation_id != last_allocation_id {
-                        info!(
+                        debug!(
                             %fn_executor_id,
                             %allocation_id, %last_allocation_id, "re-assigning FE"
                         )
@@ -748,14 +748,14 @@ fn log_desired_executor_state_delta(
                     last_assignments.remove(fn_executor_id);
                 }
                 None => {
-                    info!(%fn_executor_id, %allocation_id, "assigning FE")
+                    debug!(%fn_executor_id, %allocation_id, "assigning FE")
                 }
             }
         }
     }
 
     for (fn_executor_id, last_allocation_id) in last_assignments {
-        info!(%fn_executor_id, %last_allocation_id, "idling FE")
+        debug!(%fn_executor_id, %last_allocation_id, "idling FE")
     }
 }
 

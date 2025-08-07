@@ -37,6 +37,7 @@ use crate::{
         StateChangeBuilder,
         StateChangeId,
         Task,
+        TaskOutcome,
     },
     state_store::requests::{
         AllocationOutput,
@@ -640,7 +641,7 @@ pub(crate) fn handle_scheduler_update(
     last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
 
     for alloc in &request.new_allocations {
-        info!(
+        debug!(
             namespace = alloc.namespace,
             graph = alloc.compute_graph,
             invocation_id = alloc.invocation_id,
@@ -660,17 +661,31 @@ pub(crate) fn handle_scheduler_update(
     }
 
     for task in request.updated_tasks.values() {
-        info!(
-            namespace = task.namespace,
-            graph = task.compute_graph_name,
-            invocation_id = task.invocation_id,
-            "fn" = task.compute_fn_name,
-            task_id = task.id.to_string(),
-            status = task.status.to_string(),
-            outcome = task.outcome.to_string(),
-            duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
-            "updated task",
-        );
+        if task.outcome == TaskOutcome::Success {
+            debug!(
+                namespace = task.namespace,
+                graph = task.compute_graph_name,
+                invocation_id = task.invocation_id,
+                "fn" = task.compute_fn_name,
+                task_id = task.id.to_string(),
+                status = task.status.to_string(),
+                outcome = task.outcome.to_string(),
+                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                "updated task",
+            );
+        } else {
+            info!(
+                namespace = task.namespace,
+                graph = task.compute_graph_name,
+                invocation_id = task.invocation_id,
+                "fn" = task.compute_fn_name,
+                task_id = task.id.to_string(),
+                status = task.status.to_string(),
+                outcome = task.outcome.to_string(),
+                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                "updated task",
+            );
+        }
 
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(

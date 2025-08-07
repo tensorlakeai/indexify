@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{debug, info, info_span, warn};
+use tracing::{debug, info_span, warn};
 
 use crate::{
     data_model::{AllocationBuilder, Task, TaskFailureReason, TaskOutcome, TaskStatus},
@@ -141,7 +141,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .outcome(TaskOutcome::Unknown)
             .build()?;
 
-        info!(allocation_id = allocation.id, "created allocation");
+        debug!(allocation_id = allocation.id, "created allocation");
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());
