@@ -429,6 +429,12 @@ pub enum ComputeGraphState {
     Disabled { reason: String },
 }
 
+impl Default for ComputeGraphState {
+    fn default() -> Self {
+        ComputeGraphState::Active
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
@@ -445,6 +451,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    #[serde(default)]
     pub state: ComputeGraphState,
 }
 
@@ -505,6 +512,7 @@ pub struct ComputeGraphVersion {
     pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    #[serde(default)]
     pub state: ComputeGraphState,
 }
 
