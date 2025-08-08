@@ -1,15 +1,21 @@
-
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
     use std::collections::HashMap;
+
+    use anyhow::Result;
 
     use crate::{
         config::ExecutorCatalogEntry,
         data_model::{
-            filter::{Expression, LabelsFilter, Operator}, test_objects::tests::{self as test_objects, TEST_NAMESPACE}, ComputeGraphState
+            filter::{Expression, LabelsFilter, Operator},
+            test_objects::tests::{self as test_objects, TEST_NAMESPACE},
+            ComputeGraphState,
         },
-        state_store::requests::{CreateOrUpdateComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+        state_store::requests::{
+            CreateOrUpdateComputeGraphRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+        },
         testing::TestService,
     };
 
@@ -21,7 +27,7 @@ mod tests {
 
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(), // name is unused when labels are populated
-            regions: vec![],              // regions unused
+            regions: vec![],            // regions unused
             labels,
         };
 
@@ -29,7 +35,8 @@ mod tests {
         let test_srv = TestService::new_with_executor_catalog(vec![catalog_entry]).await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Step 2: Build a compute graph whose functions require foo==baz (unsatisfiable)
+        // Step 2: Build a compute graph whose functions require foo==baz
+        // (unsatisfiable)
         let mut compute_graph = test_objects::test_graph_a("image_hash".to_string());
         compute_graph.name = "graph_unsatisfiable".to_string();
         compute_graph.state = ComputeGraphState::Active;
@@ -78,7 +85,7 @@ mod tests {
         println!("stored_graph: {:?}", stored_graph);
 
         match &stored_graph.state {
-            ComputeGraphState::Disabled { .. } => {},
+            ComputeGraphState::Disabled { .. } => {}
             _ => panic!("Compute graph should be disabled due to unsatisfiable constraints"),
         }
 
@@ -125,18 +132,166 @@ mod tests {
 
         // Step 9: Verify that the compute graph remains active
         let in_memory = indexify_state.in_memory_state.read().await;
-        let sat_key = crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_satisfiable");
+        let sat_key =
+            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_satisfiable");
         let sat_stored_graph = in_memory
             .compute_graphs
             .get(&sat_key)
             .expect("satisfiable compute graph not found in state");
 
         match &sat_stored_graph.state {
-            ComputeGraphState::Active => {},
+            ComputeGraphState::Active => {}
             _ => panic!("Compute graph should remain active due to satisfiable constraints"),
         }
 
         Ok(())
     }
-}
 
+    #[tokio::test]
+    async fn test_validate_graph_constraints_multiple_graphs() -> Result<()> {
+        // Step 1: Create an executor catalog entry with label foo=bar
+        let mut labels = HashMap::new();
+        labels.insert("foo".to_string(), "bar".to_string());
+
+        let catalog_entry = ExecutorCatalogEntry {
+            name: "custom".to_string(),
+            regions: vec![],
+            labels,
+        };
+
+        // Initialize the test service with the catalog
+        let test_srv = TestService::new_with_executor_catalog(vec![catalog_entry]).await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Build graph with no placement constraints (should remain active)
+        let mut graph_valid_no = test_objects::test_graph_a("image_hash".to_string());
+        graph_valid_no.name = "graph_valid_no_constraints".to_string();
+        graph_valid_no.state = ComputeGraphState::Active;
+
+        // Build graph with satisfiable constraints (foo==bar)
+        let mut graph_valid_constraints = test_objects::test_graph_a("image_hash".to_string());
+        graph_valid_constraints.name = "graph_valid_constraints".to_string();
+        graph_valid_constraints.state = ComputeGraphState::Active;
+        let sat_constraint = LabelsFilter(vec![Expression {
+            key: "foo".to_string(),
+            value: "bar".to_string(),
+            operator: Operator::Eq,
+        }]);
+        for compute_fn in graph_valid_constraints.nodes.values_mut() {
+            compute_fn.placement_constraints = sat_constraint.clone();
+        }
+        graph_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
+
+        // Build graph with unsatisfiable constraints (foo==baz)
+        let mut graph_invalid_baz = test_objects::test_graph_a("image_hash".to_string());
+        graph_invalid_baz.name = "graph_invalid_baz".to_string();
+        graph_invalid_baz.state = ComputeGraphState::Active;
+        let bad_constraint_baz = LabelsFilter(vec![Expression {
+            key: "foo".to_string(),
+            value: "baz".to_string(),
+            operator: Operator::Eq,
+        }]);
+        for compute_fn in graph_invalid_baz.nodes.values_mut() {
+            compute_fn.placement_constraints = bad_constraint_baz.clone();
+        }
+        graph_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
+
+        // Build graph with another unsatisfiable constraint (foo==qux)
+        let mut graph_invalid_qux = test_objects::test_graph_a("image_hash".to_string());
+        graph_invalid_qux.name = "graph_invalid_qux".to_string();
+        graph_invalid_qux.state = ComputeGraphState::Active;
+        let bad_constraint_qux = LabelsFilter(vec![Expression {
+            key: "foo".to_string(),
+            value: "qux".to_string(),
+            operator: Operator::Eq,
+        }]);
+        for compute_fn in graph_invalid_qux.nodes.values_mut() {
+            compute_fn.placement_constraints = bad_constraint_qux.clone();
+        }
+        graph_invalid_qux.start_fn.placement_constraints = bad_constraint_qux.clone();
+
+        // Persist all graphs
+        for compute_graph in [
+            graph_valid_no.clone(),
+            graph_valid_constraints.clone(),
+            graph_invalid_baz.clone(),
+            graph_invalid_qux.clone(),
+        ] {
+            indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                        CreateOrUpdateComputeGraphRequest {
+                            namespace: TEST_NAMESPACE.to_string(),
+                            compute_graph,
+                            upgrade_tasks_to_current_version: true,
+                        },
+                    ),
+                    processed_state_changes: vec![],
+                })
+                .await?;
+        }
+
+        // Run constraint validation which should disable the unsatisfiable graphs
+        test_srv
+            .service
+            .graph_processor
+            .validate_graph_constraints()
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify states of graphs after validation
+        let in_memory = indexify_state.in_memory_state.read().await;
+
+        // Active graphs
+        let key_valid_no =
+            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_valid_no_constraints");
+        match &in_memory
+            .compute_graphs
+            .get(&key_valid_no)
+            .expect("graph not found")
+            .state
+        {
+            ComputeGraphState::Active => {}
+            _ => panic!("graph_valid_no_constraints should be active"),
+        }
+
+        let key_valid_constraints =
+            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_valid_constraints");
+        match &in_memory
+            .compute_graphs
+            .get(&key_valid_constraints)
+            .expect("graph not found")
+            .state
+        {
+            ComputeGraphState::Active => {}
+            _ => panic!("graph_valid_constraints should be active"),
+        }
+
+        // Disabled graphs
+        let key_invalid_baz =
+            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_invalid_baz");
+        match &in_memory
+            .compute_graphs
+            .get(&key_invalid_baz)
+            .expect("graph not found")
+            .state
+        {
+            ComputeGraphState::Disabled { .. } => {}
+            _ => panic!("graph_invalid_baz should be disabled"),
+        }
+
+        let key_invalid_qux =
+            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_invalid_qux");
+        match &in_memory
+            .compute_graphs
+            .get(&key_invalid_qux)
+            .expect("graph not found")
+            .state
+        {
+            ComputeGraphState::Disabled { .. } => {}
+            _ => panic!("graph_invalid_qux should be disabled"),
+        }
+
+        Ok(())
+    }
+}

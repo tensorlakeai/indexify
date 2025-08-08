@@ -182,7 +182,8 @@ impl Default for ExecutorConfig {
 impl ExecutorCatalogEntry {
     // Generate label sets for this catalog entry.
     // If `labels` is provided, return it as a single allowed label set.
-    // Otherwise fall back to generating label sets from the legacy `name`/`regions` fields.
+    // Otherwise fall back to generating label sets from the legacy `name`/`regions`
+    // fields.
     pub fn to_label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
         if !self.labels.is_empty() {
             return vec![self.labels.clone()];
