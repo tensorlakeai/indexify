@@ -776,7 +776,7 @@ impl From<data_model::TaskStatus> for TaskStatus {
     fn from(status: data_model::TaskStatus) -> Self {
         match status {
             data_model::TaskStatus::Pending => TaskStatus::Pending,
-            data_model::TaskStatus::Running => TaskStatus::Running,
+            data_model::TaskStatus::Running(_) => TaskStatus::Running,
             data_model::TaskStatus::Completed => TaskStatus::Completed,
         }
     }

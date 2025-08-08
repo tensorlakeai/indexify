@@ -14,6 +14,7 @@ use crate::{
         GraphInvocationOutcome,
         InvokeComputeGraphEvent,
         ReduceTask,
+        RunningTaskStatus,
         Task,
         TaskOutcome,
         TaskStatus,
@@ -150,16 +151,6 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        // We have already handled updating this task through the path of FE failures.
-        // However, if there was a cache hit, the task would have been updated to
-        // completed without any allocation ingestion. So we have to proceed and
-        // create new tasks.
-        if (task.status == TaskStatus::Pending || task.status == TaskStatus::Completed) &&
-            !task.cache_hit
-        {
-            return Ok(SchedulerUpdateRequest::default());
-        }
-
         let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task)
         else {
             return Ok(SchedulerUpdateRequest::default());
@@ -167,6 +158,8 @@ impl TaskCreator {
         let compute_graph_version = compute_graph_version.clone();
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
+        // If allocation_key is not None, then the output is coming from an allocation,
+        // not from cache.
         if let Some(allocation_key) = &task_finished_event.allocation_key {
             let Some(allocation) = self
                 .indexify_state
@@ -180,10 +173,20 @@ impl TaskCreator {
                 return Ok(SchedulerUpdateRequest::default());
             };
 
-            // Use the common task policy handler for allocation outcomes
+            // Idempotency: we only act on this alloc's task if the task is currently
+            // running this alloc. This is because we handle allocation failures
+            // on FE termination and alloc output ingestion paths.
+            if task.status !=
+                TaskStatus::Running(RunningTaskStatus {
+                    allocation_id: allocation.id.clone(),
+                })
+            {
+                return Ok(SchedulerUpdateRequest::default());
+            }
+
             TaskRetryPolicy::handle_allocation_outcome(
                 &mut task,
-                &allocation.outcome,
+                &allocation,
                 &compute_graph_version,
             );
 
@@ -192,6 +195,7 @@ impl TaskCreator {
                 scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
                 return Ok(scheduler_update);
             }
+
             scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
             in_memory_state.update_state(
                 self.clock,
@@ -199,6 +203,7 @@ impl TaskCreator {
                 "task_creator",
             )?;
         }
+
         let task_creation_result = self
             .handle_task_finished(
                 in_memory_state,

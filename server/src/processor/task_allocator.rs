@@ -2,7 +2,14 @@ use anyhow::Result;
 use tracing::{debug, info_span, warn};
 
 use crate::{
-    data_model::{AllocationBuilder, Task, TaskFailureReason, TaskOutcome, TaskStatus},
+    data_model::{
+        AllocationBuilder,
+        RunningTaskStatus,
+        Task,
+        TaskFailureReason,
+        TaskOutcome,
+        TaskStatus,
+    },
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
         self,
@@ -26,7 +33,6 @@ impl<'a> TaskAllocationProcessor<'a> {
     pub fn allocate(&self, in_memory_state: &mut InMemoryState) -> Result<SchedulerUpdateRequest> {
         // Step 1: Fetch unallocated tasks
         let tasks = in_memory_state.unallocated_tasks();
-        debug!("found {} unallocated tasks to process", tasks.len());
 
         // Step 2: Allocate tasks
         let mut update = SchedulerUpdateRequest::default();
@@ -128,8 +134,6 @@ impl<'a> TaskAllocationProcessor<'a> {
         let Some(target) = selected_target else {
             return Ok(update);
         };
-        let mut updated_task = task.clone();
-        updated_task.status = TaskStatus::Running;
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
@@ -137,11 +141,17 @@ impl<'a> TaskAllocationProcessor<'a> {
             .invocation_id(task.invocation_id.clone())
             .task_id(task.id.clone())
             .target(target)
-            .attempt_number(updated_task.attempt_number)
+            .attempt_number(task.attempt_number)
             .outcome(TaskOutcome::Unknown)
             .build()?;
 
         debug!(allocation_id = allocation.id, "created allocation");
+
+        let mut updated_task = task.clone();
+        updated_task.status = TaskStatus::Running(RunningTaskStatus {
+            allocation_id: allocation.id.clone(),
+        });
+
         update
             .updated_tasks
             .insert(updated_task.id.clone(), updated_task.clone());

@@ -240,9 +240,10 @@ enum TaskOutcomeCode {
 enum TaskFailureReason {
     TASK_FAILURE_REASON_UNKNOWN = 0;
     // Internal error on Executor aka platform error.
-    // Includes grey failures when we can't determine the exact cause.
     TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
     // Clear function code failure typically by raising an exception from the function code.
+    // Also a grey failure where we can't determine the exact cause. We attribute these to
+    // functions to prevent service abuse but not billed intenionally failing functions.
     TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
     // Function code run time exceeded its configured timeout.
     TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;

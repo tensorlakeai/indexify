@@ -16,7 +16,9 @@ use crate::{
         FunctionExecutorTerminationReason,
         FunctionResources,
         GraphInvocationCtx,
+        RunningTaskStatus,
         Task,
+        TaskOutcome,
         TaskStatus,
     },
     processor::{targets, task_policy::TaskRetryPolicy},
@@ -317,23 +319,34 @@ impl FunctionExecutorManager {
                 let Some(mut task) = in_memory_state.tasks.get(&alloc.task_key()).cloned() else {
                     continue;
                 };
-                if task.status == TaskStatus::Pending || task.status == TaskStatus::Completed {
+                // Idempotency: we only act on this alloc's task if the task is currently
+                // running this alloc. This is because we handle allocation
+                // failures on FE termination and alloc output ingestion paths.
+                if task.status !=
+                    TaskStatus::Running(RunningTaskStatus {
+                        allocation_id: alloc.id.clone(),
+                    })
+                {
                     continue;
                 }
 
                 if_chain! {
                         if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
-                        if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_allocs } = &fe.state;
+                        if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
                 then {
-                            let task_failure_reason = (*termination_reason).into();
-
-                            TaskRetryPolicy::handle_function_executor_termination(
-                                &mut task,
-                                task_failure_reason,
-                                blame_allocs,
-                                &alloc.id,
-                                compute_graph_version,
-                            );
+                            if blame_alloc_ids.contains(&alloc.id.to_string()) {
+                                let mut updated_alloc = *alloc.clone();
+                                updated_alloc.outcome = TaskOutcome::Failure((*termination_reason).into());
+                                TaskRetryPolicy::handle_allocation_outcome(
+                                    &mut task,
+                                    &updated_alloc,
+                                    compute_graph_version,
+                                );
+                            } else {
+                                // This allocation wasn't blamed for the FE termination,
+                                // retry without involving the task retry policy but still fail the alloc.
+                                task.status = TaskStatus::Pending;
+                            }
 
                             // Count failed tasks for logging
                             if task.status == TaskStatus::Completed {

@@ -1063,9 +1063,9 @@ impl Display for TaskOutcome {
 pub enum TaskFailureReason {
     Unknown,
     // Internal error on Executor aka platform error.
-    // Includes grey failures when we can't determine the exact cause.
     InternalError,
-    // Clear function code failure typically by raising an exception from the function code.
+    // Clear function code failure typically by raising an exception from the function code
+    // and grey failures when we can't determine the exact cause.
     FunctionError,
     // Function code run time exceeded its configured timeout.
     FunctionTimeout,
@@ -1120,6 +1120,9 @@ impl TaskFailureReason {
         // Explicit platform decisions and provable infrastructure
         // failures don't count against retry attempts; everything
         // else counts against retry attempts.
+        //
+        // Includes InternalError right now to prevent infinite retries
+        // with long lasting internal problems.
         matches!(
             self,
             TaskFailureReason::InternalError |
@@ -1130,11 +1133,16 @@ impl TaskFailureReason {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct RunningTaskStatus {
+    pub allocation_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TaskStatus {
     /// Task is waiting for execution
     Pending,
     /// Task is running
-    Running,
+    Running(RunningTaskStatus),
     /// Task is completed
     Completed,
 }
@@ -1148,11 +1156,11 @@ impl Default for TaskStatus {
 impl Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
-            TaskStatus::Pending => "Pending",
-            TaskStatus::Running => "Running",
-            TaskStatus::Completed => "Completed",
+            TaskStatus::Pending => "Pending".to_string(),
+            TaskStatus::Running(status) => format!("Running({:?})", status),
+            TaskStatus::Completed => "Completed".to_string(),
         };
-        write!(f, "{str_val}")
+        write!(f, "{}", str_val)
     }
 }
 
