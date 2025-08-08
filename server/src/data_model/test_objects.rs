@@ -6,17 +6,7 @@ pub mod tests {
 
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, NodeOutput, RuntimeInformation};
     use crate::data_model::{
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        FunctionRetryPolicy,
-        GraphInvocationCtx,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        ImageInformation,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
+        ComputeGraphState, DataPayload, ExecutorId, ExecutorMetadata, FunctionRetryPolicy, GraphInvocationCtx, GraphInvocationCtxBuilder, GraphVersion, ImageInformation, InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";

@@ -2509,6 +2509,7 @@ mod tests {
                 compute_graph_name: String::new(),
                 created_at: 0,
                 version: GraphVersion::default(),
+                state: ComputeGraphState::Active,
                 code: ComputeGraphCode {
                     path: String::new(),
                     size: 0,
