@@ -7,7 +7,7 @@ use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 use crate::{
     blob_store::BlobStorageConfig,
-    config::ServerConfig,
+    config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         test_objects::tests::test_node_fn_output,
         Allocation,
@@ -45,6 +45,12 @@ pub struct TestService {
 
 impl TestService {
     pub async fn new() -> Result<Self> {
+        Self::new_with_executor_catalog(vec![]).await
+    }
+
+    pub async fn new_with_executor_catalog(
+        executor_catalog: Vec<ExecutorCatalogEntry>,
+    ) -> Result<Self> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("trace"));
         let _ = subscriber::set_global_default(
@@ -68,6 +74,7 @@ impl TestService {
                 ),
                 region: None,
             },
+            executor_catalog,
             ..Default::default()
         };
         let srv = Service::new(cfg).await?;

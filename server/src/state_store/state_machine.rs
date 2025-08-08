@@ -26,7 +26,6 @@ use crate::{
         Allocation,
         AllocationOutputIngestedEvent,
         ComputeGraph,
-        ComputeGraphError,
         ComputeGraphVersion,
         GcUrl,
         GraphInvocationCtx,
@@ -456,9 +455,6 @@ pub(crate) fn create_or_update_compute_graph(
 
     let new_compute_graph_version = match existing_compute_graph {
         Some(Ok(mut existing_compute_graph)) => {
-            if existing_compute_graph.version == compute_graph.version {
-                return Err(anyhow!(ComputeGraphError::VersionExists));
-            }
             existing_compute_graph.update(compute_graph.clone());
             Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.into_version())
         }

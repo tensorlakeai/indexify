@@ -107,6 +107,7 @@ impl Service {
             task_cache.clone(),
             config.queue_size,
         ));
+        graph_processor.validate_graph_constraints().await?;
         Ok(Self {
             config,
             shutdown_tx,

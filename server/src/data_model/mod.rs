@@ -3,7 +3,6 @@ pub mod test_objects;
 
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
     str,
@@ -425,6 +424,12 @@ pub struct ParameterMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ComputeGraphState {
+    Active,
+    Disabled { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
@@ -440,6 +445,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    pub state: ComputeGraphState,
 }
 
 impl ComputeGraph {
@@ -482,16 +488,10 @@ impl ComputeGraph {
             nodes: self.nodes.clone(),
             edges: self.edges.clone(),
             runtime_information: self.runtime_information.clone(),
+            state: self.state.clone(),
         }
     }
 }
-
-#[derive(Debug, strum::Display, PartialEq)]
-pub enum ComputeGraphError {
-    VersionExists,
-}
-
-impl Error for ComputeGraphError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraphVersion {
@@ -505,6 +505,7 @@ pub struct ComputeGraphVersion {
     pub nodes: HashMap<String, ComputeFn>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    pub state: ComputeGraphState,
 }
 
 impl ComputeGraphVersion {
@@ -2200,6 +2201,7 @@ mod tests {
             tombstoned: false,
             description: "description1".to_string(),
             tags: HashMap::new(),
+            state: ComputeGraphState::Active,
             nodes: HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),
@@ -2499,6 +2501,7 @@ mod tests {
                 compute_graph_name: String::new(),
                 created_at: 0,
                 version: GraphVersion::default(),
+                state: ComputeGraphState::Active,
                 code: ComputeGraphCode {
                     path: String::new(),
                     size: 0,

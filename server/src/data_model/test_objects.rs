@@ -6,6 +6,7 @@ pub mod tests {
 
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, NodeOutput, RuntimeInformation};
     use crate::data_model::{
+        ComputeGraphState,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -117,6 +118,7 @@ pub mod tests {
 
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
+            state: ComputeGraphState::Active,
             name: "graph_A".to_string(),
             tags: HashMap::from([
                 ("tag1".to_string(), "val1".to_string()),

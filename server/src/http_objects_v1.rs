@@ -85,6 +85,7 @@ impl ComputeGraph {
             created_at: 0,
             runtime_information: self.runtime_information.into(),
             tombstoned: self.tombstoned,
+            state: data_model::ComputeGraphState::Active,
         };
         Ok(compute_graph)
     }

@@ -6,7 +6,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
 use crate::{
-    data_model::{ChangeType, StateChange},
+    data_model::{ChangeType, ComputeGraph, ComputeGraphState, StateChange},
     metrics::{low_latency_boundaries, Timer},
     processor::{
         function_executor_manager,
@@ -16,6 +16,7 @@ use crate::{
     },
     state_store::{
         requests::{
+            CreateOrUpdateComputeGraphRequest,
             DeleteComputeGraphRequest,
             DeleteInvocationRequest,
             RequestPayload,
@@ -63,6 +64,47 @@ impl GraphProcessor {
             processor_processing_latency,
             queue_size,
         }
+    }
+
+    pub async fn validate_graph_constraints(&self) -> Result<()> {
+        let updated_compute_graphs = {
+            let in_memory_state = self.indexify_state.in_memory_state.read().await;
+            let executor_catalog = &in_memory_state.executor_catalog;
+            in_memory_state.compute_graphs.values().filter_map(|compute_graph| {
+                let target_state = if executor_catalog.allows_any_labels() ||
+                    compute_graph.nodes.values().all(|node|
+                                             executor_catalog.label_sets().iter().any(|label_set| node.placement_constraints.matches(label_set))) {
+                        ComputeGraphState::Active
+                } else {
+                        ComputeGraphState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}
+                };
+
+                if target_state != compute_graph.state {
+                    let mut updated_graph = *compute_graph.clone();
+                    updated_graph.state = target_state;
+                    Some(updated_graph)
+                } else {
+                    None
+                }
+            })
+                .collect::<Vec<ComputeGraph>>()
+        };
+
+        for compute_graph in updated_compute_graphs {
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                        CreateOrUpdateComputeGraphRequest {
+                            namespace: compute_graph.namespace.clone(),
+                            compute_graph,
+                            upgrade_tasks_to_current_version: true,
+                        },
+                    ),
+                    processed_state_changes: Vec::new(),
+                })
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
