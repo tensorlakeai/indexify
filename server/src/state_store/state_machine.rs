@@ -657,8 +657,8 @@ pub(crate) fn handle_scheduler_update(
     }
 
     for task in request.updated_tasks.values() {
-        if task.outcome == TaskOutcome::Success {
-            debug!(
+        match task.outcome {
+            TaskOutcome::Success | TaskOutcome::Unknown => debug!(
                 namespace = task.namespace,
                 graph = task.compute_graph_name,
                 invocation_id = task.invocation_id,
@@ -668,9 +668,8 @@ pub(crate) fn handle_scheduler_update(
                 outcome = task.outcome.to_string(),
                 duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
                 "updated task",
-            );
-        } else {
-            info!(
+            ),
+            TaskOutcome::Failure(_) => info!(
                 namespace = task.namespace,
                 graph = task.compute_graph_name,
                 invocation_id = task.invocation_id,
@@ -680,7 +679,7 @@ pub(crate) fn handle_scheduler_update(
                 outcome = task.outcome.to_string(),
                 duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
                 "updated task",
-            );
+            ),
         }
 
         let serialized_task = JsonEncoder::encode(&task)?;
