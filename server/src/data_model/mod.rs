@@ -3,7 +3,6 @@ pub mod test_objects;
 
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
     str,
@@ -493,13 +492,6 @@ impl ComputeGraph {
         }
     }
 }
-
-#[derive(Debug, strum::Display, PartialEq)]
-pub enum ComputeGraphError {
-    VersionExists,
-}
-
-impl Error for ComputeGraphError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraphVersion {

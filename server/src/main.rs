@@ -31,6 +31,7 @@ mod http_objects;
 mod http_objects_v1;
 mod indexify_ui;
 mod integration_test;
+mod integration_test_executor_catalog;
 mod metrics;
 mod processor;
 mod reconciliation_test;

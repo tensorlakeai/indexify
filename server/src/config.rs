@@ -13,6 +13,8 @@ use crate::{blob_store::BlobStorageConfig, data_model};
 pub struct ExecutorCatalogEntry {
     pub name: String,
     pub regions: Vec<String>,
+    #[serde(default)]
+    pub labels: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,8 +180,13 @@ impl Default for ExecutorConfig {
 }
 
 impl ExecutorCatalogEntry {
-    // Generate label sets for each region
+    // Generate label sets for this catalog entry.
+    // If `labels` is provided, return it as a single allowed label set.
+    // Otherwise fall back to generating label sets from the legacy `name`/`regions` fields.
     pub fn to_label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
+        if !self.labels.is_empty() {
+            return vec![self.labels.clone()];
+        }
         self.regions
             .iter()
             .map(|region| {

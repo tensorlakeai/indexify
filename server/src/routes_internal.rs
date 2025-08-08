@@ -24,7 +24,6 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     blob_store::PutResult,
-    data_model::ComputeGraphError,
     http_objects::{
         from_data_model_executor_metadata,
         Allocation,
@@ -475,12 +474,7 @@ async fn create_or_update_compute_graph(
         })
         .await;
     if let Err(err) = result {
-        return match err.root_cause().downcast_ref::<ComputeGraphError>() {
-            Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
-                "This graph version already exists, please update the graph version",
-            )),
-            _ => Err(IndexifyAPIError::internal_error(err)),
-        };
+        return Err(IndexifyAPIError::internal_error(err));
     }
 
     info!("compute graph created: {}", name);

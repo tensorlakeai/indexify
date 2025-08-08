@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 
 use crate::{
     blob_store::PutResult,
-    data_model::{ComputeGraph, ComputeGraphError},
+    data_model::ComputeGraph,
     http_objects::{self, IndexifyAPIError, ListParams},
     http_objects_v1,
     routes::routes_state::RouteState,
@@ -164,12 +164,7 @@ pub async fn create_or_update_compute_graph_v1(
         })
         .await;
     if let Err(err) = result {
-        return match err.root_cause().downcast_ref::<ComputeGraphError>() {
-            Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
-                "This graph version already exists, please update the graph version",
-            )),
-            _ => Err(IndexifyAPIError::internal_error(err)),
-        };
+        return Err(IndexifyAPIError::internal_error(err));
     }
 
     info!("compute graph created: {}", name);
