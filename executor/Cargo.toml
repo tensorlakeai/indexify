@@ -1,0 +1,11 @@
+[package]
+name = "indexify-executor"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "indexify-executor"
+path = "src/main.rs"
+
+[dependencies]
+executor-lib = { path = "../executor-lib" }

@@ -1,5 +1,7 @@
 [workspace]
 members = [
     "server",
+    "executor-lib",
+    "executor",
 ]
 resolver = "2"
