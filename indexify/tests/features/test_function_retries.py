@@ -65,7 +65,6 @@ class TestFunctionRetries(unittest.TestCase):
         outputs = graph.output(invocation_id, function_aways_fails.name)
         self.assertEqual(len(outputs), 0)
 
-    @unittest.skip("Function timeout retries feature has a bug")
     def test_function_fails_after_exhausting_timeout_retries(self):
         graph = Graph(
             name=test_graph_name(self),

@@ -144,7 +144,7 @@ impl TestService {
         let tasks = self.get_all_tasks().await?;
         let allocated_tasks = tasks
             .into_iter()
-            .filter(|t| t.status == TaskStatus::Running)
+            .filter(|t| matches!(t.status, TaskStatus::Running(_)))
             .collect::<Vec<_>>();
         Ok(allocated_tasks)
     }
