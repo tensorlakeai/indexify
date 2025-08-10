@@ -984,6 +984,11 @@ dependencies = [
 [[package]]
 name = "executor-lib"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tonic-prost-build",
+ "vergen",
+]
 
 [[package]]
 name = "fail-parallel"
