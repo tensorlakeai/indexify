@@ -35,7 +35,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Install toml
         run: pip install toml
       - id: version_extraction
@@ -55,7 +55,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Install Poetry
         run: pipx install --force 'poetry==2.0.0'
       - name: Build python-sdk

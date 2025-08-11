@@ -3,7 +3,6 @@ from tensorlake import Image
 chroma_image = (
     Image()
     .name("tensorlake/blueprints-chromadb")
-    .base_image(f"python:3.11-slim-bookworm")
     .run("pip install chromadb")
     .run("pip install pillow")
 )
@@ -23,7 +22,6 @@ st_image = (
 lance_image = (
     Image()
     .name("tensorlake/pdf-blueprint-lancdb")
-    .base_image(f"python:3.11-slim-bookworm")
     .run("pip install lancedb")
 )
 
