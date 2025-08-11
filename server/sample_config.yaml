@@ -1,4 +1,4 @@
-state_store_path: indexify_server_state 
+state_store_path: indexify_server_state
 listen_addr: 0.0.0.0:8900
 
 telemetry:
@@ -17,3 +17,16 @@ telemetry:
   # Instance ID for this Indexify server instance
   # Used as a metric attribute "indexify.instance.id"
   instance_id: "indexify-server-1"
+
+executor_catalog:
+  - name: gpu-xl
+    regions:
+      - us-west-2
+      - eu-west-1
+  - name: cpu-s
+    regions:
+      - us-east-1
+      - eu-west-2
+  - name: gpu-xxl
+    regions:
+      - eu-west-1
