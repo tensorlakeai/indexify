@@ -2,7 +2,7 @@ use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
 
 use anyhow::Result;
 use figment::{
-    providers::{Format, Serialized, Toml, Yaml},
+    providers::{Format, Serialized, Yaml},
     Figment,
 };
 use serde::{Deserialize, Serialize};
@@ -54,13 +54,7 @@ impl ServerConfig {
         let config_str = std::fs::read_to_string(path)?;
         let figment = Figment::from(Serialized::defaults(ServerConfig::default()));
 
-        let config: ServerConfig = if path.ends_with(".toml") {
-            figment.merge(Toml::string(&config_str))
-        } else {
-            // Default to YAML for .yaml, .yml, or any other extension
-            figment.merge(Yaml::string(&config_str))
-        }
-        .extract()?;
+        let config: ServerConfig = figment.merge(Yaml::string(&config_str)).extract()?;
 
         config.validate()?;
         Ok(config)
