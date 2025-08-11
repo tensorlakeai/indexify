@@ -28,7 +28,7 @@ class TaskOutput:
         self,
         allocation: TaskAllocation,
         outcome_code: TaskOutcomeCode,
-        failure_reason: Optional[TaskFailureReason] = None,
+        failure_reason: TaskFailureReason | None = None,
         function_outputs: List[SerializedObjectInsideBLOB] = [],
         uploaded_function_outputs_blob: Optional[BLOB] = None,
         invocation_error_output: Optional[SerializedObjectInsideBLOB] = None,
