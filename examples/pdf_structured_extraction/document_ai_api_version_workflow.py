@@ -11,7 +11,6 @@ from typing import Optional, List, Any
 image = (
     Image()
     .name("tensorlake/pdf-structured-extraction-inkwell-example")
-    .base_image("python:3.11-slim")
     .run("apt update")
     .run("pip install openai")
     .run("pip install requests")
