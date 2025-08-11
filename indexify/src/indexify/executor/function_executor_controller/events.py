@@ -47,11 +47,11 @@ class FunctionExecutorCreated(BaseEvent):
     def __init__(
         self,
         function_executor: Optional[FunctionExecutor],
-        fe_termination_reason: Optional[FunctionExecutorTerminationReason],
+        fe_termination_reason: FunctionExecutorTerminationReason | None,
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_CREATED)
         self.function_executor: Optional[FunctionExecutor] = function_executor
-        self.fe_termination_reason: Optional[FunctionExecutorTerminationReason] = (
+        self.fe_termination_reason: FunctionExecutorTerminationReason | None = (
             fe_termination_reason
         )
 
