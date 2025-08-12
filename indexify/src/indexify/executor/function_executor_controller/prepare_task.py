@@ -65,7 +65,7 @@ async def prepare_task(
                 logger=logger,
             )
             logger.info(
-                "Task was prepared for execution",
+                "task was prepared for execution",
                 duration=time.monotonic() - start_time,
             )
             return TaskPreparationFinished(
@@ -76,7 +76,7 @@ async def prepare_task(
         return TaskPreparationFinished(task_info=task_info, is_success=False)
     except BaseException as e:
         logger.error(
-            "Failed to prepare task for execution",
+            "failed to prepare task for execution",
             exc_info=e,
             duration=time.monotonic() - start_time,
         )
