@@ -407,7 +407,7 @@ class FunctionExecutorController:
         """Spawns an aio task for the supplied coroutine.
 
         The coroutine should return an event that will be added to the FE controller events.
-        The coroutine should not raise any exceptions including BaseException and asyncio.CancelledError.
+        The coroutine should not raise any exceptions including BaseException.
         on_exception event will be added to the FE controller events if the aio task raises an unexpected exception.
         on_exception is required to not silently stall the task processing due to an unexpected exception.
         If task_info is not None, the aio task will be associated with the task_info while the aio task is running.
@@ -422,6 +422,14 @@ class FunctionExecutorController:
         async def coroutine_wrapper() -> None:
             try:
                 self._add_event(await aio, source=aio_task_name)
+            except asyncio.CancelledError:
+                # Workaround for scenario when coroutine_wrapper gets cancelled at `await aio` before aio starts.
+                # In this case aio doesn't handle the cancellation and doesn't return the right event.
+                # A fix for this is to cancel aio instead of coroutine_wrapper. We'll need to keep
+                # references to both coroutine_wrapper and aio, cause event loop uses weak references to
+                # tasks. Not doing this for now. Using on_exception is good enough because not started aios don't
+                # need to do anything special on cancellation.
+                self._add_event(on_exception, source=aio_task_name)
             except BaseException as e:
                 logger.error(
                     "unexpected exception in aio task",

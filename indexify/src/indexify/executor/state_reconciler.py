@@ -193,6 +193,8 @@ class ExecutorStateReconciler:
                     timeout=_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC,
                 )
             except asyncio.TimeoutError:
+                # These log lines really help to debug networking issues. When there are
+                # no networking issues and the fleet is not idle we don't get excessive logging here.
                 self._logger.info(
                     f"No desired state received from Server within {_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC} sec, recreating the stream to ensure it is healthy"
                 )

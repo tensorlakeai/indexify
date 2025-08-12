@@ -308,10 +308,7 @@ async def _initialize_server(
     customer_code_timeout_sec: float,
     logger: Any,
 ) -> FunctionExecutorInitializationResult:
-    with (
-        metric_initialize_rpc_errors.count_exceptions(),
-        metric_initialize_rpc_latency.time(),
-    ):
+    with metric_initialize_rpc_latency.time():
         try:
             initialize_response: InitializeResponse = await stub.initialize(
                 initialize_request,
@@ -322,6 +319,9 @@ async def _initialize_server(
                 response=initialize_response,
             )
         except grpc.aio.AioRpcError as e:
+            # Increment the metric manually as we're not raising this exception.
+            metric_initialize_rpc_errors.inc()
+            metric_create_errors.inc()
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 return FunctionExecutorInitializationResult(
                     is_timeout=True,

@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
 
+from .aio_utils import shielded_await
 from .events import FunctionExecutorTerminated
 
 
@@ -18,7 +19,7 @@ async def terminate_function_executor(
 
     The supplied lock is used to ensure that if a destroy operation is in progress,
     then another caller won't return immediately assuming that the destroy is complete
-    due to its idempotency.
+    due to its idempotency. Ignores cancellations while destroying the function executor.
 
     Doesn't raise any exceptions.
     """
@@ -29,9 +30,12 @@ async def terminate_function_executor(
             logger.info(
                 "destroying function executor",
             )
+            fe_destroy_task: asyncio.Task = asyncio.create_task(
+                function_executor.destroy(),
+                name="destroy function executor",
+            )
             try:
-                # This await is a cancellation point, need to shield to ensure we destroyed the FE.
-                await asyncio.shield(function_executor.destroy())
+                await shielded_await(fe_destroy_task, logger)
             except asyncio.CancelledError:
                 # We actually destroyed the FE so we can return without error.
                 pass
