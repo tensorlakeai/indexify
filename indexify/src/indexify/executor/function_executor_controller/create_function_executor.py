@@ -25,6 +25,7 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorTerminationReason,
 )
 
+from .aio_utils import shielded_await
 from .downloads import download_graph
 from .events import FunctionExecutorCreated
 
@@ -82,8 +83,13 @@ async def create_function_executor(
         logger=logger,
     )
     if fe_created_event.function_executor is None:
+        # _to_fe_created_event doesn't like the FE, destroy it.
+        fe_destroy_task: asyncio.Task = asyncio.create_task(
+            function_executor.destroy(),
+            name=f"destroy function executor {function_executor_description.id}",
+        )
         try:
-            await asyncio.shield(function_executor.destroy())
+            await shielded_await(fe_destroy_task, logger)
         except asyncio.CancelledError:
             # destroy() finished due to the shield, return fe_created_event.
             pass
@@ -230,9 +236,16 @@ async def _create_function_executor(
             )
         )
         return (function_executor, result)
-    except BaseException:  # includes asyncio.CancelledError and anything else
+    except BaseException:
+        fe_destroy_task: asyncio.Task = asyncio.create_task(
+            function_executor.destroy(),
+            name=f"destroy function executor {function_executor_description.id}",
+        )
         # This await is a cancellation point, need to shield to ensure we destroyed the FE.
-        await asyncio.shield(function_executor.destroy())
+        await shielded_await(
+            fe_destroy_task,
+            logger,
+        )
         raise
 
 
