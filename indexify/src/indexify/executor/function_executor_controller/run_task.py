@@ -176,7 +176,7 @@ async def run_task_on_function_executor(
         # This is an unexpected exception; we believe that this
         # indicates an internal error.
         logger.error(
-            "Unexpected internal error during task lifecycle RPC sequence", exc_info=e
+            "unexpected internal error during task lifecycle RPC sequence", exc_info=e
         )
         task_info.output = TaskOutput.internal_error(
             allocation=task_info.allocation,
@@ -357,7 +357,7 @@ def _to_task_outcome_code(
         return TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
     else:
         logger.warning(
-            "Unknown TaskOutcomeCode received from Function Executor",
+            "unknown TaskOutcomeCode received from Function Executor",
             value=FETaskOutcomeCode.Name(fe_task_outcome_code),
         )
         return TaskOutcomeCode.TASK_OUTCOME_CODE_UNKNOWN
@@ -379,7 +379,7 @@ def _to_task_failure_reason(
         return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
     else:
         logger.warning(
-            "Unknown TaskFailureReason received from Function Executor",
+            "unknown TaskFailureReason received from Function Executor",
             value=FETaskFailureReason.Name(fe_task_failure_reason),
         )
         return TaskFailureReason.TASK_FAILURE_REASON_UNKNOWN

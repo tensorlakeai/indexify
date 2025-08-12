@@ -944,7 +944,7 @@ def _to_data_payload_encoding(
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
     else:
         logger.error(
-            "Unexpected encoding for SerializedObject",
+            "unexpected encoding for SerializedObject",
             encoding=SerializedObjectEncoding.Name(encoding),
         )
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN
