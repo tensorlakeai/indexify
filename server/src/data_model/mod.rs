@@ -498,6 +498,40 @@ impl ComputeGraph {
             state: self.state.clone(),
         }
     }
+
+    pub fn can_be_scheduled(
+        &self,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+    ) -> Result<()> {
+        if executor_catalog_entries.is_empty() {
+            return Ok(());
+        }
+
+        for node in self.nodes.values() {
+            for entry in executor_catalog_entries.iter() {
+                if !node.placement_constraints.matches(&entry.labels) {
+                    continue;
+                }
+
+                let has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
+                let has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
+                let has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
+                let has_gpu_models = node
+                    .resources
+                    .gpu_configs
+                    .iter()
+                    .all(|gpu| entry.gpu_models.contains(&gpu.model));
+
+                if has_cpu && has_mem && has_disk && has_gpu_models {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "compute graph is asking resources that are not available in the cluster"
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

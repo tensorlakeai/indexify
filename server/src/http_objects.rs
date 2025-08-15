@@ -215,39 +215,6 @@ pub struct NodeResources {
     pub gpu_configs: Vec<GPUResources>,
 }
 
-impl NodeResources {
-    fn validate(
-        &self,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
-    ) -> Result<(), IndexifyAPIError> {
-        // If executor catalog entries are empty then we assume every function
-        // resource asks are valid.
-        if executor_catalog_entries.is_empty() {
-            return Ok(());
-        }
-
-        for entry in executor_catalog_entries.iter() {
-            if self.cpus <= entry.cpu_cores as f64 &&
-                self.memory_mb <= entry.memory_gb * 1024 * 1024 &&
-                self.ephemeral_disk_mb <= entry.disk_gb * 1024 * 1024 &&
-                self.gpu_configs
-                    .iter()
-                    .all(|gpu| entry.gpu_models.contains(&gpu.model))
-            {
-                return Ok(());
-            }
-        }
-
-        // Construct the error message.
-        let mut error_message = String::new();
-        error_message.push_str("resources are not valid for any executor catalog entry: ");
-        for entry in executor_catalog_entries.iter() {
-            error_message.push_str(&format!("{}", entry));
-        }
-        return Err(IndexifyAPIError::bad_request(&error_message));
-    }
-}
-
 impl From<NodeResources> for data_model::FunctionResources {
     fn from(value: NodeResources) -> Self {
         data_model::FunctionResources {
@@ -491,10 +458,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn validate(
-        &self,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
-    ) -> Result<(), IndexifyAPIError> {
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
         if self.name.is_empty() {
             return Err(IndexifyAPIError::bad_request(
                 "ComputeFn name cannot be empty",
@@ -506,7 +470,6 @@ impl ComputeFn {
             ));
         }
         self.timeout.validate()?;
-        self.resources.validate(executor_catalog_entries)?;
         self.retry_policy.validate()?;
         Ok(())
     }
@@ -593,11 +556,10 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
-            node.validate(executor_catalog_entries)?;
+            node.validate()?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in node '{}': {}",

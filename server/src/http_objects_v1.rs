@@ -47,11 +47,10 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.functions {
-            node.validate(executor_catalog_entries)?;
+            node.validate()?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in function '{}': {}",

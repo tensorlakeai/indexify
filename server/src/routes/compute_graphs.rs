@@ -140,8 +140,10 @@ pub async fn create_or_update_compute_graph_v1(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
-        &state.config.executor_catalog,
     )?;
+    compute_graph
+        .can_be_scheduled(&state.config.executor_catalog)
+        .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
     let name = compute_graph.name.clone();
 
     validate_placement_constraints_against_executor_label_sets(&compute_graph, &state).await?;
