@@ -9,7 +9,6 @@ use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    config::ExecutorConfig,
     data_model::{
         self,
         ComputeGraphCode,
@@ -217,58 +216,35 @@ pub struct NodeResources {
 }
 
 impl NodeResources {
-    fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        if self.cpus < 1.0 {
-            return Err(IndexifyAPIError::bad_request(
-                "CPU shares must be greater or equal to 1.0",
-            ));
+    fn validate(
+        &self,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+    ) -> Result<(), IndexifyAPIError> {
+        // If executor catalog entries are empty then we assume every function
+        // resource asks are valid.
+        if executor_catalog_entries.is_empty() {
+            return Ok(());
         }
-        if self.cpus > executor_config.max_cpus_per_function as f64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "CPU shares must be less than or equal to {}",
-                executor_config.max_cpus_per_function
-            )));
-        }
-        if self.memory_mb < 1024 {
-            return Err(IndexifyAPIError::bad_request(
-                "Memory must be greater than or equal to 1 GB",
-            ));
-        }
-        if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Memory must be less than or equal to {} GB",
-                executor_config.max_memory_gb_per_function
-            )));
-        }
-        if self.ephemeral_disk_mb > (executor_config.max_disk_gb_per_function * 1024) as u64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Ephemeral disk must be less than or equal to {} GB",
-                executor_config.max_disk_gb_per_function
-            )));
-        }
-        for gpu_config in self.gpu_configs.iter() {
-            if gpu_config.count == 0 {
-                return Err(IndexifyAPIError::bad_request(
-                    "GPU count must be greater than 0",
-                ));
-            }
-            if gpu_config.count > executor_config.max_gpus_per_function {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "GPU count must be less than or equal to {}",
-                    executor_config.max_gpus_per_function
-                )));
-            }
-            if !executor_config
-                .allowed_gpu_models
-                .contains(&gpu_config.model)
+
+        for entry in executor_catalog_entries.iter() {
+            if self.cpus <= entry.cpu_cores as f64 &&
+                self.memory_mb <= entry.memory_gb * 1024 * 1024 &&
+                self.ephemeral_disk_mb <= entry.disk_gb * 1024 * 1024 &&
+                self.gpu_configs
+                    .iter()
+                    .all(|gpu| entry.gpu_models.contains(&gpu.model))
             {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "GPU model must be one of '{}'",
-                    executor_config.allowed_gpu_models.join(", ")
-                )));
+                return Ok(());
             }
         }
-        Ok(())
+
+        // Construct the error message.
+        let mut error_message = String::new();
+        error_message.push_str("resources are not valid for any executor catalog entry: ");
+        for entry in executor_catalog_entries.iter() {
+            error_message.push_str(&format!("{}", entry));
+        }
+        return Err(IndexifyAPIError::bad_request(&error_message));
     }
 }
 
@@ -515,7 +491,10 @@ impl From<data_model::ComputeFn> for ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
+    pub fn validate(
+        &self,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+    ) -> Result<(), IndexifyAPIError> {
         if self.name.is_empty() {
             return Err(IndexifyAPIError::bad_request(
                 "ComputeFn name cannot be empty",
@@ -527,7 +506,7 @@ impl ComputeFn {
             ));
         }
         self.timeout.validate()?;
-        self.resources.validate(executor_config)?;
+        self.resources.validate(executor_catalog_entries)?;
         self.retry_policy.validate()?;
         Ok(())
     }
@@ -614,11 +593,11 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-        executor_config: &ExecutorConfig,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
-            node.validate(executor_config)?;
+            node.validate(executor_catalog_entries)?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in node '{}': {}",

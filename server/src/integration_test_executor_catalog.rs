@@ -28,6 +28,10 @@ mod tests {
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(), // name is unused when labels are populated
             regions: vec![],            // regions unused
+            cpu_cores: 1,
+            memory_gb: 1,
+            disk_gb: 1,
+            gpu_models: vec![],
             labels,
         };
 
@@ -156,6 +160,10 @@ mod tests {
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(),
             regions: vec![],
+            cpu_cores: 1,
+            memory_gb: 1,
+            disk_gb: 1,
+            gpu_models: vec![],
             labels,
         };
 

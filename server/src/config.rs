@@ -1,4 +1,9 @@
-use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
+use std::{
+    env,
+    fmt::{Debug, Display},
+    net::SocketAddr,
+    time::Duration,
+};
 
 use anyhow::Result;
 use figment::{
@@ -7,14 +12,24 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{blob_store::BlobStorageConfig, data_model};
+use crate::blob_store::BlobStorageConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
     pub name: String,
     pub regions: Vec<String>,
+    pub cpu_cores: u32,
+    pub memory_gb: u64,
+    pub disk_gb: u64,
+    pub gpu_models: Vec<String>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,
+}
+
+impl Display for ExecutorCatalogEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Node: (name: {}, regions: {:?}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})", self.name, self.regions, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,7 +41,6 @@ pub struct ServerConfig {
     pub blob_storage: BlobStorageConfig,
     pub kv_storage: BlobStorageConfig,
     pub telemetry: TelemetryConfig,
-    pub executor: ExecutorConfig,
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
     pub queue_size: u32,
 }
@@ -42,7 +56,6 @@ impl Default for ServerConfig {
             blob_storage: Default::default(),
             kv_storage: Default::default(),
             telemetry: TelemetryConfig::default(),
-            executor: ExecutorConfig::default(),
             executor_catalog: Vec::new(),
             queue_size: 2,
         }
@@ -73,7 +86,6 @@ impl ServerConfig {
                 self.listen_addr_grpc
             ));
         }
-        self.executor.validate()?;
         Ok(())
     }
 }
@@ -112,63 +124,6 @@ impl Default for TelemetryConfig {
             local_log_file: None,
             local_log_targets: std::collections::HashMap::new(),
             instance_id: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutorConfig {
-    pub max_cpus_per_function: u32,
-    pub max_memory_gb_per_function: u32,
-    pub max_disk_gb_per_function: u32,
-    pub max_gpus_per_function: u32,
-    pub allowed_gpu_models: Vec<String>,
-}
-
-impl ExecutorConfig {
-    fn validate(&self) -> Result<()> {
-        // Just check for impossible values.
-        if self.max_cpus_per_function == 0 || self.max_cpus_per_function > 1024 {
-            return Err(anyhow::anyhow!(
-                "max_cpus_per_function must be greater than 0 and less than or equal 1024"
-            ));
-        }
-        if self.max_memory_gb_per_function == 0 || self.max_memory_gb_per_function > 100 * 1024 {
-            return Err(anyhow::anyhow!(
-                "max_memory_gb_per_function must be greater than 0 and less than or equal 100 TB"
-            ));
-        }
-        if self.max_disk_gb_per_function > 500 * 1024 {
-            return Err(anyhow::anyhow!(
-                "max_disk_gb_per_function must be greater than 0 and less than or equal 500 TB"
-            ));
-        }
-        // Allow 0 GPUs for CPU-only clusters and 0 ephimeral disk for diskless
-        // clusters.
-        for model in &self.allowed_gpu_models {
-            if !data_model::ALL_GPU_MODELS.contains(&model.as_str()) {
-                return Err(anyhow::anyhow!(
-                    "invalid GPU model: {:?}, supported GPU models: {:?}",
-                    model,
-                    data_model::ALL_GPU_MODELS
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Default for ExecutorConfig {
-    fn default() -> Self {
-        ExecutorConfig {
-            max_cpus_per_function: 216,          // 90% of 240
-            max_memory_gb_per_function: 1620,    // 90% of 1800 GiB
-            max_disk_gb_per_function: 20 * 1024, // 90% of 22 TiB
-            max_gpus_per_function: 8,
-            allowed_gpu_models: data_model::ALL_GPU_MODELS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
         }
     }
 }

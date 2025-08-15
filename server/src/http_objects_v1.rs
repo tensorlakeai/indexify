@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    config::ExecutorConfig,
     data_model::{
         self,
         ComputeGraphCode,
@@ -48,11 +47,11 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-        executor_config: &ExecutorConfig,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.functions {
-            node.validate(executor_config)?;
+            node.validate(executor_catalog_entries)?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in function '{}': {}",

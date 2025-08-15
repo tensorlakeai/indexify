@@ -140,7 +140,7 @@ pub async fn create_or_update_compute_graph_v1(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
-        &state.config.executor,
+        &state.config.executor_catalog,
     )?;
     let name = compute_graph.name.clone();
 
