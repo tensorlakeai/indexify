@@ -20,6 +20,18 @@ use strum::Display;
 
 use crate::utils::get_epoch_time_in_ms;
 
+pub enum GraphNotificationPayload {
+    TaskFinished{
+        
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphUpdateNotification {
+    pub namespace: String,
+    pub compute_graph_name: String,
+
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
     pub db_version: u64,

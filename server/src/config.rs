@@ -28,6 +28,7 @@ pub struct ServerConfig {
     pub telemetry: TelemetryConfig,
     pub executor: ExecutorConfig,
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
+    pub graph_updates_notification_sqs_url: Option<String>,
     pub queue_size: u32,
 }
 
@@ -44,6 +45,7 @@ impl Default for ServerConfig {
             telemetry: TelemetryConfig::default(),
             executor: ExecutorConfig::default(),
             executor_catalog: Vec::new(),
+            graph_updates_notification_sqs_url: None,
             queue_size: 2,
         }
     }
