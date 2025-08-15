@@ -25,7 +25,11 @@ use crate::{
     },
     http_objects::{IndexifyAPIError, RequestId},
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{
+            InvocationStateChangeEvent,
+            RequestFinishedEvent,
+            REQUEST_FINISHED_EVENT_ID,
+        },
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
 };
@@ -77,7 +81,9 @@ async fn create_invocation_progress_stream(
     async_stream::stream! {
         // For invoke endpoint without blocking
         if rx.is_none() {
-            yield Event::default().json_data(RequestId { id: id.clone() });
+            yield Event::default()
+                .id(REQUEST_FINISHED_EVENT_ID)
+                .json_data(RequestId { id: id.clone() });
             return;
         }
 
@@ -89,13 +95,15 @@ async fn create_invocation_progress_stream(
         {
             Ok(Some(invocation)) => {
                 if invocation.completed {
-                    yield Event::default().json_data(
-                        InvocationStateChangeEvent::RequestFinished(
+                    let event = Event::default()
+                        .id(REQUEST_FINISHED_EVENT_ID)
+                        .json_data(InvocationStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
                                 request_id: id.clone()
                             }
-                        )
-                    );
+                        ));
+
+                    yield event;
                     return;
                 }
             }
@@ -119,7 +127,9 @@ async fn create_invocation_progress_stream(
                 match rx.recv().await {
                     Ok(ev) => {
                         if ev.invocation_id() == id {
-                            yield Event::default().json_data(ev.clone());
+                            yield Event::default()
+                                .id(ev.to_event_id())
+                                .json_data(ev.clone());
 
                             if let InvocationStateChangeEvent::RequestFinished(_) = ev {
                                 return;
@@ -141,7 +151,9 @@ async fn create_invocation_progress_stream(
                         {
                             Ok(Some(context)) => {
                                 if context.completed {
-                                    yield Event::default().json_data(
+                                    yield Event::default()
+                                    .id(REQUEST_FINISHED_EVENT_ID)
+                                    .json_data(
                                         InvocationStateChangeEvent::RequestFinished(
                                             RequestFinishedEvent {
                                                 request_id: id.clone()
