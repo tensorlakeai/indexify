@@ -9,7 +9,6 @@ use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    config::ExecutorConfig,
     data_model::{
         self,
         ComputeGraphCode,
@@ -214,62 +213,6 @@ pub struct NodeResources {
     pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<GPUResources>,
-}
-
-impl NodeResources {
-    fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
-        if self.cpus < 1.0 {
-            return Err(IndexifyAPIError::bad_request(
-                "CPU shares must be greater or equal to 1.0",
-            ));
-        }
-        if self.cpus > executor_config.max_cpus_per_function as f64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "CPU shares must be less than or equal to {}",
-                executor_config.max_cpus_per_function
-            )));
-        }
-        if self.memory_mb < 1024 {
-            return Err(IndexifyAPIError::bad_request(
-                "Memory must be greater than or equal to 1 GB",
-            ));
-        }
-        if self.memory_mb > (executor_config.max_memory_gb_per_function * 1024) as u64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Memory must be less than or equal to {} GB",
-                executor_config.max_memory_gb_per_function
-            )));
-        }
-        if self.ephemeral_disk_mb > (executor_config.max_disk_gb_per_function * 1024) as u64 {
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Ephemeral disk must be less than or equal to {} GB",
-                executor_config.max_disk_gb_per_function
-            )));
-        }
-        for gpu_config in self.gpu_configs.iter() {
-            if gpu_config.count == 0 {
-                return Err(IndexifyAPIError::bad_request(
-                    "GPU count must be greater than 0",
-                ));
-            }
-            if gpu_config.count > executor_config.max_gpus_per_function {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "GPU count must be less than or equal to {}",
-                    executor_config.max_gpus_per_function
-                )));
-            }
-            if !executor_config
-                .allowed_gpu_models
-                .contains(&gpu_config.model)
-            {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "GPU model must be one of '{}'",
-                    executor_config.allowed_gpu_models.join(", ")
-                )));
-            }
-        }
-        Ok(())
-    }
 }
 
 impl From<NodeResources> for data_model::FunctionResources {
@@ -515,7 +458,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn validate(&self, executor_config: &ExecutorConfig) -> Result<(), IndexifyAPIError> {
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
         if self.name.is_empty() {
             return Err(IndexifyAPIError::bad_request(
                 "ComputeFn name cannot be empty",
@@ -527,7 +470,6 @@ impl ComputeFn {
             ));
         }
         self.timeout.validate()?;
-        self.resources.validate(executor_config)?;
         self.retry_policy.validate()?;
         Ok(())
     }
@@ -614,11 +556,10 @@ impl ComputeGraph {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-        executor_config: &ExecutorConfig,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut nodes = HashMap::new();
         for (name, node) in self.nodes {
-            node.validate(executor_config)?;
+            node.validate()?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in node '{}': {}",

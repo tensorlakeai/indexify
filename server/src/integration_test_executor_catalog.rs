@@ -28,6 +28,10 @@ mod tests {
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(), // name is unused when labels are populated
             regions: vec![],            // regions unused
+            cpu_cores: 1,
+            memory_gb: 1,
+            disk_gb: 1,
+            gpu_models: vec![],
             labels,
         };
 
@@ -156,6 +160,10 @@ mod tests {
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(),
             regions: vec![],
+            cpu_cores: 1,
+            memory_gb: 1,
+            disk_gb: 1,
+            gpu_models: vec![],
             labels,
         };
 
@@ -291,6 +299,171 @@ mod tests {
             ComputeGraphState::Disabled { .. } => {}
             _ => panic!("graph_invalid_qux should be disabled"),
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_validate_graph_constraints_resources() -> Result<()> {
+        use crate::data_model::{
+            FunctionResources,
+            GPUResources,
+            GPU_MODEL_NVIDIA_A10,
+            GPU_MODEL_NVIDIA_H100_80GB,
+        };
+
+        // Single catalog entry with specific capacities
+        let catalog_entry = ExecutorCatalogEntry {
+            name: "res".to_string(),
+            regions: vec![],
+            cpu_cores: 2, // 2 cores
+            memory_gb: 2, // 2 GB
+            disk_gb: 2,   // 2 GB
+            gpu_models: vec![GPU_MODEL_NVIDIA_A10.to_string()],
+            labels: HashMap::new(),
+        };
+
+        let test_srv = TestService::new_with_executor_catalog(vec![catalog_entry]).await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Helper to build a graph with given resources applied to all nodes
+        let build_graph = |name: &str, resources: FunctionResources| {
+            let mut g = test_objects::test_graph_a("image_hash".to_string());
+            g.name = name.to_string();
+            g.state = ComputeGraphState::Active;
+            for node in g.nodes.values_mut() {
+                node.resources = resources.clone();
+            }
+            g.start_fn.resources = resources;
+            g
+        };
+
+        // Graphs per-resource scenario
+        let graph_cpu_unsat = build_graph(
+            "graph_cpu_unsat",
+            FunctionResources {
+                cpu_ms_per_sec: 3000, // needs 3 cores, catalog has 2
+                memory_mb: 512,
+                ephemeral_disk_mb: 512,
+                gpu_configs: vec![],
+            },
+        );
+
+        let graph_cpu_sat = build_graph(
+            "graph_cpu_sat",
+            FunctionResources {
+                cpu_ms_per_sec: 2000, // exactly 2 cores
+                memory_mb: 512,
+                ephemeral_disk_mb: 512,
+                gpu_configs: vec![],
+            },
+        );
+
+        // Use very large values to exceed (catalog.memory_gb * 1024 * 1024) MB if that
+        // logic is used
+        let graph_mem_unsat = build_graph(
+            "graph_mem_unsat",
+            FunctionResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 3_000_000, // > 2,097,152 MB (2 TB) so should be unsatisfiable for 2 GB
+                ephemeral_disk_mb: 512,
+                gpu_configs: vec![],
+            },
+        );
+
+        let graph_disk_unsat = build_graph(
+            "graph_disk_unsat",
+            FunctionResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 3_000_000, // > 2,097,152 MB (2 TB) so should be unsatisfiable for 2 GB
+                gpu_configs: vec![],
+            },
+        );
+
+        let graph_gpu_unsat = build_graph(
+            "graph_gpu_unsat",
+            FunctionResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 512,
+                gpu_configs: vec![GPUResources {
+                    count: 1,
+                    model: GPU_MODEL_NVIDIA_H100_80GB.to_string(), // not in catalog
+                }],
+            },
+        );
+
+        let graph_gpu_sat = build_graph(
+            "graph_gpu_sat",
+            FunctionResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 512,
+                gpu_configs: vec![GPUResources {
+                    count: 1,
+                    model: GPU_MODEL_NVIDIA_A10.to_string(), // in catalog
+                }],
+            },
+        );
+
+        // Persist graphs
+        for compute_graph in [
+            graph_cpu_unsat.clone(),
+            graph_cpu_sat.clone(),
+            graph_mem_unsat.clone(),
+            graph_disk_unsat.clone(),
+            graph_gpu_unsat.clone(),
+            graph_gpu_sat.clone(),
+        ] {
+            indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                        CreateOrUpdateComputeGraphRequest {
+                            namespace: TEST_NAMESPACE.to_string(),
+                            compute_graph,
+                            upgrade_tasks_to_current_version: true,
+                        },
+                    ),
+                    processed_state_changes: vec![],
+                })
+                .await?;
+        }
+
+        // Validate constraints
+        test_srv
+            .service
+            .graph_processor
+            .validate_graph_constraints()
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify expected states
+        let in_memory = indexify_state.in_memory_state.read().await;
+
+        let assert_state = |name: &str, expect_active: bool| {
+            let key = crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, name);
+            let graph = in_memory
+                .compute_graphs
+                .get(&key)
+                .expect("compute graph not found");
+            match (&graph.state, expect_active) {
+                (ComputeGraphState::Active, true) => {}
+                (ComputeGraphState::Disabled { .. }, false) => {}
+                _ => panic!(
+                    "compute graph '{}' unexpected state: {:?}",
+                    name, graph.state
+                ),
+            }
+        };
+
+        // Unsatisfiable vs satisfiable across resources
+        assert_state("graph_cpu_unsat", false);
+        assert_state("graph_cpu_sat", true);
+        assert_state("graph_mem_unsat", false);
+        assert_state("graph_disk_unsat", false);
+        assert_state("graph_gpu_unsat", false);
+        assert_state("graph_gpu_sat", true);
 
         Ok(())
     }

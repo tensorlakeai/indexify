@@ -498,6 +498,40 @@ impl ComputeGraph {
             state: self.state.clone(),
         }
     }
+
+    pub fn can_be_scheduled(
+        &self,
+        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+    ) -> Result<()> {
+        if executor_catalog_entries.is_empty() {
+            return Ok(());
+        }
+
+        for node in self.nodes.values() {
+            for entry in executor_catalog_entries.iter() {
+                if !node.placement_constraints.matches(&entry.labels) {
+                    continue;
+                }
+
+                let has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
+                let has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
+                let has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
+                let has_gpu_models = node
+                    .resources
+                    .gpu_configs
+                    .iter()
+                    .all(|gpu| entry.gpu_models.contains(&gpu.model));
+
+                if has_cpu && has_mem && has_disk && has_gpu_models {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "compute graph is asking resources that are not available in the cluster"
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1408,14 +1442,6 @@ pub const GPU_MODEL_NVIDIA_A100_80GB: &str = "A100-80GB";
 pub const GPU_MODEL_NVIDIA_TESLA_T4: &str = "T4";
 pub const GPU_MODEL_NVIDIA_A6000: &str = "A6000";
 pub const GPU_MODEL_NVIDIA_A10: &str = "A10";
-pub const ALL_GPU_MODELS: [&str; 6] = [
-    GPU_MODEL_NVIDIA_H100_80GB,
-    GPU_MODEL_NVIDIA_A100_40GB,
-    GPU_MODEL_NVIDIA_A100_80GB,
-    GPU_MODEL_NVIDIA_TESLA_T4,
-    GPU_MODEL_NVIDIA_A6000,
-    GPU_MODEL_NVIDIA_A10,
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct HostResources {
