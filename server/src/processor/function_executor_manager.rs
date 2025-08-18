@@ -140,6 +140,15 @@ impl FunctionExecutorManager {
             .updated_executor_resources
             .insert(executor_id.clone(), candidate.free_resources.clone());
 
+        let node_max_concurrency = in_memory_state
+            .get_fe_max_concurrency_by_uri(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.compute_fn_name,
+                &task.graph_version,
+            )
+            .ok_or(anyhow!("failed to get function executor max concurrency"))?;
+
         // Create a new function executor
         let function_executor = FunctionExecutorBuilder::default()
             .namespace(task.namespace.clone())
@@ -148,6 +157,7 @@ impl FunctionExecutorManager {
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(fe_resources.clone())
+            .max_concurrency(node_max_concurrency)
             .build()?;
 
         info!(

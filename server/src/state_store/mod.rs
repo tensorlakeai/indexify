@@ -513,7 +513,7 @@ mod tests {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
         // Create a compute graph and write it
-        let compute_graph = test_graph_a("Old Hash".to_string());
+        let compute_graph = test_graph_a();
         _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
@@ -522,15 +522,9 @@ mod tests {
         // Check if the compute graph was created
         assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
-        let nodes = &compute_graphs[0].nodes;
-        assert_eq!(nodes["fn_a"].image_information.image_hash, "Old Hash");
-        assert_eq!(nodes["fn_b"].image_information.image_hash, "Old Hash");
-        assert_eq!(nodes["fn_c"].image_information.image_hash, "Old Hash");
-
         for i in 2..4 {
             // Update the graph
-            let new_hash = format!("this is a new hash {i}");
-            let mut compute_graph = test_graph_a(new_hash.clone());
+            let mut compute_graph = test_graph_a();
             compute_graph.version = GraphVersion(i.to_string());
 
             _write_to_test_state_store(&indexify_state, compute_graph).await?;
@@ -542,10 +536,6 @@ mod tests {
             assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
             // println!("compute graph {:?}", compute_graphs[0]);
             assert_eq!(compute_graphs[0].version, GraphVersion(i.to_string()));
-            let nodes = &compute_graphs[0].nodes;
-            assert_eq!(nodes["fn_a"].image_information.image_hash, new_hash.clone());
-            assert_eq!(nodes["fn_b"].image_information.image_hash, new_hash.clone());
-            assert_eq!(nodes["fn_c"].image_information.image_hash, new_hash.clone());
         }
 
         Ok(())
@@ -560,7 +550,7 @@ mod tests {
             .compute_graph_name("cg1".to_string())
             .invocation_id("foo1".to_string())
             .graph_version(GraphVersion("1".to_string()))
-            .build(tests::test_graph_a("image_hash".to_string()))?;
+            .build(tests::test_graph_a())?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.last_state_change_id,
             &InvokeComputeGraphRequest {

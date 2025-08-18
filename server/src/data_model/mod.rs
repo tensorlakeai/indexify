@@ -15,7 +15,6 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use strum::Display;
 
 use crate::utils::get_epoch_time_in_ms;
@@ -190,50 +189,6 @@ impl AllocationBuilder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
-pub struct ImageInformation {
-    pub image_name: String,
-    pub tag: String,
-    pub base_image: String,
-    pub run_strs: Vec<String>,
-    pub image_hash: String,
-    pub image_uri: Option<String>,
-    pub sdk_version: Option<String>,
-}
-
-impl ImageInformation {
-    pub fn new(
-        image_name: String,
-        image_hash: String,
-        image_uri: Option<String>,
-        tag: String,
-        base_image: String,
-        run_strs: Vec<String>,
-        sdk_version: Option<String>,
-    ) -> Self {
-        let mut compat_image_hash: String = image_hash;
-        if compat_image_hash.is_empty() {
-            // Preserve backwards compatibility with old hash calculation
-            let mut image_hasher = Sha256::new();
-            image_hasher.update(image_name.clone());
-            image_hasher.update(base_image.clone());
-            image_hasher.update(run_strs.clone().join(""));
-            image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
-            compat_image_hash = format!("{:x}", image_hasher.finalize())
-        }
-
-        ImageInformation {
-            image_name,
-            tag,
-            base_image,
-            run_strs,
-            image_hash: compat_image_hash,
-            image_uri,
-            sdk_version,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeTimeoutMS(pub u32);
 
@@ -316,6 +271,10 @@ impl From<&str> for CacheKey {
     }
 }
 
+fn default_max_concurrency() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ComputeFn {
     pub name: String,
@@ -327,7 +286,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_information: ImageInformation,
     pub secret_names: Option<Vec<String>>,
     #[serde(default)]
     pub timeout: NodeTimeoutMS,
@@ -340,6 +298,8 @@ pub struct ComputeFn {
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
     pub return_type: Option<serde_json::Value>,
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: u32,
 }
 
 impl ComputeFn {
@@ -1848,6 +1808,7 @@ pub struct FunctionExecutor {
     pub version: GraphVersion,
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
+    pub max_concurrency: u32,
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1900,6 +1861,10 @@ impl FunctionExecutorBuilder {
             .resources
             .clone()
             .ok_or(anyhow!("resources is required"))?;
+        let max_concurrency = self
+            .max_concurrency
+            .clone()
+            .ok_or(anyhow!("max_concurrency is required"))?;
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -1908,6 +1873,7 @@ impl FunctionExecutorBuilder {
             version,
             state,
             resources,
+            max_concurrency,
         })
     }
 }
@@ -2263,9 +2229,9 @@ mod tests {
     #[test]
     fn test_compute_graph_update() {
         const TEST_NAMESPACE: &str = "namespace1";
-        let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string(), 0);
-        let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string(), 0);
-        let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string(), 0);
+        let fn_a = test_compute_fn("fn_a", 0);
+        let fn_b = test_compute_fn("fn_b", 0);
+        let fn_c = test_compute_fn("fn_c", 0);
         let original_graph: ComputeGraph = ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
@@ -2456,7 +2422,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
                     ]),
                     ..original_graph.clone()
                 },
@@ -2466,7 +2432,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
                     ]),
                     ..original_graph.clone()
                 },
@@ -2476,7 +2442,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", "some_hash_fn_d".to_string(), 0)), // added
+                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
                     ]),
                     ..original_graph.into_version()
                 },
@@ -2516,7 +2482,7 @@ mod tests {
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)), // different
+                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)), // different
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2525,7 +2491,7 @@ mod tests {
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)),
+                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2534,7 +2500,7 @@ mod tests {
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string(), 0)),
+                        ("fn_a".to_string(), test_compute_fn("fn_a",  0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2566,7 +2532,7 @@ mod tests {
         F: FnOnce(&mut ComputeGraphVersion),
     {
         fn create_test_graph_version() -> ComputeGraphVersion {
-            let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string(), 0);
+            let fn_a = test_compute_fn("fn_a", 0);
             ComputeGraphVersion {
                 namespace: String::new(),
                 compute_graph_name: String::new(),
@@ -2604,14 +2570,8 @@ mod tests {
         check_compute_parent("compute2", vec!["compute1"], |graph| {
             graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
-                (
-                    "compute1".to_string(),
-                    test_compute_fn("compute1", "image_hash".to_string(), 0),
-                ),
-                (
-                    "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string(), 0),
-                ),
+                ("compute1".to_string(), test_compute_fn("compute1", 0)),
+                ("compute2".to_string(), test_compute_fn("compute2", 0)),
             ]);
         });
         check_compute_parent("nonexistent", vec![], |_| {});
@@ -2620,42 +2580,24 @@ mod tests {
         check_compute_parent("compute2", vec!["compute1"], |graph| {
             graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
-                (
-                    "compute1".to_string(),
-                    test_compute_fn("compute1", "image_hash".to_string(), 0),
-                ),
-                (
-                    "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string(), 0),
-                ),
+                ("compute1".to_string(), test_compute_fn("compute1", 0)),
+                ("compute2".to_string(), test_compute_fn("compute2", 0)),
             ]);
         });
 
         check_compute_parent("compute2", vec!["compute3"], |graph| {
             graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
-                (
-                    "compute3".to_string(),
-                    test_compute_fn("compute3", "image_hash".to_string(), 0),
-                ),
-                (
-                    "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string(), 0),
-                ),
+                ("compute3".to_string(), test_compute_fn("compute3", 0)),
+                ("compute2".to_string(), test_compute_fn("compute2", 0)),
             ]);
         });
 
         check_compute_parent("compute2", vec!["compute3"], |graph| {
             graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
-                (
-                    "compute3".to_string(),
-                    test_compute_fn("compute3", "image_hash".to_string(), 0),
-                ),
-                (
-                    "compute2".to_string(),
-                    test_compute_fn("compute2", "image_hash".to_string(), 0),
-                ),
+                ("compute3".to_string(), test_compute_fn("compute3", 0)),
+                ("compute2".to_string(), test_compute_fn("compute2", 0)),
             ]);
         });
 
@@ -2671,30 +2613,12 @@ mod tests {
                     ("compute4".to_string(), vec!["compute5".to_string()]),
                 ]);
                 graph.nodes = HashMap::from([
-                    (
-                        "compute1".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
-                    (
-                        "compute2".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
-                    (
-                        "compute3".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
-                    (
-                        "compute4".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
-                    (
-                        "compute5".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
-                    (
-                        "compute6".to_string(),
-                        test_compute_fn("compute1", "image_hash".to_string(), 0),
-                    ),
+                    ("compute1".to_string(), test_compute_fn("compute1", 0)),
+                    ("compute2".to_string(), test_compute_fn("compute1", 0)),
+                    ("compute3".to_string(), test_compute_fn("compute1", 0)),
+                    ("compute4".to_string(), test_compute_fn("compute1", 0)),
+                    ("compute5".to_string(), test_compute_fn("compute1", 0)),
+                    ("compute6".to_string(), test_compute_fn("compute1", 0)),
                 ]);
             },
         );

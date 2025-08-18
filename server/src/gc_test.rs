@@ -40,7 +40,7 @@ mod tests {
 
         // Create a compute graph
         let compute_graph = {
-            let mut compute_graph = test_graph_a("image_hash".to_string()).clone();
+            let mut compute_graph = test_graph_a().clone();
             let data = "code";
             let path = (&compute_graph.code.path).to_string();
 

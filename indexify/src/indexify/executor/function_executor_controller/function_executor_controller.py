@@ -137,7 +137,7 @@ class FunctionExecutorController:
         self._tasks: Dict[str, TaskInfo] = {}
         # Tracking of task execution on Function Executor.
         self._runnable_tasks: List[TaskInfo] = []
-        self._running_task: Optional[TaskInfo] = None
+        self._running_tasks: List[TaskInfo] = []
 
     def function_executor_id(self) -> str:
         return self._fe_description.id
@@ -538,11 +538,9 @@ class FunctionExecutorController:
 
         self._start_termination(
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
-            allocation_ids_caused_termination=(
-                []
-                if self._running_task is None
-                else [self._running_task.allocation.allocation_id]
-            ),
+            allocation_ids_caused_termination=[
+                task.allocation.allocation_id for task in self._running_tasks
+            ],
         )
 
     def _handle_event_task_preparation_finished(
@@ -601,7 +599,7 @@ class FunctionExecutorController:
 
         if (
             self._internal_state == _FE_CONTROLLER_STATE.RUNNING
-            and self._running_task is not None
+            and len(self._running_tasks) == self._fe_description.max_concurrency
         ):
             return
 
@@ -626,13 +624,13 @@ class FunctionExecutorController:
             _FE_CONTROLLER_STATE.TERMINATED,
         ]:
             if task_info.output is None:
-                # The output can be set already by FE startup failure handler.
+                # The output could be set already by FE startup failure handler.
                 task_info.output = TaskOutput.function_executor_terminated(
                     task_info.allocation
                 )
             self._start_task_finalization(task_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
-            self._running_task = task_info
+            self._running_tasks.append(task_info)
             next_aio = run_task_on_function_executor(
                 task_info=task_info,
                 function_executor=self._fe,
@@ -667,7 +665,8 @@ class FunctionExecutorController:
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        self._running_task = None
+        task_info: TaskInfo = event.task_info
+        self._running_tasks.remove(task_info)
 
         if event.function_executor_termination_reason is None:
             self._add_event(
@@ -681,7 +680,6 @@ class FunctionExecutorController:
                 ],
             )
 
-        task_info: TaskInfo = event.task_info
         if task_info.output is None:
             # `run_task_on_function_executor` guarantees that the output is set in
             # all cases including task cancellations. If this didn't happen then some

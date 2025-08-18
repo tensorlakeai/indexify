@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
 
 use axum::{
     http::StatusCode,
@@ -110,57 +110,6 @@ impl From<data_model::Namespace> for Namespace {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct NamespaceList {
     pub namespaces: Vec<Namespace>,
-}
-
-#[derive(Clone, Serialize, Deserialize, ToSchema)]
-pub struct ImageInformation {
-    pub image_name: String,
-    #[serde(default)]
-    pub image_hash: String,
-    pub tag: String,           // Deprecated
-    pub base_image: String,    // Deprecated
-    pub run_strs: Vec<String>, // Deprecated
-    pub image_uri: Option<String>,
-    pub sdk_version: Option<String>,
-}
-
-impl fmt::Debug for ImageInformation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ImageInformation")
-            .field("image_name", &self.image_name)
-            .field("tag", &self.tag)
-            .field("base_image", &self.base_image)
-            .field("run_strs", &self.run_strs)
-            .finish()
-    }
-}
-
-impl From<ImageInformation> for data_model::ImageInformation {
-    fn from(value: ImageInformation) -> Self {
-        data_model::ImageInformation::new(
-            value.image_name,
-            value.image_hash,
-            value.image_uri,
-            value.tag,
-            value.base_image,
-            value.run_strs,
-            value.sdk_version,
-        )
-    }
-}
-
-impl From<data_model::ImageInformation> for ImageInformation {
-    fn from(value: data_model::ImageInformation) -> ImageInformation {
-        ImageInformation {
-            image_name: value.image_name,
-            image_hash: value.image_hash,
-            tag: value.tag,
-            base_image: value.base_image,
-            run_strs: value.run_strs,
-            image_uri: value.image_uri,
-            sdk_version: value.sdk_version,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -355,6 +304,10 @@ impl From<data_model::filter::LabelsFilter> for PlacementConstraints {
     }
 }
 
+fn default_max_concurrency() -> u32 {
+    1
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct CacheKey(String);
 
@@ -392,7 +345,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
-    pub image_information: ImageInformation,
     #[serde(default)]
     pub secret_names: Vec<String>,
     #[serde(default, rename = "timeout_sec")]
@@ -409,6 +361,8 @@ pub struct ComputeFn {
     pub return_type: Option<serde_json::Value>,
     #[serde(default)]
     pub placement_constraints: PlacementConstraints,
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: u32,
 }
 
 impl TryFrom<ComputeFn> for data_model::ComputeFn {
@@ -423,7 +377,6 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             reducer: val.reducer,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
-            image_information: val.image_information.into(),
             secret_names: Some(val.secret_names),
             timeout: val.timeout.into(),
             resources: val.resources.into(),
@@ -431,6 +384,7 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             cache_key: val.cache_key.map(|v| v.into()),
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
+            max_concurrency: val.max_concurrency,
         })
     }
 }
@@ -444,7 +398,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
             reducer: c.reducer,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
-            image_information: c.image_information.into(),
             secret_names: c.secret_names.unwrap_or_default(),
             timeout: c.timeout.into(),
             resources: c.resources.into(),
@@ -453,6 +406,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
+            max_concurrency: c.max_concurrency,
         }
     }
 }
@@ -986,6 +940,7 @@ pub struct FunctionExecutorMetadata {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: String,
+    pub max_concurrency: u32,
     pub state: String,
     pub desired_state: String,
 }
@@ -1000,6 +955,7 @@ pub fn from_data_model_function_executor(
         compute_graph_name: fe.compute_graph_name,
         compute_fn_name: fe.compute_fn_name,
         version: fe.version.to_string(),
+        max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
         desired_state: desired_state.to_string(),
     }
