@@ -169,7 +169,7 @@ But first, we will show how to do this locally on a single machine.
 Download a server release [from here](https://github.com/tensorlakeai/indexify/releases). Open a terminal and start the server.
 
 ```bash
-./indexify-server --dev
+./indexify-server
 ```
 
 ## Start the Executors 
@@ -177,7 +177,7 @@ Download a server release [from here](https://github.com/tensorlakeai/indexify/r
 Executor is the component which is responsible for running your functions. On a terminal, where all the dependencies are installed, start an executor in `development` mode.
 
 ```bash
-indexify-cli executor --dev
+indexify-cli executor
 ```
 
 Set the environment variable - 

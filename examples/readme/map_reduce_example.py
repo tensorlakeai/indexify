@@ -28,7 +28,7 @@ if __name__ == "__main__":
     #print(result)
 
     from tensorlake import RemoteGraph
-    graph = RemoteGraph.deploy(g)
+    graph = RemoteGraph.deploy(g, code_dir_path=".")
     invocation_id = graph.run(block_until_done=True, a=10)
     result = graph.output(invocation_id, "add")
     print(result)
