@@ -14,7 +14,7 @@ if __name__ == '__main__':
     g.add_edge(generate_sequence, squared)
 
     from tensorlake import RemoteGraph
-    graph = RemoteGraph.deploy(g)
+    graph = RemoteGraph.deploy(g, code_dir_path=".")
 
     num_iter = 90
     invocation_id = graph.run(block_until_done=True, a=num_iter)
