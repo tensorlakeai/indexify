@@ -21,6 +21,7 @@ pub struct ExecutorCatalogEntry {
     pub cpu_cores: u32,
     pub memory_gb: u64,
     pub disk_gb: u64,
+    #[serde(default)]
     pub gpu_models: Vec<String>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,

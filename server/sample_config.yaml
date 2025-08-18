@@ -1,4 +1,4 @@
-state_store_path: indexify_server_state 
+state_store_path: indexify_server_state
 listen_addr: 0.0.0.0:8900
 
 telemetry:
@@ -31,13 +31,25 @@ telemetry:
 # enforced; all executor labels are allowed.
 executor_catalog:
   - name: "gpu-xl"
+    cpu_cores: 16
+    memory_gb: 64
+    disk_gb: 100
     regions:
       - "us-west-2"
       - "eu-west-1"
   - name: "cpu-s"
+    cpu_cores: 8
+    memory_gb: 32
+    disk_gb: 100
+    gpu_models:
+      - "A100"
+      - "V100"
     regions:
       - "us-east-1"
       - "us-west-2"
   - name: "gpu-xxl"
+    cpu_cores: 32
+    memory_gb: 128
+    disk_gb: 100
     regions:
       - "eu-west-1"
