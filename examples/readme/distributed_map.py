@@ -1,6 +1,5 @@
-from pydantic import BaseModel
-from tensorlake import tensorlake_function, tensorlake_router, Graph
-from typing import List, Union
+from tensorlake import tensorlake_function, Graph
+from typing import List
 
 @tensorlake_function()
 def generate_sequence(a: int) -> List[int]:
