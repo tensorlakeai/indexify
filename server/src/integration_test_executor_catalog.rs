@@ -41,7 +41,7 @@ mod tests {
 
         // Step 2: Build a compute graph whose functions require foo==baz
         // (unsatisfiable)
-        let mut compute_graph = test_objects::test_graph_a("image_hash".to_string());
+        let mut compute_graph = test_objects::test_graph_a();
         compute_graph.name = "graph_unsatisfiable".to_string();
         compute_graph.state = ComputeGraphState::Active;
 
@@ -97,7 +97,7 @@ mod tests {
         drop(in_memory);
 
         // Step 6: Build a compute graph whose functions require foo==bar (satisfiable)
-        let mut sat_compute_graph = test_objects::test_graph_a("image_hash".to_string());
+        let mut sat_compute_graph = test_objects::test_graph_a();
         sat_compute_graph.name = "graph_satisfiable".to_string();
         sat_compute_graph.state = ComputeGraphState::Active;
 
@@ -172,12 +172,12 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Build graph with no placement constraints (should remain active)
-        let mut graph_valid_no = test_objects::test_graph_a("image_hash".to_string());
+        let mut graph_valid_no = test_objects::test_graph_a();
         graph_valid_no.name = "graph_valid_no_constraints".to_string();
         graph_valid_no.state = ComputeGraphState::Active;
 
         // Build graph with satisfiable constraints (foo==bar)
-        let mut graph_valid_constraints = test_objects::test_graph_a("image_hash".to_string());
+        let mut graph_valid_constraints = test_objects::test_graph_a();
         graph_valid_constraints.name = "graph_valid_constraints".to_string();
         graph_valid_constraints.state = ComputeGraphState::Active;
         let sat_constraint = LabelsFilter(vec![Expression {
@@ -191,7 +191,7 @@ mod tests {
         graph_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
 
         // Build graph with unsatisfiable constraints (foo==baz)
-        let mut graph_invalid_baz = test_objects::test_graph_a("image_hash".to_string());
+        let mut graph_invalid_baz = test_objects::test_graph_a();
         graph_invalid_baz.name = "graph_invalid_baz".to_string();
         graph_invalid_baz.state = ComputeGraphState::Active;
         let bad_constraint_baz = LabelsFilter(vec![Expression {
@@ -205,7 +205,7 @@ mod tests {
         graph_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
 
         // Build graph with another unsatisfiable constraint (foo==qux)
-        let mut graph_invalid_qux = test_objects::test_graph_a("image_hash".to_string());
+        let mut graph_invalid_qux = test_objects::test_graph_a();
         graph_invalid_qux.name = "graph_invalid_qux".to_string();
         graph_invalid_qux.state = ComputeGraphState::Active;
         let bad_constraint_qux = LabelsFilter(vec![Expression {
@@ -328,7 +328,7 @@ mod tests {
 
         // Helper to build a graph with given resources applied to all nodes
         let build_graph = |name: &str, resources: FunctionResources| {
-            let mut g = test_objects::test_graph_a("image_hash".to_string());
+            let mut g = test_objects::test_graph_a();
             g.name = name.to_string();
             g.state = ComputeGraphState::Active;
             for node in g.nodes.values_mut() {

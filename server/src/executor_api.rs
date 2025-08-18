@@ -381,6 +381,13 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .and_then(|description| description.resources)
             .ok_or(anyhow::anyhow!("resources is required"))?;
         let resources = data_model::FunctionExecutorResources::try_from(resources)?;
+        let max_concurrency = function_executor_state
+            .description
+            .as_ref()
+            .and_then(|description| description.max_concurrency.clone())
+            .unwrap_or(1);
+        // TODO: uncomment this once Executor gets deployed and provides this.
+        // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
         Ok(FunctionExecutor {
             id: FunctionExecutorId::new(id.clone()),
             namespace: namespace.clone(),
@@ -399,6 +406,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
                 }
             },
             resources,
+            max_concurrency,
         })
     }
 }

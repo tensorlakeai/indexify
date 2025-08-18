@@ -107,7 +107,6 @@ pub struct DesiredStateTask {
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
     pub resources: FunctionExecutorResources,
-    pub image_uri: String,
     pub secret_names: std::vec::Vec<String>,
     pub customer_code_timeout_ms: u32,
     pub code_payload: DataPayload,
@@ -1044,7 +1043,9 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if (allocation_count as u32) < capacity_threshold {
+                if (allocation_count as u32) <
+                    capacity_threshold * function_executor.function_executor.max_concurrency
+                {
                     candidates.push(function_executor.clone());
                 }
             }
@@ -1098,6 +1099,23 @@ impl InMemoryState {
             .nodes
             .get(fn_name)
             .map(|node| node.resources.clone())
+    }
+
+    pub fn get_fe_max_concurrency_by_uri(
+        &self,
+        ns: &str,
+        cg: &str,
+        fn_name: &str,
+        version: &GraphVersion,
+    ) -> Option<u32> {
+        let cg_version = self
+            .compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(ns, cg, version))
+            .cloned()?;
+        cg_version
+            .nodes
+            .get(fn_name)
+            .map(|node| node.max_concurrency)
     }
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
@@ -1318,11 +1336,6 @@ impl InMemoryState {
             function_executors.push(Box::new(DesiredStateFunctionExecutor {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
-                image_uri: cg_node
-                    .image_information
-                    .image_uri
-                    .clone()
-                    .unwrap_or_default(),
                 secret_names: cg_node.secret_names.clone().unwrap_or_default(),
                 customer_code_timeout_ms: cg_node.timeout.0,
                 code_payload: DataPayload {
@@ -1616,6 +1629,7 @@ mod tests {
                 ephemeral_disk_mb: 1024,
                 gpu: None,
             },
+            max_concurrency: 1,
         };
 
         let fe_metadata = FunctionExecutorServerMetadata {
@@ -1750,6 +1764,7 @@ mod tests {
                     ephemeral_disk_mb: 1024,
                     gpu: None,
                 },
+                max_concurrency: 1,
             },
             desired_state: FunctionExecutorState::Running,
         };

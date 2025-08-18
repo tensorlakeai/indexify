@@ -14,7 +14,6 @@ pub mod tests {
         GraphInvocationCtx,
         GraphInvocationCtxBuilder,
         GraphVersion,
-        ImageInformation,
         InvocationPayload,
         InvocationPayloadBuilder,
         NodeOutputBuilder,
@@ -22,23 +21,17 @@ pub mod tests {
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
-    pub const TEST_EXECUTOR_IMAGE_NAME: &str = "test_image_name";
 
-    pub fn test_compute_fn(name: &str, image_hash: String, max_retries: u32) -> ComputeFn {
-        let image_information = ImageInformation {
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
-            image_hash,
-            ..Default::default()
-        };
+    pub fn test_compute_fn(name: &str, max_retries: u32) -> ComputeFn {
         ComputeFn {
             name: name.to_string(),
             description: format!("description {name}"),
             fn_name: name.to_string(),
-            image_information,
             retry_policy: FunctionRetryPolicy {
                 max_retries,
                 ..Default::default()
             },
+            max_concurrency: 1,
             ..Default::default()
         }
     }
@@ -113,10 +106,10 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn test_graph_a_retry(image_hash: String, max_retries: u32) -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a", image_hash.clone(), max_retries);
-        let fn_b = test_compute_fn("fn_b", image_hash.clone(), max_retries);
-        let fn_c = test_compute_fn("fn_c", image_hash.clone(), max_retries);
+    pub fn test_graph_a_retry(max_retries: u32) -> ComputeGraph {
+        let fn_a = test_compute_fn("fn_a", max_retries);
+        let fn_b = test_compute_fn("fn_b", max_retries);
+        let fn_c = test_compute_fn("fn_c", max_retries);
 
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
@@ -153,8 +146,8 @@ pub mod tests {
         }
     }
 
-    pub fn test_graph_a(image_hash: String) -> ComputeGraph {
-        test_graph_a_retry(image_hash, 0)
+    pub fn test_graph_a() -> ComputeGraph {
+        test_graph_a_retry(0)
     }
 
     pub fn test_executor_metadata(id: ExecutorId) -> ExecutorMetadata {

@@ -423,12 +423,12 @@ impl ExecutorManager {
                 graph_name: Some(fe.compute_graph_name.clone()),
                 graph_version: Some(fe.version.to_string()),
                 function_name: Some(fe.compute_fn_name.clone()),
-                image_uri: Some(desired_state_fe.image_uri.clone()),
                 secret_names: desired_state_fe.secret_names.clone(),
                 customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
                 graph: Some(code_payload_pb),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
+                max_concurrency: Some(fe.max_concurrency),
             };
             function_executors_pb.push(fe_description_pb);
         }

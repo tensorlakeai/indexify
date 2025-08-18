@@ -232,35 +232,35 @@ class FunctionExecutorDescription(_message.Message):
         "graph_name",
         "graph_version",
         "function_name",
-        "image_uri",
         "secret_names",
         "customer_code_timeout_ms",
         "graph",
         "resources",
         "output_payload_uri_prefix",
+        "max_concurrency",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
     GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
-    IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    MAX_CONCURRENCY_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
     graph_version: str
     function_name: str
-    image_uri: str
     secret_names: _containers.RepeatedScalarFieldContainer[str]
     customer_code_timeout_ms: int
     graph: DataPayload
     resources: FunctionExecutorResources
     output_payload_uri_prefix: str
+    max_concurrency: int
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -268,12 +268,12 @@ class FunctionExecutorDescription(_message.Message):
         graph_name: _Optional[str] = ...,
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
-        image_uri: _Optional[str] = ...,
         secret_names: _Optional[_Iterable[str]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
         graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
         output_payload_uri_prefix: _Optional[str] = ...,
+        max_concurrency: _Optional[int] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):

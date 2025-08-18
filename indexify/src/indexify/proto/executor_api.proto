@@ -112,7 +112,6 @@ message FunctionExecutorDescription {
     optional string graph_name = 3;
     optional string graph_version = 4;
     optional string function_name = 5;
-    optional string image_uri = 6;
     repeated string secret_names = 7;
     // Timeout for customer code duration during FE creation.
     optional uint32 customer_code_timeout_ms = 9;
@@ -123,6 +122,7 @@ message FunctionExecutorDescription {
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional string output_payload_uri_prefix = 12;
+    optional uint32 max_concurrency = 13;
 }
 
 message FunctionExecutorState {
