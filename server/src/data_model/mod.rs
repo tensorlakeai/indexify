@@ -508,29 +508,54 @@ impl ComputeGraph {
         }
 
         for node in self.nodes.values() {
+            let mut has_cpu = false;
+            let mut has_mem = false;
+            let mut has_disk = false;
+            let mut has_gpu_models = false;
             for entry in executor_catalog_entries.iter() {
                 if !node.placement_constraints.matches(&entry.labels) {
                     continue;
                 }
 
-                let has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
-                let has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
-                let has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
-                let has_gpu_models = node
+                has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
+                has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
+                has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
+                has_gpu_models = node
                     .resources
                     .gpu_configs
                     .iter()
                     .all(|gpu| entry.gpu_models.contains(&gpu.model));
-
                 if has_cpu && has_mem && has_disk && has_gpu_models {
-                    return Ok(());
+                    break;
                 }
+            }
+            if !has_cpu {
+                return Err(anyhow!(
+                    "function {} is asking for more CPU than available",
+                    node.name
+                ));
+            }
+            if !has_mem {
+                return Err(anyhow!(
+                    "function {} is asking for more memory than available",
+                    node.name
+                ));
+            }
+            if !has_disk {
+                return Err(anyhow!(
+                    "function {} is asking for more disk than available",
+                    node.name
+                ));
+            }
+            if !has_gpu_models {
+                return Err(anyhow!(
+                    "function {} is asking for more GPU models than available",
+                    node.name
+                ));
             }
         }
 
-        Err(anyhow!(
-            "compute graph is asking resources that are not available in the cluster"
-        ))
+        Ok(())
     }
 }
 
