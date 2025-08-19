@@ -16,6 +16,7 @@ use filter::LabelsFilter;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use strum::Display;
+use tracing::info;
 
 use crate::utils::get_epoch_time_in_ms;
 
@@ -486,35 +487,43 @@ impl ComputeGraph {
                     .iter()
                     .all(|gpu| entry.gpu_models.contains(&gpu.model));
                 if has_cpu && has_mem && has_disk && has_gpu_models {
+                    info!(
+                        "function {} can be scheduled on executor catalog entry {}",
+                        node.name, entry.name
+                    );
                     break;
                 }
             }
             if !has_cpu {
                 return Err(anyhow!(
-                    "function {} is asking for CPU {}. Not available in any executor catalog entry",
+                    "function {} is asking for CPU {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.cpu_ms_per_sec / 1000,
+                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_mem {
                 return Err(anyhow!(
-                    "function {} is asking for memory {}. Not available in any executor catalog entry",
+                    "function {} is asking for memory {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.memory_mb,
+                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_disk {
                 return Err(anyhow!(
-                    "function {} is asking for disk {}. Not available in any executor catalog entry",
+                    "function {} is asking for disk {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.ephemeral_disk_mb,
+                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_gpu_models {
                 return Err(anyhow!(
-                    "function {} is asking for GPU models {}. Not available in any executor catalog entry",
+                    "function {} is asking for GPU models {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.gpu_configs.iter().map(|gpu| gpu.model.clone()).collect::<Vec<String>>().join(", "),
+                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
         }
