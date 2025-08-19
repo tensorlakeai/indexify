@@ -99,7 +99,6 @@ impl GraphProcessor {
                             upgrade_tasks_to_current_version: true,
                         },
                     ),
-                    processed_state_changes: Vec::new(),
                 })
                 .await?;
         }
@@ -205,8 +204,7 @@ impl GraphProcessor {
 
                 // Sending NOOP SM Update
                 StateMachineUpdateRequest {
-                    payload: RequestPayload::Noop,
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::ProcessStateChanges(vec![state_change.clone()]),
                 }
             }
         };
@@ -223,8 +221,7 @@ impl GraphProcessor {
             //    change
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::Noop,
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::ProcessStateChanges(vec![state_change.clone()]),
                 })
                 .await?;
         }
@@ -273,8 +270,10 @@ impl GraphProcessor {
                 scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
                 }
             }
             ChangeType::ExecutorUpserted(ev) => {
@@ -283,16 +282,20 @@ impl GraphProcessor {
                 scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
                 }
             }
             ChangeType::ExecutorRemoved(_) => {
                 let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
 
                 StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
                 }
             }
             ChangeType::TombStoneExecutor(ev) => {
@@ -301,24 +304,30 @@ impl GraphProcessor {
                 scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
-                    processed_state_changes: vec![state_change.clone()],
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
                 }
             }
             ChangeType::TombstoneComputeGraph(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
-                    namespace: request.namespace.clone(),
-                    name: request.compute_graph.clone(),
-                }),
-                processed_state_changes: vec![state_change.clone()],
+                payload: RequestPayload::DeleteComputeGraphRequest((
+                    DeleteComputeGraphRequest {
+                        namespace: request.namespace.clone(),
+                        name: request.compute_graph.clone(),
+                    },
+                    vec![state_change.clone()],
+                )),
             },
             ChangeType::TombstoneInvocation(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteInvocationRequest(DeleteInvocationRequest {
-                    namespace: request.namespace.clone(),
-                    compute_graph: request.compute_graph.clone(),
-                    invocation_id: request.invocation_id.clone(),
-                }),
-                processed_state_changes: vec![state_change.clone()],
+                payload: RequestPayload::DeleteInvocationRequest((
+                    DeleteInvocationRequest {
+                        namespace: request.namespace.clone(),
+                        compute_graph: request.compute_graph.clone(),
+                        invocation_id: request.invocation_id.clone(),
+                    },
+                    vec![state_change.clone()],
+                )),
             },
         };
         Ok(req)

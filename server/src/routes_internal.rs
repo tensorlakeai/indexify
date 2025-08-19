@@ -288,7 +288,6 @@ async fn namespace_middleware(
                         blob_storage_bucket: None,
                         blob_storage_region: None,
                     }),
-                    processed_state_changes: vec![],
                 })
                 .await
                 .map_err(IndexifyAPIError::internal_error)?;
@@ -336,7 +335,6 @@ async fn create_namespace(
             blob_storage_bucket: namespace.blob_storage_bucket,
             blob_storage_region: namespace.blob_storage_region,
         }),
-        processed_state_changes: vec![],
     };
     state
         .indexify_state
@@ -465,10 +463,7 @@ async fn create_or_update_compute_graph(
     });
     let result = state
         .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            processed_state_changes: vec![],
-        })
+        .write(StateMachineUpdateRequest { payload: request })
         .await;
     if let Err(err) = result {
         return Err(IndexifyAPIError::internal_error(err));
@@ -498,10 +493,7 @@ async fn delete_compute_graph(
     });
     state
         .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            processed_state_changes: vec![],
-        })
+        .write(StateMachineUpdateRequest { payload: request })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -961,10 +953,7 @@ async fn delete_invocation(
         compute_graph,
         invocation_id,
     });
-    let req = StateMachineUpdateRequest {
-        payload: request,
-        processed_state_changes: vec![],
-    };
+    let req = StateMachineUpdateRequest { payload: request };
 
     state
         .indexify_state

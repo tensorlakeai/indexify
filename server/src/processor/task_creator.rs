@@ -63,7 +63,7 @@ impl TaskCreator {
                     .await?;
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                    &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
                     "task_creator",
                 )?;
                 Ok(scheduler_update)
@@ -87,7 +87,7 @@ impl TaskCreator {
                 };
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                    &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
                     "task_creator",
                 )?;
                 Ok(scheduler_update)
@@ -199,7 +199,7 @@ impl TaskCreator {
             scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate(Box::new(scheduler_update.clone())),
+                &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
                 "task_creator",
             )?;
         }

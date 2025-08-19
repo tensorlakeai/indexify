@@ -290,7 +290,6 @@ pub async fn invoke_with_object_v1(
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: request.clone(),
-            processed_state_changes: vec![],
         })
         .await
         .map_err(|e| {
@@ -406,7 +405,6 @@ pub async fn invoke_with_object(
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: request.clone(),
-            processed_state_changes: vec![],
         })
         .await
         .map_err(|e| {

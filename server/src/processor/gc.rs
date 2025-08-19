@@ -87,7 +87,6 @@ impl Gc {
             self.state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::RemoveGcUrls(deleted_urls),
-                    processed_state_changes: vec![],
                 })
                 .await?;
         }

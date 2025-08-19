@@ -354,7 +354,6 @@ impl ExecutorManager {
         self.runtime_data.write().await.remove(&executor_id);
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
-            processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await?;
         Ok(())
@@ -676,7 +675,6 @@ mod tests {
                 executor_state_updated: executor_state_changed,
                 allocation_outputs: vec![],
             }),
-            processed_state_changes: vec![],
         };
         test_srv.service.indexify_state.write(sm_req).await?;
         Ok(())

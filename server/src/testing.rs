@@ -349,7 +349,6 @@ impl TestExecutor<'_> {
                 executor_state_updated: executor_state_changed,
                 allocation_outputs: vec![],
             }),
-            processed_state_changes: vec![],
         };
         self.test_service
             .service
@@ -466,7 +465,6 @@ impl TestExecutor<'_> {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: self.executor_id.clone(),
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
         Ok(())
@@ -566,7 +564,6 @@ impl TestExecutor<'_> {
                     executor_state_updated: false,
                     allocation_outputs: vec![ingest_task_outputs_request],
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
         Ok(())
