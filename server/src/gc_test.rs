@@ -42,7 +42,7 @@ mod tests {
         let compute_graph = {
             let mut compute_graph = test_graph_a().clone();
             let data = "code";
-            let path = (&compute_graph.code.path).to_string();
+            let path = compute_graph.code.path.to_string();
 
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
             let res = blob_storage_registry
@@ -53,13 +53,12 @@ mod tests {
 
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
-                        CreateOrUpdateComputeGraphRequest {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph: compute_graph.clone(),
-                            upgrade_tasks_to_current_version: false,
-                        },
-                    ),
+                    payload: CreateOrUpdateComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        compute_graph: compute_graph.clone(),
+                        upgrade_tasks_to_current_version: false,
+                    }
+                    .into(),
                 })
                 .await?;
 

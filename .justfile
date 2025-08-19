@@ -96,3 +96,11 @@ run-server:
 [working-directory: 'indexify']
 run-executor:
     poetry run indexify-cli executor --grpc-server-addr localhost:8901 --verbose
+
+[doc('Check linting of Rust projects')]
+lint:
+	cargo clippy --all -- -D warnings
+
+[doc('Fix Rust linting issues that can be solved automatically')]
+fix-lint:
+    cargo clippy --fix --allow-dirty

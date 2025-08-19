@@ -98,24 +98,23 @@ impl Error {
 }
 #[derive(Debug, Clone)]
 pub struct DesiredStateTask {
-    pub task: Box<Task>,
+    pub task: Task,
     pub allocation_id: String,
     pub timeout_ms: u32,
     pub retry_policy: FunctionRetryPolicy,
 }
 
 pub struct DesiredStateFunctionExecutor {
-    pub function_executor: Box<FunctionExecutorServerMetadata>,
+    pub function_executor: FunctionExecutorServerMetadata,
     pub resources: FunctionExecutorResources,
-    pub secret_names: std::vec::Vec<String>,
+    pub secret_names: Vec<String>,
     pub customer_code_timeout_ms: u32,
     pub code_payload: DataPayload,
 }
 
 pub struct DesiredExecutorState {
-    pub function_executors: std::vec::Vec<Box<DesiredStateFunctionExecutor>>,
-    pub task_allocations:
-        std::collections::HashMap<FunctionExecutorId, Box<std::vec::Vec<DesiredStateTask>>>,
+    pub function_executors: Vec<DesiredStateFunctionExecutor>,
+    pub task_allocations: HashMap<FunctionExecutorId, Vec<DesiredStateTask>>,
     pub clock: u64,
 }
 
@@ -157,7 +156,7 @@ impl Ord for UnallocatedTaskId {
 }
 
 pub struct CandidateFunctionExecutors {
-    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub function_executors: Vec<FunctionExecutorServerMetadata>,
     pub num_pending_function_executors: usize,
 }
 
@@ -165,42 +164,40 @@ pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
 
-    pub namespaces: im::HashMap<String, Box<Namespace>>,
+    pub namespaces: im::HashMap<String, Namespace>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub compute_graphs: im::HashMap<String, Box<ComputeGraph>>,
+    pub compute_graphs: im::HashMap<String, ComputeGraph>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub compute_graph_versions: im::OrdMap<String, Box<ComputeGraphVersion>>,
+    pub compute_graph_versions: im::OrdMap<String, ComputeGraphVersion>,
 
     // ExecutorId -> ExecutorMetadata
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
-    pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
+    pub executors: im::HashMap<ExecutorId, ExecutorMetadata>,
 
     // ExecutorId -> (FE ID -> List of Function Executors)
-    pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    pub executor_states: im::HashMap<ExecutorId, ExecutorServerMetadata>,
 
-    pub function_executors_by_fn_uri: im::HashMap<
-        FunctionURI,
-        im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
-    >,
+    pub function_executors_by_fn_uri:
+        im::HashMap<FunctionURI, im::HashMap<FunctionExecutorId, FunctionExecutorServerMetadata>>,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     pub allocations_by_executor:
-        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
+        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Allocation>>>,
 
     // TaskKey -> Task
     pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
 
     // Task Key -> Task
-    pub tasks: im::OrdMap<String, Box<Task>>,
+    pub tasks: im::OrdMap<String, Task>,
 
     // Queued Reduction Tasks
-    pub queued_reduction_tasks: im::OrdMap<String, Box<ReduceTask>>,
+    pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<String, GraphInvocationCtx>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
@@ -446,12 +443,12 @@ impl InMemoryState {
             let all_ns = reader.get_all_namespaces()?;
             for ns in &all_ns {
                 // Creating Namespaces
-                namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
+                namespaces.insert(ns.name.clone(), ns.clone());
 
                 // Creating Compute Graphs and Versions
                 let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
                 for cg in cgs {
-                    compute_graphs.insert(cg.key(), Box::new(cg));
+                    compute_graphs.insert(cg.key(), cg);
                 }
             }
         }
@@ -461,13 +458,13 @@ impl InMemoryState {
             let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
             for (id, cg) in all_cg_versions {
-                compute_graph_versions.insert(id, Box::new(cg));
+                compute_graph_versions.insert(id, cg);
             }
         }
         // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_executor: im::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
+            HashMap<FunctionExecutorId, Vec<Allocation>>,
         > = im::HashMap::new();
         {
             let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
@@ -485,7 +482,7 @@ impl InMemoryState {
                     .or_default()
                     .entry(allocation.target.function_executor_id.clone())
                     .or_default()
-                    .push(Box::new(allocation));
+                    .push(allocation);
             }
         }
 
@@ -498,7 +495,7 @@ impl InMemoryState {
                 if ctx.completed {
                     continue;
                 }
-                invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                invocation_ctx.insert(ctx.key(), ctx);
             }
         }
 
@@ -527,7 +524,7 @@ impl InMemoryState {
                 if task.status == TaskStatus::Pending {
                     unallocated_tasks.insert(UnallocatedTaskId::new(&task));
                 }
-                tasks.insert(task.key(), Box::new(task));
+                tasks.insert(task.key(), task);
             }
         }
 
@@ -547,7 +544,7 @@ impl InMemoryState {
                 {
                     continue;
                 }
-                queued_reduction_tasks.insert(task.key(), Box::new(task));
+                queued_reduction_tasks.insert(task.key(), task);
             }
         }
 
@@ -589,8 +586,7 @@ impl InMemoryState {
 
         match state_machine_update_request {
             RequestPayload::InvokeComputeGraph(req) => {
-                self.invocation_ctx
-                    .insert(req.ctx.key(), Box::new(req.ctx.clone()));
+                self.invocation_ctx.insert(req.ctx.key(), req.ctx.clone());
             }
             RequestPayload::CreateNameSpace(req) => {
                 // If the namespace already exists, get its created_at time
@@ -601,20 +597,20 @@ impl InMemoryState {
                 };
                 self.namespaces.insert(
                     req.name.clone(),
-                    Box::new(Namespace {
+                    Namespace {
                         name: req.name.clone(),
                         created_at,
                         blob_storage_bucket: req.blob_storage_bucket.clone(),
                         blob_storage_region: req.blob_storage_region.clone(),
-                    }),
+                    },
                 );
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 self.compute_graphs
-                    .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
+                    .insert(req.compute_graph.key(), req.compute_graph.clone());
                 self.compute_graph_versions.insert(
                     req.compute_graph.into_version().key(),
-                    Box::new(req.compute_graph.into_version()),
+                    req.compute_graph.into_version(),
                 );
 
                 // FIXME - we should set this in the API and not here, so that these things are
@@ -709,11 +705,10 @@ impl InMemoryState {
                     } else {
                         self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
                     }
-                    self.tasks.insert(task.key(), Box::new(task.clone()));
+                    self.tasks.insert(task.key(), task.clone());
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
-                    self.queued_reduction_tasks
-                        .insert(task.key(), Box::new(task.clone()));
+                    self.queued_reduction_tasks.insert(task.key(), task.clone());
                 }
                 for task in &req.reduction_tasks.processed_reduction_tasks {
                     self.queued_reduction_tasks.remove(task);
@@ -728,7 +723,7 @@ impl InMemoryState {
                         );
                     } else {
                         self.invocation_ctx
-                            .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
+                            .insert(invocation_ctx.key(), invocation_ctx.clone());
                     }
                 }
 
@@ -741,10 +736,9 @@ impl InMemoryState {
                         );
                         continue;
                     };
-                    executor_state.function_executors.insert(
-                        fe_meta.function_executor.id.clone(),
-                        Box::new(fe_meta.clone()),
-                    );
+                    executor_state
+                        .function_executors
+                        .insert(fe_meta.function_executor.id.clone(), fe_meta.clone());
 
                     executor_state.resource_claims.insert(
                         fe_meta.function_executor.id.clone(),
@@ -755,10 +749,7 @@ impl InMemoryState {
                     self.function_executors_by_fn_uri
                         .entry(fn_uri)
                         .or_default()
-                        .insert(
-                            fe_meta.function_executor.id.clone(),
-                            Box::new(fe_meta.clone()),
-                        );
+                        .insert(fe_meta.function_executor.id.clone(), fe_meta.clone());
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
@@ -773,7 +764,7 @@ impl InMemoryState {
                             .or_default()
                             .entry(allocation.target.function_executor_id.clone())
                             .or_default()
-                            .push(Box::new(allocation.clone()));
+                            .push(allocation.clone());
 
                         // Record metrics
                         self.task_pending_latency.record(
@@ -798,13 +789,13 @@ impl InMemoryState {
                 }
 
                 for (executor_id, function_executors) in &req.remove_function_executors {
-                    self.allocations_by_executor
-                        .get_mut(executor_id)
-                        .map(|fe_allocations| {
-                            for function_executor_id in function_executors {
-                                fe_allocations.remove(function_executor_id);
-                            }
-                        });
+                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(executor_id)
+                    {
+                        for function_executor_id in function_executors {
+                            fe_allocations.remove(function_executor_id);
+                        }
+                    }
+
                     for function_executor_id in function_executors {
                         let fe =
                             self.executor_states
@@ -843,16 +834,16 @@ impl InMemoryState {
             }
             RequestPayload::UpsertExecutor(req) => {
                 self.executors
-                    .insert(req.executor.id.clone(), Box::new(req.executor.clone()));
+                    .insert(req.executor.id.clone(), req.executor.clone());
                 if self.executor_states.get(&req.executor.id).is_none() {
                     self.executor_states.insert(
                         req.executor.id.clone(),
-                        Box::new(ExecutorServerMetadata {
+                        ExecutorServerMetadata {
                             executor_id: req.executor.id.clone(),
                             function_executors: HashMap::new(),
                             resource_claims: HashMap::new(),
                             free_resources: req.executor.host_resources.clone(),
-                        }),
+                        },
                     );
                 }
 
@@ -943,7 +934,7 @@ impl InMemoryState {
         Ok(compute_fn.resources.clone())
     }
 
-    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<ExecutorServerMetadata>> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
@@ -1068,10 +1059,10 @@ impl InMemoryState {
             .range(key_prefix.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .next()
-            .map(|(_, v)| *v.clone())
+            .map(|(_, v)| v.clone())
     }
 
-    pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
+    pub fn delete_tasks(&mut self, tasks: Vec<Task>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
             self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
@@ -1149,7 +1140,7 @@ impl InMemoryState {
         }
     }
 
-    pub fn unallocated_tasks(&self) -> Vec<Box<Task>> {
+    pub fn unallocated_tasks(&self) -> Vec<Task> {
         let unallocated_task_ids = self
             .unallocated_tasks
             .iter()
@@ -1170,7 +1161,7 @@ impl InMemoryState {
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
@@ -1252,8 +1243,9 @@ impl InMemoryState {
 
                 if can_be_removed {
                     let mut simulated_resources = available_resources.clone();
-                    if let Err(_) =
-                        simulated_resources.free(&fe_metadata.function_executor.resources)
+                    if simulated_resources
+                        .free(&fe_metadata.function_executor.resources)
+                        .is_err()
                     {
                         continue;
                     }
@@ -1316,7 +1308,7 @@ impl InMemoryState {
             .collect::<Vec<_>>();
 
         let mut function_executors = Vec::new();
-        let mut task_allocations = std::collections::HashMap::new();
+        let mut task_allocations = HashMap::new();
         for fe_meta in active_function_executors.iter() {
             let fe = &fe_meta.function_executor;
             let Some(cg_version) = self
@@ -1333,7 +1325,7 @@ impl InMemoryState {
             let Some(cg_node) = cg_version.nodes.get(&fe.compute_fn_name) else {
                 continue;
             };
-            function_executors.push(Box::new(DesiredStateFunctionExecutor {
+            function_executors.push(DesiredStateFunctionExecutor {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
                 secret_names: cg_node.secret_names.clone().unwrap_or_default(),
@@ -1344,7 +1336,7 @@ impl InMemoryState {
                     sha256_hash: cg_version.code.sha256_hash.clone(),
                     offset: 0, // Code always uses its full BLOB
                 },
-            }));
+            });
 
             let allocations = self
                 .allocations_by_executor
@@ -1352,7 +1344,7 @@ impl InMemoryState {
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
                 .unwrap_or(&Vec::new())
                 .clone();
-            let mut desired_state_tasks = std::vec::Vec::new();
+            let mut desired_state_tasks = Vec::new();
             for allocation in allocations.iter() {
                 let Some(task) = self.tasks.get(&allocation.task_key()) else {
                     error!(
@@ -1374,10 +1366,7 @@ impl InMemoryState {
                 };
                 desired_state_tasks.push(desired_state_task);
             }
-            task_allocations.insert(
-                fe_meta.function_executor.id.clone(),
-                Box::new(desired_state_tasks),
-            );
+            task_allocations.insert(fe_meta.function_executor.id.clone(), desired_state_tasks);
         }
 
         DesiredExecutorState {
@@ -1412,7 +1401,7 @@ impl InMemoryState {
     pub fn get_existing_compute_graph_version<'a>(
         &'a self,
         task: &Task,
-    ) -> Result<&'a Box<ComputeGraphVersion>> {
+    ) -> Result<&'a ComputeGraphVersion> {
         self.compute_graph_versions
             .get(&task.key_compute_graph_version())
             .ok_or_else(|| {
@@ -1651,9 +1640,7 @@ mod tests {
             "task-1",
             TaskOutcome::Success,
         );
-        state
-            .tasks
-            .insert(terminal_task.key(), Box::new(terminal_task));
+        state.tasks.insert(terminal_task.key(), terminal_task);
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 3: Add a terminal task (Failure) - should return false
@@ -1665,9 +1652,7 @@ mod tests {
             "task-2",
             TaskOutcome::Failure(TaskFailureReason::FunctionError),
         );
-        state
-            .tasks
-            .insert(terminal_task2.key(), Box::new(terminal_task2));
+        state.tasks.insert(terminal_task2.key(), terminal_task2);
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 4: Add a non-terminal task (Unknown outcome) - should return true
@@ -1679,9 +1664,7 @@ mod tests {
             "task-3",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(pending_task.key(), Box::new(pending_task));
+        state.tasks.insert(pending_task.key(), pending_task);
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 5: Add tasks for different namespace/graph - should not affect
@@ -1694,9 +1677,7 @@ mod tests {
             "task-4",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(different_task.key(), Box::new(different_task));
+        state.tasks.insert(different_task.key(), different_task);
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 6: Add tasks for same namespace/graph but different function -
@@ -1711,7 +1692,7 @@ mod tests {
         );
         state
             .tasks
-            .insert(different_fn_task.key(), Box::new(different_fn_task));
+            .insert(different_fn_task.key(), different_fn_task);
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 7: Add multiple pending tasks - should still return true
@@ -1723,9 +1704,7 @@ mod tests {
             "task-6",
             TaskOutcome::Unknown,
         );
-        state
-            .tasks
-            .insert(pending_task2.key(), Box::new(pending_task2));
+        state.tasks.insert(pending_task2.key(), pending_task2);
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 8: Change all pending tasks to terminal - should return false

@@ -192,11 +192,11 @@ impl TaskCreator {
 
             // If task is pending (being retried), return early
             if task.status == TaskStatus::Pending {
-                scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
+                scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), task.clone())]);
                 return Ok(scheduler_update);
             }
 
-            scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), *task.clone())]);
+            scheduler_update.updated_tasks = HashMap::from([(task.id.clone(), task.clone())]);
             in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -207,9 +207,9 @@ impl TaskCreator {
         let task_creation_result = self
             .handle_task_finished(
                 in_memory_state,
-                *invocation_ctx.clone(),
-                *task.clone(),
-                *compute_graph_version,
+                invocation_ctx.clone(),
+                task.clone(),
+                compute_graph_version,
                 task_finished_event.node_output_key.clone(),
             )
             .await?;
@@ -311,7 +311,7 @@ impl TaskCreator {
             tasks: vec![task],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_ctx: Some(*invocation_ctx.clone()),
+            invocation_ctx: Some(invocation_ctx.clone()),
         })
     }
 

@@ -67,7 +67,7 @@ impl FunctionExecutorManager {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                 failed_alloc_ids: Vec::new(),
             };
-            update.new_function_executors.push(*update_fe);
+            update.new_function_executors.push(update_fe);
 
             info!(
                 target: targets::SCHEDULER,
@@ -257,7 +257,7 @@ impl FunctionExecutorManager {
                 if executor_fe.state != server_fe.function_executor.state {
                     let mut server_fe_clone = server_fe.clone();
                     server_fe_clone.function_executor.update(executor_fe);
-                    new_function_executors.push(*server_fe_clone);
+                    new_function_executors.push(server_fe_clone);
                 }
             }
         }
@@ -345,7 +345,7 @@ impl FunctionExecutorManager {
                         if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
                 then {
                             if blame_alloc_ids.contains(&alloc.id.to_string()) {
-                                let mut updated_alloc = *alloc.clone();
+                                let mut updated_alloc = alloc.clone();
                                 updated_alloc.outcome = TaskOutcome::Failure((*termination_reason).into());
                                 TaskRetryPolicy::handle_allocation_outcome(
                                     &mut task,
@@ -368,7 +368,7 @@ impl FunctionExecutorManager {
                             task.status = TaskStatus::Pending;
                         }
                     }
-                update.updated_tasks.insert(task.id.clone(), *task.clone());
+                update.updated_tasks.insert(task.id.clone(), task.clone());
                 let invocation_ctx_key = GraphInvocationCtx::key_from(
                     &task.namespace,
                     &task.compute_graph_name,
@@ -383,7 +383,7 @@ impl FunctionExecutorManager {
                         let mut invocation_ctx = invocation_ctx.clone();
                         invocation_ctx.completed = true;
                         invocation_ctx.outcome = task.outcome.into();
-                        update.updated_invocations_states.push(*invocation_ctx);
+                        update.updated_invocations_states.push(invocation_ctx);
                     }
                 }
             }

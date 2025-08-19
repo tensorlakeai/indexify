@@ -249,7 +249,7 @@ impl ExecutorManager {
                 Some(existing_executor) => {
                     let mut existing_executor = existing_executor.clone();
                     existing_executor.update(executor.clone());
-                    *existing_executor
+                    existing_executor
                 }
             };
 
@@ -554,7 +554,7 @@ impl ExecutorManager {
             .executors
             .values()
         {
-            executors.push(*executor.clone());
+            executors.push(executor.clone());
         }
         Ok(executors)
     }
@@ -583,7 +583,7 @@ impl ExecutorManager {
                                 .map(|allocations| {
                                     allocations
                                         .iter()
-                                        .map(|allocation| allocation.as_ref().clone().into())
+                                        .map(|allocation| allocation.clone().into())
                                         .collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default()
@@ -618,9 +618,7 @@ impl ExecutorManager {
 }
 
 /// Helper function to compute a hash of function executors' desired states
-fn compute_function_executors_hash(
-    function_executors: &Vec<Box<DesiredStateFunctionExecutor>>,
-) -> String {
+fn compute_function_executors_hash(function_executors: &[DesiredStateFunctionExecutor]) -> String {
     let mut hasher = DefaultHasher::new();
 
     // Sort function executors by ID to ensure consistent hashing

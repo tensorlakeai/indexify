@@ -384,16 +384,13 @@ pub struct ParameterMetadata {
     pub data_type: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum ComputeGraphState {
+    #[default]
     Active,
-    Disabled { reason: String },
-}
-
-impl Default for ComputeGraphState {
-    fn default() -> Self {
-        ComputeGraphState::Active
-    }
+    Disabled {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -445,6 +442,7 @@ impl ComputeGraph {
         self.tags = update.tags;
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn into_version(&self) -> ComputeGraphVersion {
         ComputeGraphVersion {
             namespace: self.namespace.clone(),
@@ -462,7 +460,7 @@ impl ComputeGraph {
 
     pub fn can_be_scheduled(
         &self,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+        executor_catalog_entries: &[crate::config::ExecutorCatalogEntry],
     ) -> Result<()> {
         if executor_catalog_entries.is_empty() {
             return Ok(());
@@ -1193,10 +1191,10 @@ impl Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             TaskStatus::Pending => "Pending".to_string(),
-            TaskStatus::Running(status) => format!("Running({:?})", status),
+            TaskStatus::Running(status) => format!("Running({status:?})"),
             TaskStatus::Completed => "Completed".to_string(),
         };
-        write!(f, "{}", str_val)
+        write!(f, "{str_val}")
     }
 }
 
@@ -1876,7 +1874,6 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("resources is required"))?;
         let max_concurrency = self
             .max_concurrency
-            .clone()
             .ok_or(anyhow!("max_concurrency is required"))?;
         Ok(FunctionExecutor {
             id,
@@ -1895,7 +1892,7 @@ impl FunctionExecutorBuilder {
 #[builder(build_fn(skip))]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    pub function_executors: HashMap<FunctionExecutorId, FunctionExecutorServerMetadata>,
     pub free_resources: HostResources,
     pub resource_claims: HashMap<FunctionExecutorId, FunctionExecutorResources>,
 }

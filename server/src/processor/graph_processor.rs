@@ -79,7 +79,7 @@ impl GraphProcessor {
                 };
 
                 if target_state != compute_graph.state {
-                    let mut updated_graph = *compute_graph.clone();
+                    let mut updated_graph = compute_graph.clone();
                     updated_graph.state = target_state;
                     Some(updated_graph)
                 } else {
@@ -92,13 +92,12 @@ impl GraphProcessor {
         for compute_graph in updated_compute_graphs {
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
-                        CreateOrUpdateComputeGraphRequest {
-                            namespace: compute_graph.namespace.clone(),
-                            compute_graph,
-                            upgrade_tasks_to_current_version: true,
-                        },
-                    ),
+                    payload: CreateOrUpdateComputeGraphRequest {
+                        namespace: compute_graph.namespace.clone(),
+                        compute_graph,
+                        upgrade_tasks_to_current_version: true,
+                    }
+                    .into(),
                 })
                 .await?;
         }

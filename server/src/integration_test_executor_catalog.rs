@@ -11,11 +11,7 @@ mod tests {
             test_objects::tests::{self as test_objects, TEST_NAMESPACE},
             ComputeGraphState,
         },
-        state_store::requests::{
-            CreateOrUpdateComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-        },
+        state_store::requests::{CreateOrUpdateComputeGraphRequest, StateMachineUpdateRequest},
         testing::TestService,
     };
 
@@ -65,7 +61,7 @@ mod tests {
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
+                payload: cg_request.into(),
             })
             .await?;
 
@@ -85,7 +81,7 @@ mod tests {
             .get(&key)
             .expect("compute graph not found in state");
 
-        println!("stored_graph: {:?}", stored_graph);
+        println!("stored_graph: {stored_graph:?}");
 
         match &stored_graph.state {
             ComputeGraphState::Disabled { .. } => {}
@@ -120,7 +116,7 @@ mod tests {
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(sat_cg_request),
+                payload: sat_cg_request.into(),
             })
             .await?;
 
@@ -225,13 +221,12 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
-                        CreateOrUpdateComputeGraphRequest {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph,
-                            upgrade_tasks_to_current_version: true,
-                        },
-                    ),
+                    payload: CreateOrUpdateComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        compute_graph,
+                        upgrade_tasks_to_current_version: true,
+                    }
+                    .into(),
                 })
                 .await?;
         }
@@ -415,13 +410,12 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
-                        CreateOrUpdateComputeGraphRequest {
-                            namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph,
-                            upgrade_tasks_to_current_version: true,
-                        },
-                    ),
+                    payload: CreateOrUpdateComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        compute_graph,
+                        upgrade_tasks_to_current_version: true,
+                    }
+                    .into(),
                 })
                 .await?;
         }

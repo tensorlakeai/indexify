@@ -117,7 +117,6 @@ use crate::{
             (name = "indexify", description = "Indexify API")
         )
     )]
-
 pub struct ApiDoc;
 
 pub fn configure_internal_routes(route_state: RouteState) -> Router {
@@ -456,11 +455,12 @@ async fn create_or_update_compute_graph(
         name,
         upgrade_tasks_to_current_version.unwrap_or(false)
     );
-    let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
+    let request = CreateOrUpdateComputeGraphRequest {
         namespace,
         compute_graph,
         upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
-    });
+    }
+    .into();
     let result = state
         .indexify_state
         .write(StateMachineUpdateRequest { payload: request })
@@ -743,7 +743,7 @@ async fn list_unallocated_tasks(
         .clone()
         .iter()
         .filter_map(|unallocated_task_id| state.tasks.get(&unallocated_task_id.task_key))
-        .map(|t| Task::from_data_model_task(*t.clone(), vec![]))
+        .map(|t| Task::from_data_model_task(t.clone(), vec![]))
         .collect();
 
     Ok(Json(UnallocatedTasks {

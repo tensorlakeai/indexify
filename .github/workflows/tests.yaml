@@ -21,11 +21,26 @@ jobs:
     name: Lint Indexify Server
     runs-on: ubuntu-latest
     steps:
+      - name: Install protobuf package
+        run: sudo apt update && sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v4
-      - name: Lint indexify-server
+      - name: Copy rust-toolchain
+        run: cp server/rust-toolchain.toml .
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
+          cache-directories: |
+            target
+      - name: Install Just
+        uses: extractions/setup-just@v3
+      - name: Check formatting of indexify-server
         run: |
           cd server
           make check
+      - name: Check linting of indexify-server
+        run: |
+          just lint
 
   build_server:
     name: Build Indexify Server
@@ -41,19 +56,10 @@ jobs:
         with:
           cache-directories: |
             target
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache-directories: |
-            target
       - name: Build indexify-server
         run: |
           cd server
           cargo build
-      - name: Lint indexify-server
-        run: |
-          cd server
-          make check
       - name: Test indexify-server
         run: |
           cd server

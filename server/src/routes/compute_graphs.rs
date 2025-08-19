@@ -53,12 +53,11 @@ async fn validate_placement_constraints_against_executor_label_sets(
                 .placement_constraints
                 .0
                 .iter()
-                .map(|expr| format!("{}", expr))
+                .map(|expr| format!("{expr}"))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(IndexifyAPIError::bad_request(&format!(
-                "Function '{}' has unsatisfiable placement constraints [{}].",
-                function_name, constraints_str
+                "Function '{function_name}' has unsatisfiable placement constraints [{constraints_str}]."
             )));
         }
     }
@@ -153,11 +152,12 @@ pub async fn create_or_update_compute_graph_v1(
         name,
         upgrade_tasks_to_current_version.unwrap_or(false)
     );
-    let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
+    let request = CreateOrUpdateComputeGraphRequest {
         namespace,
         compute_graph,
         upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
-    });
+    }
+    .into();
     let result = state
         .indexify_state
         .write(StateMachineUpdateRequest { payload: request })

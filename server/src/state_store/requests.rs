@@ -28,7 +28,7 @@ pub struct StateMachineUpdateRequest {
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     CreateNameSpace(NamespaceRequest),
-    CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
+    CreateOrUpdateComputeGraph(Box<CreateOrUpdateComputeGraphRequest>),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
     SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
@@ -143,4 +143,76 @@ pub struct UpsertExecutorRequest {
 #[derive(Debug, Clone)]
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
+}
+
+impl From<InvokeComputeGraphRequest> for RequestPayload {
+    fn from(request: InvokeComputeGraphRequest) -> Self {
+        RequestPayload::InvokeComputeGraph(request)
+    }
+}
+
+impl From<NamespaceRequest> for RequestPayload {
+    fn from(request: NamespaceRequest) -> Self {
+        RequestPayload::CreateNameSpace(request)
+    }
+}
+
+impl From<CreateOrUpdateComputeGraphRequest> for RequestPayload {
+    fn from(request: CreateOrUpdateComputeGraphRequest) -> Self {
+        RequestPayload::CreateOrUpdateComputeGraph(Box::new(request))
+    }
+}
+
+impl From<DeleteComputeGraphRequest> for RequestPayload {
+    fn from(request: DeleteComputeGraphRequest) -> Self {
+        RequestPayload::TombstoneComputeGraph(request)
+    }
+}
+
+impl From<DeleteInvocationRequest> for RequestPayload {
+    fn from(request: DeleteInvocationRequest) -> Self {
+        RequestPayload::TombstoneInvocation(request)
+    }
+}
+
+impl From<(SchedulerUpdateRequest, Vec<StateChange>)> for RequestPayload {
+    fn from(request: (SchedulerUpdateRequest, Vec<StateChange>)) -> Self {
+        RequestPayload::SchedulerUpdate((Box::new(request.0), request.1))
+    }
+}
+
+impl From<UpsertExecutorRequest> for RequestPayload {
+    fn from(request: UpsertExecutorRequest) -> Self {
+        RequestPayload::UpsertExecutor(request)
+    }
+}
+
+impl From<DeregisterExecutorRequest> for RequestPayload {
+    fn from(request: DeregisterExecutorRequest) -> Self {
+        RequestPayload::DeregisterExecutor(request)
+    }
+}
+
+impl From<Vec<GcUrl>> for RequestPayload {
+    fn from(gc_urls: Vec<GcUrl>) -> Self {
+        RequestPayload::RemoveGcUrls(gc_urls)
+    }
+}
+
+impl From<(DeleteComputeGraphRequest, Vec<StateChange>)> for RequestPayload {
+    fn from(request: (DeleteComputeGraphRequest, Vec<StateChange>)) -> Self {
+        RequestPayload::DeleteComputeGraphRequest(request)
+    }
+}
+
+impl From<(DeleteInvocationRequest, Vec<StateChange>)> for RequestPayload {
+    fn from(request: (DeleteInvocationRequest, Vec<StateChange>)) -> Self {
+        RequestPayload::DeleteInvocationRequest(request)
+    }
+}
+
+impl From<Vec<StateChange>> for RequestPayload {
+    fn from(state_changes: Vec<StateChange>) -> Self {
+        RequestPayload::ProcessStateChanges(state_changes)
+    }
 }

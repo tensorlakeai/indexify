@@ -25,6 +25,7 @@ pub struct ReadContextData {
     pub key: String,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub struct KVS {
     kv_store: Arc<Db>,
     metrics: Metrics,

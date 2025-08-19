@@ -53,12 +53,11 @@ async fn validate_placement_constraints_against_executor_catalog(
                 .placement_constraints
                 .0
                 .iter()
-                .map(|expr| format!("{}", expr))
+                .map(|expr| format!("{expr}"))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(IndexifyAPIError::bad_request(&format!(
-                "Function '{}' has unsatisfiable placement constraints [{}]. The executor catalog may have changed since this graph was created.",
-                function_name, constraints_str
+                "Function '{function_name}' has unsatisfiable placement constraints [{constraints_str}]. The executor catalog may have changed since this graph was created."
             )));
         }
     }

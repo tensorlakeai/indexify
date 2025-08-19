@@ -66,7 +66,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                             state_store::in_memory_state::Error::ConstraintUnsatisfiable { .. }
                         ) {
                             // Fail the task
-                            let mut failed_task = (*task).clone();
+                            let mut failed_task = task.clone();
                             failed_task.status = TaskStatus::Completed;
                             failed_task.outcome =
                                 TaskOutcome::Failure(TaskFailureReason::ConstraintUnsatisfiable);
@@ -85,7 +85,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                             if let Some(invocation_ctx_box) =
                                 in_memory_state.invocation_ctx.get(&invocation_key)
                             {
-                                let mut invocation_ctx = (**invocation_ctx_box).clone();
+                                let mut invocation_ctx = invocation_ctx_box.clone();
                                 invocation_ctx.complete_invocation(
                                     true, // force_complete
                                     crate::data_model::GraphInvocationOutcome::Failure(

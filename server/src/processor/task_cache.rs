@@ -132,7 +132,7 @@ impl TaskCache {
 
             debug!("Cache entry found; ingesting previous outputs");
             to_remove.push(task_id.clone());
-            let mut task = *(task.clone());
+            let mut task = task.clone();
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
             task.cache_hit = true;

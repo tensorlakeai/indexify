@@ -27,7 +27,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
     pub entries: Vec<ExecutorCatalogEntry>,
 }
@@ -44,14 +44,6 @@ impl ExecutorCatalog {
     /// labels are allowed.
     pub fn allows_any_labels(&self) -> bool {
         self.entries.is_empty()
-    }
-}
-
-impl Default for ExecutorCatalog {
-    fn default() -> Self {
-        ExecutorCatalog {
-            entries: Vec::new(),
-        }
     }
 }
 
@@ -219,7 +211,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
                 new_state_changes
             }
@@ -249,7 +241,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
                 vec![]
             }
@@ -261,7 +253,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
                 vec![]
             }
@@ -318,7 +310,7 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(self.db.clone(), &txn, &state_changes)?;
+                state_machine::mark_state_changes_processed(self.db.clone(), &txn, state_changes)?;
                 vec![]
             }
         };
@@ -636,13 +628,12 @@ mod tests {
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(
-                    CreateOrUpdateComputeGraphRequest {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph: compute_graph.clone(),
-                        upgrade_tasks_to_current_version: false,
-                    },
-                ),
+                payload: CreateOrUpdateComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: compute_graph.clone(),
+                    upgrade_tasks_to_current_version: false,
+                }
+                .into(),
             })
             .await
     }
