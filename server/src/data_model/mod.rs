@@ -479,13 +479,36 @@ impl ComputeGraph {
                 }
 
                 has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
+                if !has_cpu {
+                    info!(
+                        "function {} is asking for CPU {}. Not available in executor catalog entry {}",
+                        node.name,
+                        node.resources.cpu_ms_per_sec / 1000,
+                        entry.to_string()
+                    );
+                }
                 has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
-                has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
+                if !has_mem {
+                    info!(
+                        "function {} is asking for memory {}. Not available in executor catalog entry {}",
+                        node.name,
+                        node.resources.memory_mb,
+                        entry.to_string()
+                    );
+                }
                 has_gpu_models = node
                     .resources
                     .gpu_configs
                     .iter()
                     .all(|gpu| entry.gpu_models.contains(&gpu.model));
+                if !has_gpu_models {
+                    info!(
+                        "function {} is asking for GPU models {}. Not available in executor catalog entry {}",
+                        node.name,
+                        node.resources.gpu_configs.iter().map(|gpu| gpu.model.clone()).collect::<Vec<String>>().join(", "),
+                        entry.to_string()
+                    );
+                }
                 if has_cpu && has_mem && has_disk && has_gpu_models {
                     info!(
                         "function {} can be scheduled on executor catalog entry {}",
