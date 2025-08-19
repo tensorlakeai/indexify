@@ -462,20 +462,18 @@ impl ComputeGraph {
 
     pub fn can_be_scheduled(
         &self,
-        executor_catalog_entries: &Vec<crate::config::ExecutorCatalogEntry>,
+        executor_catalog: &crate::state_store::ExecutorCatalog,
     ) -> Result<()> {
-        if executor_catalog_entries.is_empty() {
-            return Ok(());
-        }
-
         for node in self.nodes.values() {
             let mut has_cpu = false;
             let mut has_mem = false;
             let mut has_disk = false;
             let mut has_gpu_models = false;
             let mut met_placement_constraints = false;
-            for entry in executor_catalog_entries.iter() {
-                if node.placement_constraints.matches(&entry.labels) {
+            for entry in executor_catalog.entries.iter() {
+                if node.placement_constraints.matches(&entry.labels) ||
+                    executor_catalog.allows_any_labels()
+                {
                     met_placement_constraints = true;
                 }
 
@@ -502,7 +500,7 @@ impl ComputeGraph {
                     "function {} is asking for labels {:?}, but no executor catalog entry matches, current catalog: {}",
                     node.name,
                     node.placement_constraints.0,
-                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_cpu {
@@ -510,7 +508,7 @@ impl ComputeGraph {
                     "function {} is asking for CPU {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.cpu_ms_per_sec / 1000,
-                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_mem {
@@ -518,7 +516,7 @@ impl ComputeGraph {
                     "function {} is asking for memory {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.memory_mb,
-                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_disk {
@@ -526,7 +524,7 @@ impl ComputeGraph {
                     "function {} is asking for disk {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.ephemeral_disk_mb,
-                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
             if !has_gpu_models {
@@ -534,7 +532,7 @@ impl ComputeGraph {
                     "function {} is asking for GPU models {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.gpu_configs.iter().map(|gpu| gpu.model.clone()).collect::<Vec<String>>().join(", "),
-                    executor_catalog_entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
                 ));
             }
         }

@@ -1039,7 +1039,6 @@ pub fn from_data_model_executor_metadata(
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct ExecutorCatalogEntry {
     pub name: String,
-    pub regions: Vec<String>,
     pub cpu_cores: u32,
     pub memory_gb: u64,
     pub disk_gb: u64,
@@ -1069,7 +1068,6 @@ impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
                 .iter()
                 .map(|entry| ExecutorCatalogEntry {
                     name: entry.name.clone(),
-                    regions: entry.regions.clone(),
                     cpu_cores: entry.cpu_cores,
                     memory_gb: entry.memory_gb,
                     disk_gb: entry.disk_gb,

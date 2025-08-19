@@ -17,7 +17,6 @@ use crate::blob_store::BlobStorageConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
     pub name: String,
-    pub regions: Vec<String>,
     pub cpu_cores: u32,
     pub memory_gb: u64,
     pub disk_gb: u64,
@@ -29,7 +28,7 @@ pub struct ExecutorCatalogEntry {
 
 impl Display for ExecutorCatalogEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Node: (name: {}, regions: {:?}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})", self.name, self.regions, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels)
+        write!(f, "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})", self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels)
     }
 }
 
@@ -126,27 +125,6 @@ impl Default for TelemetryConfig {
             local_log_targets: std::collections::HashMap::new(),
             instance_id: None,
         }
-    }
-}
-
-impl ExecutorCatalogEntry {
-    // Generate label sets for this catalog entry.
-    // If `labels` is provided, return it as a single allowed label set.
-    // Otherwise fall back to generating label sets from the legacy `name`/`regions`
-    // fields.
-    pub fn to_label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
-        if !self.labels.is_empty() {
-            return vec![self.labels.clone()];
-        }
-        self.regions
-            .iter()
-            .map(|region| {
-                let mut labels = std::collections::HashMap::new();
-                labels.insert("sku".to_string(), self.name.clone());
-                labels.insert("region".to_string(), region.clone());
-                labels
-            })
-            .collect()
     }
 }
 
