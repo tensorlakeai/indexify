@@ -474,6 +474,11 @@ impl ComputeGraph {
             let mut has_disk = false;
             let mut has_gpu_models = false;
             for entry in executor_catalog_entries.iter() {
+                info!(
+                    "node labels: {:?}, executor catalog entry labels: {:?}",
+                    node.placement_constraints.0,
+                    entry.labels
+                );
                 if !node.placement_constraints.matches(&entry.labels) {
                     continue;
                 }
