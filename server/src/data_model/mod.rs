@@ -496,6 +496,15 @@ impl ComputeGraph {
                         entry.to_string()
                     );
                 }
+                has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
+                if !has_disk {
+                    info!(
+                        "function {} is asking for disk {}. Not available in executor catalog entry {}",
+                        node.name,
+                        node.resources.ephemeral_disk_mb,
+                        entry.to_string()
+                    );
+                }
                 has_gpu_models = node
                     .resources
                     .gpu_configs
