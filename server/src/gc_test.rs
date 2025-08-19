@@ -60,7 +60,6 @@ mod tests {
                             upgrade_tasks_to_current_version: false,
                         },
                     ),
-                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -157,11 +156,13 @@ mod tests {
 
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    name: compute_graph.name.clone(),
-                }),
-                processed_state_changes: vec![],
+                payload: RequestPayload::DeleteComputeGraphRequest((
+                    DeleteComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        name: compute_graph.name.clone(),
+                    },
+                    vec![],
+                )),
             })
             .await?;
 

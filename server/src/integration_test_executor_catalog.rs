@@ -66,7 +66,6 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                processed_state_changes: vec![],
             })
             .await?;
 
@@ -122,7 +121,6 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(sat_cg_request),
-                processed_state_changes: vec![],
             })
             .await?;
 
@@ -234,7 +232,6 @@ mod tests {
                             upgrade_tasks_to_current_version: true,
                         },
                     ),
-                    processed_state_changes: vec![],
                 })
                 .await?;
         }
@@ -425,7 +422,6 @@ mod tests {
                             upgrade_tasks_to_current_version: true,
                         },
                     ),
-                    processed_state_changes: vec![],
                 })
                 .await?;
         }

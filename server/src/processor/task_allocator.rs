@@ -158,7 +158,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         update.new_allocations.push(allocation);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "task_allocator",
         )?;
         Ok(update)

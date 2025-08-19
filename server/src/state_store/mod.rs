@@ -209,12 +209,20 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::SchedulerUpdate(request) => state_machine::handle_scheduler_update(
-                self.db.clone(),
-                &txn,
-                request,
-                &self.last_state_change_id,
-            )?,
+            RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
+                let new_state_changes = state_machine::handle_scheduler_update(
+                    self.db.clone(),
+                    &txn,
+                    request,
+                    &self.last_state_change_id,
+                )?;
+                state_machine::mark_state_changes_processed(
+                    self.db.clone(),
+                    &txn,
+                    &processed_state_changes,
+                )?;
+                new_state_changes
+            }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
                 vec![]
@@ -231,20 +239,30 @@ impl IndexifyState {
             RequestPayload::TombstoneComputeGraph(request) => {
                 state_changes::tombstone_compute_graph(&self.last_state_change_id, request)?
             }
-            RequestPayload::DeleteComputeGraphRequest(request) => {
+            RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
                 state_machine::delete_compute_graph(
                     self.db.clone(),
                     &txn,
                     &request.namespace,
                     &request.name,
                 )?;
+                state_machine::mark_state_changes_processed(
+                    self.db.clone(),
+                    &txn,
+                    &processed_state_changes,
+                )?;
                 vec![]
             }
             RequestPayload::TombstoneInvocation(request) => {
                 state_changes::tombstone_invocation(&self.last_state_change_id, request)?
             }
-            RequestPayload::DeleteInvocationRequest(request) => {
+            RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
+                state_machine::mark_state_changes_processed(
+                    self.db.clone(),
+                    &txn,
+                    &processed_state_changes,
+                )?;
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -299,16 +317,14 @@ impl IndexifyState {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]
             }
-            RequestPayload::Noop => vec![],
+            RequestPayload::ProcessStateChanges(state_changes) => {
+                state_machine::mark_state_changes_processed(self.db.clone(), &txn, &state_changes)?;
+                vec![]
+            }
         };
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
         }
-        state_machine::mark_state_changes_processed(
-            self.db.clone(),
-            &txn,
-            &request.processed_state_changes,
-        )?;
 
         let current_state_id = self.last_state_change_id.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
@@ -372,7 +388,7 @@ impl IndexifyState {
                     let _ = self.task_event_tx.send(ev);
                 }
             }
-            RequestPayload::SchedulerUpdate(sched_update) => {
+            RequestPayload::SchedulerUpdate((sched_update, _)) => {
                 for allocation in &sched_update.new_allocations {
                     let _ = self
                         .task_event_tx
@@ -474,7 +490,6 @@ mod tests {
                     blob_storage_bucket: None,
                     blob_storage_region: None,
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
         indexify_state
@@ -484,7 +499,6 @@ mod tests {
                     blob_storage_bucket: Some("bucket2".to_string()),
                     blob_storage_region: Some("local".to_string()),
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
 
@@ -629,7 +643,6 @@ mod tests {
                         upgrade_tasks_to_current_version: false,
                     },
                 ),
-                processed_state_changes: vec![],
             })
             .await
     }

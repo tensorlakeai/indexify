@@ -160,10 +160,7 @@ pub async fn create_or_update_compute_graph_v1(
     });
     let result = state
         .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            processed_state_changes: vec![],
-        })
+        .write(StateMachineUpdateRequest { payload: request })
         .await;
     if let Err(err) = result {
         return Err(IndexifyAPIError::internal_error(err));
@@ -193,10 +190,7 @@ pub async fn delete_compute_graph(
     });
     state
         .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            processed_state_changes: vec![],
-        })
+        .write(StateMachineUpdateRequest { payload: request })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 

@@ -885,7 +885,6 @@ impl ExecutorApi for ExecutorAPIService {
                 executor_state_updated,
                 allocation_outputs: allocation_output_updates,
             }),
-            processed_state_changes: vec![],
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {
             error!(

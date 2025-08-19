@@ -205,7 +205,6 @@ async fn namespace_middleware(
                         blob_storage_bucket: None,
                         blob_storage_region: None,
                     }),
-                    processed_state_changes: vec![],
                 })
                 .await
                 .map_err(IndexifyAPIError::internal_error)?;
@@ -410,10 +409,7 @@ async fn delete_invocation(
         compute_graph,
         invocation_id,
     });
-    let req = StateMachineUpdateRequest {
-        payload: request,
-        processed_state_changes: vec![],
-    };
+    let req = StateMachineUpdateRequest { payload: request };
 
     state
         .indexify_state
