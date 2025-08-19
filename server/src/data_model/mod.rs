@@ -491,26 +491,30 @@ impl ComputeGraph {
             }
             if !has_cpu {
                 return Err(anyhow!(
-                    "function {} is asking for more CPU than available",
-                    node.name
+                    "function {} is asking for CPU {}. Not available in any executor catalog entry",
+                    node.name,
+                    node.resources.cpu_ms_per_sec / 1000,
                 ));
             }
             if !has_mem {
                 return Err(anyhow!(
-                    "function {} is asking for more memory than available",
-                    node.name
+                    "function {} is asking for memory {}. Not available in any executor catalog entry",
+                    node.name,
+                    node.resources.memory_mb,
                 ));
             }
             if !has_disk {
                 return Err(anyhow!(
-                    "function {} is asking for more disk than available",
-                    node.name
+                    "function {} is asking for disk {}. Not available in any executor catalog entry",
+                    node.name,
+                    node.resources.ephemeral_disk_mb,
                 ));
             }
             if !has_gpu_models {
                 return Err(anyhow!(
-                    "function {} is asking for more GPU models than available",
-                    node.name
+                    "function {} is asking for GPU models {}. Not available in any executor catalog entry",
+                    node.name,
+                    node.resources.gpu_configs.iter().map(|gpu| gpu.model.clone()).collect::<Vec<String>>().join(", "),
                 ));
             }
         }
