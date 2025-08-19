@@ -77,6 +77,8 @@ impl TaskCache {
             return;
         };
 
+        // Create the new state changes
+
         let namespace = event.namespace.clone();
 
         debug!("Caching the output of {namespace}/{cache_key:?}/{input_hash}");
