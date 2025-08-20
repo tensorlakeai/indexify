@@ -10,7 +10,6 @@ use utoipa::ToSchema;
 
 use crate::{
     blob_store::PutResult,
-    data_model::ComputeGraph,
     http_objects::{self, IndexifyAPIError, ListParams},
     http_objects_v1,
     routes::routes_state::RouteState,
@@ -28,42 +27,6 @@ struct ComputeGraphCreateType {
     compute_graph: http_objects::ComputeGraph,
     #[schema(format = "binary")]
     code: String,
-}
-
-async fn validate_placement_constraints_against_executor_label_sets(
-    compute_graph: &ComputeGraph,
-    state: &RouteState,
-) -> Result<(), IndexifyAPIError> {
-    let lock_guard = state.indexify_state.in_memory_state.read().await;
-
-    let executor_catalog = &lock_guard.executor_catalog;
-
-    if executor_catalog.allows_any_labels() {
-        return Ok(());
-    }
-
-    for (function_name, node) in &compute_graph.nodes {
-        let can_be_satisfied = executor_catalog
-            .label_sets()
-            .iter()
-            .any(|label_set| node.placement_constraints.matches(label_set));
-
-        if !can_be_satisfied {
-            let constraints_str = node
-                .placement_constraints
-                .0
-                .iter()
-                .map(|expr| format!("{}", expr))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Function '{}' has unsatisfiable placement constraints [{}].",
-                function_name, constraints_str
-            )));
-        }
-    }
-
-    Ok(())
 }
 
 /// Create or update a workflow
@@ -141,12 +104,17 @@ pub async fn create_or_update_compute_graph_v1(
         &put_result.sha256_hash,
         put_result.size_bytes,
     )?;
+    let executor_catalog = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .executor_catalog
+        .clone();
     compute_graph
-        .can_be_scheduled(&state.config.executor_catalog)
+        .can_be_scheduled(&executor_catalog)
         .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
     let name = compute_graph.name.clone();
-
-    validate_placement_constraints_against_executor_label_sets(&compute_graph, &state).await?;
 
     info!(
         "creating compute graph {}, upgrade existing tasks and invocations: {}",

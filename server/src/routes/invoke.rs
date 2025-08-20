@@ -16,55 +16,13 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{
-        self,
-        ComputeGraph,
-        ComputeGraphState,
-        GraphInvocationCtxBuilder,
-        InvocationPayloadBuilder,
-    },
+    data_model::{self, ComputeGraphState, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
     http_objects::{IndexifyAPIError, RequestId},
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
 };
-
-async fn validate_placement_constraints_against_executor_catalog(
-    compute_graph: &ComputeGraph,
-    state: &RouteState,
-) -> Result<(), IndexifyAPIError> {
-    let lock_guard = state.indexify_state.in_memory_state.read().await;
-
-    let executor_catalog = &lock_guard.executor_catalog;
-
-    if executor_catalog.allows_any_labels() {
-        return Ok(());
-    }
-
-    for (function_name, node) in &compute_graph.nodes {
-        let can_be_satisfied = executor_catalog
-            .label_sets()
-            .iter()
-            .any(|label_set| node.placement_constraints.matches(label_set));
-
-        if !can_be_satisfied {
-            let constraints_str = node
-                .placement_constraints
-                .0
-                .iter()
-                .map(|expr| format!("{}", expr))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(IndexifyAPIError::bad_request(&format!(
-                "Function '{}' has unsatisfiable placement constraints [{}]. The executor catalog may have changed since this graph was created.",
-                function_name, constraints_str
-            )));
-        }
-    }
-
-    Ok(())
-}
 
 // New shared function for creating SSE streams
 async fn create_invocation_progress_stream(
@@ -380,9 +338,6 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
         })?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
-
-    // Validate placement constraints against current executor catalog
-    validate_placement_constraints_against_executor_catalog(&compute_graph, &state).await?;
 
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())

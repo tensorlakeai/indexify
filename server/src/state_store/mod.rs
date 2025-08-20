@@ -33,16 +33,8 @@ pub struct ExecutorCatalog {
 }
 
 impl ExecutorCatalog {
-    pub fn label_sets(&self) -> Vec<std::collections::HashMap<String, String>> {
-        self.entries
-            .iter()
-            .flat_map(|entry| entry.to_label_sets())
-            .collect()
-    }
-
-    /// Returns true if no catalog entries are configured, meaning any executor
-    /// labels are allowed.
-    pub fn allows_any_labels(&self) -> bool {
+    /// Returns true if no catalog entries are configured.
+    pub fn empty(&self) -> bool {
         self.entries.is_empty()
     }
 }

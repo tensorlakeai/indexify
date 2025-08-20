@@ -65,7 +65,7 @@ impl Service {
         let executor_catalog = crate::state_store::ExecutorCatalog {
             entries: config.executor_catalog.clone(),
         };
-        if executor_catalog.allows_any_labels() {
+        if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
         let indexify_state =
@@ -153,7 +153,6 @@ impl Service {
         let api_metrics = Arc::new(metrics::api_io_stats::Metrics::new());
 
         let route_state = RouteState {
-            config: self.config.clone(),
             indexify_state: self.indexify_state.clone(),
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage_registry.clone(),

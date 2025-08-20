@@ -27,7 +27,6 @@ mod tests {
 
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(), // name is unused when labels are populated
-            regions: vec![],            // regions unused
             cpu_cores: 1,
             memory_gb: 1,
             disk_gb: 1,
@@ -157,7 +156,6 @@ mod tests {
 
         let catalog_entry = ExecutorCatalogEntry {
             name: "custom".to_string(),
-            regions: vec![],
             cpu_cores: 1,
             memory_gb: 1,
             disk_gb: 1,
@@ -312,7 +310,6 @@ mod tests {
         // Single catalog entry with specific capacities
         let catalog_entry = ExecutorCatalogEntry {
             name: "res".to_string(),
-            regions: vec![],
             cpu_cores: 2, // 2 cores
             memory_gb: 2, // 2 GB
             disk_gb: 2,   // 2 GB
