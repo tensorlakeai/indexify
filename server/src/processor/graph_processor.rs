@@ -287,16 +287,6 @@ impl GraphProcessor {
                     )),
                 }
             }
-            ChangeType::ExecutorRemoved(_) => {
-                let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
-            }
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
                     fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
