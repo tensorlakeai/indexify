@@ -23,9 +23,11 @@ from .metrics.executor import (
     metric_executor_info,
     metric_executor_state,
 )
+from .monitoring.desired_state_handler import DesiredStateHandler
 from .monitoring.health_check_handler import HealthCheckHandler
 from .monitoring.health_checker.health_checker import HealthChecker
 from .monitoring.prometheus_metrics_handler import PrometheusMetricsHandler
+from .monitoring.reported_state_handler import ReportedStateHandler
 from .monitoring.server import MonitoringServer
 from .monitoring.startup_probe_handler import StartupProbeHandler
 from .state_reconciler import ExecutorStateReconciler
@@ -59,13 +61,6 @@ class Executor:
             protocol = "https"
 
         self._startup_probe_handler = StartupProbeHandler()
-        self._monitoring_server = MonitoringServer(
-            host=monitoring_server_host,
-            port=monitoring_server_port,
-            startup_probe_handler=self._startup_probe_handler,
-            health_probe_handler=HealthCheckHandler(health_checker),
-            metrics_handler=PrometheusMetricsHandler(),
-        )
         self._channel_manager = ChannelManager(
             server_address=grpc_server_addr,
             config_path=config_path,
@@ -95,6 +90,15 @@ class Executor:
             channel_manager=self._channel_manager,
             state_reporter=self._state_reporter,
             logger=self._logger,
+        )
+        self._monitoring_server = MonitoringServer(
+            host=monitoring_server_host,
+            port=monitoring_server_port,
+            startup_probe_handler=self._startup_probe_handler,
+            health_probe_handler=HealthCheckHandler(health_checker),
+            metrics_handler=PrometheusMetricsHandler(),
+            reported_state_handler=ReportedStateHandler(self._state_reporter),
+            desired_state_handler=DesiredStateHandler(self._state_reconciler),
         )
         self._run_aio_task: Optional[asyncio.Task] = None
         self._shutdown_aio_task: Optional[asyncio.Task] = None

@@ -451,5 +451,15 @@ class TestMetrics(unittest.TestCase):
             )
 
 
+class TestStateHanlers(unittest.TestCase):
+    def test_reported_state_handler_success(self):
+        response = httpx.get("http://localhost:7000/state/reported")
+        self.assertEqual(response.status_code, 200)
+
+    def test_desired_state_handler_success(self):
+        response = httpx.get("http://localhost:7000/state/desired")
+        self.assertEqual(response.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
