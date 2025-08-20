@@ -57,6 +57,7 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
+        state_changes,
         IndexifyState,
     },
 };
@@ -873,17 +874,39 @@ impl ExecutorApi for ExecutorAPIService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let task_results = executor_update.task_results.clone();
-        let allocation_output_updates = self
+        let allocation_outputs = self
             .handle_task_outcomes(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        let state_change_id_seq = self.indexify_state.state_change_id_seq();
+        let mut state_changes = Vec::new();
+        if executor_state_updated {
+            let changes =
+                state_changes::upsert_executor(&state_change_id_seq, &executor_metadata.id)
+                    .map_err(|e| Status::internal(e.to_string()))?;
+            state_changes = changes;
+        }
+
+        for allocation_output in &allocation_outputs {
+            if self
+                .indexify_state
+                .can_allocation_output_be_updated(&allocation_output)
+                .map_err(|e| Status::internal(e.to_string()))?
+            {
+                let changes =
+                    state_changes::task_outputs_ingested(&state_change_id_seq, &allocation_output)
+                        .map_err(|e| Status::internal(e.to_string()))?;
+                state_changes.extend(changes);
+            }
+        }
 
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                 executor: executor_metadata,
                 function_executor_diagnostics,
-                executor_state_updated,
-                allocation_outputs: allocation_output_updates,
+                allocation_outputs,
+                state_changes,
             }),
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {

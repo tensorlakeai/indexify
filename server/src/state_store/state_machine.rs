@@ -703,14 +703,22 @@ pub(crate) fn handle_scheduler_update(
     Ok(())
 }
 
-// returns true if task the task finishing state should be emitted.
-pub fn ingest_task_outputs(
+/// Check if an allocation output can be updated in the state store.
+/// Returns true if the following conditions are met:
+/// - The compute graph exists.
+/// - The invocation exists and is not completed.
+/// - The allocation exists and is not terminal.
+/// - The allocation output is not already set.
+/// If any of these conditions are not met, it returns false.
+/// This is used to ensure that we do not update outputs for tasks that have
+/// already completed or for which the compute graph or invocation has been
+/// deleted.
+pub fn can_allocation_output_be_updated(
     db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: AllocationOutput,
+    req: &AllocationOutput,
 ) -> Result<bool> {
     let span = info_span!(
-        "ingest_task_outputs",
+        "can_allocation_output_be_updated",
         namespace = &req.namespace,
         graph = &req.compute_graph,
         invocation_id = &req.invocation_id,
@@ -722,7 +730,7 @@ pub fn ingest_task_outputs(
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
     let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
-    let graph = txn
+    let graph = db
         .get_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &graph_key,
@@ -736,7 +744,7 @@ pub fn ingest_task_outputs(
     // Check if the invocation was deleted before the task completes
     let invocation_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
-    let invocation = txn
+    let invocation = db
         .get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &invocation_ctx_key,
@@ -751,14 +759,13 @@ pub fn ingest_task_outputs(
     };
     // Skip finalize task if it's invocation is already completed
     if invocation.completed {
-        warn!("Invocation already completed, skipping setting outputs",);
+        warn!("Invocation already completed, skipping setting outputs");
         return Ok(false);
     }
 
-    let existing_allocation = txn.get_for_update_cf(
+    let existing_allocation = db.get_cf(
         &IndexifyObjectsColumns::Allocations.cf_db(&db),
         &req.allocation_key,
-        true,
     )?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);
@@ -768,8 +775,44 @@ pub fn ingest_task_outputs(
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
     if existing_allocation.is_terminal() {
-        warn!("allocation already terminal, skipping setting outputs",);
+        warn!("allocation already terminal, skipping setting outputs");
         return Ok(false);
+    }
+
+    Ok(true)
+}
+
+// returns true if task the task finishing state should be emitted.
+pub fn ingest_task_outputs(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: AllocationOutput,
+) -> Result<()> {
+    let span = info_span!(
+        "ingest_task_outputs",
+        namespace = &req.namespace,
+        graph = &req.compute_graph,
+        invocation_id = &req.invocation_id,
+        "fn" = &req.compute_fn,
+        task_id = req.allocation.task_id.get(),
+    );
+    let _guard = span.enter();
+
+    let existing_allocation = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        &req.allocation_key,
+        true,
+    )?;
+    let Some(existing_allocation) = existing_allocation else {
+        info!("Allocation not found",);
+        return Ok(());
+    };
+    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
+    // idempotency check guaranteeing that we emit a finalizing state change only
+    // once.
+    if existing_allocation.is_terminal() {
+        warn!("allocation already terminal, skipping setting outputs");
+        return Ok(());
     }
 
     let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
@@ -800,7 +843,7 @@ pub fn ingest_task_outputs(
         serialized_output,
     )?;
 
-    Ok(true)
+    Ok(())
 }
 
 pub fn upsert_function_executor_diagnostics(

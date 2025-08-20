@@ -32,6 +32,7 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
+        state_changes,
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -334,20 +335,31 @@ pub struct TestExecutor<'a> {
 
 impl TestExecutor<'_> {
     pub async fn heartbeat(&mut self, executor: ExecutorMetadata) -> Result<()> {
-        let executor_state_changed = self
+        let executor_state_updated = self
             .test_service
             .service
             .executor_manager
             .heartbeat(&executor)
             .await?;
         self.executor_metadata = executor.clone();
+        let mut state_changes = vec![];
+        if executor_state_updated {
+            let state_change_id_seq = &self
+                .test_service
+                .service
+                .indexify_state
+                .state_change_id_seq();
+            let changes =
+                state_changes::upsert_executor(&state_change_id_seq, &self.executor_metadata.id)?;
+            state_changes = changes;
+        }
 
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                 executor,
                 function_executor_diagnostics: vec![],
-                executor_state_updated: executor_state_changed,
                 allocation_outputs: vec![],
+                state_changes,
             }),
         };
         self.test_service
@@ -554,6 +566,16 @@ impl TestExecutor<'_> {
             allocation,
         };
 
+        let state_change_id_seq = &self
+            .test_service
+            .service
+            .indexify_state
+            .state_change_id_seq();
+        let state_changes = state_changes::task_outputs_ingested(
+            state_change_id_seq,
+            &ingest_task_outputs_request,
+        )?;
+
         self.test_service
             .service
             .indexify_state
@@ -561,8 +583,8 @@ impl TestExecutor<'_> {
                 payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                     executor: self.executor_metadata.clone(),
                     function_executor_diagnostics: vec![],
-                    executor_state_updated: false,
                     allocation_outputs: vec![ingest_task_outputs_request],
+                    state_changes,
                 }),
             })
             .await?;

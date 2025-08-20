@@ -655,7 +655,7 @@ mod tests {
     use crate::{
         data_model::{ExecutorId, ExecutorMetadata},
         service::Service,
-        state_store::requests::UpsertExecutorRequest,
+        state_store::{self, requests::UpsertExecutorRequest},
         testing,
     };
 
@@ -663,17 +663,27 @@ mod tests {
         test_srv: &testing::TestService,
         executor: ExecutorMetadata,
     ) -> Result<()> {
-        let executor_state_changed = test_srv
+        let executor_state_updated = test_srv
             .service
             .executor_manager
             .heartbeat(&executor)
             .await?;
+
+        let mut state_changes = vec![];
+        if executor_state_updated {
+            let changes = state_store::state_changes::upsert_executor(
+                &test_srv.service.indexify_state.state_change_id_seq(),
+                &executor.id,
+            )?;
+            state_changes.extend(changes);
+        }
+
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                 executor,
                 function_executor_diagnostics: vec![],
-                executor_state_updated: executor_state_changed,
                 allocation_outputs: vec![],
+                state_changes,
             }),
         };
         test_srv.service.indexify_state.write(sm_req).await?;

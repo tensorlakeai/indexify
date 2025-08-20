@@ -7,7 +7,6 @@ use std::{
         atomic::{self, AtomicU64},
         Arc,
     },
-    vec,
 };
 
 use anyhow::{anyhow, Result};
@@ -174,6 +173,13 @@ impl IndexifyState {
         self.state_change_id_seq.clone()
     }
 
+    pub fn can_allocation_output_be_updated(
+        &self,
+        request: &requests::AllocationOutput,
+    ) -> Result<bool> {
+        state_machine::can_allocation_output_be_updated(self.db.clone(), &request)
+    }
+
     #[tracing::instrument(
         skip(self, request),
         fields(
@@ -242,7 +248,6 @@ impl IndexifyState {
                 )?;
             }
             RequestPayload::UpsertExecutor(request) => {
-                let mut upsert_executor_state_changes = vec![];
                 for fe_diagnostics in &request.function_executor_diagnostics {
                     state_machine::upsert_function_executor_diagnostics(
                         self.db.clone(),
@@ -252,35 +257,10 @@ impl IndexifyState {
                 }
 
                 for allocation_output in &request.allocation_outputs {
-                    let ingested = state_machine::ingest_task_outputs(
+                    state_machine::ingest_task_outputs(
                         self.db.clone(),
                         &txn,
                         allocation_output.clone(),
-                    )?;
-                    if ingested {
-                        upsert_executor_state_changes.extend(state_changes::task_outputs_ingested(
-                            &self.state_change_id_seq,
-                            allocation_output,
-                        )?);
-                    }
-                }
-                if request.executor_state_updated {
-                    self.executor_states
-                        .write()
-                        .await
-                        .entry(request.executor.id.clone())
-                        .or_default();
-                    upsert_executor_state_changes.extend(
-                        state_changes::upsert_executor(&self.state_change_id_seq, request)
-                            .map_err(|e| anyhow!("error getting state changes {}", e))?,
-                    );
-                }
-
-                if !upsert_executor_state_changes.is_empty() {
-                    state_machine::save_state_changes(
-                        self.db.clone(),
-                        &txn,
-                        &upsert_executor_state_changes,
                     )?;
                 }
             }
@@ -440,14 +420,12 @@ mod tests {
         CreateOrUpdateComputeGraphRequest,
         InvokeComputeGraphRequest,
         NamespaceRequest,
-        UpsertExecutorRequest,
     };
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
-            test_executor_metadata,
             test_graph_a,
             test_invocation_payload_graph_a,
             TEST_EXECUTOR_ID,
@@ -562,12 +540,7 @@ mod tests {
         let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
-            &UpsertExecutorRequest {
-                executor: test_executor_metadata(TEST_EXECUTOR_ID.into()),
-                function_executor_diagnostics: vec![],
-                executor_state_updated: false,
-                allocation_outputs: vec![],
-            },
+            &TEST_EXECUTOR_ID.into(),
         )
         .unwrap();
         state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_2).unwrap();

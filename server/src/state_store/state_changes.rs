@@ -9,6 +9,7 @@ use crate::{
     data_model::{
         AllocationOutputIngestedEvent,
         ChangeType,
+        ExecutorId,
         ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
         InvokeComputeGraphEvent,
@@ -24,7 +25,6 @@ use crate::{
         DeleteInvocationRequest,
         DeregisterExecutorRequest,
         InvokeComputeGraphRequest,
-        UpsertExecutorRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -146,15 +146,16 @@ pub fn tombstone_executor(
 
 pub fn upsert_executor(
     last_state_change_id: &AtomicU64,
-    request: &UpsertExecutorRequest,
+    executor_id: &ExecutorId,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+
     let state_change = StateChangeBuilder::default()
         .change_type(ChangeType::ExecutorUpserted(ExecutorUpsertedEvent {
-            executor_id: request.executor.id.clone(),
+            executor_id: executor_id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.executor.id.to_string())
+        .object_id(executor_id.to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .namespace(None)

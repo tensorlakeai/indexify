@@ -49,6 +49,7 @@ impl StateMachineUpdateRequest {
                 state_changes::tombstone_executor(state_change_id_seq, request)
             }
             RequestPayload::SchedulerUpdate((request, _)) => Ok(request.state_changes.clone()),
+            RequestPayload::UpsertExecutor(request) => Ok(request.state_changes.clone()),
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -168,8 +169,8 @@ pub struct DeleteInvocationRequest {
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
-    pub executor_state_updated: bool,
     pub allocation_outputs: Vec<AllocationOutput>,
+    pub state_changes: Vec<StateChange>,
 }
 
 #[derive(Debug, Clone)]
