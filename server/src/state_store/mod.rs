@@ -96,7 +96,7 @@ pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
-    pub last_state_change_id: Arc<AtomicU64>,
+    pub state_change_id_seq: Arc<AtomicU64>,
     pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
@@ -145,7 +145,7 @@ impl IndexifyState {
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
-            last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
+            state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
             gc_tx,
@@ -159,7 +159,7 @@ impl IndexifyState {
 
         info!(
             "initialized state store with last state change id: {}",
-            s.last_state_change_id.load(atomic::Ordering::Relaxed)
+            s.state_change_id_seq.load(atomic::Ordering::Relaxed)
         );
         info!("db version discovered: {}", sm_meta.db_version);
 
@@ -168,6 +168,10 @@ impl IndexifyState {
 
     pub fn get_gc_watcher(&self) -> tokio::sync::watch::Receiver<()> {
         self.gc_rx.clone()
+    }
+
+    pub fn state_change_id_seq(&self) -> Arc<AtomicU64> {
+        self.state_change_id_seq.clone()
     }
 
     #[tracing::instrument(
@@ -181,7 +185,8 @@ impl IndexifyState {
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
         let txn = self.db.transaction();
-        let new_state_changes = match &request.payload {
+
+        match &request.payload {
             RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
                 let _enter = span!(
                     tracing::Level::INFO,
@@ -190,34 +195,22 @@ impl IndexifyState {
                     invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
                     graph = invoke_compute_graph_request.compute_graph_name.clone(),
                 );
-                let state_changes = state_changes::invoke_compute_graph(
-                    &self.last_state_change_id,
-                    invoke_compute_graph_request,
-                )?;
                 state_machine::create_invocation(
                     self.db.clone(),
                     &txn,
                     invoke_compute_graph_request,
                 )?;
-                state_changes
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
-                let new_state_changes = state_machine::handle_scheduler_update(
-                    self.db.clone(),
-                    &txn,
-                    request,
-                    &self.last_state_change_id,
-                )?;
+                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
                     &processed_state_changes,
                 )?;
-                new_state_changes
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
-                vec![]
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 state_machine::create_or_update_compute_graph(
@@ -226,10 +219,6 @@ impl IndexifyState {
                     req.compute_graph.clone(),
                     req.upgrade_tasks_to_current_version,
                 )?;
-                vec![]
-            }
-            RequestPayload::TombstoneComputeGraph(request) => {
-                state_changes::tombstone_compute_graph(&self.last_state_change_id, request)?
             }
             RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
                 state_machine::delete_compute_graph(
@@ -243,10 +232,6 @@ impl IndexifyState {
                     &txn,
                     &processed_state_changes,
                 )?;
-                vec![]
-            }
-            RequestPayload::TombstoneInvocation(request) => {
-                state_changes::tombstone_invocation(&self.last_state_change_id, request)?
             }
             RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
@@ -255,7 +240,6 @@ impl IndexifyState {
                     &txn,
                     &processed_state_changes,
                 )?;
-                vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
                 let mut upsert_executor_state_changes = vec![];
@@ -275,7 +259,7 @@ impl IndexifyState {
                     )?;
                     if ingested {
                         upsert_executor_state_changes.extend(state_changes::task_outputs_ingested(
-                            &self.last_state_change_id,
+                            &self.state_change_id_seq,
                             allocation_output,
                         )?);
                     }
@@ -287,12 +271,18 @@ impl IndexifyState {
                         .entry(request.executor.id.clone())
                         .or_default();
                     upsert_executor_state_changes.extend(
-                        state_changes::upsert_executor(&self.last_state_change_id, request)
+                        state_changes::upsert_executor(&self.state_change_id_seq, request)
                             .map_err(|e| anyhow!("error getting state changes {}", e))?,
                     );
                 }
 
-                upsert_executor_state_changes
+                if !upsert_executor_state_changes.is_empty() {
+                    state_machine::save_state_changes(
+                        self.db.clone(),
+                        &txn,
+                        &upsert_executor_state_changes,
+                    )?;
+                }
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
@@ -303,22 +293,22 @@ impl IndexifyState {
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
-                state_changes::tombstone_executor(&self.last_state_change_id, request)?
             }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
-                vec![]
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(self.db.clone(), &txn, &state_changes)?;
-                vec![]
             }
+            _ => {} // Handle other request types as needed
         };
+
+        let new_state_changes = request.state_changes(&self.state_change_id_seq)?;
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
         }
 
-        let current_state_id = self.last_state_change_id.load(atomic::Ordering::Relaxed);
+        let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &self.db,
             &txn,
@@ -396,7 +386,7 @@ impl IndexifyState {
                 }
 
                 for task in sched_update.updated_tasks.values() {
-                    if sched_update.cached_task_outputs.contains_key(&task.key()) {
+                    if sched_update.cached_task_keys.contains(&task.key()) {
                         let _ =
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::TaskMatchedCache(
@@ -558,7 +548,7 @@ mod tests {
             .graph_version(GraphVersion("1".to_string()))
             .build(tests::test_graph_a())?;
         let state_change_1 = state_changes::invoke_compute_graph(
-            &indexify_state.last_state_change_id,
+            &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
@@ -571,7 +561,7 @@ mod tests {
         tx.commit().unwrap();
         let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
-            &indexify_state.last_state_change_id,
+            &indexify_state.state_change_id_seq,
             &UpsertExecutorRequest {
                 executor: test_executor_metadata(TEST_EXECUTOR_ID.into()),
                 function_executor_diagnostics: vec![],
@@ -584,7 +574,7 @@ mod tests {
         tx.commit().unwrap();
         let tx = indexify_state.db.transaction();
         let state_change_3 = state_changes::invoke_compute_graph(
-            &indexify_state.last_state_change_id,
+            &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
