@@ -65,7 +65,7 @@ impl Service {
         let executor_catalog = crate::state_store::ExecutorCatalog {
             entries: config.executor_catalog.clone(),
         };
-        if executor_catalog.allows_any_labels() {
+        if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
         let indexify_state =

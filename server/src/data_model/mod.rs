@@ -470,10 +470,13 @@ impl ComputeGraph {
             let mut has_disk = false;
             let mut has_gpu_models = false;
             let mut met_placement_constraints = false;
+            // If the executor catalog is empty, it implies there
+            // are no resource limits or constraints indexify needs to check
+            if executor_catalog.empty() {
+                return Ok(());
+            }
             for entry in executor_catalog.entries.iter() {
-                if node.placement_constraints.matches(&entry.labels) ||
-                    executor_catalog.allows_any_labels()
-                {
+                if node.placement_constraints.matches(&entry.labels) {
                     met_placement_constraints = true;
                 }
 

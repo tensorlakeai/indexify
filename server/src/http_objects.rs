@@ -1056,7 +1056,7 @@ pub struct ExecutorCatalog {
 
 impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
     fn from(catalog: &crate::state_store::ExecutorCatalog) -> Self {
-        let remark = if catalog.allows_any_labels() {
+        let remark = if catalog.empty() {
             Some("Executor catalog is empty - all executor labels are allowed".to_string())
         } else {
             None
