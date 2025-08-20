@@ -45,7 +45,6 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -64,7 +63,6 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            processed_state_changes: vec![],
         })
         .await
         .unwrap();

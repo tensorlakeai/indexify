@@ -222,7 +222,6 @@ mod tests {
                     namespace: TEST_NAMESPACE.to_string(),
                     name: "graph_A".to_string(),
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
 
@@ -341,7 +340,6 @@ mod tests {
                         namespace: TEST_NAMESPACE.to_string(),
                         name: "graph_A".to_string(),
                     }),
-                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -756,7 +754,6 @@ mod tests {
                     namespace: TEST_NAMESPACE.to_string(),
                     name: "graph_A".to_string(),
                 }),
-                processed_state_changes: vec![],
             })
             .await?;
         test_srv.process_all_state_changes().await?;

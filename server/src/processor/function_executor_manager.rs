@@ -108,7 +108,7 @@ impl FunctionExecutorManager {
             update.extend(vacuum_update);
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
                 "function_executor_manager",
             )?;
             candidates = in_memory_state.candidate_executors(task)?;
@@ -177,7 +177,7 @@ impl FunctionExecutorManager {
 
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "function_executor_manager",
         )?;
         Ok(update)
@@ -271,7 +271,7 @@ impl FunctionExecutorManager {
 
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "function_executor_manager",
         )?;
 
@@ -485,7 +485,7 @@ impl FunctionExecutorManager {
             update.extend(fe_update);
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+                &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
                 "function_executor_manager",
             )?;
             function_executors =
@@ -530,7 +530,7 @@ impl FunctionExecutorManager {
 
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate(Box::new(update.clone())),
+            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "function_executor_manager",
         )?;
 

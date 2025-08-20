@@ -664,10 +664,10 @@ impl InMemoryState {
                     }
                 }
             }
-            RequestPayload::DeleteInvocationRequest(req) => {
+            RequestPayload::DeleteInvocationRequest((req, _)) => {
                 self.delete_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
             }
-            RequestPayload::DeleteComputeGraphRequest(req) => {
+            RequestPayload::DeleteComputeGraphRequest((req, _)) => {
                 // Remove compute graph
                 let key = ComputeGraph::key_from(&req.namespace, &req.name);
                 self.compute_graphs.remove(&key);
@@ -702,7 +702,7 @@ impl InMemoryState {
                     }
                 }
             }
-            RequestPayload::SchedulerUpdate(req) => {
+            RequestPayload::SchedulerUpdate((req, _)) => {
                 for task in req.updated_tasks.values() {
                     if task.status == TaskStatus::Pending {
                         self.unallocated_tasks.insert(UnallocatedTaskId::new(task));

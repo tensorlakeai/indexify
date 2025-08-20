@@ -22,7 +22,6 @@ use crate::data_model::{
 #[derive(Debug)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
-    pub processed_state_changes: Vec<StateChange>,
 }
 
 #[derive(Debug, Clone, strum::Display)]
@@ -32,13 +31,13 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
-    SchedulerUpdate(Box<SchedulerUpdateRequest>),
+    SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
     UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<GcUrl>),
-    DeleteComputeGraphRequest(DeleteComputeGraphRequest),
-    DeleteInvocationRequest(DeleteInvocationRequest),
-    Noop,
+    DeleteComputeGraphRequest((DeleteComputeGraphRequest, Vec<StateChange>)),
+    DeleteInvocationRequest((DeleteInvocationRequest, Vec<StateChange>)),
+    ProcessStateChanges(Vec<StateChange>),
 }
 
 #[derive(Debug, Clone, Default)]
