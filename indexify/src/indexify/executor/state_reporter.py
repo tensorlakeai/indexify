@@ -89,6 +89,10 @@ class ExecutorStateReporter:
         self._pending_task_results: List[TaskResult] = []
         self._pending_fe_updates: List[FunctionExecutorUpdate] = []
         self._function_executor_states: Dict[str, FunctionExecutorState] = {}
+        self._last_state_report_request: Optional[ReportExecutorStateRequest] = None
+
+    def last_state_report_request(self) -> Optional[ReportExecutorStateRequest]:
+        return self._last_state_report_request
 
     def update_executor_status(self, value: ExecutorStatus) -> None:
         self._executor_status = value
@@ -203,7 +207,11 @@ class ExecutorStateReporter:
                 try:
                     state: ExecutorState = self._current_executor_state()
                     update: ExecutorUpdate = self._remove_pending_update()
+                    request: ReportExecutorStateRequest = ReportExecutorStateRequest(
+                        executor_state=state, executor_update=update
+                    )
                     _log_reported_executor_update(update, self._logger)
+                    self._last_state_report_request = request
 
                     with (
                         metric_state_report_rpc_errors.count_exceptions(),
@@ -211,10 +219,7 @@ class ExecutorStateReporter:
                     ):
                         metric_state_report_rpcs.inc()
                         await stub.report_executor_state(
-                            ReportExecutorStateRequest(
-                                executor_state=state, executor_update=update
-                            ),
-                            timeout=_REPORT_RPC_TIMEOUT_SEC,
+                            request, timeout=_REPORT_RPC_TIMEOUT_SEC
                         )
                     self._state_reported_event.set()
                     self._health_checker.server_connection_state_changed(

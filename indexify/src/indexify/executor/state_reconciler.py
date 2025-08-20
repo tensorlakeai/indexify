@@ -88,6 +88,9 @@ class ExecutorStateReconciler:
         )
         self._last_desired_state: Optional[DesiredExecutorState] = None
 
+    def get_desired_state(self) -> Optional[DesiredExecutorState]:
+        return self._last_desired_state
+
     def run(self):
         """Runs the state reconciler.
 
