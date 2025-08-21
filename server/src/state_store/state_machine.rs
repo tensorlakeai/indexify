@@ -710,7 +710,9 @@ pub(crate) fn handle_scheduler_update(
 /// - The invocation exists and is not completed.
 /// - The allocation exists and is not terminal.
 /// - The allocation output is not already set.
+///
 /// If any of these conditions are not met, it returns false.
+///
 /// This is used to ensure that we do not update outputs for tasks that have
 /// already completed or for which the compute graph or invocation has been
 /// deleted.

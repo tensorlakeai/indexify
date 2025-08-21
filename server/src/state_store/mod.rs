@@ -169,7 +169,7 @@ impl IndexifyState {
         &self,
         request: &requests::AllocationOutput,
     ) -> Result<bool> {
-        state_machine::can_allocation_output_be_updated(self.db.clone(), &request)
+        state_machine::can_allocation_output_be_updated(self.db.clone(), request)
     }
 
     #[tracing::instrument(
@@ -278,7 +278,7 @@ impl IndexifyState {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(self.db.clone(), &txn, &state_changes)?;
+                state_machine::mark_state_changes_processed(self.db.clone(), &txn, state_changes)?;
             }
             _ => {} // Handle other request types as needed
         };
@@ -329,8 +329,8 @@ impl IndexifyState {
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteComputeGraphRequest(_)
-            | RequestPayload::DeleteInvocationRequest(_) => {
+            RequestPayload::DeleteComputeGraphRequest(_) |
+            RequestPayload::DeleteInvocationRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -417,16 +417,25 @@ impl IndexifyState {
 #[cfg(test)]
 mod tests {
     use requests::{
-        CreateOrUpdateComputeGraphRequest, InvokeComputeGraphRequest, NamespaceRequest,
+        CreateOrUpdateComputeGraphRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
     };
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
-            test_graph_a, test_invocation_payload_graph_a, TEST_EXECUTOR_ID, TEST_NAMESPACE,
+            test_graph_a,
+            test_invocation_payload_graph_a,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
         },
-        ComputeGraph, GraphInvocationCtxBuilder, GraphVersion, Namespace, StateChangeId,
+        ComputeGraph,
+        GraphInvocationCtxBuilder,
+        GraphVersion,
+        Namespace,
+        StateChangeId,
     };
 
     #[tokio::test]
