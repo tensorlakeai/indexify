@@ -96,3 +96,11 @@ run-server:
 [working-directory: 'indexify']
 run-executor:
     poetry run indexify-cli executor --grpc-server-addr localhost:8901 --verbose
+
+[doc('Run Clippy on all Rust packages, marking warnings as errors')]
+lint-rust:
+    cargo clippy --no-deps -- -D warnings
+
+[doc('Try to automatically fix Clippy problems')]
+lint-fix:
+    cargo clippy --no-deps --fix --allow-dirty
