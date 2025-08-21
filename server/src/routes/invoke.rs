@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{self, ComputeGraphState, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
-    http_objects::{IndexifyAPIError, RequestId},
+    http_objects::IndexifyAPIError,
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -27,18 +27,12 @@ use crate::{
 // New shared function for creating SSE streams
 async fn create_invocation_progress_stream(
     id: String,
-    rx: Option<Receiver<InvocationStateChangeEvent>>,
+    mut rx: Receiver<InvocationStateChangeEvent>,
     state: RouteState,
     namespace: String,
     compute_graph: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     async_stream::stream! {
-        // For invoke endpoint without blocking
-        if rx.is_none() {
-            yield Event::default().json_data(RequestId { id: id.clone() });
-            return;
-        }
-
         // check completion when starting stream
         match state
             .indexify_state
@@ -72,63 +66,61 @@ async fn create_invocation_progress_stream(
         }
 
         // Stream events
-        if let Some(mut rx) = rx {
-            loop {
-                match rx.recv().await {
-                    Ok(ev) => {
-                        if ev.invocation_id() == id {
-                            yield Event::default().json_data(ev.clone());
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    if ev.invocation_id() == id {
+                        yield Event::default().json_data(ev.clone());
 
-                            if let InvocationStateChangeEvent::RequestFinished(_) = ev {
-                                return;
-                            }
+                        if let InvocationStateChangeEvent::RequestFinished(_) = ev {
+                            return;
                         }
                     }
-                    Err(RecvError::Lagged(num)) => {
-                        warn!(
-                            namespace = namespace,
-                            graph = compute_graph,
-                            invocation_id=id,
-                            "lagging behind task event stream by {} events", num);
-
-                        // Check if completion happened during lag
-                        match state
-                            .indexify_state
-                            .reader()
-                            .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
-                        {
-                            Ok(Some(context)) => {
-                                if context.completed {
-                                    yield Event::default().json_data(
-                                        InvocationStateChangeEvent::RequestFinished(
-                                            RequestFinishedEvent {
-                                                request_id: id.clone()
-                                            }
-                                        )
-                                    );
-                                    return;
-                                }
-                            }
-                            Ok(None) => {
-                                error!(
-                                    namespace = namespace,
-                                    graph = compute_graph,
-                                    invocation_id=id,
-                                    "invocation not found");
-                                return;
-                            }
-                            Err(e) => {
-                                error!(
-                                    namespace = namespace,
-                                    graph = compute_graph,
-                                    invocation_id=id,
-                                    "failed to get invocation context: {:?}", e);
-                                return;
-                            }
-                        }
-                    }
-                    Err(RecvError::Closed) => return,
                 }
+                Err(RecvError::Lagged(num)) => {
+                    warn!(
+                        namespace = namespace,
+                        graph = compute_graph,
+                        invocation_id=id,
+                        "lagging behind task event stream by {} events", num);
+
+                    // Check if completion happened during lag
+                    match state
+                        .indexify_state
+                        .reader()
+                        .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+                    {
+                        Ok(Some(context)) => {
+                            if context.completed {
+                                yield Event::default().json_data(
+                                    InvocationStateChangeEvent::RequestFinished(
+                                        RequestFinishedEvent {
+                                            request_id: id.clone()
+                                        }
+                                    )
+                                );
+                                return;
+                            }
+                        }
+                        Ok(None) => {
+                            error!(
+                                namespace = namespace,
+                                graph = compute_graph,
+                                invocation_id=id,
+                                "invocation not found");
+                            return;
+                        }
+                        Err(e) => {
+                            error!(
+                                namespace = namespace,
+                                graph = compute_graph,
+                                invocation_id=id,
+                                "failed to get invocation context: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+                Err(RecvError::Closed) => return,
             }
         }
     }
@@ -263,7 +255,8 @@ pub async fn invoke_with_object_v1(
     }
 
     let invocation_event_stream =
-        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
+        create_invocation_progress_stream(id, rx.unwrap(), state, namespace, compute_graph.name)
+            .await;
     Ok(axum::response::Sse::new(invocation_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
@@ -367,7 +360,8 @@ pub async fn invoke_with_object(
         })?;
 
     let invocation_event_stream =
-        create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name).await;
+        create_invocation_progress_stream(id, rx.unwrap(), state, namespace, compute_graph.name)
+            .await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
@@ -395,8 +389,7 @@ pub async fn progress_stream(
     let rx = state.indexify_state.task_event_stream();
 
     let invocation_event_stream =
-        create_invocation_progress_stream(invocation_id, Some(rx), state, namespace, compute_graph)
-            .await;
+        create_invocation_progress_stream(invocation_id, rx, state, namespace, compute_graph).await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
