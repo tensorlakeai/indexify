@@ -725,9 +725,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "fn_output_payload_first")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!(
-            "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}"
-        );
+        let key = format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}");
 
         let (node_outputs, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
             key.as_bytes(),

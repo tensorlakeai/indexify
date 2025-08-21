@@ -384,14 +384,14 @@ pub struct ParameterMetadata {
     pub data_type: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum ComputeGraphState {
     #[default]
     Active,
-    Disabled { reason: String },
+    Disabled {
+        reason: String,
+    },
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {

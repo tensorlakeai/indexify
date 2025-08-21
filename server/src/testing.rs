@@ -479,41 +479,28 @@ impl TestExecutor<'_> {
         args: FinalizeTaskArgs,
     ) -> Result<()> {
         let allocation_id = task_allocation.allocation_id.clone().unwrap();
+        let task_ref = task_allocation.task.as_ref().unwrap();
         let graph_version = self
             .test_service
             .service
             .indexify_state
             .reader()
             .get_compute_graph_version(
-                task_allocation.task.as_ref().unwrap().namespace(),
-                task_allocation.task.as_ref().unwrap().graph_name(),
-                &GraphVersion(
-                    task_allocation
-                        .task
-                        .as_ref()
-                        .unwrap()
-                        .graph_version()
-                        .to_string(),
-                ),
+                task_ref.namespace(),
+                task_ref.graph_name(),
+                &GraphVersion(task_ref.graph_version().to_string()),
             )?
             .unwrap();
         let node_output = test_node_fn_output(
-            task_allocation.task.as_ref().unwrap().graph_invocation_id(),
-            task_allocation.task.as_ref().unwrap().graph_name(),
-            task_allocation.task.as_ref().unwrap().function_name(),
+            task_ref.graph_invocation_id(),
+            task_ref.graph_name(),
+            task_ref.function_name(),
             args.reducer_fn.clone(),
             args.num_outputs as usize,
             allocation_id,
             graph_version
                 .edges
-                .get(
-                    &task_allocation
-                        .task
-                        .as_ref()
-                        .unwrap()
-                        .function_name()
-                        .to_string(),
-                )
+                .get(task_ref.function_name())
                 .cloned()
                 .unwrap_or_default(),
         );
@@ -525,11 +512,11 @@ impl TestExecutor<'_> {
             .indexify_state
             .reader()
             .get_task(
-                task_allocation.task.as_ref().unwrap().namespace(),
-                task_allocation.task.as_ref().unwrap().graph_name(),
-                task_allocation.task.as_ref().unwrap().graph_invocation_id(),
-                task_allocation.task.as_ref().unwrap().function_name(),
-                task_allocation.task.as_ref().unwrap().id(),
+                task_ref.namespace(),
+                task_ref.graph_name(),
+                task_ref.graph_invocation_id(),
+                task_ref.function_name(),
+                task_ref.id(),
             )
             .unwrap()
             .unwrap();
