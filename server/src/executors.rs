@@ -663,14 +663,14 @@ mod tests {
         test_srv: &testing::TestService,
         executor: ExecutorMetadata,
     ) -> Result<()> {
-        let executor_state_updated = test_srv
+        let update_executor_state = test_srv
             .service
             .executor_manager
             .heartbeat(&executor)
             .await?;
 
         let mut state_changes = vec![];
-        if executor_state_updated {
+        if update_executor_state {
             let changes = state_store::state_changes::upsert_executor(
                 &test_srv.service.indexify_state.state_change_id_seq(),
                 &executor.id,
@@ -683,6 +683,7 @@ mod tests {
                 executor,
                 function_executor_diagnostics: vec![],
                 allocation_outputs: vec![],
+                update_executor_state,
                 state_changes,
             }),
         };

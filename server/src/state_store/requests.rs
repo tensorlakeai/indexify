@@ -171,6 +171,7 @@ pub struct UpsertExecutorRequest {
     pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub state_changes: Vec<StateChange>,
+    pub update_executor_state: bool,
 }
 
 #[derive(Debug, Clone)]

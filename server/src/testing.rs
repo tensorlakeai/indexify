@@ -335,7 +335,7 @@ pub struct TestExecutor<'a> {
 
 impl TestExecutor<'_> {
     pub async fn heartbeat(&mut self, executor: ExecutorMetadata) -> Result<()> {
-        let executor_state_updated = self
+        let update_executor_state = self
             .test_service
             .service
             .executor_manager
@@ -343,7 +343,7 @@ impl TestExecutor<'_> {
             .await?;
         self.executor_metadata = executor.clone();
         let mut state_changes = vec![];
-        if executor_state_updated {
+        if update_executor_state {
             let state_change_id_seq = &self
                 .test_service
                 .service
@@ -359,6 +359,7 @@ impl TestExecutor<'_> {
                 executor,
                 function_executor_diagnostics: vec![],
                 allocation_outputs: vec![],
+                update_executor_state,
                 state_changes,
             }),
         };
@@ -584,6 +585,7 @@ impl TestExecutor<'_> {
                     executor: self.executor_metadata.clone(),
                     function_executor_diagnostics: vec![],
                     allocation_outputs: vec![ingest_task_outputs_request],
+                    update_executor_state: false,
                     state_changes,
                 }),
             })

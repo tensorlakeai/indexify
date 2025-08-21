@@ -867,7 +867,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        let executor_state_updated = self
+        let update_executor_state = self
             .executor_manager
             .heartbeat(&executor_metadata)
             .await
@@ -881,7 +881,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let state_change_id_seq = self.indexify_state.state_change_id_seq();
         let mut state_changes = Vec::new();
-        if executor_state_updated {
+        if update_executor_state {
             let changes =
                 state_changes::upsert_executor(&state_change_id_seq, &executor_metadata.id)
                     .map_err(|e| Status::internal(e.to_string()))?;
@@ -907,6 +907,7 @@ impl ExecutorApi for ExecutorAPIService {
                 function_executor_diagnostics,
                 allocation_outputs,
                 state_changes,
+                update_executor_state,
             }),
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {

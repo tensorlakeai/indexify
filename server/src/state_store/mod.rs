@@ -263,6 +263,14 @@ impl IndexifyState {
                         allocation_output.clone(),
                     )?;
                 }
+
+                if request.update_executor_state {
+                    self.executor_states
+                        .write()
+                        .await
+                        .entry(request.executor.id.clone())
+                        .or_default();
+                }
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
