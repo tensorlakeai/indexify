@@ -483,7 +483,6 @@ impl ComputeGraph {
                 has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
                 has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
                 has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
-
                 has_gpu_models = node
                     .resources
                     .gpu_configs
@@ -2123,7 +2122,6 @@ pub enum ChangeType {
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
-    ExecutorRemoved(ExecutorRemovedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2151,9 +2149,6 @@ impl fmt::Display for ChangeType {
             }
             ChangeType::TombStoneExecutor(ev) => {
                 write!(f, "TombStoneExecutor, executor_id: {}", ev.executor_id)
-            }
-            ChangeType::ExecutorRemoved(ev) => {
-                write!(f, "ExecutorRemoved, executor_id: {}", ev.executor_id)
             }
             ChangeType::TombstoneInvocation(ev) => write!(
                 f,
