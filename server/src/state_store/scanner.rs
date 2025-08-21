@@ -272,11 +272,9 @@ impl StateReader {
             .db
             .iterator_cf_opt(&cf, read_options, IteratorMode::Start);
         let mut state_changes = Vec::new();
-        for kv in iter {
-            if let Ok((_, value)) = kv {
-                let state_change = JsonEncoder::decode::<StateChange>(&value)?;
-                state_changes.push(state_change);
-            }
+        for (_, value) in iter.flatten() {
+            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            state_changes.push(state_change);
         }
         Ok(state_changes)
     }
