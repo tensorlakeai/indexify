@@ -61,7 +61,7 @@ impl StateMachineUpdateRequest {
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     CreateNameSpace(NamespaceRequest),
-    CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
+    CreateOrUpdateComputeGraph(Box<CreateOrUpdateComputeGraphRequest>),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
     SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),

@@ -582,13 +582,13 @@ mod tests {
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(
+                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         compute_graph: compute_graph.clone(),
                         upgrade_tasks_to_current_version: false,
                     },
-                ),
+                )),
             })
             .await
     }

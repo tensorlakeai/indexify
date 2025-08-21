@@ -91,13 +91,13 @@ impl GraphProcessor {
         for compute_graph in updated_compute_graphs {
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: compute_graph.namespace.clone(),
                             compute_graph,
                             upgrade_tasks_to_current_version: true,
                         },
-                    ),
+                    )),
                 })
                 .await?;
         }

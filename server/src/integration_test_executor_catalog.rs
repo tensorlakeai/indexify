@@ -64,7 +64,7 @@ mod tests {
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(cg_request)),
             })
             .await?;
 
@@ -119,7 +119,7 @@ mod tests {
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(sat_cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(sat_cg_request)),
             })
             .await?;
 
@@ -223,13 +223,13 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             compute_graph,
                             upgrade_tasks_to_current_version: true,
                         },
-                    ),
+                    )),
                 })
                 .await?;
         }
@@ -412,13 +412,13 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             compute_graph,
                             upgrade_tasks_to_current_version: true,
                         },
-                    ),
+                    )),
                 })
                 .await?;
         }
