@@ -7,7 +7,10 @@ use crate::{
     data_model::{
         AllocationOutputIngestedEvent,
         CacheKey,
+        ChangeType,
         NodeOutput,
+        StateChangeBuilder,
+        StateChangeId,
         Task,
         TaskOutcome,
         TaskStatus,
@@ -17,6 +20,7 @@ use crate::{
         requests::SchedulerUpdateRequest,
         IndexifyState,
     },
+    utils,
 };
 
 pub struct CacheState {
@@ -88,7 +92,10 @@ impl TaskCache {
             .insert((cache_key.clone(), input_hash.clone()), node_output);
     }
 
-    pub async fn try_allocate(&self, indexes: &mut InMemoryState) -> SchedulerUpdateRequest {
+    pub async fn try_allocate(
+        &self,
+        indexes: &mut InMemoryState,
+    ) -> anyhow::Result<SchedulerUpdateRequest> {
         let _span = span!(tracing::Level::DEBUG, "cache_check").entered();
 
         let mut state = self.mutex.lock().await;
@@ -118,7 +125,7 @@ impl TaskCache {
 
             let submap_key = (cache_key.clone(), task.input.sha256_hash.clone());
 
-            let Some(outputs) = submap.get(&submap_key) else {
+            let Some(output) = submap.get(&submap_key) else {
                 debug!("No cache entry found");
                 continue;
             };
@@ -136,9 +143,35 @@ impl TaskCache {
             task.status = TaskStatus::Completed;
             task.outcome = TaskOutcome::Success;
             task.cache_hit = true;
-            result
-                .cached_task_outputs
-                .insert(task.key(), outputs.clone());
+
+            let change_id = state
+                .indexify_state
+                .state_change_id_seq()
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            let state_change = StateChangeBuilder::default()
+                .namespace(Some(task.namespace.clone()))
+                .compute_graph(Some(task.compute_graph_name.clone()))
+                .invocation(Some(task.invocation_id.clone()))
+                .change_type(ChangeType::AllocationOutputsIngested(
+                    AllocationOutputIngestedEvent {
+                        namespace: task.namespace.clone(),
+                        compute_graph: task.compute_graph_name.clone(),
+                        compute_fn: task.compute_fn_name.clone(),
+                        invocation_id: task.invocation_id.clone(),
+                        task_id: task.id.clone(),
+                        node_output_key: output.key(),
+                        allocation_key: None,
+                    },
+                ))
+                .created_at(utils::get_epoch_time_in_ms())
+                .object_id(task.id.clone().to_string())
+                .id(StateChangeId::new(change_id))
+                .processed_at(None)
+                .build()?;
+
+            result.state_changes.push(state_change);
+            result.cached_task_keys.insert(task.key());
             result.updated_tasks.insert(task.id.clone(), task);
             state.cache_hits += 1;
         }
@@ -147,6 +180,6 @@ impl TaskCache {
             indexes.unallocated_tasks.remove(task_id);
         }
 
-        result
+        Ok(result)
     }
 }

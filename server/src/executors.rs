@@ -663,18 +663,22 @@ mod tests {
         test_srv: &testing::TestService,
         executor: ExecutorMetadata,
     ) -> Result<()> {
-        let executor_state_changed = test_srv
+        let update_executor_state = test_srv
             .service
             .executor_manager
             .heartbeat(&executor)
             .await?;
+
+        let request = UpsertExecutorRequest::build(
+            executor,
+            vec![],
+            vec![],
+            update_executor_state,
+            test_srv.service.indexify_state.clone(),
+        )?;
+
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor,
-                function_executor_diagnostics: vec![],
-                executor_state_updated: executor_state_changed,
-                allocation_outputs: vec![],
-            }),
+            payload: RequestPayload::UpsertExecutor(request),
         };
         test_srv.service.indexify_state.write(sm_req).await?;
         Ok(())

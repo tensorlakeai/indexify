@@ -866,25 +866,29 @@ impl ExecutorApi for ExecutorAPIService {
 
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        let executor_state_updated = self
+        let update_executor_state = self
             .executor_manager
             .heartbeat(&executor_metadata)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let task_results = executor_update.task_results.clone();
-        let allocation_output_updates = self
+        let allocation_outputs = self
             .handle_task_outcomes(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        let request = UpsertExecutorRequest::build(
+            executor_metadata,
+            function_executor_diagnostics,
+            allocation_outputs,
+            update_executor_state,
+            self.indexify_state.clone(),
+        )
+        .map_err(|e| Status::internal(e.to_string()))?;
+
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor: executor_metadata,
-                function_executor_diagnostics,
-                executor_state_updated,
-                allocation_outputs: allocation_output_updates,
-            }),
+            payload: RequestPayload::UpsertExecutor(request),
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {
             error!(

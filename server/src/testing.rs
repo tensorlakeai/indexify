@@ -334,7 +334,7 @@ pub struct TestExecutor<'a> {
 
 impl TestExecutor<'_> {
     pub async fn heartbeat(&mut self, executor: ExecutorMetadata) -> Result<()> {
-        let executor_state_changed = self
+        let update_executor_state = self
             .test_service
             .service
             .executor_manager
@@ -342,13 +342,16 @@ impl TestExecutor<'_> {
             .await?;
         self.executor_metadata = executor.clone();
 
+        let request = UpsertExecutorRequest::build(
+            executor,
+            vec![],
+            vec![],
+            update_executor_state,
+            self.test_service.service.indexify_state.clone(),
+        )?;
+
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor,
-                function_executor_diagnostics: vec![],
-                executor_state_updated: executor_state_changed,
-                allocation_outputs: vec![],
-            }),
+            payload: RequestPayload::UpsertExecutor(request),
         };
         self.test_service
             .service
@@ -554,16 +557,19 @@ impl TestExecutor<'_> {
             allocation,
         };
 
+        let request = UpsertExecutorRequest::build(
+            self.executor_metadata.clone(),
+            vec![],
+            vec![ingest_task_outputs_request],
+            false,
+            self.test_service.service.indexify_state.clone(),
+        )?;
+
         self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                    executor: self.executor_metadata.clone(),
-                    function_executor_diagnostics: vec![],
-                    executor_state_updated: false,
-                    allocation_outputs: vec![ingest_task_outputs_request],
-                }),
+                payload: RequestPayload::UpsertExecutor(request),
             })
             .await?;
         Ok(())

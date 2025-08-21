@@ -265,7 +265,7 @@ impl GraphProcessor {
                     .invoke(&mut indexes_guard, &state_change.change_type)
                     .await?;
 
-                scheduler_update.extend(self.task_cache.try_allocate(&mut indexes_guard).await);
+                scheduler_update.extend(self.task_cache.try_allocate(&mut indexes_guard).await?);
                 scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
