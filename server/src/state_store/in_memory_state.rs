@@ -113,7 +113,9 @@ pub struct DesiredStateFunctionExecutor {
 }
 
 pub struct DesiredExecutorState {
+    #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
+    #[allow(clippy::box_collection)]
     pub task_allocations: std::collections::HashMap<FunctionExecutorId, Box<Vec<DesiredStateTask>>>,
     pub clock: u64,
 }
@@ -156,6 +158,7 @@ impl Ord for UnallocatedTaskId {
 }
 
 pub struct CandidateFunctionExecutors {
+    #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
     pub num_pending_function_executors: usize,
 }
@@ -186,6 +189,7 @@ pub struct InMemoryState {
     >,
 
     // ExecutorId -> (FE ID -> List of Allocations)
+    #[allow(clippy::vec_box)]
     pub allocations_by_executor:
         im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
@@ -1408,6 +1412,7 @@ impl InMemoryState {
         }))
     }
 
+    #[allow(clippy::borrowed_box)]
     pub fn get_existing_compute_graph_version<'a>(
         &'a self,
         task: &Task,
