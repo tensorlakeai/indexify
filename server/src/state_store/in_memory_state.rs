@@ -797,13 +797,12 @@ impl InMemoryState {
                 }
 
                 for (executor_id, function_executors) in &req.remove_function_executors {
-                    self.allocations_by_executor
-                        .get_mut(executor_id)
-                        .map(|fe_allocations| {
-                            for function_executor_id in function_executors {
-                                fe_allocations.remove(function_executor_id);
-                            }
-                        });
+                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(executor_id)
+                    {
+                        fe_allocations
+                            .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
+                    }
+
                     for function_executor_id in function_executors {
                         let fe =
                             self.executor_states
@@ -1251,8 +1250,9 @@ impl InMemoryState {
 
                 if can_be_removed {
                     let mut simulated_resources = available_resources.clone();
-                    if let Err(_) =
-                        simulated_resources.free(&fe_metadata.function_executor.resources)
+                    if simulated_resources
+                        .free(&fe_metadata.function_executor.resources)
+                        .is_err()
                     {
                         continue;
                     }
