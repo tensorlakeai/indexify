@@ -67,7 +67,7 @@ impl FunctionExecutorManager {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                 failed_alloc_ids: Vec::new(),
             };
-            update.new_function_executors.push(*update_fe);
+            update.new_function_executors.push(update_fe);
 
             info!(
                 target: targets::SCHEDULER,

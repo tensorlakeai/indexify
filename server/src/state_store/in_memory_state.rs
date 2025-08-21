@@ -945,7 +945,7 @@ impl InMemoryState {
         Ok(compute_fn.resources.clone())
     }
 
-    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<ExecutorServerMetadata>> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
@@ -1005,7 +1005,7 @@ impl InMemoryState {
                 .can_handle_function_resources(&compute_fn.resources)
                 .is_ok()
             {
-                candidates.push(executor_state.clone());
+                candidates.push(*executor_state.clone());
             }
         }
 
@@ -1073,7 +1073,7 @@ impl InMemoryState {
             .map(|(_, v)| *v.clone())
     }
 
-    pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
+    pub fn delete_tasks(&mut self, tasks: Vec<Task>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
             self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
@@ -1135,7 +1135,7 @@ impl InMemoryState {
             .range(key_prefix.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .for_each(|(_k, v)| {
-                tasks_to_remove.push(v.clone());
+                tasks_to_remove.push(*v.clone());
             });
         self.delete_tasks(tasks_to_remove);
 
@@ -1151,7 +1151,7 @@ impl InMemoryState {
         }
     }
 
-    pub fn unallocated_tasks(&self) -> Vec<Box<Task>> {
+    pub fn unallocated_tasks(&self) -> Vec<Task> {
         let unallocated_task_ids = self
             .unallocated_tasks
             .iter()
@@ -1160,7 +1160,7 @@ impl InMemoryState {
         let mut tasks = Vec::new();
         for task_id in unallocated_task_ids {
             if let Some(task) = self.tasks.get(&task_id) {
-                tasks.push(task.clone());
+                tasks.push(*task.clone());
             } else {
                 error!(task_key = task_id, "task not found for unallocated task");
             }
@@ -1172,7 +1172,7 @@ impl InMemoryState {
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
@@ -1212,7 +1212,7 @@ impl InMemoryState {
 
                 let fe = &fe_metadata.function_executor;
                 let Some(executor) = self.executors.get(executor_id) else {
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
                 };
 
@@ -1224,7 +1224,7 @@ impl InMemoryState {
                     ))
                     .map(|cg| cg.version.clone())
                 else {
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
                 };
 
@@ -1261,7 +1261,7 @@ impl InMemoryState {
                         continue;
                     }
 
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     available_resources = simulated_resources;
 
                     if available_resources
