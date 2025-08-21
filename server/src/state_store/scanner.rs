@@ -563,7 +563,7 @@ impl StateReader {
         );
         let compute_graph = self.get_compute_graph(namespace, name)?;
         match compute_graph {
-            Some(compute_graph) => Ok(Some(compute_graph.into_version())),
+            Some(compute_graph) => Ok(Some(compute_graph.to_version())),
             None => Ok(None),
         }
     }

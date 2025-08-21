@@ -613,8 +613,8 @@ impl InMemoryState {
                 self.compute_graphs
                     .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
                 self.compute_graph_versions.insert(
-                    req.compute_graph.into_version().key(),
-                    Box::new(req.compute_graph.into_version()),
+                    req.compute_graph.to_version().key(),
+                    Box::new(req.compute_graph.to_version()),
                 );
 
                 // FIXME - we should set this in the API and not here, so that these things are
@@ -632,7 +632,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut task = v.clone();
-                                task.graph_version = req.compute_graph.into_version().version;
+                                task.graph_version = req.compute_graph.to_version().version;
                                 tasks_to_update.push(task);
                             });
 
@@ -654,7 +654,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
-                                ctx.graph_version = req.compute_graph.into_version().version;
+                                ctx.graph_version = req.compute_graph.to_version().version;
                                 invocation_ctx_to_update.push(ctx);
                             });
 

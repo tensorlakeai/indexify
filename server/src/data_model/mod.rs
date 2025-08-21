@@ -442,7 +442,7 @@ impl ComputeGraph {
         self.tags = update.tags;
     }
 
-    pub fn into_version(&self) -> ComputeGraphVersion {
+    pub fn to_version(&self) -> ComputeGraphVersion {
         ComputeGraphVersion {
             namespace: self.namespace.clone(),
             compute_graph_name: self.name.clone(),
@@ -2291,7 +2291,7 @@ mod tests {
                 description: "no graph and version changes",
                 update: original_graph.clone(),
                 expected_graph: original_graph.clone(),
-                expected_version: original_graph.into_version(),
+                expected_version: original_graph.to_version(),
             },
             TestCase {
                 description: "version update",
@@ -2305,7 +2305,7 @@ mod tests {
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("100"),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             TestCase {
@@ -2323,7 +2323,7 @@ mod tests {
                 },
                 expected_version:ComputeGraphVersion {
                     version: GraphVersion::from("100"),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Runtime information.
@@ -2351,7 +2351,7 @@ mod tests {
                         minor_version: 12, // different
                         ..original_graph.runtime_information.clone()
                     },
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Code.
@@ -2379,7 +2379,7 @@ mod tests {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Edges.
@@ -2407,7 +2407,7 @@ mod tests {
                         "fn_a".to_string(),
                         vec!["fn_c".to_string(), "fn_b".to_string()],
                     )]),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // start_fn.
@@ -2426,7 +2426,7 @@ mod tests {
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     start_fn: fn_b.clone(),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Adding a node.
@@ -2460,7 +2460,7 @@ mod tests {
                         ("fn_c".to_string(), fn_c.clone()),
                         ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
                     ]),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Removing a node.
@@ -2489,7 +2489,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                     ]),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
             // Changing a node's image.
@@ -2520,7 +2520,7 @@ mod tests {
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
-                    ..original_graph.into_version()
+                    ..original_graph.to_version()
                 },
             },
         ];
@@ -2534,7 +2534,7 @@ mod tests {
                 test_case.description
             );
             assert_eq!(
-                updated_graph.into_version(),
+                updated_graph.to_version(),
                 test_case.expected_version.clone(),
                 "{}",
                 test_case.description
