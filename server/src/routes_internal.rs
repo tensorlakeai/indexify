@@ -117,7 +117,6 @@ use crate::{
             (name = "indexify", description = "Indexify API")
         )
     )]
-
 pub struct ApiDoc;
 
 pub fn configure_internal_routes(route_state: RouteState) -> Router {
