@@ -1,7 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::atomic::AtomicU64,
+    sync::{atomic::AtomicU64, Arc},
 };
+
+use anyhow::Result;
 
 use crate::{
     data_model::{
@@ -22,7 +24,7 @@ use crate::{
         Task,
         TaskId,
     },
-    state_store::state_changes,
+    state_store::{state_changes, IndexifyState},
 };
 
 #[derive(Debug)]
@@ -165,13 +167,57 @@ pub struct DeleteInvocationRequest {
     pub invocation_id: String,
 }
 
+/// Request to upsert an executor, including its metadata and diagnostics.
+/// **DO NOT** construct this directly, use `UpsertExecutorRequest::build`
+/// instead.
 #[derive(Debug, Clone)]
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
     pub allocation_outputs: Vec<AllocationOutput>,
-    pub state_changes: Vec<StateChange>,
     pub update_executor_state: bool,
+    state_changes: Vec<StateChange>,
+}
+
+impl UpsertExecutorRequest {
+    /// Builds a new UpsertExecutorRequest.
+    /// This function will also generate the state changes
+    /// needed to update the executor state in the indexify state.
+    ///
+    /// It will also check if the allocation outputs can be updated
+    /// and generate the necessary state changes
+    /// for the allocation outputs.
+    pub fn build(
+        executor: ExecutorMetadata,
+        function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
+        allocation_outputs: Vec<AllocationOutput>,
+        update_executor_state: bool,
+        indexify_state: Arc<IndexifyState>,
+    ) -> Result<Self> {
+        let state_change_id_seq = indexify_state.state_change_id_seq();
+        let mut state_changes = Vec::new();
+
+        if update_executor_state {
+            let changes = state_changes::upsert_executor(&state_change_id_seq, &executor.id)?;
+            state_changes = changes;
+        }
+
+        for allocation_output in &allocation_outputs {
+            if indexify_state.can_allocation_output_be_updated(&allocation_output)? {
+                let changes =
+                    state_changes::task_outputs_ingested(&state_change_id_seq, &allocation_output)?;
+                state_changes.extend(changes);
+            }
+        }
+
+        Ok(Self {
+            executor,
+            function_executor_diagnostics,
+            allocation_outputs,
+            state_changes,
+            update_executor_state,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

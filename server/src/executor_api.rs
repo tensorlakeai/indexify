@@ -57,7 +57,6 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
-        state_changes,
         IndexifyState,
     },
 };
@@ -879,36 +878,17 @@ impl ExecutorApi for ExecutorAPIService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let state_change_id_seq = self.indexify_state.state_change_id_seq();
-        let mut state_changes = Vec::new();
-        if update_executor_state {
-            let changes =
-                state_changes::upsert_executor(&state_change_id_seq, &executor_metadata.id)
-                    .map_err(|e| Status::internal(e.to_string()))?;
-            state_changes = changes;
-        }
-
-        for allocation_output in &allocation_outputs {
-            if self
-                .indexify_state
-                .can_allocation_output_be_updated(&allocation_output)
-                .map_err(|e| Status::internal(e.to_string()))?
-            {
-                let changes =
-                    state_changes::task_outputs_ingested(&state_change_id_seq, &allocation_output)
-                        .map_err(|e| Status::internal(e.to_string()))?;
-                state_changes.extend(changes);
-            }
-        }
+        let request = UpsertExecutorRequest::build(
+            executor_metadata,
+            function_executor_diagnostics,
+            allocation_outputs,
+            update_executor_state,
+            self.indexify_state.clone(),
+        )
+        .map_err(|e| Status::internal(e.to_string()))?;
 
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor: executor_metadata,
-                function_executor_diagnostics,
-                allocation_outputs,
-                state_changes,
-                update_executor_state,
-            }),
+            payload: RequestPayload::UpsertExecutor(request),
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {
             error!(

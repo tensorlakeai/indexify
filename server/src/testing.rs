@@ -32,7 +32,6 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
-        state_changes,
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -342,26 +341,17 @@ impl TestExecutor<'_> {
             .heartbeat(&executor)
             .await?;
         self.executor_metadata = executor.clone();
-        let mut state_changes = vec![];
-        if update_executor_state {
-            let state_change_id_seq = &self
-                .test_service
-                .service
-                .indexify_state
-                .state_change_id_seq();
-            let changes =
-                state_changes::upsert_executor(&state_change_id_seq, &self.executor_metadata.id)?;
-            state_changes = changes;
-        }
+
+        let request = UpsertExecutorRequest::build(
+            executor,
+            vec![],
+            vec![],
+            update_executor_state,
+            self.test_service.service.indexify_state.clone(),
+        )?;
 
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor,
-                function_executor_diagnostics: vec![],
-                allocation_outputs: vec![],
-                update_executor_state,
-                state_changes,
-            }),
+            payload: RequestPayload::UpsertExecutor(request),
         };
         self.test_service
             .service
@@ -567,27 +557,19 @@ impl TestExecutor<'_> {
             allocation,
         };
 
-        let state_change_id_seq = &self
-            .test_service
-            .service
-            .indexify_state
-            .state_change_id_seq();
-        let state_changes = state_changes::task_outputs_ingested(
-            state_change_id_seq,
-            &ingest_task_outputs_request,
+        let request = UpsertExecutorRequest::build(
+            self.executor_metadata.clone(),
+            vec![],
+            vec![ingest_task_outputs_request],
+            false,
+            self.test_service.service.indexify_state.clone(),
         )?;
 
         self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                    executor: self.executor_metadata.clone(),
-                    function_executor_diagnostics: vec![],
-                    allocation_outputs: vec![ingest_task_outputs_request],
-                    update_executor_state: false,
-                    state_changes,
-                }),
+                payload: RequestPayload::UpsertExecutor(request),
             })
             .await?;
         Ok(())
