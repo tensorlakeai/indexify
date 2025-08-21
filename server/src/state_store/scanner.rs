@@ -384,6 +384,7 @@ impl StateReader {
         Ok(namespaces)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn list_invocations(
         &self,
         namespace: &str,

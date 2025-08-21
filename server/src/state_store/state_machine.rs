@@ -580,6 +580,7 @@ pub fn remove_gc_urls(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 pub fn make_prefix_iterator<'a>(
     txn: &'a Transaction<TransactionDB>,
     cf_handle: &impl AsColumnFamilyRef,
