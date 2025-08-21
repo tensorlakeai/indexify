@@ -289,7 +289,7 @@ impl FunctionExecutorManager {
         &self,
         in_memory_state: &mut InMemoryState,
         executor_server_metadata: &mut ExecutorServerMetadata,
-        function_executors_to_remove: &Vec<FunctionExecutor>,
+        function_executors_to_remove: &[FunctionExecutor],
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 

@@ -619,7 +619,7 @@ impl ExecutorManager {
 
 /// Helper function to compute a hash of function executors' desired states
 fn compute_function_executors_hash(
-    function_executors: &Vec<Box<DesiredStateFunctionExecutor>>,
+    function_executors: &[Box<DesiredStateFunctionExecutor>],
 ) -> String {
     let mut hasher = DefaultHasher::new();
 

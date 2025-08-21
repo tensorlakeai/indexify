@@ -907,7 +907,7 @@ pub struct GraphInvocationCtx {
 }
 
 impl GraphInvocationCtx {
-    pub fn create_tasks(&mut self, tasks: &Vec<Task>, reducer_tasks: &Vec<ReduceTask>) {
+    pub fn create_tasks(&mut self, tasks: &[Task], reducer_tasks: &[ReduceTask]) {
         for task in tasks {
             let fn_name = task.compute_fn_name.clone();
             self.fn_task_analytics

@@ -466,7 +466,7 @@ fn to_function_executor_diagnostics(
 }
 
 fn to_function_executor_diagnostics_vector(
-    function_executor_updates: &Vec<executor_api_pb::FunctionExecutorUpdate>,
+    function_executor_updates: &[executor_api_pb::FunctionExecutorUpdate],
     blob_storage_registry: &BlobStorageRegistry,
 ) -> Result<Vec<FunctionExecutorDiagnostics>> {
     function_executor_updates
