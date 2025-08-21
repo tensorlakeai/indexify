@@ -301,7 +301,7 @@ impl TaskCreator {
             None,
             &compute_graph_version.version,
         )?;
-        invocation_ctx.create_tasks(&vec![task.clone()], &vec![]);
+        invocation_ctx.create_tasks(&[task.clone()], &[]);
 
         trace!(
             task_key = task.key(),
@@ -399,7 +399,7 @@ impl TaskCreator {
                     &invocation_ctx.graph_version,
                 )?;
                 new_tasks.push(new_task.clone());
-                invocation_ctx.create_tasks(&vec![new_task.clone()], &vec![]);
+                invocation_ctx.create_tasks(&[new_task.clone()], &[]);
                 invocation_ctx.complete_reducer_task(&task.compute_fn_name);
                 return Ok(TaskCreationResult {
                     tasks: new_tasks,
@@ -497,7 +497,7 @@ impl TaskCreator {
                 &invocation_ctx.graph_version,
             )?;
             new_tasks.push(new_task.clone());
-            invocation_ctx.create_tasks(&vec![new_task.clone()], &vec![]);
+            invocation_ctx.create_tasks(&[new_task.clone()], &[]);
             invocation_ctx.complete_reducer_task(&reducer_task.compute_fn_name);
         }
 
