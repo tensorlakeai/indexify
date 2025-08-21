@@ -107,15 +107,14 @@ pub struct DesiredStateTask {
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
     pub resources: FunctionExecutorResources,
-    pub secret_names: std::vec::Vec<String>,
+    pub secret_names: Vec<String>,
     pub customer_code_timeout_ms: u32,
     pub code_payload: DataPayload,
 }
 
 pub struct DesiredExecutorState {
-    pub function_executors: std::vec::Vec<Box<DesiredStateFunctionExecutor>>,
-    pub task_allocations:
-        std::collections::HashMap<FunctionExecutorId, Box<std::vec::Vec<DesiredStateTask>>>,
+    pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
+    pub task_allocations: std::collections::HashMap<FunctionExecutorId, Box<Vec<DesiredStateTask>>>,
     pub clock: u64,
 }
 
@@ -1352,7 +1351,7 @@ impl InMemoryState {
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
                 .unwrap_or(&Vec::new())
                 .clone();
-            let mut desired_state_tasks = std::vec::Vec::new();
+            let mut desired_state_tasks = Vec::new();
             for allocation in allocations.iter() {
                 let Some(task) = self.tasks.get(&allocation.task_key()) else {
                     error!(

@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
 
-    use std::vec;
-
     use crate::data_model::{
         FunctionExecutorResources,
         FunctionResources,
