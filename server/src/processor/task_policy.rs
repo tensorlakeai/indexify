@@ -53,7 +53,7 @@ impl TaskRetryPolicy {
         match allocation.outcome {
             TaskOutcome::Success => {
                 task.status = TaskStatus::Completed;
-                task.outcome = allocation.outcome.clone();
+                task.outcome = allocation.outcome;
             }
             TaskOutcome::Failure(failure_reason) => {
                 // Handle allocation failure

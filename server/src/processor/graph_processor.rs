@@ -71,7 +71,7 @@ impl GraphProcessor {
             let in_memory_state = self.indexify_state.in_memory_state.read().await;
             let executor_catalog = &in_memory_state.executor_catalog;
             in_memory_state.compute_graphs.values().filter_map(|compute_graph| {
-                let target_state = if compute_graph.can_be_scheduled(&executor_catalog).is_ok() {
+                let target_state = if compute_graph.can_be_scheduled(executor_catalog).is_ok() {
                         ComputeGraphState::Active
                 } else {
                         ComputeGraphState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}

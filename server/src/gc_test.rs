@@ -42,7 +42,7 @@ mod tests {
         let compute_graph = {
             let mut compute_graph = test_graph_a().clone();
             let data = "code";
-            let path = (&compute_graph.code.path).to_string();
+            let path = compute_graph.code.path.to_string();
 
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
             let res = blob_storage_registry

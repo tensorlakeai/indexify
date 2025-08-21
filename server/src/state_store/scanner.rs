@@ -726,8 +726,7 @@ impl StateReader {
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key = format!(
-            "{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, compute_fn
+            "{namespace}|{compute_graph}|{invocation_id}|{compute_fn}"
         );
 
         let (node_outputs, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(

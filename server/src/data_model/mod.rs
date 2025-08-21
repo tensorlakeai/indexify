@@ -385,16 +385,13 @@ pub struct ParameterMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum ComputeGraphState {
+    #[default]
     Active,
     Disabled { reason: String },
 }
 
-impl Default for ComputeGraphState {
-    fn default() -> Self {
-        ComputeGraphState::Active
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
@@ -1204,10 +1201,10 @@ impl Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
             TaskStatus::Pending => "Pending".to_string(),
-            TaskStatus::Running(status) => format!("Running({:?})", status),
+            TaskStatus::Running(status) => format!("Running({status:?})"),
             TaskStatus::Completed => "Completed".to_string(),
         };
-        write!(f, "{}", str_val)
+        write!(f, "{str_val}")
     }
 }
 
@@ -1887,7 +1884,6 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("resources is required"))?;
         let max_concurrency = self
             .max_concurrency
-            .clone()
             .ok_or(anyhow!("max_concurrency is required"))?;
         Ok(FunctionExecutor {
             id,

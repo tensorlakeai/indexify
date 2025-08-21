@@ -516,16 +516,14 @@ impl ComputeGraph {
             node.validate()?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
-                    "Invalid placement constraints in node '{}': {}",
-                    name, e
+                    "Invalid placement constraints in node '{name}': {e}"
                 ))
             })?;
             nodes.insert(name, converted_node);
         }
         let start_fn: data_model::ComputeFn = self.start_node.try_into().map_err(|e| {
             IndexifyAPIError::bad_request(&format!(
-                "Invalid placement constraints in start node: {}",
-                e
+                "Invalid placement constraints in start node: {e}"
             ))
         })?;
 
@@ -1208,7 +1206,7 @@ mod tests {
 
         let data_model_filter: crate::data_model::filter::LabelsFilter =
             http_filter.clone().try_into().unwrap();
-        println!("{:?}", data_model_filter);
+        println!("{data_model_filter:?}");
         assert_eq!(data_model_filter.0.len(), 3);
 
         // Test data_model LabelsFilter to HTTP conversion

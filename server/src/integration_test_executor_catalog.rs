@@ -84,7 +84,7 @@ mod tests {
             .get(&key)
             .expect("compute graph not found in state");
 
-        println!("stored_graph: {:?}", stored_graph);
+        println!("stored_graph: {stored_graph:?}");
 
         match &stored_graph.state {
             ComputeGraphState::Disabled { .. } => {}
