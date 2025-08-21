@@ -53,16 +53,14 @@ impl ComputeGraph {
             node.validate()?;
             let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
-                    "Invalid placement constraints in function '{}': {}",
-                    name, e
+                    "Invalid placement constraints in function '{name}': {e}"
                 ))
             })?;
             nodes.insert(name, converted_node);
         }
         let start_fn: data_model::ComputeFn = self.entrypoint.try_into().map_err(|e| {
             IndexifyAPIError::bad_request(&format!(
-                "Invalid placement constraints in entrypoint: {}",
-                e
+                "Invalid placement constraints in entrypoint: {e}"
             ))
         })?;
 

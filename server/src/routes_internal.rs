@@ -117,7 +117,6 @@ use crate::{
             (name = "indexify", description = "Indexify API")
         )
     )]
-
 pub struct ApiDoc;
 
 pub fn configure_internal_routes(route_state: RouteState) -> Router {
@@ -456,11 +455,12 @@ async fn create_or_update_compute_graph(
         name,
         upgrade_tasks_to_current_version.unwrap_or(false)
     );
-    let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
-        namespace,
-        compute_graph,
-        upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
-    });
+    let request =
+        RequestPayload::CreateOrUpdateComputeGraph(Box::new(CreateOrUpdateComputeGraphRequest {
+            namespace,
+            compute_graph,
+            upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
+        }));
     let result = state
         .indexify_state
         .write(StateMachineUpdateRequest { payload: request })

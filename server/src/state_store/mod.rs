@@ -26,7 +26,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
     pub entries: Vec<ExecutorCatalogEntry>,
 }
@@ -35,14 +35,6 @@ impl ExecutorCatalog {
     /// Returns true if no catalog entries are configured.
     pub fn empty(&self) -> bool {
         self.entries.is_empty()
-    }
-}
-
-impl Default for ExecutorCatalog {
-    fn default() -> Self {
-        ExecutorCatalog {
-            entries: Vec::new(),
-        }
     }
 }
 
@@ -177,7 +169,7 @@ impl IndexifyState {
         &self,
         request: &requests::AllocationOutput,
     ) -> Result<bool> {
-        state_machine::can_allocation_output_be_updated(self.db.clone(), &request)
+        state_machine::can_allocation_output_be_updated(self.db.clone(), request)
     }
 
     #[tracing::instrument(
@@ -212,7 +204,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
@@ -236,7 +228,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
             }
             RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
@@ -244,7 +236,7 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(
                     self.db.clone(),
                     &txn,
-                    &processed_state_changes,
+                    processed_state_changes,
                 )?;
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -286,7 +278,7 @@ impl IndexifyState {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(self.db.clone(), &txn, &state_changes)?;
+                state_machine::mark_state_changes_processed(self.db.clone(), &txn, state_changes)?;
             }
             _ => {} // Handle other request types as needed
         };
@@ -599,13 +591,13 @@ mod tests {
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(
+                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         compute_graph: compute_graph.clone(),
                         upgrade_tasks_to_current_version: false,
                     },
-                ),
+                )),
             })
             .await
     }

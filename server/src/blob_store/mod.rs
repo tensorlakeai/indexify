@@ -168,7 +168,7 @@ impl BlobStorage {
         let client_clone = self.object_store.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         let options = GetOptions {
-            range: range.map(|r| object_store::GetRange::Bounded(r)),
+            range: range.map(object_store::GetRange::Bounded),
             ..Default::default()
         };
         let get_result = client_clone

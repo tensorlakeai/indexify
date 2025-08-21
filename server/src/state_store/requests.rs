@@ -61,7 +61,7 @@ impl StateMachineUpdateRequest {
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     CreateNameSpace(NamespaceRequest),
-    CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
+    CreateOrUpdateComputeGraph(Box<CreateOrUpdateComputeGraphRequest>),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
     SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
@@ -203,9 +203,9 @@ impl UpsertExecutorRequest {
         }
 
         for allocation_output in &allocation_outputs {
-            if indexify_state.can_allocation_output_be_updated(&allocation_output)? {
+            if indexify_state.can_allocation_output_be_updated(allocation_output)? {
                 let changes =
-                    state_changes::task_outputs_ingested(&state_change_id_seq, &allocation_output)?;
+                    state_changes::task_outputs_ingested(&state_change_id_seq, allocation_output)?;
                 state_changes.extend(changes);
             }
         }

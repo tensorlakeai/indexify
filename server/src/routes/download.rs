@@ -169,7 +169,7 @@ pub async fn v1_download_fn_output_payload(
 
     let payload = &output.payloads[index];
     let blob_storage = state.blob_storage.get_blob_store(&namespace);
-    stream_data_payload(&payload, &blob_storage, &encoding).await
+    stream_data_payload(payload, &blob_storage, &encoding).await
 }
 
 /// Get function output
@@ -209,7 +209,7 @@ pub async fn v1_download_fn_output_payload_simple(
 
     let payload = &output.payloads[0];
     let blob_storage = state.blob_storage.get_blob_store(&namespace);
-    stream_data_payload(&payload, &blob_storage, &encoding).await
+    stream_data_payload(payload, &blob_storage, &encoding).await
 }
 
 async fn stream_data_payload(

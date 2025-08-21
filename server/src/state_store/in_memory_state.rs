@@ -107,15 +107,16 @@ pub struct DesiredStateTask {
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
     pub resources: FunctionExecutorResources,
-    pub secret_names: std::vec::Vec<String>,
+    pub secret_names: Vec<String>,
     pub customer_code_timeout_ms: u32,
     pub code_payload: DataPayload,
 }
 
 pub struct DesiredExecutorState {
-    pub function_executors: std::vec::Vec<Box<DesiredStateFunctionExecutor>>,
-    pub task_allocations:
-        std::collections::HashMap<FunctionExecutorId, Box<std::vec::Vec<DesiredStateTask>>>,
+    #[allow(clippy::vec_box)]
+    pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
+    #[allow(clippy::box_collection)]
+    pub task_allocations: std::collections::HashMap<FunctionExecutorId, Box<Vec<DesiredStateTask>>>,
     pub clock: u64,
 }
 
@@ -157,6 +158,7 @@ impl Ord for UnallocatedTaskId {
 }
 
 pub struct CandidateFunctionExecutors {
+    #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
     pub num_pending_function_executors: usize,
 }
@@ -187,6 +189,7 @@ pub struct InMemoryState {
     >,
 
     // ExecutorId -> (FE ID -> List of Allocations)
+    #[allow(clippy::vec_box)]
     pub allocations_by_executor:
         im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
@@ -613,8 +616,8 @@ impl InMemoryState {
                 self.compute_graphs
                     .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
                 self.compute_graph_versions.insert(
-                    req.compute_graph.into_version().key(),
-                    Box::new(req.compute_graph.into_version()),
+                    req.compute_graph.to_version().key(),
+                    Box::new(req.compute_graph.to_version()),
                 );
 
                 // FIXME - we should set this in the API and not here, so that these things are
@@ -632,7 +635,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut task = v.clone();
-                                task.graph_version = req.compute_graph.into_version().version;
+                                task.graph_version = req.compute_graph.to_version().version;
                                 tasks_to_update.push(task);
                             });
 
@@ -654,7 +657,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
-                                ctx.graph_version = req.compute_graph.into_version().version;
+                                ctx.graph_version = req.compute_graph.to_version().version;
                                 invocation_ctx_to_update.push(ctx);
                             });
 
@@ -798,13 +801,12 @@ impl InMemoryState {
                 }
 
                 for (executor_id, function_executors) in &req.remove_function_executors {
-                    self.allocations_by_executor
-                        .get_mut(executor_id)
-                        .map(|fe_allocations| {
-                            for function_executor_id in function_executors {
-                                fe_allocations.remove(function_executor_id);
-                            }
-                        });
+                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(executor_id)
+                    {
+                        fe_allocations
+                            .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
+                    }
+
                     for function_executor_id in function_executors {
                         let fe =
                             self.executor_states
@@ -943,7 +945,7 @@ impl InMemoryState {
         Ok(compute_fn.resources.clone())
     }
 
-    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<Box<ExecutorServerMetadata>>> {
+    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<ExecutorServerMetadata>> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
@@ -1003,7 +1005,7 @@ impl InMemoryState {
                 .can_handle_function_resources(&compute_fn.resources)
                 .is_ok()
             {
-                candidates.push(executor_state.clone());
+                candidates.push(*executor_state.clone());
             }
         }
 
@@ -1071,7 +1073,7 @@ impl InMemoryState {
             .map(|(_, v)| *v.clone())
     }
 
-    pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
+    pub fn delete_tasks(&mut self, tasks: Vec<Task>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
             self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
@@ -1133,7 +1135,7 @@ impl InMemoryState {
             .range(key_prefix.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .for_each(|(_k, v)| {
-                tasks_to_remove.push(v.clone());
+                tasks_to_remove.push(*v.clone());
             });
         self.delete_tasks(tasks_to_remove);
 
@@ -1149,7 +1151,7 @@ impl InMemoryState {
         }
     }
 
-    pub fn unallocated_tasks(&self) -> Vec<Box<Task>> {
+    pub fn unallocated_tasks(&self) -> Vec<Task> {
         let unallocated_task_ids = self
             .unallocated_tasks
             .iter()
@@ -1158,7 +1160,7 @@ impl InMemoryState {
         let mut tasks = Vec::new();
         for task_id in unallocated_task_ids {
             if let Some(task) = self.tasks.get(&task_id) {
-                tasks.push(task.clone());
+                tasks.push(*task.clone());
             } else {
                 error!(task_key = task_id, "task not found for unallocated task");
             }
@@ -1170,7 +1172,7 @@ impl InMemoryState {
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
-    ) -> Result<Vec<Box<FunctionExecutorServerMetadata>>> {
+    ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
@@ -1210,7 +1212,7 @@ impl InMemoryState {
 
                 let fe = &fe_metadata.function_executor;
                 let Some(executor) = self.executors.get(executor_id) else {
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
                 };
 
@@ -1222,7 +1224,7 @@ impl InMemoryState {
                     ))
                     .map(|cg| cg.version.clone())
                 else {
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
                 };
 
@@ -1252,13 +1254,14 @@ impl InMemoryState {
 
                 if can_be_removed {
                     let mut simulated_resources = available_resources.clone();
-                    if let Err(_) =
-                        simulated_resources.free(&fe_metadata.function_executor.resources)
+                    if simulated_resources
+                        .free(&fe_metadata.function_executor.resources)
+                        .is_err()
                     {
                         continue;
                     }
 
-                    function_executors_to_remove.push(fe_metadata.clone());
+                    function_executors_to_remove.push(*fe_metadata.clone());
                     available_resources = simulated_resources;
 
                     if available_resources
@@ -1352,7 +1355,7 @@ impl InMemoryState {
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
                 .unwrap_or(&Vec::new())
                 .clone();
-            let mut desired_state_tasks = std::vec::Vec::new();
+            let mut desired_state_tasks = Vec::new();
             for allocation in allocations.iter() {
                 let Some(task) = self.tasks.get(&allocation.task_key()) else {
                     error!(
@@ -1409,6 +1412,7 @@ impl InMemoryState {
         }))
     }
 
+    #[allow(clippy::borrowed_box)]
     pub fn get_existing_compute_graph_version<'a>(
         &'a self,
         task: &Task,

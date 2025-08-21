@@ -447,12 +447,12 @@ pub(crate) fn create_or_update_compute_graph(
     let new_compute_graph_version = match existing_compute_graph {
         Some(Ok(mut existing_compute_graph)) => {
             existing_compute_graph.update(compute_graph.clone());
-            Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.into_version())
+            Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.to_version())
         }
         Some(Err(e)) => {
             return Err(anyhow!("failed to decode existing compute graph: {}", e));
         }
-        None => Ok(compute_graph.into_version()),
+        None => Ok(compute_graph.to_version()),
     }?;
     info!(
         "new compute graph version: {}",
@@ -580,6 +580,7 @@ pub fn remove_gc_urls(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 pub fn make_prefix_iterator<'a>(
     txn: &'a Transaction<TransactionDB>,
     cf_handle: &impl AsColumnFamilyRef,
@@ -709,7 +710,9 @@ pub(crate) fn handle_scheduler_update(
 /// - The invocation exists and is not completed.
 /// - The allocation exists and is not terminal.
 /// - The allocation output is not already set.
+///
 /// If any of these conditions are not met, it returns false.
+///
 /// This is used to ensure that we do not update outputs for tasks that have
 /// already completed or for which the compute graph or invocation has been
 /// deleted.

@@ -14,12 +14,14 @@ pub fn low_latency_boundaries() -> Vec<f64> {
     ]
 }
 
+trait TimedFn: FnOnce(Duration) {}
+
 pin_project! {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub struct TimedFuture<F, C>
     where
         F: Future,
-        C: FnOnce(Duration),
+        C: TimedFn,
     {
         #[pin]
         inner: F,
@@ -31,7 +33,7 @@ pin_project! {
 impl<F, C> Future for TimedFuture<F, C>
 where
     F: Future,
-    C: FnOnce(Duration),
+    C: TimedFn,
 {
     type Output = F::Output;
 

@@ -66,7 +66,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                             state_store::in_memory_state::Error::ConstraintUnsatisfiable { .. }
                         ) {
                             // Fail the task
-                            let mut failed_task = (*task).clone();
+                            let mut failed_task = task.clone();
                             failed_task.status = TaskStatus::Completed;
                             failed_task.outcome =
                                 TaskOutcome::Failure(TaskFailureReason::ConstraintUnsatisfiable);

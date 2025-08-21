@@ -272,11 +272,9 @@ impl StateReader {
             .db
             .iterator_cf_opt(&cf, read_options, IteratorMode::Start);
         let mut state_changes = Vec::new();
-        for kv in iter {
-            if let Ok((_, value)) = kv {
-                let state_change = JsonEncoder::decode::<StateChange>(&value)?;
-                state_changes.push(state_change);
-            }
+        for (_, value) in iter.flatten() {
+            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            state_changes.push(state_change);
         }
         Ok(state_changes)
     }
@@ -386,6 +384,7 @@ impl StateReader {
         Ok(namespaces)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn list_invocations(
         &self,
         namespace: &str,
@@ -563,7 +562,7 @@ impl StateReader {
         );
         let compute_graph = self.get_compute_graph(namespace, name)?;
         match compute_graph {
-            Some(compute_graph) => Ok(Some(compute_graph.into_version())),
+            Some(compute_graph) => Ok(Some(compute_graph.to_version())),
             None => Ok(None),
         }
     }
@@ -725,10 +724,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "fn_output_payload_first")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!(
-            "{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, compute_fn
-        );
+        let key = format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}");
 
         let (node_outputs, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
             key.as_bytes(),

@@ -384,7 +384,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         let max_concurrency = function_executor_state
             .description
             .as_ref()
-            .and_then(|description| description.max_concurrency.clone())
+            .and_then(|description| description.max_concurrency)
             .unwrap_or(1);
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
@@ -466,7 +466,7 @@ fn to_function_executor_diagnostics(
 }
 
 fn to_function_executor_diagnostics_vector(
-    function_executor_updates: &Vec<executor_api_pb::FunctionExecutorUpdate>,
+    function_executor_updates: &[executor_api_pb::FunctionExecutorUpdate],
     blob_storage_registry: &BlobStorageRegistry,
 ) -> Result<Vec<FunctionExecutorDiagnostics>> {
     function_executor_updates

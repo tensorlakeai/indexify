@@ -67,7 +67,7 @@ impl FunctionExecutorManager {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                 failed_alloc_ids: Vec::new(),
             };
-            update.new_function_executors.push(*update_fe);
+            update.new_function_executors.push(update_fe);
 
             info!(
                 target: targets::SCHEDULER,
@@ -289,7 +289,7 @@ impl FunctionExecutorManager {
         &self,
         in_memory_state: &mut InMemoryState,
         executor_server_metadata: &mut ExecutorServerMetadata,
-        function_executors_to_remove: &Vec<FunctionExecutor>,
+        function_executors_to_remove: &[FunctionExecutor],
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
