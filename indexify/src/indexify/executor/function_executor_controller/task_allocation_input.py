@@ -1,8 +1,8 @@
 from tensorlake.function_executor.proto.function_executor_pb2 import FunctionInputs
 
 
-class TaskInput:
-    """Represents the input for a task in the function executor controller."""
+class TaskAllocationInput:
+    """Represents the input for a task allocation in the function executor controller."""
 
     def __init__(
         self,

@@ -247,6 +247,8 @@ class ExecutorStateReconciler:
             with metric_state_reconciliation_latency.time():
                 metric_state_reconciliations.inc()
                 await self._reconcile_state(last_reconciled_state)
+                # Update the clock regardless of success or failure.
+                # This is to show Server that we actually processed the message.
                 self._state_reporter.update_last_server_clock(
                     last_reconciled_state.clock
                 )
@@ -261,7 +263,7 @@ class ExecutorStateReconciler:
             try:
                 # Reconcile FEs first because Tasks depend on them.
                 self._reconcile_function_executors(desired_state.function_executors)
-                self._reconcile_tasks(desired_state.task_allocations)
+                self._reconcile_task_allocations(desired_state.task_allocations)
                 return
             except Exception as e:
                 self._logger.error(
@@ -383,38 +385,38 @@ class ExecutorStateReconciler:
         self._function_executor_controllers.pop(function_executor_id, None)
         self._shutting_down_fe_ids.discard(function_executor_id)
 
-    def _reconcile_tasks(self, task_allocations: Iterable[TaskAllocation]):
+    def _reconcile_task_allocations(self, task_allocations: Iterable[TaskAllocation]):
         valid_task_allocations: List[TaskAllocation] = self._valid_task_allocations(
             task_allocations
         )
         for task_allocation in valid_task_allocations:
-            self._reconcile_task(task_allocation)
+            self._reconcile_task_allocation(task_allocation)
 
         # Cancel tasks that are no longer in the desired state.
-        # FE ID => [Task ID]
-        desired_task_ids_per_fe: Dict[str, List[str]] = {}
+        # FE ID => [Allocation ID]
+        desired_alloc_ids_per_fe: Dict[str, List[str]] = {}
         for task_allocation in valid_task_allocations:
-            if task_allocation.function_executor_id not in desired_task_ids_per_fe:
-                desired_task_ids_per_fe[task_allocation.function_executor_id] = []
-            desired_task_ids_per_fe[task_allocation.function_executor_id].append(
-                task_allocation.task.id
+            if task_allocation.function_executor_id not in desired_alloc_ids_per_fe:
+                desired_alloc_ids_per_fe[task_allocation.function_executor_id] = []
+            desired_alloc_ids_per_fe[task_allocation.function_executor_id].append(
+                task_allocation.allocation_id
             )
 
         for fe_controller in self._function_executor_controllers.values():
             fe_controller: FunctionExecutorController
-            if fe_controller.function_executor_id() in desired_task_ids_per_fe:
-                desired_fe_task_ids: Set[str] = set(
-                    desired_task_ids_per_fe[fe_controller.function_executor_id()]
+            if fe_controller.function_executor_id() in desired_alloc_ids_per_fe:
+                desired_fe_alloc_ids: Set[str] = set(
+                    desired_alloc_ids_per_fe[fe_controller.function_executor_id()]
                 )
             else:
                 # No tasks desired for this FE, so cancel all its tasks.
-                desired_fe_task_ids: Set[str] = set()
-            actual_fe_task_ids: Set[str] = set(fe_controller.task_ids())
-            task_ids_to_remove: Set[str] = actual_fe_task_ids - desired_fe_task_ids
-            for task_id in task_ids_to_remove:
-                fe_controller.remove_task(task_id)
+                desired_fe_alloc_ids: Set[str] = set()
+            actual_fe_alloc_ids: Set[str] = set(fe_controller.task_allocation_ids())
+            alloc_ids_to_remove: Set[str] = actual_fe_alloc_ids - desired_fe_alloc_ids
+            for alloc_id in alloc_ids_to_remove:
+                fe_controller.remove_task_allocation(alloc_id)
 
-    def _reconcile_task(self, task_allocation: TaskAllocation):
+    def _reconcile_task_allocation(self, task_allocation: TaskAllocation):
         """Reconciles a single TaskAllocation with the desired state.
 
         Doesn't raise any exceptions.
@@ -422,7 +424,9 @@ class ExecutorStateReconciler:
         function_executor_controller: FunctionExecutorController = (
             self._function_executor_controllers[task_allocation.function_executor_id]
         )
-        if function_executor_controller.has_task(task_allocation.task.id):
+        if function_executor_controller.has_task_allocation(
+            task_allocation.allocation_id
+        ):
             # Nothing to do, task already exists and it's immutable.
             return
 

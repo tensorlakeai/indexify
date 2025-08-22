@@ -13,15 +13,15 @@ from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import DataPayload, Task
 
 from .downloads import serialized_object_manifest_from_data_payload_proto
-from .events import TaskPreparationFinished
-from .metrics.prepare_task import (
-    metric_task_preparation_errors,
-    metric_task_preparation_latency,
-    metric_task_preparations,
-    metric_tasks_getting_prepared,
+from .events import TaskAllocationPreparationFinished
+from .metrics.prepare_task_allocation import (
+    metric_task_allocation_preparation_errors,
+    metric_task_allocation_preparation_latency,
+    metric_task_allocation_preparations,
+    metric_task_allocations_getting_prepared,
 )
-from .task_info import TaskInfo
-from .task_input import TaskInput
+from .task_allocation_info import TaskAllocationInfo
+from .task_allocation_input import TaskAllocationInput
 
 # The following constants are subject to S3 limits,
 # see https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html.
@@ -42,9 +42,9 @@ _OUTPUT_BLOB_SLOWER_CHUNKS_COUNT: int = 100
 _INVOCATION_ERROR_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 
-async def prepare_task(
-    task_info: TaskInfo, blob_store: BLOBStore, logger: Any
-) -> TaskPreparationFinished:
+async def prepare_task_allocation(
+    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
+) -> TaskAllocationPreparationFinished:
     """Prepares the task for execution.
 
     If successful then the task is runnable.
@@ -54,43 +54,47 @@ async def prepare_task(
     start_time = time.monotonic()
     try:
         with (
-            metric_task_preparation_errors.count_exceptions(),
-            metric_tasks_getting_prepared.track_inprogress(),
-            metric_task_preparation_latency.time(),
+            metric_task_allocation_preparation_errors.count_exceptions(),
+            metric_task_allocations_getting_prepared.track_inprogress(),
+            metric_task_allocation_preparation_latency.time(),
         ):
-            metric_task_preparations.inc()
-            task_info.input = await _prepare_task_input(
-                task_info=task_info,
+            metric_task_allocation_preparations.inc()
+            alloc_info.input = await _prepare_task_alloc_input(
+                alloc_info=alloc_info,
                 blob_store=blob_store,
                 logger=logger,
             )
             logger.info(
-                "task was prepared for execution",
+                "task allocation was prepared for execution",
                 duration=time.monotonic() - start_time,
             )
-            return TaskPreparationFinished(
-                task_info=task_info,
+            return TaskAllocationPreparationFinished(
+                alloc_info=alloc_info,
                 is_success=True,
             )
     except asyncio.CancelledError:
-        return TaskPreparationFinished(task_info=task_info, is_success=False)
+        return TaskAllocationPreparationFinished(
+            alloc_info=alloc_info, is_success=False
+        )
     except BaseException as e:
         logger.error(
-            "failed to prepare task for execution",
+            "failed to prepare task allocation for execution",
             exc_info=e,
             duration=time.monotonic() - start_time,
         )
-        return TaskPreparationFinished(task_info=task_info, is_success=False)
+        return TaskAllocationPreparationFinished(
+            alloc_info=alloc_info, is_success=False
+        )
 
 
-async def _prepare_task_input(
-    task_info: TaskInfo, blob_store: BLOBStore, logger: Any
-) -> TaskInput:
+async def _prepare_task_alloc_input(
+    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
+) -> TaskAllocationInput:
     """Prepares the task for execution.
 
     Raises an exception on error.
     """
-    task: Task = task_info.allocation.task
+    task: Task = alloc_info.allocation.task
     function_init_value_blob: Optional[BLOB] = None
     function_init_value: Optional[SerializedObjectInsideBLOB] = None
     if task.HasField("reducer_input"):
@@ -102,7 +106,7 @@ async def _prepare_task_input(
         function_init_value = _to_serialized_object_inside_blob(task.reducer_input)
 
     function_outputs_blob_uri: str = (
-        f"{task.output_payload_uri_prefix}.{task_info.allocation.allocation_id}.output"
+        f"{task.output_payload_uri_prefix}.{alloc_info.allocation.allocation_id}.output"
     )
     invocation_error_blob_uri: str = (
         f"{task.invocation_error_payload_uri_prefix}.{task.graph_invocation_id}.inverr"
@@ -136,7 +140,7 @@ async def _prepare_task_input(
             )
         raise
 
-    return TaskInput(
+    return TaskAllocationInput(
         function_inputs=FunctionInputs(
             function_input_blob=await _presign_function_input_blob(
                 data_payload=task.input,
