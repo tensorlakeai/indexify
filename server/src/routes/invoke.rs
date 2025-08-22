@@ -155,12 +155,6 @@ pub async fn invoke_with_object_v1(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json");
 
-    if !accept_header.contains("application/json") && !accept_header.contains("text/event-stream") {
-        return Err(IndexifyAPIError::bad_request(
-            "accept header must be application/json or text/event-stream",
-        ));
-    }
-
     let encoding = headers
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
@@ -199,13 +193,6 @@ pub async fn invoke_with_object_v1(
         })?;
     let id = invocation_payload.id.clone();
 
-    // subscribing to task event stream before creation to not loose events once
-    // invocation is created.
-    let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
-    if accept_header.contains("text/event-stream") {
-        rx.replace(state.indexify_state.task_event_stream());
-    }
-
     let compute_graph = state
         .indexify_state
         .reader()
@@ -236,27 +223,65 @@ pub async fn invoke_with_object_v1(
         invocation_payload,
         ctx: graph_invocation_ctx.clone(),
     });
+    if accept_header.contains("application/json") {
+        return return_request_id(state, request.clone(), id.clone()).await;
+    }
+    if accept_header.contains("text/event-stream") {
+        return return_sse_response(
+            state,
+            request.clone(),
+            id.clone(),
+            namespace,
+            compute_graph.name,
+        )
+        .await;
+    }
+    return Err(IndexifyAPIError::bad_request(
+        "accept header must be application/json or text/event-stream",
+    ));
+}
+
+async fn return_request_id(
+    state: RouteState,
+    request_payload: RequestPayload,
+    request_id: String,
+) -> Result<axum::response::Response, IndexifyAPIError> {
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
-            payload: request.clone(),
+            payload: request_payload.clone(),
         })
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    if accept_header.contains("application/json") {
-        return Ok(Json(RequestIdV1 {
-            id: graph_invocation_ctx.invocation_id.clone(),
-            request_id: graph_invocation_ctx.invocation_id.clone(),
-        })
-        .into_response());
-    }
+    return Ok(Json(RequestIdV1 {
+        id: request_id.clone(),
+        request_id: request_id.clone(),
+    })
+    .into_response());
+}
 
+async fn return_sse_response(
+    state: RouteState,
+    request_payload: RequestPayload,
+    request_id: String,
+    namespace: String,
+    compute_graph: String,
+) -> Result<axum::response::Response, IndexifyAPIError> {
+    let rx = state.indexify_state.task_event_stream();
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request_payload.clone(),
+        })
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
     let invocation_event_stream =
-        create_invocation_progress_stream(id, rx.unwrap(), state, namespace, compute_graph.name)
-            .await;
+        create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
