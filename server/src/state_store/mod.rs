@@ -24,6 +24,7 @@ use crate::{
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
+    state_store::invocation_events::RequestStartedEvent,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -343,6 +344,15 @@ impl IndexifyState {
             return;
         }
         match &update_request.payload {
+            RequestPayload::InvokeComputeGraph(request) => {
+                let _ = self
+                    .task_event_tx
+                    .send(InvocationStateChangeEvent::RequestStarted(
+                        RequestStartedEvent {
+                            request_id: request.invocation_payload.id.clone(),
+                        },
+                    ));
+            }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
                     let ev =

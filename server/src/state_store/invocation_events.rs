@@ -4,6 +4,7 @@ use crate::{data_model::TaskOutcome, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
+    RequestStarted(RequestStartedEvent),
     TaskCreated(TaskCreated),
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
@@ -41,6 +42,10 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
+            InvocationStateChangeEvent::RequestStarted(RequestStartedEvent {
+                request_id: id,
+                ..
+            }) => id.clone(),
             InvocationStateChangeEvent::RequestCreated(RequestCreatedEvent {
                 request_id: id,
                 ..
@@ -78,6 +83,10 @@ pub struct RequestFinishedEvent {
     pub request_id: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RequestStartedEvent {
+    pub request_id: String,
+}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TaskCreated {
     pub request_id: String,

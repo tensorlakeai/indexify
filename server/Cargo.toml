@@ -1,6 +1,6 @@
 [package]
 name = "indexify-server"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2021"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
@@ -32,7 +32,7 @@ ciborium = "0.2.2"
 rand = "0.9.2"
 hex = "0.4.3"
 hyper = "1.7.0"
-url = "2.5.4"
+url = "2.5.6"
 opentelemetry = { version = "0.30.0", features = ["metrics", "trace"] }
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio", "metrics", "trace"] }
 tracing-opentelemetry = "0.31.0"
