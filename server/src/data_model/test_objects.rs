@@ -10,6 +10,7 @@ pub mod tests {
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        ExecutorMetadataBuilder,
         FunctionRetryPolicy,
         GraphInvocationCtx,
         GraphInvocationCtxBuilder,
@@ -151,24 +152,24 @@ pub mod tests {
     }
 
     pub fn test_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
-        ExecutorMetadata {
-            id,
-            executor_version: "1.0.0".to_string(),
-            function_allowlist: None,
-            addr: "".to_string(),
-            labels: Default::default(),
-            // Executor must have resources to be schedulable.
-            host_resources: crate::data_model::HostResources {
+        ExecutorMetadataBuilder::default()
+            .id(id)
+            .executor_version("1.0.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .host_resources(crate::data_model::HostResources {
                 cpu_ms_per_sec: 8 * 1000, // 8 cores
                 memory_bytes: 16 * 1024 * 1024 * 1024,
                 disk_bytes: 100 * 1024 * 1024 * 1024,
                 gpu: None,
-            },
-            state: Default::default(),
-            function_executors: Default::default(),
-            tombstoned: false,
-            state_hash: "state_hash".to_string(),
-            clock: 0,
-        }
+            })
+            .state(Default::default())
+            .function_executors(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap()
     }
 }

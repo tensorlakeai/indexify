@@ -653,7 +653,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        data_model::{ExecutorId, ExecutorMetadata},
+        data_model::{ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder},
         service::Service,
         state_store::requests::UpsertExecutorRequest,
         testing,
@@ -693,47 +693,50 @@ mod tests {
             ..
         } = test_srv.service.clone();
 
-        let executor1 = ExecutorMetadata {
-            id: ExecutorId::new("test-executor-1".to_string()),
-            executor_version: "1.0".to_string(),
-            function_allowlist: None,
-            addr: "".to_string(),
-            labels: Default::default(),
-            function_executors: Default::default(),
-            host_resources: Default::default(),
-            state: Default::default(),
-            tombstoned: false,
-            state_hash: "state_hash".to_string(),
-            clock: 0,
-        };
+        let executor1 = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-1".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .function_executors(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
 
-        let executor2 = ExecutorMetadata {
-            id: ExecutorId::new("test-executor-2".to_string()),
-            executor_version: "1.0".to_string(),
-            function_allowlist: None,
-            addr: "".to_string(),
-            labels: Default::default(),
-            function_executors: Default::default(),
-            host_resources: Default::default(),
-            state: Default::default(),
-            tombstoned: false,
-            state_hash: "state_hash".to_string(),
-            clock: 0,
-        };
+        let executor2 = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-2".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .function_executors(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
 
-        let executor3 = ExecutorMetadata {
-            id: ExecutorId::new("test-executor-3".to_string()),
-            executor_version: "1.0".to_string(),
-            function_allowlist: None,
-            addr: "".to_string(),
-            labels: Default::default(),
-            function_executors: Default::default(),
-            host_resources: Default::default(),
-            state: Default::default(),
-            tombstoned: false,
-            state_hash: "state_hash".to_string(),
-            clock: 0,
-        };
+        let executor3 = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-3".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .function_executors(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
 
         // Pause time and send an initial heartbeats
         {

@@ -7,20 +7,10 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
-    AllowedFunction,
-    DataPayloadEncoding,
-    DesiredExecutorState,
-    ExecutorState,
-    ExecutorStatus,
-    FunctionExecutorResources,
-    FunctionExecutorStatus,
-    GetDesiredExecutorStatesRequest,
-    HostResources,
-    ReportExecutorStateRequest,
-    ReportExecutorStateResponse,
-    TaskAllocation,
-    TaskResult,
+    executor_api_server::ExecutorApi, AllowedFunction, DataPayloadEncoding, DesiredExecutorState,
+    ExecutorState, ExecutorStatus, FunctionExecutorResources, FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest, HostResources, ReportExecutorStateRequest,
+    ReportExecutorStateResponse, TaskAllocation, TaskResult,
 };
 use tokio::sync::watch::{self, Receiver, Sender};
 use tokio_stream::{wrappers::WatchStream, Stream};
@@ -30,32 +20,17 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::{self, registry::BlobStorageRegistry},
     data_model::{
-        self,
-        Allocation,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorMetadataBuilder,
-        FunctionAllowlist,
-        FunctionExecutor,
-        FunctionExecutorDiagnostics,
-        FunctionExecutorId,
-        GPUResources,
-        GraphVersion,
-        NodeOutputBuilder,
-        TaskDiagnostics,
-        TaskFailureReason,
-        TaskOutcome,
+        self, Allocation, DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder,
+        FunctionAllowlist, FunctionExecutorBuilder, FunctionExecutorDiagnostics,
+        FunctionExecutorId, GPUResources, GraphVersion, NodeOutputBuilder, TaskDiagnostics,
+        TaskFailureReason, TaskOutcome,
     },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
         requests::{
-            AllocationOutput,
-            RequestPayload,
-            StateMachineUpdateRequest,
-            UpsertExecutorRequest,
+            AllocationOutput, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest,
         },
         IndexifyState,
     },
@@ -388,26 +363,27 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .unwrap_or(1);
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
-        Ok(FunctionExecutor {
-            id: FunctionExecutorId::new(id.clone()),
-            namespace: namespace.clone(),
-            compute_graph_name: compute_graph_name.clone(),
-            compute_fn_name: compute_fn_name.clone(),
-            version: GraphVersion(version.clone()),
-            state: match function_executor_state.status() {
-                FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
-                FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
-                FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
-                FunctionExecutorStatus::Terminated => {
-                    data_model::FunctionExecutorState::Terminated {
-                        reason: termination_reason,
-                        failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
-                    }
-                }
+
+        let state = match function_executor_state.status() {
+            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
+            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
+            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
+            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated {
+                reason: termination_reason,
+                failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
             },
-            resources,
-            max_concurrency,
-        })
+        };
+
+        FunctionExecutorBuilder::default()
+            .id(FunctionExecutorId::new(id.clone()))
+            .namespace(namespace.clone())
+            .compute_graph_name(compute_graph_name.clone())
+            .compute_fn_name(compute_fn_name.clone())
+            .version(GraphVersion(version.clone()))
+            .state(state)
+            .resources(resources)
+            .max_concurrency(max_concurrency)
+            .build()
     }
 }
 

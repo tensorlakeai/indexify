@@ -9,9 +9,8 @@ mod tests {
     use crate::{
         data_model::{
             test_objects::tests::{test_graph_a, TEST_NAMESPACE},
-            GraphInvocationCtx,
-            InvocationPayload,
-            NodeOutput,
+            GraphInvocationCtxBuilder,
+            InvocationPayloadBuilder,
         },
         service::Service,
         state_store::{
@@ -75,20 +74,19 @@ mod tests {
                 .put(path, data_stream)
                 .await?;
 
-            // Create a graph invocation
-            let invocation = InvocationPayload {
-                id: "invocation_id".to_string(),
-                namespace: TEST_NAMESPACE.to_string(),
-                compute_graph_name: compute_graph.name.clone(),
-                payload: crate::data_model::DataPayload {
+            let invocation = InvocationPayloadBuilder::default()
+                .id("invocation_id".to_string())
+                .namespace(TEST_NAMESPACE.to_string())
+                .compute_graph_name(compute_graph.name.clone())
+                .payload(crate::data_model::DataPayload {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
                     offset: 0, // All BLOB operations are not offset-aware
-                },
-                created_at: get_epoch_time_in_ms(),
-                encoding: "application/octet-stream".to_string(),
-            };
+                })
+                .created_at(get_epoch_time_in_ms())
+                .encoding("application/octet-stream".to_string())
+                .build()?;
 
             indexify_state.db.put_cf(
                 &IndexifyObjectsColumns::GraphInvocations.cf_db(&indexify_state.db),
@@ -96,45 +94,47 @@ mod tests {
                 &JsonEncoder::encode(&invocation)?,
             )?;
 
+            let graph_ctx = GraphInvocationCtxBuilder::default()
+                .invocation_id(invocation.id.clone())
+                .compute_graph_name(compute_graph.name.clone())
+                .namespace(TEST_NAMESPACE.to_string())
+                .graph_version(compute_graph.version.clone())
+                .completed(false)
+                .outcome(crate::data_model::GraphInvocationOutcome::Failure(
+                    crate::data_model::GraphInvocationFailureReason::InternalError,
+                ))
+                .outstanding_tasks(0)
+                .outstanding_reducer_tasks(0)
+                .fn_task_analytics(HashMap::new())
+                .created_at(get_epoch_time_in_ms())
+                .invocation_error(None)
+                .build(compute_graph.clone())?;
+
             indexify_state.db.put_cf(
                 &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
                 invocation.key().as_bytes(),
-                &JsonEncoder::encode(&GraphInvocationCtx {
-                    invocation_id: invocation.id.clone(),
-                    compute_graph_name: compute_graph.name.clone(),
-                    namespace: TEST_NAMESPACE.to_string(),
-                    graph_version: compute_graph.version.clone(),
-                    completed: false,
-                    outcome: crate::data_model::GraphInvocationOutcome::Failure(
-                        crate::data_model::GraphInvocationFailureReason::InternalError,
-                    ),
-                    outstanding_tasks: 0,
-                    outstanding_reducer_tasks: 0,
-                    fn_task_analytics: HashMap::new(),
-                    created_at: get_epoch_time_in_ms(),
-                    invocation_error: None,
-                })?,
+                &JsonEncoder::encode(&graph_ctx)?,
             )?;
 
-            let output = NodeOutput {
-                id: "id".to_string(),
-                namespace: TEST_NAMESPACE.to_string(),
-                compute_fn_name: "fn_a".to_string(),
-                compute_graph_name: compute_graph.name.clone(),
-                invocation_id: invocation.id.clone(),
-                payloads: vec![crate::data_model::DataPayload {
+            let output = crate::data_model::NodeOutputBuilder::default()
+                .id("id".to_string())
+                .namespace(TEST_NAMESPACE.to_string())
+                .compute_fn_name("fn_a".to_string())
+                .compute_graph_name(compute_graph.name.clone())
+                .invocation_id(invocation.id.clone())
+                .payloads(vec![crate::data_model::DataPayload {
                     path: res.url.clone(),
                     size: res.size_bytes,
                     sha256_hash: res.sha256_hash.clone(),
-                    offset: 0, // All BLOB operations are not offset-aware
-                }],
-                created_at: 5,
-                reducer_output: false,
-                allocation_id: "allocation_id".to_string(),
-                next_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
-                encoding: "application/octet-stream".to_string(),
-                invocation_error_payload: None,
-            };
+                    offset: 0,
+                }])
+                .created_at(5)
+                .reducer_output(false)
+                .allocation_id("allocation_id".to_string())
+                .next_functions(vec!["fn_b".to_string(), "fn_c".to_string()])
+                .encoding("application/octet-stream".to_string())
+                .invocation_error_payload(None)
+                .build()?;
             let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;
             indexify_state.db.put_cf(
