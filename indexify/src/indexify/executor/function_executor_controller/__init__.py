@@ -4,7 +4,7 @@ from .message_validators import (
     validate_function_executor_description,
     validate_task_allocation,
 )
-from .task_output import TaskOutput
+from .task_allocation_output import TaskAllocationOutput
 
 __all__ = [
     "function_executor_logger",
@@ -12,5 +12,5 @@ __all__ = [
     "validate_function_executor_description",
     "validate_task_allocation",
     "FunctionExecutorController",
-    "TaskOutput",
+    "TaskAllocationOutput",
 ]

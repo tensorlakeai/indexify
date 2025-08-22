@@ -36,57 +36,57 @@ from indexify.proto.executor_api_pb2 import (
     TaskOutcomeCode,
 )
 
-from .events import TaskExecutionFinished
-from .metrics.run_task import (
+from .events import TaskAllocationExecutionFinished
+from .metrics.run_task_allocation import (
     metric_function_executor_run_task_rpc_errors,
     metric_function_executor_run_task_rpc_latency,
     metric_function_executor_run_task_rpcs,
     metric_function_executor_run_task_rpcs_in_progress,
 )
-from .task_info import TaskInfo
-from .task_output import TaskMetrics, TaskOutput
+from .task_allocation_info import TaskAllocationInfo
+from .task_allocation_output import TaskAllocationMetrics, TaskAllocationOutput
 
 _CREATE_TASK_TIMEOUT_SECS = 5
 _DELETE_TASK_TIMEOUT_SECS = 5
 
 
-async def run_task_on_function_executor(
-    task_info: TaskInfo, function_executor: FunctionExecutor, logger: Any
-) -> TaskExecutionFinished:
-    """Runs the task on the Function Executor and sets task_info.output with the result.
+async def run_task_allocation_on_function_executor(
+    alloc_info: TaskAllocationInfo, function_executor: FunctionExecutor, logger: Any
+) -> TaskAllocationExecutionFinished:
+    """Runs the task on the Function Executor and sets alloc_info.output with the result.
 
     Doesn't raise any exceptions.
     """
     logger = logger.bind(module=__name__)
 
-    if task_info.input is None:
+    if alloc_info.input is None:
         logger.error(
-            "task input is None, this should never happen",
+            "task allocation input is None, this should never happen",
         )
-        task_info.output = TaskOutput.internal_error(
-            allocation=task_info.allocation,
+        alloc_info.output = TaskAllocationOutput.internal_error(
+            allocation=alloc_info.allocation,
             execution_start_time=None,
             execution_end_time=None,
         )
-        return TaskExecutionFinished(
-            task_info=task_info,
+        return TaskAllocationExecutionFinished(
+            alloc_info=alloc_info,
             function_executor_termination_reason=None,
         )
 
     task = Task(
-        namespace=task_info.allocation.task.namespace,
-        graph_name=task_info.allocation.task.graph_name,
-        graph_version=task_info.allocation.task.graph_version,
-        function_name=task_info.allocation.task.function_name,
-        graph_invocation_id=task_info.allocation.task.graph_invocation_id,
-        task_id=task_info.allocation.task.id,
-        allocation_id=task_info.allocation.allocation_id,
-        request=task_info.input.function_inputs,
+        namespace=alloc_info.allocation.task.namespace,
+        graph_name=alloc_info.allocation.task.graph_name,
+        graph_version=alloc_info.allocation.task.graph_version,
+        function_name=alloc_info.allocation.task.function_name,
+        graph_invocation_id=alloc_info.allocation.task.graph_invocation_id,
+        task_id=alloc_info.allocation.task.id,
+        allocation_id=alloc_info.allocation.allocation_id,
+        request=alloc_info.input.function_inputs,
     )
 
     function_executor.invocation_state_client().add_task_to_invocation_id_entry(
-        task_id=task_info.allocation.task.id,
-        invocation_id=task_info.allocation.task.graph_invocation_id,
+        task_id=alloc_info.allocation.task.id,
+        invocation_id=alloc_info.allocation.task.graph_invocation_id,
     )
 
     metric_function_executor_run_task_rpcs.inc()
@@ -107,15 +107,15 @@ async def run_task_on_function_executor(
     # If this RPC failed due to customer code crashing the server we won't be
     # able to detect this. We'll treat this as our own error for now and thus
     # let the AioRpcError to be raised here.
-    timeout_sec: float = task_info.allocation.task.timeout_ms / 1000.0
+    timeout_sec: float = alloc_info.allocation.task.timeout_ms / 1000.0
     try:
         # This aio task can only be cancelled during this await call.
         task_result = await _run_task_rpcs(task, function_executor, timeout_sec)
 
         _process_task_diagnostics(task_result.diagnostics, logger)
 
-        task_info.output = _task_output_from_function_executor_result(
-            allocation=task_info.allocation,
+        alloc_info.output = _task_alloc_output_from_fe_result(
+            allocation=alloc_info.allocation,
             result=task_result,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
@@ -127,8 +127,8 @@ async def run_task_on_function_executor(
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
         )
-        task_info.output = TaskOutput.function_timeout(
-            allocation=task_info.allocation,
+        alloc_info.output = TaskAllocationOutput.function_timeout(
+            allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
@@ -150,14 +150,16 @@ async def run_task_on_function_executor(
             # This is either a create_task() RPC timeout or a
             # delete_task() RPC timeout; either suggests that the FE
             # is unhealthy.
-            logger.error("task management RPC execution deadline exceeded", exc_info=e)
+            logger.error(
+                "task allocationmanagement RPC execution deadline exceeded", exc_info=e
+            )
         else:
             # This is a status from an unsuccessful RPC; this
             # shouldn't happen, but we handle it.
-            logger.error("task management RPC failed", exc_info=e)
+            logger.error("task allocation management RPC failed", exc_info=e)
 
-        task_info.output = TaskOutput.function_executor_unresponsive(
-            allocation=task_info.allocation,
+        alloc_info.output = TaskAllocationOutput.function_executor_unresponsive(
+            allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
@@ -167,8 +169,8 @@ async def run_task_on_function_executor(
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
         )
-        task_info.output = TaskOutput.task_cancelled(
-            allocation=task_info.allocation,
+        alloc_info.output = TaskAllocationOutput.task_allocation_cancelled(
+            allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
@@ -176,10 +178,11 @@ async def run_task_on_function_executor(
         # This is an unexpected exception; we believe that this
         # indicates an internal error.
         logger.error(
-            "unexpected internal error during task lifecycle RPC sequence", exc_info=e
+            "unexpected internal error during task allocation lifecycle RPC sequence",
+            exc_info=e,
         )
-        task_info.output = TaskOutput.internal_error(
-            allocation=task_info.allocation,
+        alloc_info.output = TaskAllocationOutput.internal_error(
+            allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
         )
@@ -190,11 +193,11 @@ async def run_task_on_function_executor(
     metric_function_executor_run_task_rpcs_in_progress.dec()
 
     function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
-        task_id=task_info.allocation.task.id,
+        task_id=alloc_info.allocation.task.id,
     )
 
     if (
-        task_info.output.outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
+        alloc_info.output.outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE
         and function_executor_termination_reason is None
     ):
         try:
@@ -205,7 +208,7 @@ async def run_task_on_function_executor(
                     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
                 )
                 logger.error(
-                    "Function Executor health check failed after running task, shutting down Function Executor",
+                    "Function Executor health check failed after running task allocation, shutting down Function Executor",
                     health_check_fail_reason=result.reason,
                 )
         except asyncio.CancelledError:
@@ -213,10 +216,10 @@ async def run_task_on_function_executor(
             # We can't conclude anything about the health of the FE here.
             pass
 
-    _log_task_execution_finished(output=task_info.output, logger=logger)
+    _log_task_execution_finished(output=alloc_info.output, logger=logger)
 
-    return TaskExecutionFinished(
-        task_info=task_info,
+    return TaskAllocationExecutionFinished(
+        alloc_info=alloc_info,
         function_executor_termination_reason=function_executor_termination_reason,
     )
 
@@ -275,17 +278,17 @@ async def _run_task_rpcs(
     return task_result
 
 
-def _task_output_from_function_executor_result(
+def _task_alloc_output_from_fe_result(
     allocation: TaskAllocation,
     result: TaskResult,
     execution_start_time: Optional[float],
     execution_end_time: Optional[float],
     logger: Any,
-) -> TaskOutput:
+) -> TaskAllocationOutput:
     response_validator = MessageValidator(result)
     response_validator.required_field("outcome_code")
 
-    metrics = TaskMetrics(counters={}, timers={})
+    metrics = TaskAllocationMetrics(counters={}, timers={})
     if result.HasField("metrics"):
         # Can be None if e.g. function failed.
         metrics.counters = dict(result.metrics.counters)
@@ -312,7 +315,7 @@ def _task_output_from_function_executor_result(
         # function_outputs can have no items, this happens when the function returns None.
         response_validator.required_field("uploaded_function_outputs_blob")
 
-    return TaskOutput(
+    return TaskAllocationOutput(
         allocation=allocation,
         outcome_code=outcome_code,
         failure_reason=failure_reason,
@@ -327,9 +330,9 @@ def _task_output_from_function_executor_result(
     )
 
 
-def _log_task_execution_finished(output: TaskOutput, logger: Any) -> None:
+def _log_task_execution_finished(output: TaskAllocationOutput, logger: Any) -> None:
     logger.info(
-        "finished running task",
+        "finished running task allocation",
         success=output.outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS,
         outcome_code=TaskOutcomeCode.Name(output.outcome_code),
         failure_reason=(
@@ -344,7 +347,7 @@ def _process_task_diagnostics(task_diagnostics: TaskDiagnostics, logger: Any) ->
     MessageValidator(task_diagnostics).required_field("function_executor_log")
     # Uncomment these lines once we stop printing FE logs to stdout/stderr.
     # Print FE logs directly to Executor logs so operators can see them.
-    # logger.info("Function Executor logs during task execution:")
+    # logger.info("Function Executor logs during task allocation execution:")
     # print(task_diagnostics.function_executor_log)
 
 

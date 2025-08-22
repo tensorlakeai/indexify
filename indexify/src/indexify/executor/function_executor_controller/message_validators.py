@@ -3,7 +3,6 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
     FunctionExecutorDescription,
-    Task,
     TaskAllocation,
 )
 
@@ -50,15 +49,8 @@ def validate_task_allocation(task_allocation: TaskAllocation) -> None:
     validator.required_field("allocation_id")
     if not task_allocation.HasField("task"):
         raise ValueError("TaskAllocation must have a 'task' field.")
-    _validate_task(task_allocation.task)
 
-
-def _validate_task(task: Task) -> None:
-    """Validates the supplied Task.
-
-    Raises ValueError if the Task is not valid.
-    """
-    validator = MessageValidator(task)
+    validator = MessageValidator(task_allocation.task)
     validator.required_field("id")
     validator.required_field("namespace")
     validator.required_field("graph_name")
@@ -70,9 +62,9 @@ def _validate_task(task: Task) -> None:
     validator.required_field("output_payload_uri_prefix")
     validator.required_field("retry_policy")
 
-    _validate_data_payload(task.input)
-    if task.HasField("reducer_input"):
-        _validate_data_payload(task.reducer_input)
+    _validate_data_payload(task_allocation.task.input)
+    if task_allocation.task.HasField("reducer_input"):
+        _validate_data_payload(task_allocation.task.reducer_input)
 
 
 def _validate_data_payload(data_payload: DataPayload) -> None:
