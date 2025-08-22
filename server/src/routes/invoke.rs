@@ -236,9 +236,9 @@ pub async fn invoke_with_object_v1(
         )
         .await;
     }
-    return Err(IndexifyAPIError::bad_request(
+    Err(IndexifyAPIError::bad_request(
         "accept header must be application/json or text/event-stream",
-    ));
+    ))
 }
 
 async fn return_request_id(
@@ -256,11 +256,11 @@ async fn return_request_id(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    return Ok(Json(RequestIdV1 {
+    Ok(Json(RequestIdV1 {
         id: request_id.clone(),
         request_id: request_id.clone(),
     })
-    .into_response());
+    .into_response())
 }
 
 async fn return_sse_response(
