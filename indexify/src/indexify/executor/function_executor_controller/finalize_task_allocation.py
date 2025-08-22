@@ -8,21 +8,21 @@ from indexify.proto.executor_api_pb2 import (
     TaskOutcomeCode,
 )
 
-from .events import TaskFinalizationFinished
-from .metrics.finalize_task import (
-    metric_task_finalization_errors,
-    metric_task_finalization_latency,
-    metric_task_finalizations,
-    metric_tasks_finalizing,
+from .events import TaskAllocationFinalizationFinished
+from .metrics.finalize_task_allocation import (
+    metric_task_allocation_finalization_errors,
+    metric_task_allocation_finalization_latency,
+    metric_task_allocation_finalizations,
+    metric_task_allocations_finalizing,
 )
-from .task_info import TaskInfo
-from .task_input import TaskInput
-from .task_output import TaskOutput
+from .task_allocation_info import TaskAllocationInfo
+from .task_allocation_input import TaskAllocationInput
+from .task_allocation_output import TaskAllocationOutput
 
 
-async def finalize_task(
-    task_info: TaskInfo, blob_store: BLOBStore, logger: Any
-) -> TaskFinalizationFinished:
+async def finalize_task_allocation(
+    task_alloc: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
+) -> TaskAllocationFinalizationFinished:
     """Prepares the task output for getting it reported to Server.
 
     The task output is either coming from a failed task or from its finished execution on the Function Executor.
@@ -32,34 +32,40 @@ async def finalize_task(
     start_time = time.monotonic()
 
     with (
-        metric_tasks_finalizing.track_inprogress(),
-        metric_task_finalization_latency.time(),
-        metric_task_finalization_errors.count_exceptions(),
+        metric_task_allocations_finalizing.track_inprogress(),
+        metric_task_allocation_finalization_latency.time(),
+        metric_task_allocation_finalization_errors.count_exceptions(),
     ):
-        metric_task_finalizations.inc()
+        metric_task_allocation_finalizations.inc()
         try:
-            await _finalize_task_output(
-                task_info=task_info,
+            await _finalize_task_alloc_output(
+                alloc_info=task_alloc,
                 blob_store=blob_store,
                 logger=logger,
             )
             logger.info(
-                "task finalized",
+                "task allocation finalized",
                 duration=time.monotonic() - start_time,
             )
-            return TaskFinalizationFinished(task_info=task_info, is_success=True)
+            return TaskAllocationFinalizationFinished(
+                alloc_info=task_alloc, is_success=True
+            )
         except asyncio.CancelledError:
-            return TaskFinalizationFinished(task_info=task_info, is_success=False)
+            return TaskAllocationFinalizationFinished(
+                alloc_info=task_alloc, is_success=False
+            )
         except BaseException as e:
             logger.error(
-                "failed to finalize task",
+                "failed to finalize task allocation",
                 exc_info=e,
                 duration=time.monotonic() - start_time,
             )
-            return TaskFinalizationFinished(task_info=task_info, is_success=False)
+            return TaskAllocationFinalizationFinished(
+                alloc_info=task_alloc, is_success=False
+            )
 
 
-class _TaskOutputSummary:
+class _TaskAllocationOutputSummary:
     def __init__(self):
         self.output_count: int = 0
         self.output_bytes: int = 0
@@ -68,27 +74,27 @@ class _TaskOutputSummary:
         self.next_functions_count: int = 0
 
 
-async def _finalize_task_output(
-    task_info: TaskInfo, blob_store: BLOBStore, logger: Any
+async def _finalize_task_alloc_output(
+    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
 ) -> None:
     """Finalizes the task output.
 
     Raises exception on error."""
-    if task_info.input is None:
+    if alloc_info.input is None:
         raise Exception(
-            "task input is None, this should never happen",
+            "task allocation input is None, this should never happen",
         )
-    if task_info.output is None:
+    if alloc_info.output is None:
         raise Exception(
-            "task output is None, this should never happen",
+            "task allocation output is None, this should never happen",
         )
 
-    input: TaskInput = task_info.input
-    output: TaskOutput = task_info.output
+    input: TaskAllocationInput = alloc_info.input
+    output: TaskAllocationOutput = alloc_info.output
 
-    output_summary: _TaskOutputSummary = _task_output_summary(output)
+    output_summary: _TaskAllocationOutputSummary = _task_output_summary(output)
     logger.info(
-        "task output summary",
+        "task allocation output summary",
         output_count=output_summary.output_count,
         output_bytes=output_summary.output_bytes,
         invocation_error_output_count=output_summary.invocation_error_output_count,
@@ -152,8 +158,10 @@ async def _finalize_task_output(
         )
 
 
-def _task_output_summary(task_output: TaskOutput) -> _TaskOutputSummary:
-    summary: _TaskOutputSummary = _TaskOutputSummary()
+def _task_output_summary(
+    task_output: TaskAllocationOutput,
+) -> _TaskAllocationOutputSummary:
+    summary: _TaskAllocationOutputSummary = _TaskAllocationOutputSummary()
 
     for output in task_output.function_outputs:
         summary.output_count += 1
@@ -172,7 +180,7 @@ def _task_output_summary(task_output: TaskOutput) -> _TaskOutputSummary:
 
 # Temporary workaround is logging customer metrics until we store them somewhere
 # for future retrieval and processing.
-def _log_function_metrics(output: TaskOutput, logger: Any):
+def _log_function_metrics(output: TaskAllocationOutput, logger: Any):
     if output.metrics is None:
         return
 

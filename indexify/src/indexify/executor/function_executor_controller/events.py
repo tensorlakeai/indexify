@@ -1,26 +1,22 @@
 from enum import Enum
 from typing import List, Optional
 
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionInputs,
-)
-
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
 )
 from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
 
-from .task_info import TaskInfo
+from .task_allocation_info import TaskAllocationInfo
 
 
 class EventType(Enum):
     FUNCTION_EXECUTOR_CREATED = 1
     FUNCTION_EXECUTOR_TERMINATED = 2
     SHUTDOWN_INITIATED = 3
-    TASK_PREPARATION_FINISHED = 4
-    SCHEDULE_TASK_EXECUTION = 5
-    TASK_EXECUTION_FINISHED = 6
-    TASK_OUTPUT_UPLOAD_FINISHED = 7
+    TASK_ALLOCATION_PREPARATION_FINISHED = 4
+    SCHEDULE_TASK_ALLOCATION_EXECUTION = 5
+    TASK_ALLOCATION_EXECUTION_FINISHED = 6
+    TASK_ALLOCATION_FINALIZATION_FINISHED = 7
 
 
 class BaseEvent:
@@ -94,50 +90,50 @@ class ShutdownInitiated(BaseEvent):
         super().__init__(EventType.SHUTDOWN_INITIATED)
 
 
-class TaskPreparationFinished(BaseEvent):
+class TaskAllocationPreparationFinished(BaseEvent):
     """
-    Event indicating that a task has been prepared for execution or failed to do that.
+    Event indicating that a task allocation has been prepared for execution or failed to do that.
     """
 
     def __init__(
         self,
-        task_info: TaskInfo,
+        alloc_info: TaskAllocationInfo,
         is_success: bool,
     ):
-        super().__init__(EventType.TASK_PREPARATION_FINISHED)
-        self.task_info: TaskInfo = task_info
+        super().__init__(EventType.TASK_ALLOCATION_PREPARATION_FINISHED)
+        self.alloc_info: TaskAllocationInfo = alloc_info
         self.is_success: bool = is_success
 
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.allocation.task.id}, "
-            f"allocation_id={self.task_info.allocation.allocation_id}), "
+            f"task_id={self.alloc_info.allocation.task.id}, "
+            f"allocation_id={self.alloc_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )
 
 
-class ScheduleTaskExecution(BaseEvent):
+class ScheduleTaskAllocationExecution(BaseEvent):
     """
-    Event indicating that a task execution has been scheduled.
+    Event indicating that a task allocation has been scheduled.
     """
 
     def __init__(self):
-        super().__init__(EventType.SCHEDULE_TASK_EXECUTION)
+        super().__init__(EventType.SCHEDULE_TASK_ALLOCATION_EXECUTION)
 
 
-class TaskExecutionFinished(BaseEvent):
+class TaskAllocationExecutionFinished(BaseEvent):
     """
-    Event indicating that a task execution has been finished on Function Executor.
+    Event indicating that a task allocation execution has been finished on Function Executor.
     """
 
     def __init__(
         self,
-        task_info: TaskInfo,
+        alloc_info: TaskAllocationInfo,
         function_executor_termination_reason: FunctionExecutorTerminationReason,  # type: Optional[FunctionExecutorTerminationReason]
     ):
-        super().__init__(EventType.TASK_EXECUTION_FINISHED)
-        self.task_info: TaskInfo = task_info
+        super().__init__(EventType.TASK_ALLOCATION_EXECUTION_FINISHED)
+        self.alloc_info: TaskAllocationInfo = alloc_info
         # Not None if the FE needs to get destroyed after running the task.
         self.function_executor_termination_reason = function_executor_termination_reason
 
@@ -151,26 +147,26 @@ class TaskExecutionFinished(BaseEvent):
         )
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.allocation.task.id}, "
-            f"allocation_id={self.task_info.allocation.allocation_id}), "
+            f"task_id={self.alloc_info.allocation.task.id}, "
+            f"allocation_id={self.alloc_info.allocation.allocation_id}), "
             f"function_executor_termination_reason={function_executor_termination_reason_str}"
         )
 
 
-class TaskFinalizationFinished(BaseEvent):
+class TaskAllocationFinalizationFinished(BaseEvent):
     """
-    Event indicating that a task finalization is finished.
+    Event indicating that a task allocation finalization is finished.
     """
 
-    def __init__(self, task_info: TaskInfo, is_success: bool):
-        super().__init__(EventType.TASK_OUTPUT_UPLOAD_FINISHED)
-        self.task_info: TaskInfo = task_info
+    def __init__(self, alloc_info: TaskAllocationInfo, is_success: bool):
+        super().__init__(EventType.TASK_ALLOCATION_FINALIZATION_FINISHED)
+        self.alloc_info: TaskAllocationInfo = alloc_info
         self.is_success: bool = is_success
 
     def __str__(self) -> str:
         return (
             f"Event(type={self.event_type.name}, "
-            f"task_id={self.task_info.allocation.task.id}, "
-            f"allocation_id={self.task_info.allocation.allocation_id}), "
+            f"task_id={self.alloc_info.allocation.task.id}, "
+            f"allocation_id={self.alloc_info.allocation.allocation_id}), "
             f"is_success={self.is_success}"
         )

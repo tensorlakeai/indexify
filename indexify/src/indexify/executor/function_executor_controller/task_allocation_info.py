@@ -4,13 +4,13 @@ from typing import Optional
 
 from indexify.proto.executor_api_pb2 import TaskAllocation
 
-from .task_input import TaskInput
-from .task_output import TaskOutput
+from .task_allocation_input import TaskAllocationInput
+from .task_allocation_output import TaskAllocationOutput
 
 
 @dataclass
-class TaskInfo:
-    """Object used to track a task during its full lifecycle in the FunctionExecutorController."""
+class TaskAllocationInfo:
+    """Object used to track a task allocation during its full lifecycle in the FunctionExecutorController."""
 
     allocation: TaskAllocation
     # time.monotonic() timestamp
@@ -22,8 +22,8 @@ class TaskInfo:
     # aio task that is currently executing a lifecycle step of this task.
     aio_task: Optional[asyncio.Task] = None
     # Input if function was prepared successfully.
-    input: Optional[TaskInput] = None
+    input: Optional[TaskAllocationInput] = None
     # Output of the task, always set when the task is completed.
-    output: Optional[TaskOutput] = None
+    output: Optional[TaskAllocationOutput] = None
     # True if the task is fully completed and was added to state reporter.
     is_completed: bool = False

@@ -91,12 +91,12 @@ class TestMetrics(unittest.TestCase):
             "graph_downloads_from_cache_total",
             "graph_download_latency_seconds_count",
             "graph_download_latency_seconds_sum",
-            # task preparation
-            "task_preparations_total",
-            "task_preparation_errors_total",
-            "task_preparation_latency_seconds_count",
-            "task_preparation_latency_seconds_sum",
-            "tasks_getting_prepared",
+            # task allocation preparation
+            "task_allocation_preparations_total",
+            "task_allocation_preparation_errors_total",
+            "task_allocation_preparation_latency_seconds_count",
+            "task_allocation_preparation_latency_seconds_sum",
+            "task_allocations_getting_prepared",
             # FE health checker
             "function_executor_failed_health_checks_total",
             "function_executor_health_check_latency_seconds_count",
@@ -169,20 +169,20 @@ class TestMetrics(unittest.TestCase):
             # Executor
             "executor_info",
             "executor_state",
-            # Task lifecycle steps
-            "tasks_fetched_total",
-            "tasks_completed_total",
-            "task_completion_latency_seconds_count",
-            "task_completion_latency_seconds_sum",
-            # Task finalization
-            "task_finalizations_total",
-            "task_finalization_errors_total",
-            "task_finalization_latency_seconds_count",
-            "task_finalization_latency_seconds_sum",
-            # Task scheduling
-            "schedule_task_latency_seconds_count",
-            "schedule_task_latency_seconds_sum",
-            "runnable_tasks",
+            # Task allocation lifecycle steps
+            "task_allocations_fetched_total",
+            "task_allocations_completed_total",
+            "task_allocation_completion_latency_seconds_count",
+            "task_allocation_completion_latency_seconds_sum",
+            # Task allocation finalization
+            "task_allocation_finalizations_total",
+            "task_allocation_finalization_errors_total",
+            "task_allocation_finalization_latency_seconds_count",
+            "task_allocation_finalization_latency_seconds_sum",
+            # Task allocation scheduling
+            "schedule_task_allocation_latency_seconds_count",
+            "schedule_task_allocation_latency_seconds_sum",
+            "runnable_task_allocations",
             # Run task RPC
             "function_executor_run_task_rpcs_in_progress",
             "function_executor_run_task_rpcs_total",
@@ -263,11 +263,11 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("graph_download_errors_total", {}, 0.0),
             SampleSpec("graph_downloads_from_cache_total", {}, 0.0),
             SampleSpec("graph_download_latency_seconds_count", {}, 1.0),
-            # task preparations
-            SampleSpec("task_preparations_total", {}, 1.0),
-            SampleSpec("task_preparation_errors_total", {}, 0.0),
-            SampleSpec("task_preparation_latency_seconds_count", {}, 1.0),
-            SampleSpec("tasks_getting_prepared", {}, 0.0),
+            # task allocation preparations
+            SampleSpec("task_allocation_preparations_total", {}, 1.0),
+            SampleSpec("task_allocation_preparation_errors_total", {}, 0.0),
+            SampleSpec("task_allocation_preparation_latency_seconds_count", {}, 1.0),
+            SampleSpec("task_allocations_getting_prepared", {}, 0.0),
             # FE health checker
             SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
             SampleSpec(
@@ -349,44 +349,44 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "shutting_down"}, 0.0),
-            # Task lifecycle steps
-            SampleSpec("tasks_fetched_total", {}, 1.0),
+            # Task allocation lifecycle steps
+            SampleSpec("task_allocations_fetched_total", {}, 1.0),
             SampleSpec(
-                "tasks_completed_total",
+                "task_allocations_completed_total",
                 {"outcome_code": "all", "failure_reason": "all"},
                 1.0,
             ),
             SampleSpec(
-                "tasks_completed_total",
+                "task_allocations_completed_total",
                 {"outcome_code": "success", "failure_reason": "none"},
                 1.0,
             ),
             SampleSpec(
-                "tasks_completed_total",
+                "task_allocations_completed_total",
                 {"outcome_code": "failure", "failure_reason": "function_error"},
                 0.0,
             ),
             SampleSpec(
-                "tasks_completed_total",
+                "task_allocations_completed_total",
                 {"outcome_code": "failure", "failure_reason": "internal_error"},
                 0.0,
             ),
             SampleSpec(
-                "tasks_completed_total",
+                "task_allocations_completed_total",
                 {
                     "outcome_code": "failure",
                     "failure_reason": "function_executor_terminated",
                 },
                 0.0,
             ),
-            SampleSpec("task_completion_latency_seconds_count", {}, 1.0),
-            # Task finalization
-            SampleSpec("task_finalizations_total", {}, 1.0),
-            SampleSpec("task_finalization_errors_total", {}, 0.0),
-            SampleSpec("task_finalization_latency_seconds_count", {}, 1.0),
-            # Task scheduling
-            SampleSpec("schedule_task_latency_seconds_count", {}, 1.0),
-            SampleSpec("runnable_tasks", {}, 0.0),
+            SampleSpec("task_allocation_completion_latency_seconds_count", {}, 1.0),
+            # Task allocation finalization
+            SampleSpec("task_allocation_finalizations_total", {}, 1.0),
+            SampleSpec("task_allocation_finalization_errors_total", {}, 0.0),
+            SampleSpec("task_allocation_finalization_latency_seconds_count", {}, 1.0),
+            # Task allocation scheduling
+            SampleSpec("schedule_task_allocation_latency_seconds_count", {}, 1.0),
+            SampleSpec("runnable_task_allocations", {}, 0.0),
             # Run task RPC
             SampleSpec("function_executor_run_task_rpcs_in_progress", {}, 0.0),
             SampleSpec("function_executor_run_task_rpcs_total", {}, 1.0),
@@ -433,9 +433,9 @@ class TestMetrics(unittest.TestCase):
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         expected_metrics: List[SampleSpec] = [
-            # Running a task
+            # Running a task allocation
             SampleSpec(
-                "runnable_tasks_per_function_name",
+                "runnable_task_allocations_per_function_name",
                 {"function_name": "successful_function"},
                 0.0,
             ),

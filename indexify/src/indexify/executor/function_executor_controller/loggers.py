@@ -49,7 +49,21 @@ def task_allocation_logger(task_allocation: TaskAllocation, logger: Any) -> Any:
     Doesn't assume that the supplied TaskAllocation is valid.
     """
     if task_allocation.HasField("task"):
-        logger = _task_logger(task_allocation.task, logger)
+        task: Task = task_allocation.task
+        logger = logger.bind(
+            task_id=task.id if task.HasField("id") else None,
+            namespace=task.namespace if task.HasField("namespace") else None,
+            graph=task.graph_name if task.HasField("graph_name") else None,
+            graph_version=(
+                task.graph_version if task.HasField("graph_version") else None
+            ),
+            fn=task.function_name if task.HasField("function_name") else None,
+            invocation_id=(
+                task.graph_invocation_id
+                if task.HasField("graph_invocation_id")
+                else None
+            ),
+        )
     return logger.bind(
         allocation_id=(
             task_allocation.allocation_id
@@ -85,21 +99,5 @@ def task_result_logger(task_result: TaskResult, logger: Any) -> Any:
             task_result.graph_invocation_id
             if task_result.HasField("graph_invocation_id")
             else None
-        ),
-    )
-
-
-def _task_logger(task: Task, logger: Any) -> Any:
-    """Returns a logger bound with the task's metadata.
-
-    The function assumes that the task might be invalid."""
-    return logger.bind(
-        task_id=task.id if task.HasField("id") else None,
-        namespace=task.namespace if task.HasField("namespace") else None,
-        graph=task.graph_name if task.HasField("graph_name") else None,
-        graph_version=task.graph_version if task.HasField("graph_version") else None,
-        fn=task.function_name if task.HasField("function_name") else None,
-        invocation_id=(
-            task.graph_invocation_id if task.HasField("graph_invocation_id") else None
         ),
     )
