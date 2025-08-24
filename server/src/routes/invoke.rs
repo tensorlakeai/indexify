@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, pin::Pin, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{self, ComputeGraphState, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
-    http_objects::IndexifyAPIError,
+    http_objects::{IndexifyAPIError, RequestId},
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -384,9 +384,22 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    let invocation_event_stream =
-        create_invocation_progress_stream(id, rx.unwrap(), state, namespace, compute_graph.name)
-            .await;
+    let invocation_event_stream: Pin<
+        Box<dyn tokio_stream::Stream<Item = Result<Event, axum::Error>> + Send>,
+    > = match rx {
+        Some(rx) => {
+            let s = create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name)
+                .await;
+            Box::pin(s)
+        }
+        None => {
+            let s = async_stream::stream! {
+                yield Event::default().json_data(RequestId { id: id.clone() });
+                return;
+            };
+            Box::pin(s)
+        }
+    };
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
