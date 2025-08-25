@@ -50,11 +50,7 @@ def build_image(
     indexify_version: str = importlib.metadata.version("indexify")
     for image in workflow_module_info.images.keys():
         image: Image
-        if (
-            image_names is not None
-            and len(image_names) > 0
-            and image.image_name not in image_names
-        ):
+        if len(image_names) > 0 and image.image_name not in image_names:
             click.echo(
                 f"Skipping image `{image.image_name}` as it is not in the provided image names."
             )
