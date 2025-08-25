@@ -1,9 +1,16 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering::Relaxed},
-    Arc,
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicU64, Ordering::Relaxed},
+        Arc,
+    },
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, Visitor},
+    Deserialize,
+    Serialize,
+};
 
 /// A thread-safe vector clock using AtomicU64 for clock values.
 /// It uses `std::sync::atomic::Ordering::Relaxed` for all atomic operations
@@ -97,13 +104,48 @@ impl Serialize for VectorClock {
     }
 }
 
+/// Custom deserializer to handle missing or null fields by initializing
+/// the vector clock to zero.
+///
+/// This ensures that data already existing in the state store without
+/// a vector clock field can be deserialized correctly.
+struct VectorClockVisitor;
+
+impl<'de> Visitor<'de> for VectorClockVisitor {
+    type Value = VectorClock;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("an unsigned integer representing the vector clock or null/missing")
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(value.into())
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(VectorClock::new())
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_u64(self)
+    }
+}
+
 impl<'de> Deserialize<'de> for VectorClock {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let value = u64::deserialize(deserializer)?;
-        Ok(value.into())
+        deserializer.deserialize_option(VectorClockVisitor)
     }
 }
 
@@ -134,5 +176,33 @@ mod tests {
         let json = "5";
         let vc: VectorClock = serde_json::from_str(json).unwrap();
         assert_eq!(vc.value(), 5);
+    }
+
+    #[test]
+    fn test_vector_clock_deserialize_into_struct() {
+        #[derive(Deserialize)]
+        struct TestStruct {
+            task_id: u32,
+            clock: VectorClock,
+        }
+
+        let json_missing = r#"{"task_id": 1}"#;
+        let ts: TestStruct = serde_json::from_str(json_missing).unwrap();
+        assert_eq!(ts.task_id, 1);
+        assert_eq!(ts.clock.value(), 0);
+
+        let json_null = r#"{"task_id": 1, "clock": null}"#;
+        let ts_null: TestStruct = serde_json::from_str(json_null).unwrap();
+        assert_eq!(ts_null.task_id, 1);
+        assert_eq!(ts_null.clock.value(), 0);
+
+        let json_with_value = r#"{"task_id": 1, "clock": 10}"#;
+        let ts_with_value: TestStruct = serde_json::from_str(json_with_value).unwrap();
+        assert_eq!(ts_with_value.task_id, 1);
+        assert_eq!(ts_with_value.clock.value(), 10);
+
+        let json_invalid = r#"{"task_id": 1, "clock": "invalid"}"#;
+        let result: Result<TestStruct, _> = serde_json::from_str(json_invalid);
+        assert!(result.is_err());
     }
 }
