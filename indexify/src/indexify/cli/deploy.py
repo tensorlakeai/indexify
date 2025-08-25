@@ -18,7 +18,7 @@ from tensorlake.functions_sdk.workflow_module import (
 )
 @click.option(
     "-u",
-    "--upgrade-queued-requests",
+    "--upgrade-queued-invocations",
     is_flag=True,
     default=False,
     help="Upgrade invocations that are already queued or running to use the deployed version of the graphs/workflows",

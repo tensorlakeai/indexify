@@ -1,11 +1,9 @@
 import importlib
-from typing import Any, Generator, Tuple
 
 import click
 import docker
 import docker.api.build
-import docker.models
-import docker.models.images
+from docker.errors import BuildError
 from tensorlake.functions_sdk.image import Image
 from tensorlake.functions_sdk.workflow_module import (
     WorkflowModuleInfo,
@@ -16,7 +14,6 @@ from tensorlake.functions_sdk.workflow_module import (
 @click.command(
     short_help="Build images for graphs/workflows defined in the workflow file"
 )
-# Path to the file where the graphs/workflows are defined as global variables
 @click.argument(
     "workflow-file-path",
     type=click.Path(exists=True, file_okay=True, dir_okay=False),
@@ -31,6 +28,11 @@ def build_image(
     workflow_file_path: str,
     image_names: tuple[str, ...] = None,
 ):
+    """
+    Build the images associated to an Indexify workflow
+
+    A workflow is defined in a Python file, and the images are built using the local Docker daemon.
+    """
     try:
         workflow_module_info: WorkflowModuleInfo = load_workflow_module_info(
             workflow_file_path
@@ -48,7 +50,11 @@ def build_image(
     indexify_version: str = importlib.metadata.version("indexify")
     for image in workflow_module_info.images.keys():
         image: Image
-        if image_names is not None and image.image_name not in image_names:
+        if (
+            image_names is not None
+            and len(image_names) > 0
+            and image.image_name not in image_names
+        ):
             click.echo(
                 f"Skipping image `{image.image_name}` as it is not in the provided image names."
             )
@@ -57,28 +63,63 @@ def build_image(
         click.echo(f"Building image `{image.image_name}`")
 
         image.run(f"pip install 'indexify=={indexify_version}'")
-        built_image, logs_generator = image.build()
-        built_image: docker.models.images.Image
-        for output in logs_generator:
-            click.secho(output)
+        built_image, logs_generator = _build(image=image, docker_client=docker_client)
+        try:
+            built_image, logs_generator = _build(
+                image=image, docker_client=docker_client
+            )
+            _print_build_log(logs_generator)
+            click.secho(f"built image: {built_image.tags[0]}", fg="green")
+        except BuildError as e:
+            raise click.Abort() from e
 
         click.secho(f"built image: {built_image.tags[0]}", fg="green")
 
 
-def build(
-    image: Image, docker_client: docker.DockerClient
-) -> Tuple[docker.models.images.Image, Generator[str, Any, None]]:
+def _build(image: Image, docker_client: docker.DockerClient):
     docker_file = image.dockerfile()
-    image_name = f"{image.image_name}:{image.image_tag}"
+    image_name = (
+        image.image_name
+        if ":" in image.image_name
+        else f"{image.image_name}:{image.image_tag}"
+    )
 
     docker.api.build.process_dockerfile = lambda dockerfile, path: (
         "Dockerfile",
         dockerfile,
     )
 
-    return docker_client.images.build(
-        path=".",
-        dockerfile=docker_file,
-        tag=image_name,
-        rm=True,
-    )
+    try:
+        built_image, logs_generator = docker_client.images.build(
+            path=".",
+            dockerfile=docker_file,
+            tag=image_name,
+            rm=True,
+            # pull=True,  # optional: ensures fresh base images
+            # forcerm=True,  # optional: always remove intermediate containers
+        )
+        return built_image, logs_generator
+    except BuildError as e:
+        click.secho("Docker build failed:", fg="red")
+        _print_build_log(e.build_log or [])
+        click.secho(str(e), fg="red")
+        raise
+
+
+def _print_build_log(build_logs):
+    for ch in build_logs:
+        if isinstance(ch, dict):
+            if "stream" in ch:
+                click.echo(ch["stream"].rstrip("\n"))
+            elif "status" in ch:
+                if "id" in ch:
+                    click.echo(f"{ch['status']}: {ch['id']}")
+                else:
+                    click.echo(ch["status"])
+            if "errorDetail" in ch:
+                # This is the most useful bit when a RUN command fails
+                msg = ch["errorDetail"].get("message") or ch.get("error")
+                if msg:
+                    click.secho(msg.rstrip("\n"), fg="red")
+        elif isinstance(ch, str):
+            click.echo(ch.rstrip("\n"))
