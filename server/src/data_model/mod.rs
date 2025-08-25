@@ -1170,11 +1170,11 @@ impl TaskFailureReason {
         // they fail the invocation permanently.
         matches!(
             self,
-            TaskFailureReason::InternalError
-                | TaskFailureReason::FunctionError
-                | TaskFailureReason::FunctionTimeout
-                | TaskFailureReason::TaskCancelled
-                | TaskFailureReason::FunctionExecutorTerminated
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout |
+                TaskFailureReason::TaskCancelled |
+                TaskFailureReason::FunctionExecutorTerminated
         )
     }
 
@@ -1187,9 +1187,9 @@ impl TaskFailureReason {
         // with long lasting internal problems.
         matches!(
             self,
-            TaskFailureReason::InternalError
-                | TaskFailureReason::FunctionError
-                | TaskFailureReason::FunctionTimeout
+            TaskFailureReason::InternalError |
+                TaskFailureReason::FunctionError |
+                TaskFailureReason::FunctionTimeout
         )
     }
 }
@@ -1763,17 +1763,14 @@ impl FunctionAllowlist {
     pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace)
-            && self
-                .compute_graph_name
+            .is_none_or(|ns| ns == &function_executor.namespace) &&
+            self.compute_graph_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.compute_graph_name)
-            && self
-                .compute_fn_name
+                .is_none_or(|cg_name| cg_name == &function_executor.compute_graph_name) &&
+            self.compute_fn_name
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.compute_fn_name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &function_executor.compute_fn_name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
     }
@@ -1781,17 +1778,14 @@ impl FunctionAllowlist {
     pub fn matches_task(&self, task: &Task) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &task.namespace)
-            && self
-                .compute_graph_name
+            .is_none_or(|ns| ns == &task.namespace) &&
+            self.compute_graph_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &task.compute_graph_name)
-            && self
-                .compute_fn_name
+                .is_none_or(|cg_name| cg_name == &task.compute_graph_name) &&
+            self.compute_fn_name
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &task.compute_fn_name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &task.compute_fn_name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &task.graph_version)
     }
@@ -1972,8 +1966,8 @@ impl Eq for FunctionExecutorServerMetadata {}
 
 impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.executor_id == other.executor_id
-            && self.function_executor.id == other.function_executor.id
+        self.executor_id == other.executor_id &&
+            self.function_executor.id == other.function_executor.id
     }
 }
 
@@ -2276,8 +2270,12 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::test_compute_fn, ComputeGraph, ComputeGraphCode, ComputeGraphVersion,
-        GraphVersion, RuntimeInformation,
+        test_objects::tests::test_compute_fn,
+        ComputeGraph,
+        ComputeGraphCode,
+        ComputeGraphVersion,
+        GraphVersion,
+        RuntimeInformation,
     };
 
     #[test]
@@ -2715,7 +2713,7 @@ mod tests {
         assert!(allocation.created_at > 0);
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
-        assert_eq!(allocation.vector_clock.value(), 1);
+        assert_eq!(allocation.vector_clock.value(), 0);
 
         let json = serde_json::to_string(&allocation).expect("Should serialize allocation to JSON");
 
@@ -2790,7 +2788,7 @@ mod tests {
         assert!(node_output.reducer_output);
         assert!(node_output.id.len() > 0);
         assert!(node_output.invocation_error_payload.is_none());
-        assert_eq!(node_output.vector_clock.value(), 1);
+        assert_eq!(node_output.vector_clock.value(), 0);
 
         // Check key format
         let key = node_output.key();
@@ -2876,7 +2874,7 @@ mod tests {
         assert_eq!(invocation_payload.payload, payload);
         assert!(invocation_payload.created_at > 0);
         assert!(invocation_payload.id.len() > 0);
-        assert_eq!(invocation_payload.vector_clock.value(), 1);
+        assert_eq!(invocation_payload.vector_clock.value(), 0);
 
         // Check key format
         let key = invocation_payload.key();
@@ -2964,7 +2962,7 @@ mod tests {
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
         assert!(ctx.invocation_error.is_none());
         assert!(ctx.created_at > 0);
-        assert_eq!(ctx.vector_clock.value(), 1);
+        assert_eq!(ctx.vector_clock.value(), 0);
 
         // fn_task_analytics should have an entry for each node
         assert_eq!(ctx.fn_task_analytics.len(), compute_graph.nodes.len());
@@ -3048,7 +3046,7 @@ mod tests {
         assert!(!task.id.get().is_empty());
         assert!(task.creation_time_ns > 0);
         assert!(!task.key().is_empty());
-        assert_eq!(task.vector_clock.value(), 1);
+        assert_eq!(task.vector_clock.value(), 0);
 
         // Check key format
         let key = task.key();
@@ -3130,7 +3128,7 @@ mod tests {
         assert_eq!(fe.state, state);
         assert_eq!(fe.resources, resources);
         assert_eq!(fe.max_concurrency, max_concurrency);
-        assert_eq!(fe.vector_clock.value(), 1);
+        assert_eq!(fe.vector_clock.value(), 0);
 
         // Check serialization
         let json = serde_json::to_string(&fe).expect("Should serialize FunctionExecutor to JSON");
@@ -3233,7 +3231,7 @@ mod tests {
         assert_eq!(metadata.tombstoned, tombstoned);
         assert_eq!(metadata.state_hash, state_hash);
         assert_eq!(metadata.clock, clock);
-        assert_eq!(metadata.vector_clock.value(), 1);
+        assert_eq!(metadata.vector_clock.value(), 0);
 
         // Check serialization
         let json =

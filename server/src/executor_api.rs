@@ -7,10 +7,20 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
-    executor_api_server::ExecutorApi, AllowedFunction, DataPayloadEncoding, DesiredExecutorState,
-    ExecutorState, ExecutorStatus, FunctionExecutorResources, FunctionExecutorStatus,
-    GetDesiredExecutorStatesRequest, HostResources, ReportExecutorStateRequest,
-    ReportExecutorStateResponse, TaskAllocation, TaskResult,
+    executor_api_server::ExecutorApi,
+    AllowedFunction,
+    DataPayloadEncoding,
+    DesiredExecutorState,
+    ExecutorState,
+    ExecutorStatus,
+    FunctionExecutorResources,
+    FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest,
+    HostResources,
+    ReportExecutorStateRequest,
+    ReportExecutorStateResponse,
+    TaskAllocation,
+    TaskResult,
 };
 use tokio::sync::watch::{self, Receiver, Sender};
 use tokio_stream::{wrappers::WatchStream, Stream};
@@ -20,17 +30,32 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::{self, registry::BlobStorageRegistry},
     data_model::{
-        self, Allocation, DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder,
-        FunctionAllowlist, FunctionExecutorBuilder, FunctionExecutorDiagnostics,
-        FunctionExecutorId, GPUResources, GraphVersion, NodeOutputBuilder, TaskDiagnostics,
-        TaskFailureReason, TaskOutcome,
+        self,
+        Allocation,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorMetadataBuilder,
+        FunctionAllowlist,
+        FunctionExecutorBuilder,
+        FunctionExecutorDiagnostics,
+        FunctionExecutorId,
+        GPUResources,
+        GraphVersion,
+        NodeOutputBuilder,
+        TaskDiagnostics,
+        TaskFailureReason,
+        TaskOutcome,
     },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
         requests::{
-            AllocationOutput, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest,
+            AllocationOutput,
+            RequestPayload,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
         },
         IndexifyState,
     },

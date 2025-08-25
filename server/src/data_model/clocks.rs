@@ -1,48 +1,54 @@
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
-    RwLock,
 };
 
 use serde::{Deserialize, Serialize};
 
 /// A thread-safe vector clock using AtomicU64 for clock values.
+/// It uses SeqCst ordering for all atomic operations to ensure strong
+/// consistency across threads.
+///
+/// A vector clock can be incremented manually by calling the `tick` method.
+/// When serialized, the clock value is incremented automatically to reflect the
+/// latest state.
+///
+/// Example:
+///
+/// ```rust
+/// let vc = VectorClock::new();
+/// assert_eq!(vc.value(), 0);
+/// let new_value = vc.tick();
+/// assert_eq!(new_value, 1);
+/// assert_eq!(vc.value(), 1);
+///
+/// let serialized = serde_json::to_string(&vc).unwrap();
+/// assert_eq!(serialized, "2"); // ticked again during serialization
+/// assert_eq!(vc.value(), 2);
+/// ```
 #[derive(Clone, Debug)]
 pub struct VectorClock {
-    clock: Arc<RwLock<AtomicU64>>,
+    clock: Arc<AtomicU64>,
 }
 
 impl VectorClock {
-    /// Create a new vector clock initialized to one.
+    /// Create a new vector clock initialized to zero.
     pub fn new() -> Self {
         Self {
-            clock: Arc::new(RwLock::new(AtomicU64::new(1))),
-        }
-    }
-
-    /// Create a new vector clock initialized to a specific value.
-    /// This is used only for deserialization from stored values in the state
-    /// store.
-    fn new_with_value(value: u64) -> Self {
-        Self {
-            clock: Arc::new(RwLock::new(AtomicU64::new(value))),
+            clock: Arc::new(AtomicU64::new(0)),
         }
     }
 
     /// Increment the clock value for a given key and return the new value.
     /// It uses SeqCst ordering to ensure strong consistency across threads.
-    #[allow(dead_code)]
-    pub fn increment(&self) -> u64 {
-        let value = self.clock.write().unwrap();
-
-        value.fetch_add(1, Ordering::SeqCst)
+    pub fn tick(&self) -> u64 {
+        self.clock.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     /// Get the current clock value for a given key.
     /// It uses SeqCst ordering to ensure strong consistency across threads.
     pub fn value(&self) -> u64 {
-        let value = self.clock.read().unwrap();
-        value.load(Ordering::SeqCst)
+        self.clock.load(Ordering::SeqCst)
     }
 
     /// Compare this vector clock with another.
@@ -55,7 +61,9 @@ impl VectorClock {
 
 impl From<u64> for VectorClock {
     fn from(value: u64) -> Self {
-        Self::new_with_value(value)
+        Self {
+            clock: Arc::new(AtomicU64::new(value)),
+        }
     }
 }
 
@@ -73,12 +81,18 @@ impl PartialEq for VectorClock {
 
 impl Eq for VectorClock {}
 
+impl PartialOrd for VectorClock {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Serialize for VectorClock {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_u64(self.value())
+        serializer.serialize_u64(self.tick())
     }
 }
 
@@ -89,5 +103,35 @@ impl<'de> Deserialize<'de> for VectorClock {
     {
         let value = u64::deserialize(deserializer)?;
         Ok(value.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vector_clock_basic() {
+        let vc = VectorClock::new();
+        assert_eq!(vc.value(), 0);
+
+        let new_value = vc.tick();
+        assert_eq!(new_value, 1);
+        assert_eq!(vc.value(), 1);
+
+        let serialized = serde_json::to_string(&vc).unwrap();
+        assert_eq!(serialized, "2"); // ticked again during serialization
+        assert_eq!(vc.value(), 2);
+
+        let new_vc = VectorClock::new();
+        assert_eq!(new_vc.value(), 0);
+        assert!(vc > new_vc);
+    }
+
+    #[test]
+    fn test_vector_clock_deserialize() {
+        let json = "5";
+        let vc: VectorClock = serde_json::from_str(json).unwrap();
+        assert_eq!(vc.value(), 5);
     }
 }
