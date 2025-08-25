@@ -106,19 +106,19 @@ def _build(
 
 
 def _print_build_log(build_logs):
-    for ch in build_logs:
-        if isinstance(ch, dict):
-            if "stream" in ch:
-                click.echo(ch["stream"].rstrip("\n"))
-            elif "status" in ch:
-                if "id" in ch:
-                    click.echo(f"{ch['status']}: {ch['id']}")
+    for log_entry in build_logs:
+        if isinstance(log_entry, dict):
+            if "stream" in log_entry:
+                click.echo(log_entry["stream"].rstrip("\n"))
+            elif "status" in log_entry:
+                if "id" in log_entry:
+                    click.echo(f"{log_entry['status']}: {log_entry['id']}")
                 else:
-                    click.echo(ch["status"])
-            if "errorDetail" in ch:
+                    click.echo(log_entry["status"])
+            if "errorDetail" in log_entry:
                 # This is the most useful bit when a RUN command fails
-                msg = ch["errorDetail"].get("message") or ch.get("error")
+                msg = log_entry["errorDetail"].get("message") or log_entry.get("error")
                 if msg:
                     click.secho(msg.rstrip("\n"), fg="red")
-        elif isinstance(ch, str):
-            click.echo(ch.rstrip("\n"))
+        elif isinstance(log_entry, str):
+            click.echo(log_entry.rstrip("\n"))
