@@ -11,6 +11,7 @@ mod tests {
             test_objects::tests::{test_graph_a, TEST_NAMESPACE},
             GraphInvocationCtxBuilder,
             InvocationPayloadBuilder,
+            NodeOutputBuilder,
         },
         service::Service,
         state_store::{
@@ -116,7 +117,7 @@ mod tests {
                 &JsonEncoder::encode(&graph_ctx)?,
             )?;
 
-            let output = crate::data_model::NodeOutputBuilder::default()
+            let output = NodeOutputBuilder::default()
                 .id("id".to_string())
                 .namespace(TEST_NAMESPACE.to_string())
                 .compute_fn_name("fn_a".to_string())

@@ -177,6 +177,9 @@ impl AllocationBuilder {
             .outcome
             .ok_or(anyhow!("allocation outcome is required"))?;
 
+        let diagnostics = self.diagnostics.clone().flatten();
+        let execution_duration_ms = self.execution_duration_ms.clone().flatten();
+
         Ok(Allocation {
             id: nanoid!(),
             target,
@@ -187,9 +190,9 @@ impl AllocationBuilder {
             invocation_id,
             created_at,
             outcome,
-            diagnostics: None,
+            diagnostics,
             attempt_number: retry_number,
-            execution_duration_ms: None,
+            execution_duration_ms,
             vector_clock: self.vector_clock.clone().unwrap_or_default(),
         })
     }
@@ -1044,18 +1047,25 @@ impl GraphInvocationCtxBuilder {
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
         let created_at = self.created_at.unwrap_or_else(get_epoch_time_in_ms);
+
+        let completed = self.completed.unwrap_or_default();
+        let outcome = self.outcome.clone().unwrap_or_default();
+        let outstanding_tasks = self.outstanding_tasks.unwrap_or_default();
+        let outstanding_reducer_tasks = self.outstanding_reducer_tasks.unwrap_or_default();
+        let invocation_error = self.invocation_error.clone().flatten();
+
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
             compute_graph_name: cg_name,
             invocation_id,
-            completed: false,
-            outcome: GraphInvocationOutcome::Unknown,
+            completed,
+            outcome,
             fn_task_analytics,
-            outstanding_tasks: 0,
-            outstanding_reducer_tasks: 0,
+            outstanding_tasks,
+            outstanding_reducer_tasks,
             created_at,
-            invocation_error: None,
+            invocation_error,
             vector_clock: self.vector_clock.clone().unwrap_or_default(),
         })
     }
@@ -1094,8 +1104,9 @@ impl ReduceTask {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
+    #[default]
     Unknown,
     Success,
     Failure(TaskFailureReason),
@@ -1313,7 +1324,7 @@ impl TaskBuilder {
             .namespace
             .clone()
             .ok_or(anyhow!("namespace is not present"))?;
-        let cg_name = self
+        let compute_graph_name = self
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute graph name is not present"))?;
@@ -1332,6 +1343,12 @@ impl TaskBuilder {
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
 
+        let status = self.status.clone().unwrap_or(TaskStatus::Pending);
+        let outcome = self.outcome.clone().unwrap_or_default();
+        let attempt_number = self.attempt_number.unwrap_or_default();
+        let cache_hit = self.cache_hit.unwrap_or_default();
+        let vector_clock = self.vector_clock.clone().unwrap_or_default();
+
         let current_time = SystemTime::now();
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
         let creation_time_ns = duration.as_nanos();
@@ -1341,20 +1358,20 @@ impl TaskBuilder {
 
         let task = Task {
             id: TaskId(id),
-            compute_graph_name: cg_name,
+            compute_graph_name,
             compute_fn_name,
             input,
             acc_input,
             invocation_id,
             namespace,
-            status: TaskStatus::Pending,
-            outcome: TaskOutcome::Unknown,
+            status,
+            outcome,
             graph_version,
             creation_time_ns,
             cache_key,
-            attempt_number: 0,
-            cache_hit: false,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
+            attempt_number,
+            cache_hit,
+            vector_clock,
         };
         Ok(task)
     }
