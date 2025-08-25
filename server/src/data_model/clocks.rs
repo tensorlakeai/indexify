@@ -1,13 +1,14 @@
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU64, Ordering::Relaxed},
     Arc,
 };
 
 use serde::{Deserialize, Serialize};
 
 /// A thread-safe vector clock using AtomicU64 for clock values.
-/// It uses SeqCst ordering for all atomic operations to ensure strong
-/// consistency across threads.
+/// It uses `std::sync::atomic::Ordering::Relaxed` for all atomic operations
+/// to guarantee that all modifications of the same atomic variable happen
+/// in an order that is the same from the perspective of every single thread.
 ///
 /// A vector clock can be incremented manually by calling the `tick` method.
 /// When serialized, the clock value is incremented automatically to reflect the
@@ -42,13 +43,13 @@ impl VectorClock {
     /// Increment the clock value for a given key and return the new value.
     /// It uses SeqCst ordering to ensure strong consistency across threads.
     pub fn tick(&self) -> u64 {
-        self.clock.fetch_add(1, Ordering::SeqCst) + 1
+        self.clock.fetch_add(1, Relaxed) + 1
     }
 
     /// Get the current clock value for a given key.
     /// It uses SeqCst ordering to ensure strong consistency across threads.
     pub fn value(&self) -> u64 {
-        self.clock.load(Ordering::SeqCst)
+        self.clock.load(Relaxed)
     }
 
     /// Compare this vector clock with another.
