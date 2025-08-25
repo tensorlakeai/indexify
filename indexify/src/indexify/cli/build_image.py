@@ -1,4 +1,5 @@
 import importlib
+from typing import Any, Generator, Tuple
 
 import click
 import docker
@@ -72,7 +73,9 @@ def build_image(
         click.secho(f"built image: {built_image.tags[0]}", fg="green")
 
 
-def _build(image: Image, docker_client: docker.DockerClient):
+def _build(
+    image: Image, docker_client: docker.DockerClient
+) -> Tuple[docker.models.images.Image, Generator[str, Any, None]]:
     docker_file = image.dockerfile()
     image_name = (
         image.image_name
