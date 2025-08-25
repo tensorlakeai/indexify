@@ -178,7 +178,7 @@ impl AllocationBuilder {
             .ok_or(anyhow!("allocation outcome is required"))?;
 
         let diagnostics = self.diagnostics.clone().flatten();
-        let execution_duration_ms = self.execution_duration_ms.clone().flatten();
+        let execution_duration_ms = self.execution_duration_ms.flatten();
 
         Ok(Allocation {
             id: nanoid!(),
@@ -1344,7 +1344,7 @@ impl TaskBuilder {
             .ok_or(anyhow!("graph version is not present"))?;
 
         let status = self.status.clone().unwrap_or(TaskStatus::Pending);
-        let outcome = self.outcome.clone().unwrap_or_default();
+        let outcome = self.outcome.unwrap_or_default();
         let attempt_number = self.attempt_number.unwrap_or_default();
         let cache_hit = self.cache_hit.unwrap_or_default();
         let vector_clock = self.vector_clock.clone().unwrap_or_default();
