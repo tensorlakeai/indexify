@@ -16,7 +16,6 @@ use tracing::{debug, error, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        self,
         Allocation,
         ComputeGraph,
         ComputeGraphVersion,
@@ -65,10 +64,6 @@ pub enum IndexifyObjectsColumns {
     FunctionExecutorDiagnostics, // Function Executor ID -> FunctionExecutorDiagnostics
 
     GcUrls, // List of URLs pending deletion
-
-    SystemTasks, // Long running tasks involving multiple invocations
-
-    Stats, // Stats
 }
 
 impl IndexifyObjectsColumns {
