@@ -2260,6 +2260,8 @@ pub struct StateChange {
     pub namespace: Option<String>,
     pub compute_graph: Option<String>,
     pub invocation: Option<String>,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 impl StateChange {
     pub fn key(&self) -> Vec<u8> {
