@@ -1081,7 +1081,7 @@ impl GraphInvocationCtxBuilder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct ReduceTask {
     pub namespace: String,
     pub compute_graph_name: String,
@@ -1090,6 +1090,9 @@ pub struct ReduceTask {
 
     pub input: DataPayload,
     pub id: String,
+
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 impl ReduceTask {
