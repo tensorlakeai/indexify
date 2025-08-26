@@ -2273,12 +2273,14 @@ impl Display for StateChange {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 #[cfg(test)]
