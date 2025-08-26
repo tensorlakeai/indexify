@@ -47,21 +47,24 @@ impl VectorClock {
         }
     }
 
-    /// Increment the clock value for a given key and return the new value.
-    /// It uses SeqCst ordering to ensure strong consistency across threads.
+    /// Increment the clock value and return the new value.
+    /// It uses Relaxed ordering to guarantee in happens-before ordering
+    /// accross threads.
     pub fn tick(&self) -> u64 {
         self.clock.fetch_add(1, Relaxed) + 1
     }
 
     /// Get the current clock value for a given key.
-    /// It uses SeqCst ordering to ensure strong consistency across threads.
+    /// It uses Relaxed ordering to guarantee in happens-before ordering
+    /// accross threads.
     pub fn value(&self) -> u64 {
         self.clock.load(Relaxed)
     }
 
     /// Compare this vector clock with another.
-    /// Returns an Ordering indicating whether this clock is less than, equal
-    /// to, or greater than the other clock based on their values.
+    /// Returns an `std::cmp::Ordering` indicating whether this clock is less
+    /// than, equal to, or greater than the other clock based on their
+    /// values.
     pub fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.value().cmp(&other.value())
     }
