@@ -401,13 +401,14 @@ pub enum ComputeGraphState {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub tombstoned: bool,
     pub description: String,
     #[serde(default)]
+    #[builder(default)]
     pub tags: HashMap<String, String>,
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
@@ -418,7 +419,10 @@ pub struct ComputeGraph {
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
     #[serde(default)]
+    #[builder(default)]
     pub state: ComputeGraphState,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 impl ComputeGraph {
@@ -2303,36 +2307,37 @@ mod tests {
         let fn_a = test_compute_fn("fn_a", 0);
         let fn_b = test_compute_fn("fn_b", 0);
         let fn_c = test_compute_fn("fn_c", 0);
-        let original_graph: ComputeGraph = ComputeGraph {
-            namespace: TEST_NAMESPACE.to_string(),
-            name: "graph1".to_string(),
-            tombstoned: false,
-            description: "description1".to_string(),
-            tags: HashMap::new(),
-            state: ComputeGraphState::Active,
-            nodes: HashMap::from([
+        let original_graph: ComputeGraph = ComputeGraphBuilder::default()
+            .namespace(TEST_NAMESPACE.to_string())
+            .name("graph1".to_string())
+            .tombstoned(false)
+            .description("description1".to_string())
+            .tags(HashMap::new())
+            .state(ComputeGraphState::Active)
+            .nodes(HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),
                 ("fn_c".to_string(), fn_c.clone()),
-            ]),
-            version: crate::data_model::GraphVersion::from("1"),
-            edges: HashMap::from([(
+            ]))
+            .version(crate::data_model::GraphVersion::from("1"))
+            .edges(HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]),
-            code: ComputeGraphCode {
+            )]))
+            .code(ComputeGraphCode {
                 path: "cgc_path".to_string(),
                 size: 23,
                 sha256_hash: "hash_code".to_string(),
-            },
-            created_at: 5,
-            start_fn: fn_a.clone(),
-            runtime_information: RuntimeInformation {
+            })
+            .created_at(5)
+            .start_fn(fn_a.clone())
+            .runtime_information(RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
                 sdk_version: "1.2.3".to_string(),
-            },
-        };
+            })
+            .build()
+            .unwrap();
 
         struct TestCase {
             description: &'static str,
@@ -2936,29 +2941,30 @@ mod tests {
 
         // Minimal ComputeGraph for the builder
         let fn_a = test_compute_fn("fn_a", 0);
-        let compute_graph = ComputeGraph {
-            namespace: namespace.clone(),
-            name: compute_graph_name.clone(),
-            tombstoned: false,
-            description: "desc".to_string(),
-            tags: HashMap::new(),
-            state: ComputeGraphState::Active,
-            nodes: HashMap::from([("fn_a".to_string(), fn_a.clone())]),
-            version: graph_version.clone(),
-            edges: HashMap::new(),
-            code: ComputeGraphCode {
+        let compute_graph = ComputeGraphBuilder::default()
+            .namespace(namespace.clone())
+            .name(compute_graph_name.clone())
+            .tombstoned(false)
+            .description("desc".to_string())
+            .tags(HashMap::new())
+            .state(ComputeGraphState::Active)
+            .nodes(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
+            .version(graph_version.clone())
+            .edges(HashMap::new())
+            .code(ComputeGraphCode {
                 path: "path".to_string(),
                 size: 1,
                 sha256_hash: "hash".to_string(),
-            },
-            created_at: 123,
-            start_fn: fn_a.clone(),
-            runtime_information: RuntimeInformation {
+            })
+            .created_at(123)
+            .start_fn(fn_a.clone())
+            .runtime_information(RuntimeInformation {
                 major_version: 1,
                 minor_version: 2,
                 sdk_version: "1.2.3".to_string(),
-            },
-        };
+            })
+            .build()
+            .unwrap();
 
         let mut builder = GraphInvocationCtxBuilder::default();
         builder
