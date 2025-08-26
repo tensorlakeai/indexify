@@ -23,7 +23,6 @@ use crate::{
         GcUrl,
         GraphInvocationCtx,
         InvocationPayload,
-        Namespace,
         NamespaceBuilder,
         NodeOutput,
         StateChange,
