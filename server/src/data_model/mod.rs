@@ -280,6 +280,12 @@ impl From<&str> for CacheKey {
     }
 }
 
+impl fmt::Display for CacheKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 fn default_max_concurrency() -> u32 {
     1
 }
@@ -2744,7 +2750,7 @@ mod tests {
         );
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, TaskOutcome::Success);
-        assert!(allocation.id.len() > 0);
+        assert!(!allocation.id.is_empty());
         assert!(allocation.created_at > 0);
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
@@ -2770,7 +2776,7 @@ mod tests {
             allocation.target.function_executor_id.get()
         )));
         assert!(json.contains(&format!("\"attempt_number\":{}", allocation.attempt_number)));
-        assert!(json.contains(&format!("\"outcome\":\"Success\"")));
+        assert!(json.contains(&"\"outcome\":\"Success\"".to_string()));
         assert!(json.contains(&format!("\"id\":\"{}\"", allocation.id)));
         assert!(json.contains(&format!("\"created_at\":{}", allocation.created_at)));
         assert!(json.contains("\"diagnostics\":null"));
@@ -2821,7 +2827,7 @@ mod tests {
         assert_eq!(node_output.encoding, encoding);
         assert!(node_output.created_at > 0);
         assert!(node_output.reducer_output);
-        assert!(node_output.id.len() > 0);
+        assert!(!node_output.id.is_empty());
         assert!(node_output.invocation_error_payload.is_none());
         assert_eq!(node_output.vector_clock.value(), 0);
 
@@ -2870,7 +2876,7 @@ mod tests {
             node_output.allocation_id
         )));
         assert!(json.contains(&format!("\"encoding\":\"{}\"", node_output.encoding)));
-        assert!(json.contains(&format!("\"reducer_output\":true")));
+        assert!(json.contains(&"\"reducer_output\":true".to_string()));
         assert!(json.contains(&format!("\"id\":\"{}\"", node_output.id)));
         assert!(json.contains("\"invocation_error_payload\":null"));
         assert!(json.contains("\"vector_clock\":1"));
@@ -2908,7 +2914,7 @@ mod tests {
         assert_eq!(invocation_payload.encoding, encoding);
         assert_eq!(invocation_payload.payload, payload);
         assert!(invocation_payload.created_at > 0);
-        assert!(invocation_payload.id.len() > 0);
+        assert!(!invocation_payload.id.is_empty());
         assert_eq!(invocation_payload.vector_clock.value(), 0);
 
         // Check key format
@@ -2992,7 +2998,7 @@ mod tests {
         assert_eq!(ctx.compute_graph_name, compute_graph_name);
         assert_eq!(ctx.invocation_id, invocation_id);
         assert_eq!(ctx.graph_version, graph_version);
-        assert_eq!(ctx.completed, false);
+        assert!(!ctx.completed);
         assert_eq!(ctx.outcome, GraphInvocationOutcome::Unknown);
         assert_eq!(ctx.outstanding_tasks, 0);
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
@@ -3053,7 +3059,7 @@ mod tests {
             sha256_hash: "acc321".to_string(),
             offset: 0,
         });
-        let cache_key = Some(CacheKey::from("cache-key"));
+        let cache_key = CacheKey::from("cache-key");
 
         let mut builder = TaskBuilder::default();
         builder
@@ -3064,7 +3070,7 @@ mod tests {
             .input(input.clone())
             .acc_input(acc_input.clone())
             .graph_version(graph_version.clone())
-            .cache_key(cache_key.clone());
+            .cache_key(Some(cache_key.clone()));
 
         let task = builder.build().expect("Task should build successfully");
 
@@ -3075,7 +3081,7 @@ mod tests {
         assert_eq!(task.input, input);
         assert_eq!(task.acc_input, acc_input);
         assert_eq!(task.graph_version, graph_version);
-        assert_eq!(task.cache_key, cache_key);
+        assert_eq!(task.cache_key, Some(cache_key.clone()));
         assert_eq!(task.status, TaskStatus::Pending);
         assert_eq!(task.outcome, TaskOutcome::Unknown);
         assert_eq!(task.attempt_number, 0);
@@ -3105,7 +3111,7 @@ mod tests {
         assert!(json.contains("\"status\":\"Pending\""));
         assert!(json.contains("\"outcome\":\"Unknown\""));
         assert!(json.contains(&format!("\"graph_version\":\"{}\"", task.graph_version)));
-        assert!(json.contains(&format!("\"cache_key\":\"{}\"", cache_key.unwrap().get())));
+        assert!(json.contains(&format!("\"cache_key\":\"{cache_key}\"")));
         assert!(json.contains("\"cache_hit\":false"));
         assert!(json.contains("\"vector_clock\":1"));
         assert!(json.contains("\"input\":{"));
