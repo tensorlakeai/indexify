@@ -9,6 +9,7 @@ use anyhow::Result;
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
     AllowedFunction,
+    DataPayload as DataPayloadPb,
     DataPayloadEncoding,
     DesiredExecutorState,
     ExecutorState,
@@ -963,22 +964,27 @@ impl ExecutorApi for ExecutorAPIService {
 }
 
 fn prepare_data_payload(
-    msg: Option<executor_api_pb::DataPayload>,
+    msg: Option<DataPayloadPb>,
     blob_store_url_scheme: &str,
     blob_store_url: &str,
-) -> Option<data_model::DataPayload> {
-    msg.as_ref()?;
-    let msg = msg.unwrap();
-    msg.uri.as_ref()?;
-    msg.size.as_ref()?;
-    msg.sha256_hash.as_ref()?;
+) -> Option<DataPayload> {
+    let Some(DataPayloadPb {
+        uri: Some(uri),
+        size: Some(size),
+        sha256_hash: Some(sha256_hash),
+        offset,
+        ..
+    }) = &msg
+    else {
+        return None;
+    };
 
-    Some(data_model::DataPayload {
-        path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
-        size: msg.size.unwrap(),
-        sha256_hash: msg.sha256_hash.unwrap(),
+    Some(DataPayload {
+        path: blob_store_url_to_path(uri, blob_store_url_scheme, blob_store_url),
+        size: *size,
+        sha256_hash: sha256_hash.clone(),
         // Default to 0 if Executor is not yet storing multiple DataPayloads inside a single BLOB.
-        offset: msg.offset.unwrap_or(0),
+        offset: offset.unwrap_or(0),
     })
 }
 

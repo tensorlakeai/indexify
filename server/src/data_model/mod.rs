@@ -666,8 +666,8 @@ pub struct TaskDiagnostics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct NodeOutput {
+    #[builder(setter(skip), default = "self.generate_id()?")]
     pub id: String,
     pub namespace: String,
     pub compute_graph_name: String,
@@ -675,14 +675,18 @@ pub struct NodeOutput {
     pub invocation_id: String,
     pub payloads: Vec<DataPayload>,
     pub next_functions: Vec<String>,
-    pub created_at: u64,
+    #[builder(default)]
+    pub created_at: EpochTime,
+    #[builder(default = "self.default_encoding()")]
     pub encoding: String,
     pub allocation_id: String,
+    #[builder(default)]
     pub invocation_error_payload: Option<DataPayload>,
 
     // If this is the output of an individual reducer
     // We need this here since we are going to filter out the individual reducer outputs
     // and return the accumulated output
+    #[builder(default)]
     pub reducer_output: bool,
 
     #[builder(default)]
@@ -727,65 +731,42 @@ impl NodeOutput {
 }
 
 impl NodeOutputBuilder {
-    pub fn build(&mut self) -> Result<NodeOutput> {
-        let ns = self
+    fn generate_id(&self) -> Result<String, String> {
+        let namespace = self
             .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is required"))?;
+            .as_deref()
+            .ok_or("namespace is required to generate the id")?;
         let cg_name = self
             .compute_graph_name
             .clone()
-            .ok_or(anyhow!("compute_graph_name is required"))?;
+            .ok_or("compute_graph_name is required to generate the id")?;
         let fn_name = self
             .compute_fn_name
             .clone()
-            .ok_or(anyhow!("compute_fn_name is required"))?;
+            .ok_or("compute_fn_name is required to generate the id")?;
         let invocation_id = self
             .invocation_id
             .clone()
-            .ok_or(anyhow!("invocation_id is required"))?;
-        let encoding = self
-            .encoding
-            .clone()
-            .unwrap_or_else(|| "application/octet-stream".to_string());
+            .ok_or("invocation_id is required to generate the id")?;
         let allocation_id = self
             .allocation_id
             .clone()
-            .ok_or(anyhow!("allocation_id is required"))?;
-        let reducer_output = self.reducer_output.unwrap_or(false);
-        let payloads = self
-            .payloads
-            .clone()
-            .ok_or(anyhow!("payloads is required"))?;
-        let next_functions = self
-            .next_functions
-            .clone()
-            .ok_or(anyhow!("next_functions is required"))?;
-        let invocation_error_payload = self.invocation_error_payload.clone().flatten();
-        let created_at: u64 = get_epoch_time_in_ms();
+            .ok_or("allocation_id is required to generate the id")?;
+
         let mut hasher = DefaultHasher::new();
-        ns.hash(&mut hasher);
+        namespace.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
         invocation_id.hash(&mut hasher);
         allocation_id.hash(&mut hasher);
 
-        let id = format!("{:x}", hasher.finish());
-        Ok(NodeOutput {
-            id,
-            namespace: ns,
-            compute_graph_name: cg_name,
-            invocation_id,
-            compute_fn_name: fn_name,
-            payloads,
-            next_functions,
-            created_at,
-            encoding,
-            allocation_id,
-            invocation_error_payload,
-            reducer_output,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
+        Ok(format!("{:x}", hasher.finish()))
+    }
+
+    // This needs to be a function and not a constant because
+    // derive_builder requires it to be a function.
+    fn default_encoding(&self) -> String {
+        "application/octet-stream".to_string()
     }
 }
 
@@ -2850,7 +2831,7 @@ mod tests {
         assert_eq!(node_output.payloads, payloads);
         assert_eq!(node_output.next_functions, next_functions);
         assert_eq!(node_output.encoding, encoding);
-        assert!(node_output.created_at > 0);
+        assert!(node_output.created_at > EpochTime(0));
         assert!(node_output.reducer_output);
         assert!(!node_output.id.is_empty());
         assert!(node_output.invocation_error_payload.is_none());

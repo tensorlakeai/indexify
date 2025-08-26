@@ -118,7 +118,6 @@ mod tests {
             )?;
 
             let output = NodeOutputBuilder::default()
-                .id("id".to_string())
                 .namespace(TEST_NAMESPACE.to_string())
                 .compute_fn_name("fn_a".to_string())
                 .compute_graph_name(compute_graph.name.clone())
@@ -129,7 +128,6 @@ mod tests {
                     sha256_hash: res.sha256_hash.clone(),
                     offset: 0,
                 }])
-                .created_at(5)
                 .reducer_output(false)
                 .allocation_id("allocation_id".to_string())
                 .next_functions(vec!["fn_b".to_string(), "fn_c".to_string()])

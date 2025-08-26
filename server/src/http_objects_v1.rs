@@ -240,7 +240,7 @@ pub struct FnOutput {
     pub id: String,
     pub num_outputs: u64,
     pub compute_fn: String,
-    pub created_at: u64,
+    pub created_at: u128,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

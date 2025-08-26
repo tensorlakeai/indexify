@@ -758,7 +758,7 @@ pub struct Tasks {
 pub struct FnOutput {
     pub id: String,
     pub compute_fn: String,
-    pub created_at: u64,
+    pub created_at: u128,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]

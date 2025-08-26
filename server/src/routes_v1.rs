@@ -373,7 +373,7 @@ async fn find_invocation(
             id: output.id.clone(),
             num_outputs: output.payloads.len() as u64,
             compute_fn: output.compute_fn_name.clone(),
-            created_at: output.created_at,
+            created_at: output.created_at.clone().into(),
         });
     }
 

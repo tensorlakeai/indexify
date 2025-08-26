@@ -878,7 +878,7 @@ async fn list_outputs(
             http_outputs.push(FnOutput {
                 id: format!("{}|{}", output.id, idx),
                 compute_fn: output.compute_fn_name.clone(),
-                created_at: output.created_at,
+                created_at: output.created_at.clone().into(),
             });
         }
     }
