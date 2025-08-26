@@ -585,6 +585,14 @@ impl ComputeGraph {
 
         Ok(())
     }
+
+    pub fn fn_task_analytics(&self) -> HashMap<String, TaskAnalytics> {
+        let mut fn_task_analytics = HashMap::new();
+        for (fn_name, _node) in self.nodes.iter() {
+            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
+        }
+        fn_task_analytics
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -771,13 +779,14 @@ impl NodeOutputBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct InvocationPayload {
+    #[builder(setter(skip), default = "self.generate_id()?")]
     pub id: String,
     pub namespace: String,
     pub compute_graph_name: String,
     pub payload: DataPayload,
-    pub created_at: u64,
+    #[builder(default)]
+    pub created_at: EpochTime,
     pub encoding: String,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -794,39 +803,27 @@ impl InvocationPayload {
 }
 
 impl InvocationPayloadBuilder {
-    pub fn build(&mut self) -> Result<InvocationPayload> {
+    fn generate_id(&self) -> Result<String, String> {
         let namespace = self
             .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is required"))?;
+            .as_deref()
+            .ok_or("namespace is required to generate the id")?;
         let cg_name = self
             .compute_graph_name
             .clone()
-            .ok_or(anyhow!("compute_graph_name is required"))?;
-        let encoding = self
-            .encoding
-            .clone()
-            .ok_or(anyhow!("content_type is required"))?;
-
-        let created_at: u64 = get_epoch_time_in_ms();
-        let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
+            .ok_or("compute_graph_name is required to generate the id")?;
+        let payload = self
+            .payload
+            .as_ref()
+            .ok_or("payload is required to generate the id")?;
 
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         payload.sha256_hash.hash(&mut hasher);
         payload.path.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
 
-        Ok(InvocationPayload {
-            id,
-            namespace,
-            compute_graph_name: cg_name,
-            payload,
-            created_at,
-            encoding,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
+        Ok(format!("{:x}", hasher.finish()))
     }
 }
 
@@ -932,20 +929,25 @@ pub struct GraphInvocationError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
     pub graph_version: GraphVersion,
     pub invocation_id: String,
+    #[builder(default)]
     pub completed: bool,
     #[serde(default)]
+    #[builder(default)]
     pub outcome: GraphInvocationOutcome,
+    #[builder(default)]
     pub outstanding_tasks: u64,
+    #[builder(default)]
     pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
-    #[serde(default = "get_epoch_time_in_ms")]
-    pub created_at: u64,
+    #[serde(default)]
+    #[builder(default)]
+    pub created_at: EpochTime,
+    #[builder(setter(strip_option), default)]
     pub invocation_error: Option<GraphInvocationError>,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -1046,53 +1048,6 @@ impl GraphInvocationCtx {
 
     pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
         format!("{namespace}|{compute_graph}|")
-    }
-}
-
-impl GraphInvocationCtxBuilder {
-    pub fn build(&mut self, compute_graph: ComputeGraph) -> Result<GraphInvocationCtx> {
-        let namespace = self
-            .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is required"))?;
-        let cg_name = self
-            .compute_graph_name
-            .clone()
-            .ok_or(anyhow!("compute_graph_name is required"))?;
-        let invocation_id = self
-            .invocation_id
-            .clone()
-            .ok_or(anyhow!("ingested_data_object_id is required"))?;
-        let mut fn_task_analytics = HashMap::new();
-        for (fn_name, _node) in compute_graph.nodes.iter() {
-            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
-        }
-        let graph_version = self
-            .graph_version
-            .clone()
-            .ok_or(anyhow!("graph version is required"))?;
-        let created_at = self.created_at.unwrap_or_else(get_epoch_time_in_ms);
-
-        let completed = self.completed.unwrap_or_default();
-        let outcome = self.outcome.clone().unwrap_or_default();
-        let outstanding_tasks = self.outstanding_tasks.unwrap_or_default();
-        let outstanding_reducer_tasks = self.outstanding_reducer_tasks.unwrap_or_default();
-        let invocation_error = self.invocation_error.clone().flatten();
-
-        Ok(GraphInvocationCtx {
-            namespace,
-            graph_version,
-            compute_graph_name: cg_name,
-            invocation_id,
-            completed,
-            outcome,
-            fn_task_analytics,
-            outstanding_tasks,
-            outstanding_reducer_tasks,
-            created_at,
-            invocation_error,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
     }
 }
 
@@ -2919,7 +2874,7 @@ mod tests {
         assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
         assert_eq!(invocation_payload.encoding, encoding);
         assert_eq!(invocation_payload.payload, payload);
-        assert!(invocation_payload.created_at > 0);
+        assert!(invocation_payload.created_at > EpochTime(0));
         assert!(!invocation_payload.id.is_empty());
         assert_eq!(invocation_payload.vector_clock.value(), 0);
 
@@ -2989,15 +2944,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut builder = GraphInvocationCtxBuilder::default();
-        builder
+        let ctx = GraphInvocationCtxBuilder::default()
             .namespace(namespace.clone())
             .compute_graph_name(compute_graph_name.clone())
             .invocation_id(invocation_id.clone())
-            .graph_version(graph_version.clone());
-
-        let ctx = builder
-            .build(compute_graph.clone())
+            .graph_version(graph_version.clone())
+            .fn_task_analytics(compute_graph.fn_task_analytics())
+            .build()
             .expect("GraphInvocationCtx should build successfully");
 
         assert_eq!(ctx.namespace, namespace);
@@ -3009,7 +2962,7 @@ mod tests {
         assert_eq!(ctx.outstanding_tasks, 0);
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
         assert!(ctx.invocation_error.is_none());
-        assert!(ctx.created_at > 0);
+        assert!(ctx.created_at > EpochTime(0));
         assert_eq!(ctx.vector_clock.value(), 0);
 
         // fn_task_analytics should have an entry for each node

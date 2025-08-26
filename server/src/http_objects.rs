@@ -846,7 +846,7 @@ pub struct Invocation {
     pub outstanding_tasks: u64,
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
-    pub created_at: u64,
+    pub created_at: u128,
     pub invocation_error: Option<RequestError>,
 }
 
@@ -882,7 +882,7 @@ impl From<GraphInvocationCtx> for Invocation {
             outstanding_tasks: value.outstanding_tasks,
             task_analytics,
             graph_version: value.graph_version.0,
-            created_at: value.created_at,
+            created_at: value.created_at.into(),
             invocation_error: None, // Set by API handlers if needed
         }
     }

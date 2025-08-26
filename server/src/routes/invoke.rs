@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin, time::Duration};
+use std::{pin::Pin, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -211,9 +211,9 @@ pub async fn invoke_with_object_v1(
         .compute_graph_name(compute_graph.name.to_string())
         .graph_version(compute_graph.version.clone())
         .invocation_id(invocation_payload.id.clone())
-        .fn_task_analytics(HashMap::new())
-        .created_at(invocation_payload.created_at)
-        .build(compute_graph.clone())
+        .fn_task_analytics(compute_graph.fn_task_analytics())
+        .created_at(invocation_payload.created_at.clone())
+        .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
@@ -362,9 +362,9 @@ pub async fn invoke_with_object(
         .compute_graph_name(compute_graph.name.to_string())
         .graph_version(compute_graph.version.clone())
         .invocation_id(invocation_payload.id.clone())
-        .fn_task_analytics(HashMap::new())
-        .created_at(invocation_payload.created_at)
-        .build(compute_graph.clone())
+        .fn_task_analytics(compute_graph.fn_task_analytics())
+        .created_at(invocation_payload.created_at.clone())
+        .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;

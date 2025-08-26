@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use anyhow::Result;
     use bytes::Bytes;
     use futures::stream;
@@ -25,7 +23,6 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
         },
         testing,
-        utils::get_epoch_time_in_ms,
     };
 
     #[tokio::test]
@@ -76,7 +73,6 @@ mod tests {
                 .await?;
 
             let invocation = InvocationPayloadBuilder::default()
-                .id("invocation_id".to_string())
                 .namespace(TEST_NAMESPACE.to_string())
                 .compute_graph_name(compute_graph.name.clone())
                 .payload(crate::data_model::DataPayload {
@@ -85,7 +81,6 @@ mod tests {
                     sha256_hash: res.sha256_hash.clone(),
                     offset: 0, // All BLOB operations are not offset-aware
                 })
-                .created_at(get_epoch_time_in_ms())
                 .encoding("application/octet-stream".to_string())
                 .build()?;
 
@@ -106,10 +101,8 @@ mod tests {
                 ))
                 .outstanding_tasks(0)
                 .outstanding_reducer_tasks(0)
-                .fn_task_analytics(HashMap::new())
-                .created_at(get_epoch_time_in_ms())
-                .invocation_error(None)
-                .build(compute_graph.clone())?;
+                .fn_task_analytics(compute_graph.fn_task_analytics())
+                .build()?;
 
             indexify_state.db.put_cf(
                 &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
