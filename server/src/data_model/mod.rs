@@ -922,7 +922,6 @@ impl From<TaskFailureReason> for GraphInvocationFailureReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct GraphInvocationError {
     pub function_name: String,
     pub payload: DataPayload,
@@ -1829,7 +1828,6 @@ impl FunctionExecutorDiagnostics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
-#[builder(build_fn(skip))]
 pub struct FunctionExecutorResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u64,
@@ -1852,8 +1850,8 @@ impl GcUrl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(build_fn(skip))]
 pub struct FunctionExecutor {
+    #[builder(default)]
     pub id: FunctionExecutorId,
     pub namespace: String,
     pub compute_graph_name: String,
@@ -1895,46 +1893,7 @@ impl FunctionExecutor {
     }
 }
 
-impl FunctionExecutorBuilder {
-    pub fn build(&mut self) -> Result<FunctionExecutor> {
-        let id = self.id.clone().unwrap_or_default();
-        let namespace = self
-            .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is required"))?;
-        let compute_graph_name = self
-            .compute_graph_name
-            .clone()
-            .ok_or(anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = self
-            .compute_fn_name
-            .clone()
-            .ok_or(anyhow!("compute_fn_name is required"))?;
-        let version = self.version.clone().ok_or(anyhow!("version is required"))?;
-        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
-        let resources = self
-            .resources
-            .clone()
-            .ok_or(anyhow!("resources is required"))?;
-        let max_concurrency = self
-            .max_concurrency
-            .ok_or(anyhow!("max_concurrency is required"))?;
-        Ok(FunctionExecutor {
-            id,
-            namespace,
-            compute_graph_name,
-            compute_fn_name,
-            version,
-            state,
-            resources,
-            max_concurrency,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
-    }
-}
-
 #[derive(Debug, Clone, Builder)]
-#[builder(build_fn(skip))]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
@@ -1957,7 +1916,6 @@ impl Hash for ExecutorServerMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(build_fn(skip))]
 pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executor: FunctionExecutor,
@@ -1999,7 +1957,6 @@ impl FunctionExecutorServerMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(build_fn(skip))]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
@@ -2010,8 +1967,10 @@ pub struct ExecutorMetadata {
     pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
+    #[builder(default)]
     pub tombstoned: bool,
     pub state_hash: String,
+    #[builder(default)]
     pub clock: u64,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -2034,51 +1993,6 @@ impl ExecutorMetadata {
         self.state = update.state;
         self.state_hash = update.state_hash;
         self.clock = update.clock;
-    }
-}
-
-impl ExecutorMetadataBuilder {
-    pub fn build(&mut self) -> Result<ExecutorMetadata> {
-        let id = self.id.clone().ok_or(anyhow!("id is required"))?;
-        let executor_version = self
-            .executor_version
-            .clone()
-            .ok_or(anyhow!("executor_version is required"))?;
-        let function_allowlist = self
-            .function_allowlist
-            .clone()
-            .ok_or(anyhow!("function_allowlist is required"))?;
-        let addr = self.addr.clone().ok_or(anyhow!("addr is required"))?;
-        let labels = self.labels.clone().ok_or(anyhow!("labels is required"))?;
-        let function_executors = self
-            .function_executors
-            .clone()
-            .ok_or(anyhow!("function_executors is required"))?;
-        let host_resources = self
-            .host_resources
-            .clone()
-            .ok_or(anyhow!("host_resources is required"))?;
-        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
-        let state_hash = self
-            .state_hash
-            .clone()
-            .ok_or(anyhow!("state_hash is required"))?;
-        let tombstoned = self.tombstoned.unwrap_or(false);
-        let clock = self.clock.unwrap_or(0);
-        Ok(ExecutorMetadata {
-            id,
-            executor_version,
-            function_allowlist,
-            addr,
-            labels,
-            function_executors,
-            host_resources,
-            state,
-            tombstoned,
-            state_hash,
-            clock,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
     }
 }
 
@@ -3177,22 +3091,22 @@ mod tests {
         let fe_id = FunctionExecutorId::from("fe-1");
         let function_executors = HashMap::from([(
             fe_id.clone(),
-            FunctionExecutor {
-                id: fe_id.clone(),
-                namespace: "ns".to_string(),
-                compute_graph_name: "graph".to_string(),
-                compute_fn_name: "fn".to_string(),
-                version: GraphVersion::from("1"),
-                state: FunctionExecutorState::Running,
-                resources: FunctionExecutorResources {
+            FunctionExecutorBuilder::default()
+                .id(fe_id.clone())
+                .namespace("ns".to_string())
+                .compute_graph_name("graph".to_string())
+                .compute_fn_name("fn".to_string())
+                .version(GraphVersion::from("1"))
+                .state(FunctionExecutorState::Running)
+                .resources(FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
                     gpu: None,
-                },
-                max_concurrency: 2,
-                vector_clock: VectorClock::default(),
-            },
+                })
+                .max_concurrency(2)
+                .build()
+                .expect("Should build FunctionExecutor"),
         )]);
         let host_resources = HostResources {
             cpu_ms_per_sec: 4000,

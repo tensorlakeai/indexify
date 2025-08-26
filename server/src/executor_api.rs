@@ -306,7 +306,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(server_clock) = executor_state.server_clock {
             executor_metadata.clock(server_clock);
         }
-        executor_metadata.build()
+        executor_metadata.build().map_err(Into::into)
     }
 }
 
