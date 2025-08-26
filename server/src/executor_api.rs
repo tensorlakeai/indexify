@@ -411,6 +411,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .resources(resources)
             .max_concurrency(max_concurrency)
             .build()
+            .map_err(Into::into)
     }
 }
 

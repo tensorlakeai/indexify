@@ -743,7 +743,7 @@ impl Task {
             reducer_input_payload: None,
             output_payload_uri_prefix: None,
             allocations,
-            creation_time_ns: task.creation_time_ns,
+            creation_time_ns: task.creation_time_ns.into(),
         }
     }
 }

@@ -652,7 +652,8 @@ pub(crate) fn handle_scheduler_update(
                 task_id = task.id.to_string(),
                 status = task.status.to_string(),
                 outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                duration_sec =
+                    get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
                 "updated task",
             ),
             TaskOutcome::Failure(_) => info!(
@@ -663,7 +664,8 @@ pub(crate) fn handle_scheduler_update(
                 task_id = task.id.to_string(),
                 status = task.status.to_string(),
                 outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                duration_sec =
+                    get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
                 "updated task",
             ),
         }

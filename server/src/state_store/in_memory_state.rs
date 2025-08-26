@@ -135,7 +135,7 @@ pub struct UnallocatedTaskId {
 impl UnallocatedTaskId {
     pub fn new(task: &Task) -> Self {
         Self {
-            task_creation_time_ns: task.creation_time_ns,
+            task_creation_time_ns: task.creation_time_ns.clone().into(),
             task_key: task.key(),
         }
     }
@@ -394,7 +394,10 @@ impl InMemoryMetrics {
                                 .values()
                                 .filter(|task| !task.is_terminal())
                                 .map(|task| {
-                                    get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds)
+                                    get_elapsed_time(
+                                        *task.creation_time_ns.deref(),
+                                        TimeUnit::Nanoseconds,
+                                    )
                                 })
                                 .max_by(|a, b| {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
@@ -788,7 +791,7 @@ impl InMemoryState {
 
                         // Record metrics
                         self.task_pending_latency.record(
-                            get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                            get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
                             &[],
                         );
 
@@ -1488,8 +1491,6 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use crate::{
         data_model::{
             DataPayload,
@@ -1503,7 +1504,6 @@ mod tests {
             Task,
             TaskBuilder,
             TaskFailureReason,
-            TaskId,
             TaskOutcome,
             TaskStatus,
         },
@@ -1597,15 +1597,9 @@ mod tests {
             compute_graph: &str,
             invocation_id: &str,
             compute_fn: &str,
-            task_id: &str,
             outcome: TaskOutcome,
         ) -> Task {
-            let current_time = SystemTime::now();
-            let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
-            let creation_time_ns = duration.as_nanos();
-
             TaskBuilder::default()
-                .id(TaskId::from(task_id))
                 .namespace(namespace.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .compute_graph_name(compute_graph.to_string())
@@ -1620,7 +1614,6 @@ mod tests {
                 .acc_input(None)
                 .status(TaskStatus::Pending)
                 .outcome(outcome)
-                .creation_time_ns(creation_time_ns)
                 .graph_version(GraphVersion("1.0".to_string()))
                 .cache_key(None)
                 .attempt_number(0)
@@ -1663,7 +1656,6 @@ mod tests {
             "test-graph",
             "inv-1",
             "test-function",
-            "task-1",
             TaskOutcome::Success,
         );
         state
@@ -1677,7 +1669,6 @@ mod tests {
             "test-graph",
             "inv-2",
             "test-function",
-            "task-2",
             TaskOutcome::Failure(TaskFailureReason::FunctionError),
         );
         state
@@ -1691,7 +1682,6 @@ mod tests {
             "test-graph",
             "inv-3",
             "test-function",
-            "task-3",
             TaskOutcome::Unknown,
         );
         state
@@ -1706,7 +1696,6 @@ mod tests {
             "different-graph",
             "inv-4",
             "test-function",
-            "task-4",
             TaskOutcome::Unknown,
         );
         state
@@ -1721,7 +1710,6 @@ mod tests {
             "test-graph",
             "inv-5",
             "different-function",
-            "task-5",
             TaskOutcome::Unknown,
         );
         state
@@ -1735,7 +1723,6 @@ mod tests {
             "test-graph",
             "inv-6",
             "test-function",
-            "task-6",
             TaskOutcome::Unknown,
         );
         state

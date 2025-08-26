@@ -170,7 +170,7 @@ impl Task {
             status: task.status.into(),
             graph_version: task.graph_version.into(),
             allocations,
-            created_at: task.creation_time_ns,
+            created_at: task.creation_time_ns.into(),
         }
     }
 }

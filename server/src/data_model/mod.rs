@@ -1220,24 +1220,29 @@ impl Display for TaskStatus {
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct Task {
+    #[builder(setter(skip), default = "self.generate_id()")]
     pub id: TaskId,
     pub namespace: String,
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
+    #[builder(default)]
     pub cache_hit: bool,
     // Input to the function
     pub input: DataPayload,
     // Input to the reducer function
     pub acc_input: Option<DataPayload>,
     #[serde(default)]
+    #[builder(default = "self.default_status()")]
     pub status: TaskStatus,
+    #[builder(default)]
     pub outcome: TaskOutcome,
-    pub creation_time_ns: u128,
+    #[builder(default)]
+    pub creation_time_ns: EpochTime,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
+    #[builder(default)]
     pub attempt_number: u32,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -1301,61 +1306,12 @@ impl Display for Task {
 }
 
 impl TaskBuilder {
-    pub fn build(&self) -> Result<Task> {
-        let namespace = self
-            .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is not present"))?;
-        let compute_graph_name = self
-            .compute_graph_name
-            .clone()
-            .ok_or(anyhow!("compute graph name is not present"))?;
-        let compute_fn_name = self
-            .compute_fn_name
-            .clone()
-            .ok_or(anyhow!("compute fn name is not present"))?;
-        let input = self.input.clone().ok_or(anyhow!("input is not present"))?;
-        let acc_input = self.acc_input.clone().flatten();
-        let invocation_id = self
-            .invocation_id
-            .clone()
-            .ok_or(anyhow!("ingestion data object id is not present"))?;
-        let graph_version = self
-            .graph_version
-            .clone()
-            .ok_or(anyhow!("graph version is not present"))?;
+    fn generate_id(&self) -> TaskId {
+        TaskId(uuid::Uuid::new_v4().to_string())
+    }
 
-        let status = self.status.clone().unwrap_or(TaskStatus::Pending);
-        let outcome = self.outcome.unwrap_or_default();
-        let attempt_number = self.attempt_number.unwrap_or_default();
-        let cache_hit = self.cache_hit.unwrap_or_default();
-        let vector_clock = self.vector_clock.clone().unwrap_or_default();
-
-        let current_time = SystemTime::now();
-        let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
-        let creation_time_ns = duration.as_nanos();
-
-        let id = uuid::Uuid::new_v4().to_string();
-        let cache_key = self.cache_key.clone().flatten();
-
-        let task = Task {
-            id: TaskId(id),
-            compute_graph_name,
-            compute_fn_name,
-            input,
-            acc_input,
-            invocation_id,
-            namespace,
-            status,
-            outcome,
-            graph_version,
-            creation_time_ns,
-            cache_key,
-            attempt_number,
-            cache_hit,
-            vector_clock,
-        };
-        Ok(task)
+    fn default_status(&self) -> TaskStatus {
+        TaskStatus::Pending
     }
 }
 
@@ -2959,7 +2915,7 @@ mod tests {
         assert_eq!(task.outcome, TaskOutcome::Unknown);
         assert_eq!(task.attempt_number, 0);
         assert!(!task.id.get().is_empty());
-        assert!(task.creation_time_ns > 0);
+        assert!(task.creation_time_ns > EpochTime(0));
         assert!(!task.key().is_empty());
         assert_eq!(task.vector_clock.value(), 0);
 
