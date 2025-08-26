@@ -1867,10 +1867,11 @@ pub struct FunctionExecutorResources {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(build_fn(skip))]
 pub struct GcUrl {
     pub url: String,
     pub namespace: String,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 impl GcUrl {

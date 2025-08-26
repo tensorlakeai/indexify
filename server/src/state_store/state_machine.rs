@@ -21,6 +21,7 @@ use crate::{
         ComputeGraph,
         ComputeGraphVersion,
         GcUrl,
+        GcUrlBuilder,
         GraphInvocationCtx,
         InvocationPayload,
         NamespaceBuilder,
@@ -248,10 +249,10 @@ pub(crate) fn delete_invocation(
                     .iter()
                     .flatten()
                     .try_for_each(|data| -> Result<()> {
-                        let gc_url = GcUrl {
-                            url: data.path.clone(),
-                            namespace: req.namespace.clone(),
-                        };
+                        let gc_url = GcUrlBuilder::default()
+                            .url(data.path.clone())
+                            .namespace(req.namespace.clone())
+                            .build()?;
                         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
                         txn.put_cf(
                             &IndexifyObjectsColumns::GcUrls.cf_db(&db),
@@ -290,10 +291,10 @@ pub(crate) fn delete_invocation(
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         for payload in value.payloads {
-            let gc_url = GcUrl {
-                url: payload.path.clone(),
-                namespace: req.namespace.clone(),
-            };
+            let gc_url = GcUrlBuilder::default()
+                .url(payload.path.clone())
+                .namespace(req.namespace.clone())
+                .build()?;
             let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
             txn.put_cf(
                 &IndexifyObjectsColumns::GcUrls.cf_db(&db),
@@ -547,10 +548,10 @@ pub fn delete_compute_graph(
         let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
 
         // mark all code urls for gc.
-        let gc_url = GcUrl {
-            url: value.code.path.clone(),
-            namespace: namespace.to_string(),
-        };
+        let gc_url = GcUrlBuilder::default()
+            .url(value.code.path.clone())
+            .namespace(namespace.to_string())
+            .build()?;
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put_cf(
             &IndexifyObjectsColumns::GcUrls.cf_db(&db),
