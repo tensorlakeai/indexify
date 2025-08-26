@@ -455,18 +455,19 @@ impl ComputeGraph {
     }
 
     pub fn to_version(&self) -> ComputeGraphVersion {
-        ComputeGraphVersion {
-            namespace: self.namespace.clone(),
-            compute_graph_name: self.name.clone(),
-            created_at: self.created_at,
-            version: self.version.clone(),
-            code: self.code.clone(),
-            start_fn: self.start_fn.clone(),
-            nodes: self.nodes.clone(),
-            edges: self.edges.clone(),
-            runtime_information: self.runtime_information.clone(),
-            state: self.state.clone(),
-        }
+        ComputeGraphVersionBuilder::default()
+            .namespace(self.namespace.clone())
+            .compute_graph_name(self.name.clone())
+            .created_at(self.created_at)
+            .version(self.version.clone())
+            .code(self.code.clone())
+            .start_fn(self.start_fn.clone())
+            .nodes(self.nodes.clone())
+            .edges(self.edges.clone())
+            .runtime_information(self.runtime_information.clone())
+            .state(self.state.clone())
+            .build()
+            .expect("ComputeGraphVersionBuilder should build successfully")
     }
 
     pub fn can_be_scheduled(
@@ -552,7 +553,7 @@ impl ComputeGraph {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct ComputeGraphVersion {
     // Graph is currently versioned manually by users.
     pub namespace: String,
@@ -561,11 +562,16 @@ pub struct ComputeGraphVersion {
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
     pub start_fn: ComputeFn,
+    #[builder(default)]
     pub nodes: HashMap<String, ComputeFn>,
+    #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
     #[serde(default)]
+    #[builder(default)]
     pub state: ComputeGraphState,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 impl ComputeGraphVersion {
@@ -2607,31 +2613,29 @@ mod tests {
     where
         F: FnOnce(&mut ComputeGraphVersion),
     {
-        fn create_test_graph_version() -> ComputeGraphVersion {
-            let fn_a = test_compute_fn("fn_a", 0);
-            ComputeGraphVersion {
-                namespace: String::new(),
-                compute_graph_name: String::new(),
-                created_at: 0,
-                version: GraphVersion::default(),
-                state: ComputeGraphState::Active,
-                code: ComputeGraphCode {
-                    path: String::new(),
-                    size: 0,
-                    sha256_hash: String::new(),
-                },
-                start_fn: fn_a,
-                nodes: HashMap::new(),
-                edges: HashMap::new(),
-                runtime_information: RuntimeInformation {
-                    major_version: 0,
-                    minor_version: 0,
-                    sdk_version: "1.2.3".to_string(),
-                },
-            }
-        }
+        let fn_a = test_compute_fn("fn_a", 0);
+        let mut graph_version = ComputeGraphVersionBuilder::default()
+            .namespace(String::new())
+            .compute_graph_name(String::new())
+            .created_at(0)
+            .version(GraphVersion::default())
+            .state(ComputeGraphState::Active)
+            .code(ComputeGraphCode {
+                path: String::new(),
+                size: 0,
+                sha256_hash: String::new(),
+            })
+            .start_fn(fn_a)
+            .nodes(HashMap::new())
+            .edges(HashMap::new())
+            .runtime_information(RuntimeInformation {
+                major_version: 0,
+                minor_version: 0,
+                sdk_version: "1.2.3".to_string(),
+            })
+            .build()
+            .unwrap();
 
-        let mut graph_version = create_test_graph_version();
         configure_graph(&mut graph_version);
 
         let mut parent_nodes = graph_version.get_compute_parent_nodes(node);
