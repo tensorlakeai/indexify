@@ -8,7 +8,6 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     ops::Deref,
     str,
-    time::{SystemTime, UNIX_EPOCH},
     vec,
 };
 
