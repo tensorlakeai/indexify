@@ -20,6 +20,7 @@ use crate::{
         Allocation,
         ComputeGraph,
         ComputeGraphVersion,
+        FunctionExecutorDiagnostics,
         GcUrl,
         GcUrlBuilder,
         GraphInvocationCtx,
@@ -853,7 +854,7 @@ pub fn ingest_task_outputs(
 pub fn upsert_function_executor_diagnostics(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    fe_diagnostics: &data_model::FunctionExecutorDiagnostics,
+    fe_diagnostics: &FunctionExecutorDiagnostics,
 ) -> Result<()> {
     let serialized_fe_diagnostics = JsonEncoder::encode(fe_diagnostics)?;
     txn.put_cf(

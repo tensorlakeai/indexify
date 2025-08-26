@@ -39,6 +39,7 @@ use crate::{
         FunctionAllowlist,
         FunctionExecutorBuilder,
         FunctionExecutorDiagnostics,
+        FunctionExecutorDiagnosticsBuilder,
         FunctionExecutorId,
         GPUResources,
         GraphVersion,
@@ -455,15 +456,16 @@ fn to_function_executor_diagnostics(
         &blob_storage_url,
     );
 
-    Ok(data_model::FunctionExecutorDiagnostics {
-        id: FunctionExecutorId::new(id.to_string()),
-        namespace,
-        graph_name,
-        function_name,
-        graph_version: GraphVersion(graph_version),
-        startup_stdout,
-        startup_stderr,
-    })
+    let diags = FunctionExecutorDiagnosticsBuilder::default()
+        .id(FunctionExecutorId::new(id.to_string()))
+        .namespace(namespace)
+        .graph_name(graph_name)
+        .function_name(function_name)
+        .graph_version(GraphVersion(graph_version))
+        .startup_stdout(startup_stdout)
+        .startup_stderr(startup_stderr)
+        .build()?;
+    Ok(diags)
 }
 
 fn to_function_executor_diagnostics_vector(

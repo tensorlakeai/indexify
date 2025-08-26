@@ -1822,7 +1822,6 @@ impl FunctionAllowlist {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-#[builder(build_fn(skip))]
 // Stores historical information about a Function Executor. It is persisted in
 // state store so it's available after FE termination.
 pub struct FunctionExecutorDiagnostics {
@@ -1833,6 +1832,8 @@ pub struct FunctionExecutorDiagnostics {
     pub graph_version: GraphVersion,
     pub startup_stdout: Option<DataPayload>,
     pub startup_stderr: Option<DataPayload>,
+    #[builder(default)]
+    vector_clock: VectorClock,
 }
 
 impl FunctionExecutorDiagnostics {
