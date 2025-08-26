@@ -2723,9 +2723,8 @@ mod tests {
             executor_id: "executor-1".into(),
             function_executor_id: "fe-1".into(),
         };
-        let task_id = TaskId::from("task-1");
-        let mut builder = AllocationBuilder::default();
-        builder
+        let task_id: TaskId = "task-1".into();
+        let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
             .compute_graph("graph".to_string())
             .compute_fn("fn".to_string())
@@ -2733,9 +2732,7 @@ mod tests {
             .task_id(task_id.clone())
             .target(target.clone())
             .attempt_number(1)
-            .outcome(TaskOutcome::Success);
-
-        let allocation = builder
+            .outcome(TaskOutcome::Success)
             .build()
             .expect("Allocation should build successfully");
         assert_eq!(allocation.namespace, "test-ns");

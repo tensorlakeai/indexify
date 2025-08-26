@@ -152,6 +152,7 @@ impl<'de> Deserialize<'de> for VectorClock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_model::{Allocation, AllocationBuilder, AllocationTarget, TaskOutcome};
 
     #[test]
     fn test_vector_clock_basic() {
@@ -204,5 +205,32 @@ mod tests {
         let json_invalid = r#"{"task_id": 1, "clock": "invalid"}"#;
         let result: Result<TestStruct, _> = serde_json::from_str(json_invalid);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_model_load_regression() {
+        let target = AllocationTarget {
+            executor_id: "executor-1".into(),
+            function_executor_id: "fe-1".into(),
+        };
+        let allocation = AllocationBuilder::default()
+            .namespace("test-ns".to_string())
+            .compute_graph("graph".to_string())
+            .compute_fn("fn".to_string())
+            .invocation_id("invoc-1".to_string())
+            .task_id("task-1".into())
+            .target(target.clone())
+            .attempt_number(1)
+            .outcome(TaskOutcome::Success)
+            .build()
+            .expect("Allocation should build successfully");
+
+        let serialized = serde_json::to_string(&allocation).unwrap();
+        let old_format = serialized.replace(",\"vector_clock\":1", "");
+        assert!(!old_format.contains("vector_clock"));
+
+        let deserialized: Allocation = serde_json::from_str(&old_format)
+            .expect("failed to deserialize allocation without vector clock");
+        assert_eq!(deserialized.vector_clock.value(), 0);
     }
 }
