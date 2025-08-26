@@ -1108,7 +1108,7 @@ impl From<data_model::Allocation> for Allocation {
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             task_id: allocation.task_id.to_string(),
             invocation_id: allocation.invocation_id.to_string(),
-            created_at: allocation.created_at,
+            created_at: allocation.created_at.into(),
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,

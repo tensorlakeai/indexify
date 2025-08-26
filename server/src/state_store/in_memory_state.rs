@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
+    ops::Deref,
     sync::Arc,
 };
 
@@ -15,6 +16,7 @@ use tracing::{debug, error, warn};
 use crate::{
     data_model::{
         Allocation,
+        AllocationId,
         ComputeGraph,
         ComputeGraphState,
         ComputeGraphVersion,
@@ -100,7 +102,7 @@ impl Error {
 #[derive(Debug, Clone)]
 pub struct DesiredStateTask {
     pub task: Box<Task>,
-    pub allocation_id: String,
+    pub allocation_id: AllocationId,
     pub timeout_ms: u32,
     pub retry_policy: FunctionRetryPolicy,
 }
@@ -795,7 +797,7 @@ impl InMemoryState {
                             graph = &allocation.compute_graph,
                             "fn" = &allocation.compute_fn,
                             executor_id = allocation.target.executor_id.get(),
-                            allocation_id = allocation.id,
+                            allocation_id = %allocation.id,
                             invocation_id = &allocation.invocation_id,
                             task_id = allocation.task_id.get(),
                             "task not found for new allocation"
@@ -879,7 +881,7 @@ impl InMemoryState {
                                         // Record metrics
                                         self.allocation_running_latency.record(
                                             get_elapsed_time(
-                                                allocation.created_at,
+                                                *allocation.created_at.deref(),
                                                 TimeUnit::Milliseconds,
                                             ),
                                             &[KeyValue::new(
@@ -904,7 +906,7 @@ impl InMemoryState {
                     // Record metrics
                     self.allocation_completion_latency.record(
                         get_elapsed_time(
-                            allocation_output.allocation.created_at,
+                            *allocation_output.allocation.created_at.deref(),
                             TimeUnit::Milliseconds,
                         ),
                         &[KeyValue::new(

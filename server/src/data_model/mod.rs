@@ -6,6 +6,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
+    ops::Deref,
     str,
     time::{SystemTime, UNIX_EPOCH},
     vec,
@@ -20,6 +21,54 @@ use strum::Display;
 use tracing::info;
 
 use crate::{data_model::clocks::VectorClock, utils::get_epoch_time_in_ms};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct EpochTime(u128);
+
+impl Default for EpochTime {
+    fn default() -> Self {
+        get_epoch_time_in_ms().into()
+    }
+}
+
+impl fmt::Display for EpochTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for EpochTime {
+    type Target = u128;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for EpochTime {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<u64> for EpochTime {
+    fn from(value: u64) -> Self {
+        EpochTime(value as u128)
+    }
+}
+
+impl From<EpochTime> for u128 {
+    fn from(value: EpochTime) -> Self {
+        value.0
+    }
+}
+
+impl PartialOrd for EpochTime {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.0.cmp(&other.0))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -88,20 +137,53 @@ impl AllocationTarget {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct AllocationId(String);
+
+impl Default for AllocationId {
+    fn default() -> Self {
+        Self(nanoid!())
+    }
+}
+
+impl fmt::Display for AllocationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for AllocationId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for AllocationId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-#[builder(build_fn(skip))]
 pub struct Allocation {
-    pub id: String,
+    #[builder(default)]
+    pub id: AllocationId,
     pub target: AllocationTarget,
     pub task_id: TaskId,
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub created_at: u128,
+    #[builder(default)]
+    pub created_at: EpochTime,
     pub outcome: TaskOutcome,
+    #[builder(setter(strip_option), default)]
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
+    #[builder(setter(into, strip_option), default)]
     pub execution_duration_ms: Option<u64>,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -141,60 +223,6 @@ impl Allocation {
 
     pub fn is_terminal(&self) -> bool {
         matches!(self.outcome, TaskOutcome::Success | TaskOutcome::Failure(_))
-    }
-}
-
-impl AllocationBuilder {
-    pub fn build(&mut self) -> Result<Allocation> {
-        let namespace = self
-            .namespace
-            .clone()
-            .ok_or(anyhow!("namespace is required"))?;
-        let compute_graph = self
-            .compute_graph
-            .clone()
-            .ok_or(anyhow!("compute_graph_name is required"))?;
-        let compute_fn = self
-            .compute_fn
-            .clone()
-            .ok_or(anyhow!("compute fn is required"))?;
-        let invocation_id = self
-            .invocation_id
-            .clone()
-            .ok_or(anyhow!("invocation_id is required"))?;
-        let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
-        let target = self
-            .target
-            .clone()
-            .ok_or(anyhow!("allocation target is required"))?;
-        let created_at: u128 = get_epoch_time_in_ms() as u128;
-
-        let retry_number = self
-            .attempt_number
-            .ok_or(anyhow!("attempt_number is required"))?;
-
-        let outcome = self
-            .outcome
-            .ok_or(anyhow!("allocation outcome is required"))?;
-
-        let diagnostics = self.diagnostics.clone().flatten();
-        let execution_duration_ms = self.execution_duration_ms.flatten();
-
-        Ok(Allocation {
-            id: nanoid!(),
-            target,
-            task_id,
-            namespace,
-            compute_graph,
-            compute_fn,
-            invocation_id,
-            created_at,
-            outcome,
-            diagnostics,
-            attempt_number: retry_number,
-            execution_duration_ms,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
-        })
     }
 }
 
@@ -1226,7 +1254,7 @@ impl TaskFailureReason {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct RunningTaskStatus {
-    pub allocation_id: String,
+    pub allocation_id: AllocationId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -2748,7 +2776,7 @@ mod tests {
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, TaskOutcome::Success);
         assert!(!allocation.id.is_empty());
-        assert!(allocation.created_at > 0);
+        assert!(allocation.created_at > EpochTime(0));
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
         assert_eq!(allocation.vector_clock.value(), 0);
@@ -3286,6 +3314,17 @@ mod tests {
         assert!(json.contains(&format!("\"state_hash\":\"{}\"", metadata.state_hash)));
         assert!(json.contains("\"clock\":42"));
         assert!(json.contains("\"vector_clock\":1"));
+    }
+
+    #[test]
+    fn test_allocation_id() {
+        let id = AllocationId::default();
+        let id_str = id.to_string();
+        let id_deref = id.deref();
+
+        assert_eq!(&id_str, id_deref);
+        assert_eq!(id_str.len(), 21); // nanoid length
+        assert_eq!(format!("\"{id_str}\""), serde_json::to_string(&id).unwrap());
     }
 }
 

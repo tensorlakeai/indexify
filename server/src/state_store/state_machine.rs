@@ -233,7 +233,7 @@ pub(crate) fn delete_invocation(
         let value = JsonEncoder::decode::<Allocation>(&value)?;
         if value.invocation_id == req.invocation_id {
             info!(
-                allocation_id = value.id,
+                allocation_id = %value.id,
                 task_id = value.task_id.get(),
                 "fn" = value.compute_fn,
                 "deleting allocation",
@@ -629,7 +629,7 @@ pub(crate) fn handle_scheduler_update(
             invocation_id = alloc.invocation_id,
             "fn" = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
-            allocation_id = alloc.id,
+            allocation_id = %alloc.id,
             fn_executor_id = alloc.target.function_executor_id.get(),
             executor_id = alloc.target.executor_id.get(),
             "add_allocation",
