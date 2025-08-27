@@ -123,7 +123,7 @@ pub struct ComputeGraphsList {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ShallowGraphRequest {
     pub id: String,
-    pub created_at: u64,
+    pub created_at: u128,
     pub status: RequestStatus,
     pub outcome: RequestOutcome,
 }
@@ -132,7 +132,7 @@ impl From<GraphInvocationCtx> for ShallowGraphRequest {
     fn from(ctx: GraphInvocationCtx) -> Self {
         Self {
             id: ctx.invocation_id.to_string(),
-            created_at: ctx.created_at,
+            created_at: ctx.created_at.into(),
             status: if ctx.completed {
                 RequestStatus::Complete
             } else if ctx.outstanding_tasks > 0 {
@@ -170,7 +170,7 @@ impl Task {
             status: task.status.into(),
             graph_version: task.graph_version.into(),
             allocations,
-            created_at: task.creation_time_ns,
+            created_at: task.creation_time_ns.into(),
         }
     }
 }
@@ -240,7 +240,7 @@ pub struct FnOutput {
     pub id: String,
     pub num_outputs: u64,
     pub compute_fn: String,
-    pub created_at: u64,
+    pub created_at: u128,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -253,7 +253,7 @@ pub struct Request {
     pub outstanding_tasks: u64,
     pub request_progress: HashMap<String, RequestProgress>,
     pub graph_version: String,
-    pub created_at: u64,
+    pub created_at: u128,
     pub request_error: Option<RequestError>,
     pub outputs: Vec<FnOutput>,
 }
@@ -294,7 +294,7 @@ impl Request {
             outstanding_tasks: ctx.outstanding_tasks,
             request_progress: task_analytics,
             graph_version: ctx.graph_version.0,
-            created_at: ctx.created_at,
+            created_at: ctx.created_at.into(),
             request_error: invocation_error,
             outputs,
         }
@@ -325,7 +325,7 @@ impl From<data_model::Allocation> for Allocation {
             id: allocation.id.to_string(),
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
-            created_at: allocation.created_at,
+            created_at: allocation.created_at.into(),
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,

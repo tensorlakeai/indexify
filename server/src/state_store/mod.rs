@@ -534,7 +534,8 @@ mod tests {
             .compute_graph_name("cg1".to_string())
             .invocation_id("foo1".to_string())
             .graph_version(GraphVersion("1".to_string()))
-            .build(tests::test_graph_a())?;
+            .fn_task_analytics(tests::test_graph_a().fn_task_analytics())
+            .build()?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {

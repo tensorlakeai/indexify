@@ -448,7 +448,7 @@ impl ExecutorManager {
                 };
                 let task_allocation_pb = TaskAllocation {
                     function_executor_id: Some(fe_id.get().to_string()),
-                    allocation_id: Some(task.allocation_id.clone()),
+                    allocation_id: Some(task.allocation_id.to_string()),
                     task: Some(Task {
                         id: Some(task.task.id.get().to_string()),
                         namespace: Some(task.task.namespace.clone()),

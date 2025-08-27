@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use rocksdb::{
@@ -233,7 +233,7 @@ pub(crate) fn delete_invocation(
         let value = JsonEncoder::decode::<Allocation>(&value)?;
         if value.invocation_id == req.invocation_id {
             info!(
-                allocation_id = value.id,
+                allocation_id = %value.id,
                 task_id = value.task_id.get(),
                 "fn" = value.compute_fn,
                 "deleting allocation",
@@ -629,7 +629,7 @@ pub(crate) fn handle_scheduler_update(
             invocation_id = alloc.invocation_id,
             "fn" = alloc.compute_fn,
             task_id = alloc.task_id.to_string(),
-            allocation_id = alloc.id,
+            allocation_id = %alloc.id,
             fn_executor_id = alloc.target.function_executor_id.get(),
             executor_id = alloc.target.executor_id.get(),
             "add_allocation",
@@ -652,7 +652,8 @@ pub(crate) fn handle_scheduler_update(
                 task_id = task.id.to_string(),
                 status = task.status.to_string(),
                 outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                duration_sec =
+                    get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
                 "updated task",
             ),
             TaskOutcome::Failure(_) => info!(
@@ -663,7 +664,8 @@ pub(crate) fn handle_scheduler_update(
                 task_id = task.id.to_string(),
                 status = task.status.to_string(),
                 outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                duration_sec =
+                    get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
                 "updated task",
             ),
         }
@@ -686,7 +688,7 @@ pub(crate) fn handle_scheduler_update(
                 graph = invocation_ctx.compute_graph_name,
                 outcome = invocation_ctx.outcome.to_string(),
                 duration_sec =
-                    get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
+                    get_elapsed_time(*invocation_ctx.created_at.deref(), TimeUnit::Milliseconds),
                 "invocation completed"
             );
         }

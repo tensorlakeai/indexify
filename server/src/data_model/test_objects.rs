@@ -102,9 +102,9 @@ pub mod tests {
             .compute_graph_name(compute_graph.name.clone())
             .graph_version(GraphVersion::default())
             .invocation_id(invocation_payload.id.clone())
-            .fn_task_analytics(HashMap::new())
-            .created_at(invocation_payload.created_at)
-            .build(compute_graph.clone())
+            .fn_task_analytics(compute_graph.fn_task_analytics())
+            .created_at(invocation_payload.created_at.clone())
+            .build()
             .unwrap()
     }
 
