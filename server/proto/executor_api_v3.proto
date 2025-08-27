@@ -263,15 +263,28 @@ message FunctionCall {
     optional DataPayload function_input = 2;
 }
 
+message MapOperation {
+    repeated FunctionCall function_calls = 1;
+}
+
+message ReduceOperation {
+    optional FunctionCall function_call = 1;
+}
+
 message FunctionOutput {
    oneof output {
         DataPayload value = 1;
         FunctionCall function_call = 2;
-    }
-}
 
-message FunctionOutputs {
-    repeated FunctionOutput outputs = 1;
+        // Collection of function calls that are executed in parallel.
+        MapOperation map_operation = 3;
+
+        // If the function is a reducer, then return a FunctionCall with the name of the reducer function
+        // and the data payload of the current accumulator.
+        // The server will call the reducer function with the next input + the accumulator returned 
+        // from this function call.
+        ReduceOperation reduce_operation = 4;
+    }
 }
 
 message AllocationResult {
@@ -285,10 +298,7 @@ message AllocationResult {
     optional AllocationOutcomeCode outcome_code = 9;
     optional AllocationFailureReason failure_reason = 10;
 
-    // If a function returns a tuple of outputs, then each output group is an element of this list.
-    // For example -> (2, [func1(1), func2(2)], func(3))
-    // would be represented as 3 FunctionOutputs elements. The second element would be a list of FunctionOutputs which are function calls. 
-    repeated FunctionOutputs function_outputs = 11;
+    repeated FunctionOutput function_outputs = 11;
     // User payload for invocation error if task failed with invocation error.
     optional DataPayload invocation_error_output = 12;
     optional uint64 execution_duration_ms = 13;
