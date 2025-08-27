@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     // pin::Pin,
     sync::{
         atomic::{self, AtomicU64},
@@ -100,6 +100,25 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
 }
 
+fn open_database<I>(path: &Path, column_familes: I) -> Result<Arc<TransactionDB>>
+where
+    I: Iterator<Item = ColumnFamilyDescriptor>,
+{
+    let mut db_options = Options::default();
+    db_options.create_missing_column_families(true);
+    db_options.create_if_missing(true);
+
+    Ok(Arc::new(
+        TransactionDB::open_cf_descriptors(
+            &db_options,
+            &TransactionDBOptions::default(),
+            path,
+            column_familes,
+        )
+        .map_err(|e| anyhow!("failed to open db: {}", e))?,
+    ))
+}
+
 impl IndexifyState {
     pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
@@ -112,18 +131,8 @@ impl IndexifyState {
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-        let db = Arc::new(
-            TransactionDB::open_cf_descriptors(
-                &db_opts,
-                &TransactionDBOptions::default(),
-                path,
-                sm_column_families,
-            )
-            .map_err(|e| anyhow!("failed to open db: {}", e))?,
-        );
+        let db = open_database(&path, sm_column_families)?;
+
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
@@ -580,6 +589,75 @@ mod tests {
         assert_eq!(state_changes.changes[1].id, StateChangeId::new(0));
         // state_change_3
         assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_database_with_column_families() -> Result<()> {
+        // IMPORTANT:
+        // These columns families match the ones defined in the production state store.
+
+        // Do NOT remove any of the column families hardcoded below.
+        // Do add new column families here when they are added to the
+        // IndexifyObjectsColumns enum.
+
+        // If one of them is removed or renamed, Indexify server won't start because
+        // it won't be able to open the database with all column families.
+        //
+        // This test is here to guarantee that if a variant is removed from the
+        // IndexifyObjectsColumns enum, this test will fail.
+
+        // If you want to remove a column family, you need to do it via a migration.
+        // See migrations module for more details.
+        let columns = vec![
+            "StateMachineMetadata",
+            "Namespaces",
+            "ComputeGraphs",
+            "ComputeGraphVersions",
+            "Tasks",
+            "GraphInvocationCtx",
+            "GraphInvocationCtxSecondaryIndex",
+            "ReductionTasks",
+            "GraphInvocations",
+            "FnOutputs",
+            "UnprocessedStateChanges",
+            "Allocations",
+            "FunctionExecutorDiagnostics",
+            "GcUrls",
+            "SystemTasks",
+            "Stats",
+        ];
+
+        let columns_iter = columns
+            .clone()
+            .into_iter()
+            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+
+        let tmp_dir = tempfile::tempdir()?;
+
+        let db = open_database(tmp_dir.path(), columns_iter)?;
+        for name in &columns {
+            let cf = db
+                .cf_handle(name)
+                .ok_or_else(|| anyhow!("column family not found: {name}"))?;
+            db.put_cf(&cf, b"key", b"value")?;
+        }
+        drop(db);
+
+        assert_eq!(
+            columns.into_iter().map(String::from).collect::<Vec<_>>(),
+            IndexifyObjectsColumns::iter()
+                .map(|cf| cf.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        let sm_column_families = IndexifyObjectsColumns::iter()
+            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+
+        open_database(tmp_dir.path(), sm_column_families).expect(
+            "failed to open database with the column families defined in IndexifyObjectsColumns",
+        );
+
         Ok(())
     }
 
