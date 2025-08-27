@@ -1,0 +1,334 @@
+syntax = "proto3";
+
+// Rename with caution. The package name is part of gRPC service name.
+// Existing clients won't find the service if the package name changes.
+package executor_api_pb;
+
+// ===== DataPayload =====
+enum DataPayloadEncoding {
+    DATA_PAYLOAD_ENCODING_UNKNOWN = 0;
+    DATA_PAYLOAD_ENCODING_UTF8_JSON = 1;
+    DATA_PAYLOAD_ENCODING_UTF8_TEXT = 2;
+    DATA_PAYLOAD_ENCODING_BINARY_PICKLE = 3;
+    DATA_PAYLOAD_ENCODING_BINARY_ZIP = 4;
+}
+
+message DataPayload {
+    optional uint64 size = 2;
+    optional string sha256_hash = 3;
+    // URI of the BLOB where the data is stored.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix if the data is stored on a local file system.
+    optional string uri = 4;
+    optional DataPayloadEncoding encoding = 5;
+    // Not set and ignored by Server right now.
+    optional uint64 encoding_version = 6;
+    // Offset inside the BLOB.
+    optional uint64 offset = 7;
+}
+
+// ===== report_executor_state RPC =====
+enum GPUModel {
+    GPU_MODEL_UNKNOWN = 0;
+    GPU_MODEL_NVIDIA_A100_40GB = 1;
+    GPU_MODEL_NVIDIA_A100_80GB = 2;
+    GPU_MODEL_NVIDIA_H100_80GB = 3;
+    GPU_MODEL_NVIDIA_TESLA_T4 = 4;
+    GPU_MODEL_NVIDIA_A6000 = 5;
+    GPU_MODEL_NVIDIA_A10 = 6;
+}
+
+// Free GPUs available at the Executor.
+message GPUResources {
+    optional uint32 count = 1;
+    optional GPUModel model = 2;
+}
+
+// Resources that we're currently tracking and limiting on Executor.
+message HostResources {
+    optional uint32 cpu_count = 1;
+    optional uint64 memory_bytes = 2;
+    optional uint64 disk_bytes = 3;
+    // Not set if no GPUs are available.
+    optional GPUResources gpu = 4; 
+}
+
+// Specification of a single function that is allowed to be run on the Executor.
+message AllowedFunction {
+    optional string namespace = 1;
+    optional string graph_name = 2;
+    optional string function_name = 3;
+    // If none then any version of the graph is allowed to run on the Executor.
+    optional string graph_version = 4;
+}
+
+enum FunctionExecutorStatus {
+    FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
+    // FE is being created.
+    FUNCTION_EXECUTOR_STATUS_PENDING = 1;
+    // FE is running and ready to accept tasks.
+    FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
+    // FE is terminated, all resources are freed.
+    FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
+}
+
+// The reasons why an Executor decided to terminate a Function Executor.
+enum FunctionExecutorTerminationReason {
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
+    // Internal error aka platform error on FE startup.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR = 1;
+    // A clear function constructor code error on FE startup.
+    // Typically an exception raised from the constructor.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR = 2;
+    // Timeout on FE startup while running the function constructor.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
+
+    // FE was terminated because it failed a health check.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
+    // FE was terminated due to an unrecoverable internal error on Executor.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
+    // FE was terminated because Function code exceeded its configured timeout.
+    // FE termination is the only way to reliably stop the function code execution.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
+    // FE was terminated because function allocation currently running on it was removed
+    // from Executor desired state.
+    // FE termination is the only way to reliably stop the function code execution.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
+}
+
+// Immutable information that identifies and describes a Function Executor.
+message FunctionExecutorResources {
+    // 1000 CPU ms per sec is one full CPU core.
+    // 2000 CPU ms per sec is two full CPU cores.
+    optional uint32 cpu_ms_per_sec = 1;
+    optional uint64 memory_bytes = 2;
+    optional uint64 disk_bytes = 3;
+    optional GPUResources gpu = 4;
+}
+
+message FunctionExecutorDescription {
+    optional string id = 1;
+    optional string namespace = 2;
+    optional string graph_name = 3;
+    optional string graph_version = 4;
+    optional string function_name = 5;
+    repeated string secret_names = 7;
+    // Timeout for customer code duration during FE creation.
+    optional uint32 customer_code_timeout_ms = 9;
+    optional DataPayload graph = 10;
+    optional FunctionExecutorResources resources = 11;
+    // URI prefix for the startup output payloads.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
+    optional string output_payload_uri_prefix = 12;
+    optional uint32 max_concurrency = 13;
+}
+
+message FunctionExecutorState {
+    optional FunctionExecutorDescription description = 1;
+    optional FunctionExecutorStatus status = 2;
+    optional FunctionExecutorTerminationReason termination_reason = 3;
+    repeated string allocation_ids_caused_termination = 4;
+}
+
+// Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
+message FunctionExecutorUpdate {
+    optional FunctionExecutorDescription description = 1;
+    optional DataPayload startup_stdout = 2;
+    optional DataPayload startup_stderr = 3;
+}
+
+enum ExecutorStatus {
+    EXECUTOR_STATUS_UNKNOWN = 0;
+    // Executor is starting up, not ready to accept task allocations and FEs.
+    EXECUTOR_STATUS_STARTING_UP = 1;
+    // Executor is ready to accept task allocations and FEs.
+    EXECUTOR_STATUS_RUNNING = 2;
+    // No new task allocations or FEs should be places on the Executor.
+    EXECUTOR_STATUS_DRAINED = 3;
+    // Executor is stopped, all resources are freed, all FEs are terminated.
+    EXECUTOR_STATUS_STOPPED = 4;
+}
+
+message ExecutorState {
+    optional string executor_id = 1;
+    optional string hostname = 3;
+    optional string version = 5;
+    optional ExecutorStatus status = 6;
+    // Total resources at the Executor.
+    optional HostResources total_resources = 13;
+    // Total resources usable by Function Executors.
+    optional HostResources total_function_executor_resources = 7;
+    // Empty allowed_functions list means that any function can run on the Executor.
+    repeated AllowedFunction allowed_functions = 8;
+    repeated FunctionExecutorState function_executor_states = 9;
+    map<string, string> labels = 10;
+    optional string state_hash = 11;
+    // Server supplied clock value of the latest desired executor state that was
+    // reconciled by Executor. Not included into state_hash.
+    // Initial value on Executor startup is 0.
+    optional uint64 server_clock = 12;
+}
+
+// Updates that Executor wants to report to Server. If report_executor_state RPC is successful
+// then the updates from it won't be included in the next RPC.
+message ExecutorUpdate {
+    optional string executor_id = 1;
+    repeated AllocationResult allocation_results = 2;
+    repeated FunctionExecutorUpdate function_executor_updates = 3;
+}
+
+message ReportExecutorStateRequest {
+    optional ExecutorState executor_state = 1;
+    optional ExecutorUpdate executor_update = 2;
+}
+
+// A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
+message ReportExecutorStateResponse {
+}
+
+// ===== get_desired_executor_states RPC =====
+message TaskRetryPolicy {
+    optional uint32 max_retries = 1;
+    optional uint32 initial_delay_ms = 2;
+    optional uint32 max_delay_ms = 3;
+    // The multiplier value is 1000x of the actual value to avoid working with floating point.
+    optional uint32 delay_multiplier = 4;
+}
+
+message TaskAllocation {
+    optional string allocation_id = 1;
+    optional string task_id = 2;
+    optional string namespace = 3;
+    optional string graph_name = 4;
+    optional string graph_version = 5;
+    optional string function_name = 6;
+    optional string graph_invocation_id = 7;
+    optional uint32 timeout_ms = 11;
+    optional DataPayload input = 12;
+    optional DataPayload reducer_input = 13;
+    // URI prefix for the output payloads.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    optional string output_payload_uri_prefix = 14;
+    optional TaskRetryPolicy retry_policy = 15;
+    // BLOB URI prefix for the invocation error payloads.
+    optional string invocation_error_payload_uri_prefix = 16;
+    optional string function_executor_id = 17;
+}
+
+// A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
+message GetDesiredExecutorStatesRequest {
+    optional string executor_id = 1;
+}
+
+// A message sent from Server to Executor that describes the desired state of the Executor at the moment.
+// Executor compares this state with its current state and make necessary changes to match the desired state.
+message DesiredExecutorState {
+    repeated FunctionExecutorDescription function_executors = 1;
+    repeated TaskAllocation task_allocations = 2;
+    // Server supplied clock value used to deduplicate messages. Executor records max clock value
+    // it observed and ignores all the messages with clock value <= the max observed value.
+    optional uint64 clock = 3;
+}
+
+// ===== report_task_outcome RPC =====
+enum TaskOutcomeCode {
+    TASK_OUTCOME_CODE_UNKNOWN = 0;
+    TASK_OUTCOME_CODE_SUCCESS = 1;
+    TASK_OUTCOME_CODE_FAILURE = 2;
+}
+
+enum TaskFailureReason {
+    TASK_FAILURE_REASON_UNKNOWN = 0;
+    // Internal error on Executor aka platform error.
+    TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    // Clear function code failure typically by raising an exception from the function code.
+    // Also a grey failure where we can't determine the exact cause. We attribute these to
+    // functions to prevent service abuse but not billed intenionally failing functions.
+    TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    // Function code run time exceeded its configured timeout.
+    TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    // Function code raised InvocationError to mark the invocation as permanently failed.
+    TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
+    // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
+    TASK_FAILURE_REASON_TASK_CANCELLED = 5;
+    // Function Executor terminated - can't run the task allocation on it anymore.
+    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
+}
+
+message TaskResult {
+    optional string task_id = 1;
+    optional string allocation_id = 2;
+    optional string namespace = 3;
+    optional string graph_name = 4;
+    optional string graph_version = 5;
+    optional string function_name = 6;
+    optional string graph_invocation_id = 7;
+    optional TaskOutcomeCode outcome_code = 9;
+    optional TaskFailureReason failure_reason = 10;
+    // Edges that the function wants the invocation to be routed to.
+    repeated string next_functions = 11;
+    repeated DataPayload function_outputs = 12;
+    // Standard output and error streams of the function.
+    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
+    optional DataPayload stdout = 13;
+    optional DataPayload stderr = 14;
+    // User payload for invocation error if task failed with invocation error.
+    optional DataPayload invocation_error_output = 15;
+    optional uint64 execution_duration_ms = 16;
+}
+
+message FunctionCall {
+    optional string function_name = 1;
+    optional DataPayload function_input = 2;
+}
+
+message FunctionOutput {
+   oneof output {
+        DataPayload value = 1;
+        FunctionCall function_call = 2;
+    }
+}
+
+message FunctionOutputs {
+    repeated FunctionOutput outputs = 1;
+}
+
+message AllocationResult {
+    optional string task_id = 1;
+    optional string allocation_id = 2;
+    optional string namespace = 3;
+    optional string graph_name = 4;
+    optional string graph_version = 5;
+    optional string function_name = 6;
+    optional string graph_invocation_id = 7;
+    optional TaskOutcomeCode outcome_code = 9;
+    optional TaskFailureReason failure_reason = 10;
+
+    // If a function returns a tuple of outputs, then each output group is an element of this list.
+    // For example -> (2, [func1(1), func2(2)], func(3))
+    // would be represented as 3 FunctionOutputs elements. The second element would be a list of FunctionOutputs which are function calls. 
+    repeated FunctionOutputs function_outputs = 11;
+    // User payload for invocation error if task failed with invocation error.
+    optional DataPayload invocation_error_output = 12;
+    optional uint64 execution_duration_ms = 13;
+}
+
+// Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
+// Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+//
+// Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
+// might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
+// at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
+service ExecutorAPI {
+    // Called by Executor every 5 seconds to report that it's still alive and provide its current state.
+    //
+    // Missing 3 reports will result in the Executor being deregistered by Server.
+    rpc report_executor_state(ReportExecutorStateRequest) returns (ReportExecutorStateResponse) {}
+
+    // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
+    // it puts a message on the stream with the new desired state of the Executor.
+    rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
+}
