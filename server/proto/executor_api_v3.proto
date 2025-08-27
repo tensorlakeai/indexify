@@ -132,13 +132,6 @@ message FunctionExecutorState {
     repeated string allocation_ids_caused_termination = 4;
 }
 
-// Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-message FunctionExecutorUpdate {
-    optional FunctionExecutorDescription description = 1;
-    optional DataPayload startup_stdout = 2;
-    optional DataPayload startup_stderr = 3;
-}
-
 enum ExecutorStatus {
     EXECUTOR_STATUS_UNKNOWN = 0;
     // Executor is starting up, not ready to accept task allocations and FEs.
@@ -176,7 +169,6 @@ message ExecutorState {
 message ExecutorUpdate {
     optional string executor_id = 1;
     repeated AllocationResult allocation_results = 2;
-    repeated FunctionExecutorUpdate function_executor_updates = 3;
 }
 
 message ReportExecutorStateRequest {
