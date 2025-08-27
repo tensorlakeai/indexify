@@ -234,50 +234,28 @@ message DesiredExecutorState {
 }
 
 // ===== report_task_outcome RPC =====
-enum TaskOutcomeCode {
-    TASK_OUTCOME_CODE_UNKNOWN = 0;
-    TASK_OUTCOME_CODE_SUCCESS = 1;
-    TASK_OUTCOME_CODE_FAILURE = 2;
+enum AllocationOutcomeCode {
+    ALLOCATION_OUTCOME_CODE_UNKNOWN = 0;
+    ALLOCATION_OUTCOME_CODE_SUCCESS = 1;
+    ALLOCATION_OUTCOME_CODE_FAILURE = 2;
 }
 
-enum TaskFailureReason {
-    TASK_FAILURE_REASON_UNKNOWN = 0;
+enum AllocationFailureReason {
+    ALLOCATION_FAILURE_REASON_UNKNOWN = 0;
     // Internal error on Executor aka platform error.
-    TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    ALLOCATION_FAILURE_REASON_INTERNAL_ERROR = 1;
     // Clear function code failure typically by raising an exception from the function code.
     // Also a grey failure where we can't determine the exact cause. We attribute these to
     // functions to prevent service abuse but not billed intenionally failing functions.
-    TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    ALLOCATION_FAILURE_REASON_FUNCTION_ERROR = 2;
     // Function code run time exceeded its configured timeout.
-    TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
     // Function code raised InvocationError to mark the invocation as permanently failed.
-    TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
+    ALLOCATION_FAILURE_REASON_INVOCATION_ERROR = 4;
     // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
-    TASK_FAILURE_REASON_TASK_CANCELLED = 5;
+    ALLOCATION_FAILURE_REASON_TASK_CANCELLED = 5;
     // Function Executor terminated - can't run the task allocation on it anymore.
-    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
-}
-
-message TaskResult {
-    optional string task_id = 1;
-    optional string allocation_id = 2;
-    optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string graph_version = 5;
-    optional string function_name = 6;
-    optional string graph_invocation_id = 7;
-    optional TaskOutcomeCode outcome_code = 9;
-    optional TaskFailureReason failure_reason = 10;
-    // Edges that the function wants the invocation to be routed to.
-    repeated string next_functions = 11;
-    repeated DataPayload function_outputs = 12;
-    // Standard output and error streams of the function.
-    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-    optional DataPayload stdout = 13;
-    optional DataPayload stderr = 14;
-    // User payload for invocation error if task failed with invocation error.
-    optional DataPayload invocation_error_output = 15;
-    optional uint64 execution_duration_ms = 16;
+    ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
 
 message FunctionCall {
@@ -304,8 +282,8 @@ message AllocationResult {
     optional string graph_version = 5;
     optional string function_name = 6;
     optional string graph_invocation_id = 7;
-    optional TaskOutcomeCode outcome_code = 9;
-    optional TaskFailureReason failure_reason = 10;
+    optional AllocationOutcomeCode outcome_code = 9;
+    optional AllocationFailureReason failure_reason = 10;
 
     // If a function returns a tuple of outputs, then each output group is an element of this list.
     // For example -> (2, [func1(1), func2(2)], func(3))
