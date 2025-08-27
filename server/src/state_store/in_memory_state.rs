@@ -626,10 +626,11 @@ impl InMemoryState {
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 self.compute_graphs
                     .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
-                self.compute_graph_versions.insert(
-                    req.compute_graph.to_version().key(),
-                    Box::new(req.compute_graph.to_version()),
-                );
+                let req_version = req.compute_graph.to_version()?;
+                let version = req_version.version.clone();
+
+                self.compute_graph_versions
+                    .insert(req_version.key(), Box::new(req_version));
 
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
@@ -646,7 +647,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut task = v.clone();
-                                task.graph_version = req.compute_graph.to_version().version;
+                                task.graph_version = version.clone();
                                 tasks_to_update.push(task);
                             });
 
@@ -668,7 +669,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
-                                ctx.graph_version = req.compute_graph.to_version().version;
+                                ctx.graph_version = version.clone();
                                 invocation_ctx_to_update.push(ctx);
                             });
 
