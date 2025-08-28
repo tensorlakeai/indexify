@@ -19,7 +19,7 @@ env:
 jobs:
   lint_server:
     name: Lint Indexify Server
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
@@ -72,7 +72,7 @@ jobs:
 
   lint_python_packages:
     name: Lint Python packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +90,7 @@ jobs:
   acceptance_tests:
     name: Run Acceptance Tests
     needs: [build_server, lint_python_packages]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
