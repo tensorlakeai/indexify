@@ -152,6 +152,12 @@ impl<'de> Deserialize<'de> for VectorClock {
     }
 }
 
+/// Linearizable is a trait that describes objects
+/// that can be compared using vector clocks.
+pub trait Linearizable {
+    fn vector_clock(&self) -> VectorClock;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
