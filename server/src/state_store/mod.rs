@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     // pin::Pin,
     sync::{
         atomic::{self, AtomicU64},
@@ -14,7 +14,7 @@ use in_memory_state::{InMemoryMetrics, InMemoryState};
 use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
+use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
@@ -39,6 +39,7 @@ impl ExecutorCatalog {
     }
 }
 
+pub mod driver;
 pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
@@ -100,23 +101,18 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
 }
 
-fn open_database<I>(path: &Path, column_familes: I) -> Result<Arc<TransactionDB>>
+fn open_database<I>(path: PathBuf, column_families: I) -> Result<Arc<TransactionDB>>
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
-    let mut db_options = Options::default();
-    db_options.create_missing_column_families(true);
-    db_options.create_if_missing(true);
+    let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
+        path,
+        column_families: column_families.collect::<Vec<_>>(),
+    });
 
-    Ok(Arc::new(
-        TransactionDB::open_cf_descriptors(
-            &db_options,
-            &TransactionDBOptions::default(),
-            path,
-            column_familes,
-        )
-        .map_err(|e| anyhow!("failed to open db: {}", e))?,
-    ))
+    driver::open_database(options)
+        .map(|db| db.db.clone())
+        .map_err(Into::into)
 }
 
 impl IndexifyState {
@@ -131,7 +127,8 @@ impl IndexifyState {
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-        let db = open_database(&path, sm_column_families)?;
+
+        let db = open_database(path, sm_column_families)?;
 
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
@@ -634,8 +631,9 @@ mod tests {
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
         let tmp_dir = tempfile::tempdir()?;
+        let path = tmp_dir.path().to_path_buf();
 
-        let db = open_database(tmp_dir.path(), columns_iter)?;
+        let db = open_database(path.clone(), columns_iter)?;
         for name in &columns {
             let cf = db
                 .cf_handle(name)
@@ -654,7 +652,7 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        open_database(tmp_dir.path(), sm_column_families).expect(
+        open_database(path, sm_column_families).expect(
             "failed to open database with the column families defined in IndexifyObjectsColumns",
         );
 
