@@ -34,8 +34,11 @@ cd "$(dirname "$0")"
 summary_file=".run_tests_summary.txt"
 rm -f $summary_file
 
+: "${INDEXIFY_INCLUDE_TESTS_PATTERN:=-name 'tests_*.py'}"
+
 # Indexify tests.
-indexify_test_files=$(find . -name 'test_*.py')
+indexify_test_files=$(find . ${INDEXIFY_INCLUDE_TESTS_PATTERN} ${INDEXIFY_EXCLUDE_TESTS_PATTERN})
+
 # Tensorlke SDK tests verify user visible functionality end-to-end.
 tensorlake_sdk_test_files=$(find ../../tensorlake/tests/workflows_sdk -name 'test_*.py')
 
