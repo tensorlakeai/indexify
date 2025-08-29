@@ -163,8 +163,9 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run all tests
-        run: cd indexify && make test
+      - name: Run Indexify default tests and Tensorlake SDK tests
+        run: make test
+        working-directory: indexify
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
