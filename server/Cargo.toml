@@ -19,7 +19,7 @@ axum = { version = "0.8.4", features = ["multipart", "macros", "tokio"] }
 tokio = { version = "1.47.0", features = ["full"] }
 axum-server = "0.7.2"
 futures = "0.3.31"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 sha2 = "0.10.9"
