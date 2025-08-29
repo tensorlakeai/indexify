@@ -23,6 +23,81 @@ use crate::{
 
 #[allow(dead_code)]
 #[derive(ToSchema)]
+struct ApplicationCreateType {
+    application: http_objects_v1::Application,
+    #[schema(format = "binary")]
+    code: String,
+}
+
+/// Create or update an application
+#[utoipa::path(
+    post,
+    path = "v1/namespaces/{namespace}/applications",
+    tag = "operations",
+    request_body(content_type = "multipart/form-data", content = inline(ApplicationCreateType)),
+    responses(
+        (status = 200, description = "create or update an application"),
+        (status = INTERNAL_SERVER_ERROR, description = "unable to create or update application")
+    ),
+)]
+pub async fn create_or_update_application(
+    Path(namespace): Path<String>,
+    State(state): State<RouteState>,
+    mut application_code: Multipart,
+) -> Result<(), IndexifyAPIError> {
+    let mut application_manifest: Option<http_objects_v1::Application> = Option::None;
+
+    let mut upgrade_tasks_to_current_version: Option<bool> = None;
+    while let Some(field) = application_code
+        .next_field()
+        .await
+        .map_err(|err| IndexifyAPIError::internal_error(anyhow!(err)))?
+    {
+        let name = field.name();
+        if let Some(name) = name {
+            if name == "code" {
+                info!("Found application code zip in create_or_update_application request");
+            } else if name == "application" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                let mut json_value: serde_json::Value = serde_json::from_str(&text)?;
+                json_value["namespace"] = serde_json::Value::String(namespace.clone());
+                application_manifest = Some(serde_json::from_value(json_value)?);
+            } else if name == "upgrade_tasks_to_latest_version" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                upgrade_tasks_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
+            } else if name == "code_content_type" {
+                let code_content_type = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                if code_content_type != "application/zip" {
+                    return Err(IndexifyAPIError::bad_request(
+                        "Code content type must be application/zip",
+                    ));
+                }
+            }
+        }
+    }
+
+    let application_manifest = application_manifest.ok_or(IndexifyAPIError::bad_request(
+        "Application manifest is required",
+    ))?;
+
+    info!(
+        "Recieved new application manifest: {:?}",
+        application_manifest
+    );
+    Ok(())
+}
+
+#[allow(dead_code)]
+#[derive(ToSchema)]
 struct ComputeGraphCreateType {
     compute_graph: http_objects::ComputeGraph,
     #[schema(format = "binary")]
