@@ -145,7 +145,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             .outcome(TaskOutcome::Unknown)
             .build()?;
 
-        debug!(allocation_id = %allocation.id, "created allocation");
+        debug!(allocation_id = allocation.id, "created allocation");
 
         let mut updated_task = task.clone();
         updated_task.status = TaskStatus::Running(RunningTaskStatus {

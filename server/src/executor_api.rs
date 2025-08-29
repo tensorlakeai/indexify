@@ -9,7 +9,6 @@ use anyhow::Result;
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
     AllowedFunction,
-    DataPayload as DataPayloadPb,
     DataPayloadEncoding,
     DesiredExecutorState,
     ExecutorState,
@@ -306,7 +305,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(server_clock) = executor_state.server_clock {
             executor_metadata.clock(server_clock);
         }
-        executor_metadata.build().map_err(Into::into)
+        executor_metadata.build()
     }
 }
 
@@ -411,7 +410,6 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .resources(resources)
             .max_concurrency(max_concurrency)
             .build()
-            .map_err(Into::into)
     }
 }
 
@@ -965,27 +963,22 @@ impl ExecutorApi for ExecutorAPIService {
 }
 
 fn prepare_data_payload(
-    msg: Option<DataPayloadPb>,
+    msg: Option<executor_api_pb::DataPayload>,
     blob_store_url_scheme: &str,
     blob_store_url: &str,
-) -> Option<DataPayload> {
-    let Some(DataPayloadPb {
-        uri: Some(uri),
-        size: Some(size),
-        sha256_hash: Some(sha256_hash),
-        offset,
-        ..
-    }) = &msg
-    else {
-        return None;
-    };
+) -> Option<data_model::DataPayload> {
+    msg.as_ref()?;
+    let msg = msg.unwrap();
+    msg.uri.as_ref()?;
+    msg.size.as_ref()?;
+    msg.sha256_hash.as_ref()?;
 
-    Some(DataPayload {
-        path: blob_store_url_to_path(uri, blob_store_url_scheme, blob_store_url),
-        size: *size,
-        sha256_hash: sha256_hash.clone(),
+    Some(data_model::DataPayload {
+        path: blob_store_url_to_path(&msg.uri.unwrap(), blob_store_url_scheme, blob_store_url),
+        size: msg.size.unwrap(),
+        sha256_hash: msg.sha256_hash.unwrap(),
         // Default to 0 if Executor is not yet storing multiple DataPayloads inside a single BLOB.
-        offset: offset.unwrap_or(0),
+        offset: msg.offset.unwrap_or(0),
     })
 }
 

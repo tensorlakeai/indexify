@@ -743,7 +743,7 @@ impl Task {
             reducer_input_payload: None,
             output_payload_uri_prefix: None,
             allocations,
-            creation_time_ns: task.creation_time_ns.into(),
+            creation_time_ns: task.creation_time_ns,
         }
     }
 }
@@ -758,7 +758,7 @@ pub struct Tasks {
 pub struct FnOutput {
     pub id: String,
     pub compute_fn: String,
-    pub created_at: u128,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -846,7 +846,7 @@ pub struct Invocation {
     pub outstanding_tasks: u64,
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
-    pub created_at: u128,
+    pub created_at: u64,
     pub invocation_error: Option<RequestError>,
 }
 
@@ -882,7 +882,7 @@ impl From<GraphInvocationCtx> for Invocation {
             outstanding_tasks: value.outstanding_tasks,
             task_analytics,
             graph_version: value.graph_version.0,
-            created_at: value.created_at.into(),
+            created_at: value.created_at,
             invocation_error: None, // Set by API handlers if needed
         }
     }
@@ -1108,7 +1108,7 @@ impl From<data_model::Allocation> for Allocation {
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             task_id: allocation.task_id.to_string(),
             invocation_id: allocation.invocation_id.to_string(),
-            created_at: allocation.created_at.into(),
+            created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
