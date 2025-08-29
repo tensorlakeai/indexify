@@ -9,8 +9,6 @@ use anyhow::{anyhow, Result};
 use futures::Stream;
 use pin_project::{pin_project, pinned_drop};
 
-use crate::data_model::EpochTime;
-
 pub mod dynamic_sleep;
 
 #[macro_export]
@@ -61,16 +59,15 @@ pub enum TimeUnit {
     Nanoseconds,
 }
 
-pub fn get_elapsed_time(at: &EpochTime, unit: TimeUnit) -> f64 {
+pub fn get_elapsed_time(at: u128, unit: TimeUnit) -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => {
             // Convert both times to the same unit (nanoseconds) for comparison
             let current_ns = duration.as_nanos();
-            let at_ns = at.as_nanos();
 
             let at_ns = match unit {
-                TimeUnit::Milliseconds => at_ns * 1_000_000,
-                TimeUnit::Nanoseconds => at_ns,
+                TimeUnit::Milliseconds => at * 1_000_000,
+                TimeUnit::Nanoseconds => at,
             };
 
             if current_ns < at_ns {
@@ -157,28 +154,28 @@ pub mod tests {
     fn test_get_elapsed_time() {
         {
             let now = get_epoch_time_in_ms();
-            let elapsed = get_elapsed_time(&now.into(), TimeUnit::Milliseconds);
+            let elapsed = get_elapsed_time(now.into(), TimeUnit::Milliseconds);
             assert!((0.0..0.1).contains(&elapsed));
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 10; // 10ms ago
-            let elapsed = get_elapsed_time(&past.into(), TimeUnit::Milliseconds);
+            let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
             assert!((0.01..0.21).contains(&elapsed), "{}", elapsed);
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 5000; // 5 seconds ago
-            let elapsed = get_elapsed_time(&past.into(), TimeUnit::Milliseconds);
+            let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
             assert!((5.0..5.1).contains(&elapsed));
         }
 
         {
             let now = get_epoch_time_in_ms();
             let future = now + 5000; // 5 seconds in the future
-            let elapsed = get_elapsed_time(&future.into(), TimeUnit::Milliseconds);
+            let elapsed = get_elapsed_time(future.into(), TimeUnit::Milliseconds);
             assert_eq!(elapsed, 0.0); // Should handle future times gracefully
         }
     }

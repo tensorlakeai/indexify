@@ -227,7 +227,7 @@ impl GraphProcessor {
 
         // Record the state transition latency
         self.state_transition_latency.record(
-            get_elapsed_time(&state_change.created_at.into(), TimeUnit::Milliseconds),
+            get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
             &[KeyValue::new(
                 "type",
                 if state_change.namespace.is_some() {

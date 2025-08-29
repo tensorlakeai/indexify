@@ -8,6 +8,7 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     ops::Deref,
     str,
+    time::{SystemTime, UNIX_EPOCH},
     vec,
 };
 
@@ -23,46 +24,6 @@ use crate::{
     data_model::clocks::{Linearizable, VectorClock},
     utils::get_epoch_time_in_ms,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct EpochTime(u128);
-
-impl EpochTime {
-    pub fn as_nanos(&self) -> u128 {
-        self.0
-    }
-}
-
-impl Default for EpochTime {
-    fn default() -> Self {
-        get_epoch_time_in_ms().into()
-    }
-}
-
-impl fmt::Display for EpochTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for EpochTime {
-    fn from(value: u64) -> Self {
-        EpochTime(value as u128)
-    }
-}
-
-impl From<EpochTime> for u128 {
-    fn from(value: EpochTime) -> Self {
-        value.0
-    }
-}
-
-impl PartialOrd for EpochTime {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.cmp(&other.0))
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -171,8 +132,8 @@ pub struct Allocation {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u128,
     pub outcome: TaskOutcome,
     #[builder(setter(strip_option), default)]
     pub diagnostics: Option<TaskDiagnostics>,
@@ -181,6 +142,12 @@ pub struct Allocation {
     pub execution_duration_ms: Option<u64>,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl AllocationBuilder {
+    fn default_created_at(&self) -> u128 {
+        get_epoch_time_in_ms() as u128
+    }
 }
 
 impl Linearizable for Allocation {
@@ -1295,14 +1262,22 @@ pub struct Task {
     pub status: TaskStatus,
     #[builder(default)]
     pub outcome: TaskOutcome,
-    #[builder(default)]
-    pub creation_time_ns: EpochTime,
+    #[builder(default = "self.default_creation_time_ns()")]
+    pub creation_time_ns: u128,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
     #[builder(default)]
     pub attempt_number: u32,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl TaskBuilder {
+    fn default_creation_time_ns(&self) -> u128 {
+        let current_time = SystemTime::now();
+        let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
+        duration.as_nanos()
+    }
 }
 
 impl Linearizable for Task {
@@ -2684,7 +2659,7 @@ mod tests {
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, TaskOutcome::Success);
         assert!(!allocation.id.is_empty());
-        assert!(allocation.created_at > EpochTime(0));
+        assert!(allocation.created_at > 0);
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
         assert_eq!(allocation.vector_clock.value(), 0);
@@ -3017,7 +2992,7 @@ mod tests {
         assert_eq!(task.outcome, TaskOutcome::Unknown);
         assert_eq!(task.attempt_number, 0);
         assert!(!task.id.get().is_empty());
-        assert!(task.creation_time_ns > EpochTime(0));
+        assert!(task.creation_time_ns > 0);
         assert!(!task.key().is_empty());
         assert_eq!(task.vector_clock.value(), 0);
 
