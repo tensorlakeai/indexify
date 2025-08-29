@@ -63,7 +63,6 @@ rocksdb = { version = "0.24.0" }
 strum = { version = "0.27.2", features = ["derive"] }
 derive_builder = "0.20.2"
 tempfile = "3.21.0"
-thiserror = "2.0.16"
 
 [dev-dependencies]
 tempfile = "3.20.0"

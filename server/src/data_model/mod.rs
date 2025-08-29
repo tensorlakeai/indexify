@@ -19,10 +19,7 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::info;
 
-use crate::{
-    data_model::clocks::{Linearizable, VectorClock},
-    utils::get_epoch_time_in_ms,
-};
+use crate::{data_model::clocks::VectorClock, utils::get_epoch_time_in_ms};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
@@ -189,12 +186,6 @@ pub struct Allocation {
     pub execution_duration_ms: Option<u64>,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for Allocation {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl Allocation {
@@ -467,12 +458,6 @@ pub struct ComputeGraph {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for ComputeGraph {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl ComputeGraph {
     pub fn key(&self) -> String {
         ComputeGraph::key_from(&self.namespace, &self.name)
@@ -630,12 +615,6 @@ pub struct ComputeGraphVersion {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for ComputeGraphVersion {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl ComputeGraphVersion {
     pub fn key(&self) -> String {
         ComputeGraphVersion::key_from(&self.namespace, &self.compute_graph_name, &self.version)
@@ -719,12 +698,6 @@ pub struct NodeOutput {
 
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for NodeOutput {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl NodeOutput {
@@ -816,12 +789,6 @@ pub struct InvocationPayload {
     pub encoding: String,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for InvocationPayload {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl InvocationPayload {
@@ -984,12 +951,6 @@ pub struct GraphInvocationCtx {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for GraphInvocationCtx {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl GraphInvocationCtx {
     pub fn create_tasks(&mut self, tasks: &[Task], reducer_tasks: &[ReduceTask]) {
         for task in tasks {
@@ -1100,12 +1061,6 @@ pub struct ReduceTask {
 
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for ReduceTask {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl ReduceTask {
@@ -1290,12 +1245,6 @@ pub struct Task {
     pub attempt_number: u32,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for Task {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl Task {
@@ -1811,12 +1760,6 @@ pub struct FunctionExecutorDiagnostics {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for FunctionExecutorDiagnostics {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl FunctionExecutorDiagnostics {
     pub fn key(&self) -> String {
         Self::key_from(
@@ -1855,12 +1798,6 @@ pub struct GcUrl {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for GcUrl {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl GcUrl {
     pub fn key(&self) -> String {
         format!("{}|{}", self.namespace, self.url)
@@ -1880,12 +1817,6 @@ pub struct FunctionExecutor {
     pub max_concurrency: u32,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for FunctionExecutor {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1998,12 +1929,6 @@ pub struct ExecutorMetadata {
     pub clock: u64,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for ExecutorMetadata {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl ExecutorMetadata {
@@ -2178,13 +2103,6 @@ pub struct StateChange {
     #[builder(default)]
     vector_clock: VectorClock,
 }
-
-impl Linearizable for StateChange {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl StateChange {
     pub fn key(&self) -> Vec<u8> {
         let mut key = vec![];
@@ -2219,12 +2137,6 @@ pub struct Namespace {
     pub blob_storage_region: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for Namespace {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 #[cfg(test)]
