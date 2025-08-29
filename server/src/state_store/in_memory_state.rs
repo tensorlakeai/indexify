@@ -32,7 +32,6 @@ use crate::{
         GraphInvocationCtx,
         GraphVersion,
         Namespace,
-        NamespaceBuilder,
         ReduceTask,
         Task,
         TaskStatus,
@@ -605,14 +604,12 @@ impl InMemoryState {
                 };
                 self.namespaces.insert(
                     req.name.clone(),
-                    Box::new(
-                        NamespaceBuilder::default()
-                            .name(req.name.clone())
-                            .created_at(created_at)
-                            .blob_storage_bucket(req.blob_storage_bucket.clone())
-                            .blob_storage_region(req.blob_storage_region.clone())
-                            .build()?,
-                    ),
+                    Box::new(Namespace {
+                        name: req.name.clone(),
+                        created_at,
+                        blob_storage_bucket: req.blob_storage_bucket.clone(),
+                        blob_storage_region: req.blob_storage_region.clone(),
+                    }),
                 );
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
@@ -1489,14 +1486,13 @@ mod tests {
         data_model::{
             DataPayload,
             ExecutorId,
-            FunctionExecutorBuilder,
+            FunctionExecutor,
             FunctionExecutorId,
             FunctionExecutorResources,
             FunctionExecutorServerMetadata,
             FunctionExecutorState,
             GraphVersion,
             Task,
-            TaskBuilder,
             TaskFailureReason,
             TaskId,
             TaskOutcome,
@@ -1599,48 +1595,46 @@ mod tests {
             let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
             let creation_time_ns = duration.as_nanos();
 
-            TaskBuilder::default()
-                .id(TaskId::from(task_id))
-                .namespace(namespace.to_string())
-                .compute_fn_name(compute_fn.to_string())
-                .compute_graph_name(compute_graph.to_string())
-                .invocation_id(invocation_id.to_string())
-                .cache_hit(false)
-                .input(DataPayload {
+            Task {
+                id: TaskId::from(task_id),
+                namespace: namespace.to_string(),
+                compute_fn_name: compute_fn.to_string(),
+                compute_graph_name: compute_graph.to_string(),
+                invocation_id: invocation_id.to_string(),
+                cache_hit: false,
+                input: DataPayload {
                     path: "test-input".to_string(),
                     size: 100,
                     sha256_hash: "test-hash".to_string(),
                     offset: 0,
-                })
-                .acc_input(None)
-                .status(TaskStatus::Pending)
-                .outcome(outcome)
-                .creation_time_ns(creation_time_ns)
-                .graph_version(GraphVersion("1.0".to_string()))
-                .cache_key(None)
-                .attempt_number(0)
-                .build()
-                .unwrap()
+                },
+                acc_input: None,
+                status: TaskStatus::Pending,
+                outcome,
+                creation_time_ns,
+                graph_version: GraphVersion("1.0".to_string()),
+                cache_key: None,
+                attempt_number: 0,
+            }
         }
 
         // Create function executor metadata for testing
         let executor_id = ExecutorId::new("test-executor".to_string());
-        let function_executor = FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new("test-fe".to_string()))
-            .namespace("test-namespace".to_string())
-            .compute_graph_name("test-graph".to_string())
-            .compute_fn_name("test-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
+        let function_executor = FunctionExecutor {
+            id: FunctionExecutorId::new("test-fe".to_string()),
+            namespace: "test-namespace".to_string(),
+            compute_graph_name: "test-graph".to_string(),
+            compute_fn_name: "test-function".to_string(),
+            version: GraphVersion("1.0".to_string()),
+            state: FunctionExecutorState::Running,
+            resources: FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
                 ephemeral_disk_mb: 1024,
                 gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
+            },
+            max_concurrency: 1,
+        };
 
         let fe_metadata = FunctionExecutorServerMetadata {
             executor_id: executor_id.clone(),
@@ -1758,27 +1752,24 @@ mod tests {
         }
         assert!(!state.has_pending_tasks(&fe_metadata));
 
-        let function_executor = FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new("test-fe-2".to_string()))
-            .namespace("test-namespace".to_string())
-            .compute_graph_name("test-graph".to_string())
-            .compute_fn_name("different-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
-
         // Test case 9: Test with different function executor metadata
         let fe_metadata2 = FunctionExecutorServerMetadata {
             executor_id: executor_id.clone(),
-            function_executor,
+            function_executor: FunctionExecutor {
+                id: FunctionExecutorId::new("test-fe-2".to_string()),
+                namespace: "test-namespace".to_string(),
+                compute_graph_name: "test-graph".to_string(),
+                compute_fn_name: "different-function".to_string(),
+                version: GraphVersion("1.0".to_string()),
+                state: FunctionExecutorState::Running,
+                resources: FunctionExecutorResources {
+                    cpu_ms_per_sec: 1000,
+                    memory_mb: 512,
+                    ephemeral_disk_mb: 1024,
+                    gpu: None,
+                },
+                max_concurrency: 1,
+            },
             desired_state: FunctionExecutorState::Running,
         };
         assert!(state.has_pending_tasks(&fe_metadata2));

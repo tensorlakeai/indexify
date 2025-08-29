@@ -1,4 +1,3 @@
-pub mod clocks;
 pub mod filter;
 pub mod test_objects;
 
@@ -19,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use tracing::info;
 
-use crate::{data_model::clocks::VectorClock, utils::get_epoch_time_in_ms};
+use crate::utils::get_epoch_time_in_ms;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -103,8 +102,6 @@ pub struct Allocation {
     pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl Allocation {
@@ -168,7 +165,6 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("allocation target is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
-
         let retry_number = self
             .attempt_number
             .ok_or(anyhow!("attempt_number is required"))?;
@@ -176,9 +172,6 @@ impl AllocationBuilder {
         let outcome = self
             .outcome
             .ok_or(anyhow!("allocation outcome is required"))?;
-
-        let diagnostics = self.diagnostics.clone().flatten();
-        let execution_duration_ms = self.execution_duration_ms.flatten();
 
         Ok(Allocation {
             id: nanoid!(),
@@ -190,10 +183,9 @@ impl AllocationBuilder {
             invocation_id,
             created_at,
             outcome,
-            diagnostics,
+            diagnostics: None,
             attempt_number: retry_number,
-            execution_duration_ms,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
+            execution_duration_ms: None,
         })
     }
 }
@@ -277,12 +269,6 @@ impl CacheKey {
 impl From<&str> for CacheKey {
     fn from(value: &str) -> Self {
         Self(value.to_string())
-    }
-}
-
-impl fmt::Display for CacheKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -407,14 +393,13 @@ pub enum ComputeGraphState {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub tombstoned: bool,
     pub description: String,
     #[serde(default)]
-    #[builder(default)]
     pub tags: HashMap<String, String>,
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
@@ -425,10 +410,7 @@ pub struct ComputeGraph {
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
     #[serde(default)]
-    #[builder(default)]
     pub state: ComputeGraphState,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl ComputeGraph {
@@ -461,19 +443,18 @@ impl ComputeGraph {
     }
 
     pub fn to_version(&self) -> ComputeGraphVersion {
-        ComputeGraphVersionBuilder::default()
-            .namespace(self.namespace.clone())
-            .compute_graph_name(self.name.clone())
-            .created_at(self.created_at)
-            .version(self.version.clone())
-            .code(self.code.clone())
-            .start_fn(self.start_fn.clone())
-            .nodes(self.nodes.clone())
-            .edges(self.edges.clone())
-            .runtime_information(self.runtime_information.clone())
-            .state(self.state.clone())
-            .build()
-            .expect("ComputeGraphVersionBuilder should build successfully")
+        ComputeGraphVersion {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.name.clone(),
+            created_at: self.created_at,
+            version: self.version.clone(),
+            code: self.code.clone(),
+            start_fn: self.start_fn.clone(),
+            nodes: self.nodes.clone(),
+            edges: self.edges.clone(),
+            runtime_information: self.runtime_information.clone(),
+            state: self.state.clone(),
+        }
     }
 
     pub fn can_be_scheduled(
@@ -559,7 +540,7 @@ impl ComputeGraph {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraphVersion {
     // Graph is currently versioned manually by users.
     pub namespace: String,
@@ -568,16 +549,11 @@ pub struct ComputeGraphVersion {
     pub version: GraphVersion,
     pub code: ComputeGraphCode,
     pub start_fn: ComputeFn,
-    #[builder(default)]
     pub nodes: HashMap<String, ComputeFn>,
-    #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
     #[serde(default)]
-    #[builder(default)]
     pub state: ComputeGraphState,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl ComputeGraphVersion {
@@ -656,9 +632,6 @@ pub struct NodeOutput {
     // We need this here since we are going to filter out the individual reducer outputs
     // and return the accumulated output
     pub reducer_output: bool,
-
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl NodeOutput {
@@ -756,7 +729,6 @@ impl NodeOutputBuilder {
             allocation_id,
             invocation_error_payload,
             reducer_output,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
         })
     }
 }
@@ -770,8 +742,6 @@ pub struct InvocationPayload {
     pub payload: DataPayload,
     pub created_at: u64,
     pub encoding: String,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl InvocationPayload {
@@ -786,7 +756,7 @@ impl InvocationPayload {
 
 impl InvocationPayloadBuilder {
     pub fn build(&mut self) -> Result<InvocationPayload> {
-        let namespace = self
+        let ns = self
             .namespace
             .clone()
             .ok_or(anyhow!("namespace is required"))?;
@@ -798,25 +768,21 @@ impl InvocationPayloadBuilder {
             .encoding
             .clone()
             .ok_or(anyhow!("content_type is required"))?;
-
         let created_at: u64 = get_epoch_time_in_ms();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
-
         let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
+        ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         payload.sha256_hash.hash(&mut hasher);
         payload.path.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
-
         Ok(InvocationPayload {
             id,
-            namespace,
+            namespace: ns,
             compute_graph_name: cg_name,
             payload,
-            created_at,
             encoding,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
+            created_at,
         })
     }
 }
@@ -938,8 +904,6 @@ pub struct GraphInvocationCtx {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub invocation_error: Option<GraphInvocationError>,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl GraphInvocationCtx {
@@ -1063,31 +1027,23 @@ impl GraphInvocationCtxBuilder {
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
         let created_at = self.created_at.unwrap_or_else(get_epoch_time_in_ms);
-
-        let completed = self.completed.unwrap_or_default();
-        let outcome = self.outcome.clone().unwrap_or_default();
-        let outstanding_tasks = self.outstanding_tasks.unwrap_or_default();
-        let outstanding_reducer_tasks = self.outstanding_reducer_tasks.unwrap_or_default();
-        let invocation_error = self.invocation_error.clone().flatten();
-
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
             compute_graph_name: cg_name,
             invocation_id,
-            completed,
-            outcome,
+            completed: false,
+            outcome: GraphInvocationOutcome::Unknown,
             fn_task_analytics,
-            outstanding_tasks,
-            outstanding_reducer_tasks,
+            outstanding_tasks: 0,
+            outstanding_reducer_tasks: 0,
             created_at,
-            invocation_error,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
+            invocation_error: None,
         })
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReduceTask {
     pub namespace: String,
     pub compute_graph_name: String,
@@ -1096,9 +1052,6 @@ pub struct ReduceTask {
 
     pub input: DataPayload,
     pub id: String,
-
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl ReduceTask {
@@ -1123,9 +1076,8 @@ impl ReduceTask {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
-    #[default]
     Unknown,
     Success,
     Failure(TaskFailureReason),
@@ -1276,8 +1228,6 @@ pub struct Task {
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
     pub attempt_number: u32,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl Task {
@@ -1343,7 +1293,7 @@ impl TaskBuilder {
             .namespace
             .clone()
             .ok_or(anyhow!("namespace is not present"))?;
-        let compute_graph_name = self
+        let cg_name = self
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute graph name is not present"))?;
@@ -1361,36 +1311,26 @@ impl TaskBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
-
-        let status = self.status.clone().unwrap_or(TaskStatus::Pending);
-        let outcome = self.outcome.unwrap_or_default();
-        let attempt_number = self.attempt_number.unwrap_or_default();
-        let cache_hit = self.cache_hit.unwrap_or_default();
-        let vector_clock = self.vector_clock.clone().unwrap_or_default();
-
         let current_time = SystemTime::now();
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
         let creation_time_ns = duration.as_nanos();
-
         let id = uuid::Uuid::new_v4().to_string();
         let cache_key = self.cache_key.clone().flatten();
-
         let task = Task {
             id: TaskId(id),
-            compute_graph_name,
+            compute_graph_name: cg_name,
             compute_fn_name,
             input,
             acc_input,
             invocation_id,
             namespace,
-            status,
-            outcome,
+            status: TaskStatus::Pending,
+            outcome: TaskOutcome::Unknown,
             graph_version,
             creation_time_ns,
             cache_key,
-            attempt_number,
-            cache_hit,
-            vector_clock,
+            attempt_number: 0,
+            cache_hit: false,
         };
         Ok(task)
     }
@@ -1702,12 +1642,6 @@ impl Default for FunctionExecutorId {
     }
 }
 
-impl From<&str> for FunctionExecutorId {
-    fn from(s: &str) -> Self {
-        Self::new(s.to_string())
-    }
-}
-
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
@@ -1828,6 +1762,7 @@ impl FunctionAllowlist {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
 // Stores historical information about a Function Executor. It is persisted in
 // state store so it's available after FE termination.
 pub struct FunctionExecutorDiagnostics {
@@ -1838,8 +1773,6 @@ pub struct FunctionExecutorDiagnostics {
     pub graph_version: GraphVersion,
     pub startup_stdout: Option<DataPayload>,
     pub startup_stderr: Option<DataPayload>,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl FunctionExecutorDiagnostics {
@@ -1874,11 +1807,10 @@ pub struct FunctionExecutorResources {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
 pub struct GcUrl {
     pub url: String,
     pub namespace: String,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl GcUrl {
@@ -1898,8 +1830,6 @@ pub struct FunctionExecutor {
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1964,7 +1894,6 @@ impl FunctionExecutorBuilder {
             state,
             resources,
             max_concurrency,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
         })
     }
 }
@@ -2049,8 +1978,6 @@ pub struct ExecutorMetadata {
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 impl ExecutorMetadata {
@@ -2113,7 +2040,6 @@ impl ExecutorMetadataBuilder {
             tombstoned,
             state_hash,
             clock,
-            vector_clock: self.vector_clock.clone().unwrap_or_default(),
         })
     }
 }
@@ -2267,8 +2193,6 @@ pub struct StateChange {
     pub namespace: Option<String>,
     pub compute_graph: Option<String>,
     pub invocation: Option<String>,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 impl StateChange {
     pub fn key(&self) -> Vec<u8> {
@@ -2296,14 +2220,12 @@ impl Display for StateChange {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
-    #[builder(default)]
-    vector_clock: VectorClock,
 }
 
 #[cfg(test)]
@@ -2326,37 +2248,36 @@ mod tests {
         let fn_a = test_compute_fn("fn_a", 0);
         let fn_b = test_compute_fn("fn_b", 0);
         let fn_c = test_compute_fn("fn_c", 0);
-        let original_graph: ComputeGraph = ComputeGraphBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .name("graph1".to_string())
-            .tombstoned(false)
-            .description("description1".to_string())
-            .tags(HashMap::new())
-            .state(ComputeGraphState::Active)
-            .nodes(HashMap::from([
+        let original_graph: ComputeGraph = ComputeGraph {
+            namespace: TEST_NAMESPACE.to_string(),
+            name: "graph1".to_string(),
+            tombstoned: false,
+            description: "description1".to_string(),
+            tags: HashMap::new(),
+            state: ComputeGraphState::Active,
+            nodes: HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),
                 ("fn_c".to_string(), fn_c.clone()),
-            ]))
-            .version(crate::data_model::GraphVersion::from("1"))
-            .edges(HashMap::from([(
+            ]),
+            version: crate::data_model::GraphVersion::from("1"),
+            edges: HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]))
-            .code(ComputeGraphCode {
+            )]),
+            code: ComputeGraphCode {
                 path: "cgc_path".to_string(),
                 size: 23,
                 sha256_hash: "hash_code".to_string(),
-            })
-            .created_at(5)
-            .start_fn(fn_a.clone())
-            .runtime_information(RuntimeInformation {
+            },
+            created_at: 5,
+            start_fn: fn_a.clone(),
+            runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
                 sdk_version: "1.2.3".to_string(),
-            })
-            .build()
-            .unwrap();
+            },
+        };
 
         struct TestCase {
             description: &'static str,
@@ -2626,29 +2547,31 @@ mod tests {
     where
         F: FnOnce(&mut ComputeGraphVersion),
     {
-        let fn_a = test_compute_fn("fn_a", 0);
-        let mut graph_version = ComputeGraphVersionBuilder::default()
-            .namespace(String::new())
-            .compute_graph_name(String::new())
-            .created_at(0)
-            .version(GraphVersion::default())
-            .state(ComputeGraphState::Active)
-            .code(ComputeGraphCode {
-                path: String::new(),
-                size: 0,
-                sha256_hash: String::new(),
-            })
-            .start_fn(fn_a)
-            .nodes(HashMap::new())
-            .edges(HashMap::new())
-            .runtime_information(RuntimeInformation {
-                major_version: 0,
-                minor_version: 0,
-                sdk_version: "1.2.3".to_string(),
-            })
-            .build()
-            .unwrap();
+        fn create_test_graph_version() -> ComputeGraphVersion {
+            let fn_a = test_compute_fn("fn_a", 0);
+            ComputeGraphVersion {
+                namespace: String::new(),
+                compute_graph_name: String::new(),
+                created_at: 0,
+                version: GraphVersion::default(),
+                state: ComputeGraphState::Active,
+                code: ComputeGraphCode {
+                    path: String::new(),
+                    size: 0,
+                    sha256_hash: String::new(),
+                },
+                start_fn: fn_a,
+                nodes: HashMap::new(),
+                edges: HashMap::new(),
+                runtime_information: RuntimeInformation {
+                    major_version: 0,
+                    minor_version: 0,
+                    sdk_version: "1.2.3".to_string(),
+                },
+            }
+        }
 
+        let mut graph_version = create_test_graph_version();
         configure_graph(&mut graph_version);
 
         let mut parent_nodes = graph_version.get_compute_parent_nodes(node);
@@ -2715,577 +2638,6 @@ mod tests {
                 ]);
             },
         );
-    }
-
-    #[test]
-    fn test_allocation_builder_build_success() {
-        let target = AllocationTarget {
-            executor_id: "executor-1".into(),
-            function_executor_id: "fe-1".into(),
-        };
-        let task_id: TaskId = "task-1".into();
-        let allocation = AllocationBuilder::default()
-            .namespace("test-ns".to_string())
-            .compute_graph("graph".to_string())
-            .compute_fn("fn".to_string())
-            .invocation_id("invoc-1".to_string())
-            .task_id(task_id.clone())
-            .target(target.clone())
-            .attempt_number(1)
-            .outcome(TaskOutcome::Success)
-            .build()
-            .expect("Allocation should build successfully");
-        assert_eq!(allocation.namespace, "test-ns");
-        assert_eq!(allocation.compute_graph, "graph");
-        assert_eq!(allocation.compute_fn, "fn");
-        assert_eq!(allocation.invocation_id, "invoc-1");
-        assert_eq!(allocation.task_id, task_id);
-        assert_eq!(allocation.target.executor_id, target.executor_id);
-        assert_eq!(
-            allocation.target.function_executor_id,
-            target.function_executor_id
-        );
-        assert_eq!(allocation.attempt_number, 1);
-        assert_eq!(allocation.outcome, TaskOutcome::Success);
-        assert!(!allocation.id.is_empty());
-        assert!(allocation.created_at > 0);
-        assert!(allocation.diagnostics.is_none());
-        assert!(allocation.execution_duration_ms.is_none());
-        assert_eq!(allocation.vector_clock.value(), 0);
-
-        let json = serde_json::to_string(&allocation).expect("Should serialize allocation to JSON");
-
-        // Check all fields are present and correctly serialized
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", allocation.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph\":\"{}\"",
-            allocation.compute_graph
-        )));
-        assert!(json.contains(&format!("\"compute_fn\":\"{}\"", allocation.compute_fn)));
-        assert!(json.contains(&format!(
-            "\"invocation_id\":\"{}\"",
-            allocation.invocation_id
-        )));
-        assert!(json.contains(&format!("\"task_id\":\"{}\"", allocation.task_id.get())));
-        assert!(json.contains(&format!(
-            "\"target\":{{\"executor_id\":\"{}\",\"function_executor_id\":\"{}\"}}",
-            allocation.target.executor_id.get(),
-            allocation.target.function_executor_id.get()
-        )));
-        assert!(json.contains(&format!("\"attempt_number\":{}", allocation.attempt_number)));
-        assert!(json.contains(&"\"outcome\":\"Success\"".to_string()));
-        assert!(json.contains(&format!("\"id\":\"{}\"", allocation.id)));
-        assert!(json.contains(&format!("\"created_at\":{}", allocation.created_at)));
-        assert!(json.contains("\"diagnostics\":null"));
-        assert!(json.contains("\"execution_duration_ms\":null"));
-        assert!(json.contains("\"vector_clock\":1"));
-    }
-
-    #[test]
-    fn test_node_output_builder_build_success() {
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let allocation_id = "alloc-1".to_string();
-        let payload = DataPayload {
-            path: "some/path".to_string(),
-            size: 123,
-            sha256_hash: "abc123".to_string(),
-            offset: 0,
-        };
-        let payloads = vec![payload.clone()];
-        let next_functions = vec!["next_fn".to_string()];
-        let encoding = "application/octet-stream".to_string();
-
-        let mut builder = NodeOutputBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .invocation_id(invocation_id.clone())
-            .allocation_id(allocation_id.clone())
-            .payloads(payloads.clone())
-            .next_functions(next_functions.clone())
-            .encoding(encoding.clone())
-            .reducer_output(true);
-
-        let node_output = builder
-            .build()
-            .expect("NodeOutput should build successfully");
-
-        assert_eq!(node_output.namespace, namespace);
-        assert_eq!(node_output.compute_graph_name, compute_graph_name);
-        assert_eq!(node_output.compute_fn_name, compute_fn_name);
-        assert_eq!(node_output.invocation_id, invocation_id);
-        assert_eq!(node_output.allocation_id, allocation_id);
-        assert_eq!(node_output.payloads, payloads);
-        assert_eq!(node_output.next_functions, next_functions);
-        assert_eq!(node_output.encoding, encoding);
-        assert!(node_output.created_at > 0);
-        assert!(node_output.reducer_output);
-        assert!(!node_output.id.is_empty());
-        assert!(node_output.invocation_error_payload.is_none());
-        assert_eq!(node_output.vector_clock.value(), 0);
-
-        // Check key format
-        let key = node_output.key();
-        assert!(key.starts_with(&format!(
-            "{}|{}|{}|{}|",
-            node_output.namespace,
-            node_output.compute_graph_name,
-            node_output.invocation_id,
-            node_output.compute_fn_name
-        )));
-        assert!(key.ends_with(&node_output.id));
-
-        // Check reducer_acc_value_key format
-        let reducer_key = node_output.reducer_acc_value_key();
-        assert_eq!(
-            reducer_key,
-            format!(
-                "{}|{}|{}|{}",
-                node_output.namespace,
-                node_output.compute_graph_name,
-                node_output.invocation_id,
-                node_output.compute_fn_name
-            )
-        );
-
-        // Check JSON serialization
-        let json =
-            serde_json::to_string(&node_output).expect("Should serialize NodeOutput to JSON");
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", node_output.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            node_output.compute_graph_name
-        )));
-        assert!(json.contains(&format!(
-            "\"compute_fn_name\":\"{}\"",
-            node_output.compute_fn_name
-        )));
-        assert!(json.contains(&format!(
-            "\"invocation_id\":\"{}\"",
-            node_output.invocation_id
-        )));
-        assert!(json.contains(&format!(
-            "\"allocation_id\":\"{}\"",
-            node_output.allocation_id
-        )));
-        assert!(json.contains(&format!("\"encoding\":\"{}\"", node_output.encoding)));
-        assert!(json.contains(&"\"reducer_output\":true".to_string()));
-        assert!(json.contains(&format!("\"id\":\"{}\"", node_output.id)));
-        assert!(json.contains("\"invocation_error_payload\":null"));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"payloads\":["));
-        assert!(json.contains(&format!("\"path\":\"{}\"", payload.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", payload.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", payload.size)));
-    }
-
-    #[test]
-    fn test_invocation_payload_builder_build_success() {
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let encoding = "application/octet-stream".to_string();
-        let payload = DataPayload {
-            path: "input/path".to_string(),
-            size: 456,
-            sha256_hash: "def456".to_string(),
-            offset: 0,
-        };
-
-        let mut builder = InvocationPayloadBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .encoding(encoding.clone())
-            .payload(payload.clone());
-
-        let invocation_payload = builder
-            .build()
-            .expect("InvocationPayload should build successfully");
-
-        assert_eq!(invocation_payload.namespace, namespace);
-        assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
-        assert_eq!(invocation_payload.encoding, encoding);
-        assert_eq!(invocation_payload.payload, payload);
-        assert!(invocation_payload.created_at > 0);
-        assert!(!invocation_payload.id.is_empty());
-        assert_eq!(invocation_payload.vector_clock.value(), 0);
-
-        // Check key format
-        let key = invocation_payload.key();
-        assert_eq!(
-            key,
-            format!(
-                "{}|{}|{}",
-                invocation_payload.namespace,
-                invocation_payload.compute_graph_name,
-                invocation_payload.id
-            )
-        );
-
-        // Check JSON serialization
-        let json = serde_json::to_string(&invocation_payload)
-            .expect("Should serialize InvocationPayload to JSON");
-        assert!(json.contains(&format!(
-            "\"namespace\":\"{}\"",
-            invocation_payload.namespace
-        )));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            invocation_payload.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"encoding\":\"{}\"", invocation_payload.encoding)));
-        assert!(json.contains(&format!("\"id\":\"{}\"", invocation_payload.id)));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"payload\":{"));
-        assert!(json.contains(&format!("\"path\":\"{}\"", payload.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", payload.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", payload.size)));
-    }
-
-    #[test]
-    fn test_graph_invocation_ctx_builder_build_success() {
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let graph_version = GraphVersion::from("42");
-
-        // Minimal ComputeGraph for the builder
-        let fn_a = test_compute_fn("fn_a", 0);
-        let compute_graph = ComputeGraphBuilder::default()
-            .namespace(namespace.clone())
-            .name(compute_graph_name.clone())
-            .tombstoned(false)
-            .description("desc".to_string())
-            .tags(HashMap::new())
-            .state(ComputeGraphState::Active)
-            .nodes(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
-            .version(graph_version.clone())
-            .edges(HashMap::new())
-            .code(ComputeGraphCode {
-                path: "path".to_string(),
-                size: 1,
-                sha256_hash: "hash".to_string(),
-            })
-            .created_at(123)
-            .start_fn(fn_a.clone())
-            .runtime_information(RuntimeInformation {
-                major_version: 1,
-                minor_version: 2,
-                sdk_version: "1.2.3".to_string(),
-            })
-            .build()
-            .unwrap();
-
-        let mut builder = GraphInvocationCtxBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .invocation_id(invocation_id.clone())
-            .graph_version(graph_version.clone());
-
-        let ctx = builder
-            .build(compute_graph.clone())
-            .expect("GraphInvocationCtx should build successfully");
-
-        assert_eq!(ctx.namespace, namespace);
-        assert_eq!(ctx.compute_graph_name, compute_graph_name);
-        assert_eq!(ctx.invocation_id, invocation_id);
-        assert_eq!(ctx.graph_version, graph_version);
-        assert!(!ctx.completed);
-        assert_eq!(ctx.outcome, GraphInvocationOutcome::Unknown);
-        assert_eq!(ctx.outstanding_tasks, 0);
-        assert_eq!(ctx.outstanding_reducer_tasks, 0);
-        assert!(ctx.invocation_error.is_none());
-        assert!(ctx.created_at > 0);
-        assert_eq!(ctx.vector_clock.value(), 0);
-
-        // fn_task_analytics should have an entry for each node
-        assert_eq!(ctx.fn_task_analytics.len(), compute_graph.nodes.len());
-        assert!(ctx.fn_task_analytics.contains_key("fn_a"));
-
-        // Check key format
-        let key = ctx.key();
-        assert_eq!(
-            key,
-            format!(
-                "{}|{}|{}",
-                ctx.namespace, ctx.compute_graph_name, ctx.invocation_id
-            )
-        );
-
-        // Check JSON serialization
-        let json =
-            serde_json::to_string(&ctx).expect("Should serialize GraphInvocationCtx to JSON");
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", ctx.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            ctx.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"invocation_id\":\"{}\"", ctx.invocation_id)));
-        assert!(json.contains(&format!("\"graph_version\":\"{}\"", ctx.graph_version)));
-        assert!(json.contains("\"completed\":false"));
-        assert!(json.contains("\"outcome\":\"Unknown\""));
-        assert!(json.contains("\"outstanding_tasks\":0"));
-        assert!(json.contains("\"outstanding_reducer_tasks\":0"));
-        assert!(json.contains("\"fn_task_analytics\":{"));
-        assert!(json.contains("\"created_at\":"));
-        assert!(json.contains("\"invocation_error\":null"));
-        assert!(json.contains("\"vector_clock\":1"));
-    }
-
-    #[test]
-    fn test_task_builder_build_success() {
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let graph_version = GraphVersion::from("42");
-        let input = DataPayload {
-            path: "input/path".to_string(),
-            size: 789,
-            sha256_hash: "ghi789".to_string(),
-            offset: 0,
-        };
-        let acc_input = Some(DataPayload {
-            path: "acc/path".to_string(),
-            size: 321,
-            sha256_hash: "acc321".to_string(),
-            offset: 0,
-        });
-        let cache_key = CacheKey::from("cache-key");
-
-        let mut builder = TaskBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .invocation_id(invocation_id.clone())
-            .input(input.clone())
-            .acc_input(acc_input.clone())
-            .graph_version(graph_version.clone())
-            .cache_key(Some(cache_key.clone()));
-
-        let task = builder.build().expect("Task should build successfully");
-
-        assert_eq!(task.namespace, namespace);
-        assert_eq!(task.compute_graph_name, compute_graph_name);
-        assert_eq!(task.compute_fn_name, compute_fn_name);
-        assert_eq!(task.invocation_id, invocation_id);
-        assert_eq!(task.input, input);
-        assert_eq!(task.acc_input, acc_input);
-        assert_eq!(task.graph_version, graph_version);
-        assert_eq!(task.cache_key, Some(cache_key.clone()));
-        assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.outcome, TaskOutcome::Unknown);
-        assert_eq!(task.attempt_number, 0);
-        assert!(!task.id.get().is_empty());
-        assert!(task.creation_time_ns > 0);
-        assert!(!task.key().is_empty());
-        assert_eq!(task.vector_clock.value(), 0);
-
-        // Check key format
-        let key = task.key();
-        assert!(key.starts_with(&format!(
-            "{}|{}|{}|{}|",
-            task.namespace, task.compute_graph_name, task.invocation_id, task.compute_fn_name
-        )));
-        assert!(key.ends_with(&task.id.get()));
-
-        // Check JSON serialization
-        let json = serde_json::to_string(&task).expect("Should serialize Task to JSON");
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", task.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            task.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"compute_fn_name\":\"{}\"", task.compute_fn_name)));
-        assert!(json.contains(&format!("\"invocation_id\":\"{}\"", task.invocation_id)));
-        assert!(json.contains(&format!("\"id\":\"{}\"", task.id.get())));
-        assert!(json.contains("\"status\":\"Pending\""));
-        assert!(json.contains("\"outcome\":\"Unknown\""));
-        assert!(json.contains(&format!("\"graph_version\":\"{}\"", task.graph_version)));
-        assert!(json.contains(&format!("\"cache_key\":\"{cache_key}\"")));
-        assert!(json.contains("\"cache_hit\":false"));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"input\":{"));
-        assert!(json.contains(&format!("\"path\":\"{}\"", input.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", input.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", input.size)));
-        assert!(json.contains("\"acc_input\":{"));
-        assert!(json.contains(&format!(
-            "\"path\":\"{}\"",
-            acc_input.as_ref().unwrap().path
-        )));
-        assert!(json.contains(&format!(
-            "\"sha256_hash\":\"{}\"",
-            acc_input.as_ref().unwrap().sha256_hash
-        )));
-        assert!(json.contains(&format!("\"size\":{}", acc_input.as_ref().unwrap().size)));
-    }
-
-    #[test]
-    fn test_function_executor_builder_build_success() {
-        let id: FunctionExecutorId = "fe-123".into();
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let version = GraphVersion::from("1");
-        let state = FunctionExecutorState::Running;
-        let resources = FunctionExecutorResources {
-            cpu_ms_per_sec: 2000,
-            memory_mb: 4096,
-            ephemeral_disk_mb: 2048,
-            gpu: Some(GPUResources {
-                count: 2,
-                model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
-            }),
-        };
-        let max_concurrency = 4;
-
-        let mut builder = FunctionExecutorBuilder::default();
-        builder
-            .id(id.clone())
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .version(version.clone())
-            .state(state.clone())
-            .resources(resources.clone())
-            .max_concurrency(max_concurrency);
-
-        let fe = builder.build().expect("Should build FunctionExecutor");
-
-        assert_eq!(fe.id, id);
-        assert_eq!(fe.namespace, namespace);
-        assert_eq!(fe.compute_graph_name, compute_graph_name);
-        assert_eq!(fe.compute_fn_name, compute_fn_name);
-        assert_eq!(fe.version, version);
-        assert_eq!(fe.state, state);
-        assert_eq!(fe.resources, resources);
-        assert_eq!(fe.max_concurrency, max_concurrency);
-        assert_eq!(fe.vector_clock.value(), 0);
-
-        // Check serialization
-        let json = serde_json::to_string(&fe).expect("Should serialize FunctionExecutor to JSON");
-        assert!(json.contains(&format!("\"id\":\"{}\"", fe.id.get())));
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", fe.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            fe.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"compute_fn_name\":\"{}\"", fe.compute_fn_name)));
-        assert!(json.contains(&format!("\"version\":\"{}\"", fe.version)));
-        assert!(json.contains(&format!("\"state\":\"{}\"", fe.state.as_ref())));
-        assert!(json.contains(&format!("\"max_concurrency\":{}", fe.max_concurrency)));
-        assert!(json.contains("\"resources\":{"));
-        assert!(json.contains(&format!("\"cpu_ms_per_sec\":{}", resources.cpu_ms_per_sec)));
-        assert!(json.contains(&format!("\"memory_mb\":{}", resources.memory_mb)));
-        assert!(json.contains(&format!(
-            "\"ephemeral_disk_mb\":{}",
-            resources.ephemeral_disk_mb
-        )));
-        assert!(json.contains("\"gpu\":{"));
-        assert!(json.contains(&format!(
-            "\"count\":{}",
-            resources.gpu.as_ref().unwrap().count
-        )));
-        assert!(json.contains(&format!(
-            "\"model\":\"{}\"",
-            resources.gpu.as_ref().unwrap().model
-        )));
-        assert!(json.contains("\"vector_clock\":1"));
-    }
-
-    #[test]
-    fn test_executor_metadata_builder_build_success() {
-        let id = ExecutorId::from("executor-1");
-        let executor_version = "0.2.17".to_string();
-        let function_allowlist = Some(vec![FunctionAllowlist {
-            namespace: Some("ns".to_string()),
-            compute_graph_name: Some("graph".to_string()),
-            compute_fn_name: Some("fn".to_string()),
-            version: Some(GraphVersion::from("1")),
-        }]);
-        let addr = "127.0.0.1:8080".to_string();
-        let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
-        let fe_id = FunctionExecutorId::from("fe-1");
-        let function_executors = HashMap::from([(
-            fe_id.clone(),
-            FunctionExecutor {
-                id: fe_id.clone(),
-                namespace: "ns".to_string(),
-                compute_graph_name: "graph".to_string(),
-                compute_fn_name: "fn".to_string(),
-                version: GraphVersion::from("1"),
-                state: FunctionExecutorState::Running,
-                resources: FunctionExecutorResources {
-                    cpu_ms_per_sec: 1000,
-                    memory_mb: 1024,
-                    ephemeral_disk_mb: 1024,
-                    gpu: None,
-                },
-                max_concurrency: 2,
-                vector_clock: VectorClock::default(),
-            },
-        )]);
-        let host_resources = HostResources {
-            cpu_ms_per_sec: 4000,
-            memory_bytes: 8 * 1024 * 1024 * 1024,
-            disk_bytes: 100 * 1024 * 1024 * 1024,
-            gpu: None,
-        };
-        let state = ExecutorState::Running;
-        let tombstoned = false;
-        let state_hash = "abc123".to_string();
-        let clock = 42u64;
-
-        let mut builder = ExecutorMetadataBuilder::default();
-        builder
-            .id(id.clone())
-            .executor_version(executor_version.clone())
-            .function_allowlist(function_allowlist.clone())
-            .addr(addr.clone())
-            .labels(labels.clone())
-            .function_executors(function_executors.clone())
-            .host_resources(host_resources.clone())
-            .state(state.clone())
-            .tombstoned(tombstoned)
-            .state_hash(state_hash.clone())
-            .clock(clock);
-
-        let metadata = builder.build().expect("Should build ExecutorMetadata");
-
-        assert_eq!(metadata.id, id);
-        assert_eq!(metadata.executor_version, executor_version);
-        assert_eq!(metadata.function_allowlist, function_allowlist);
-        assert_eq!(metadata.addr, addr);
-        assert_eq!(metadata.labels, labels);
-        assert_eq!(metadata.function_executors, function_executors);
-        assert_eq!(metadata.host_resources, host_resources);
-        assert_eq!(metadata.state, state);
-        assert_eq!(metadata.tombstoned, tombstoned);
-        assert_eq!(metadata.state_hash, state_hash);
-        assert_eq!(metadata.clock, clock);
-        assert_eq!(metadata.vector_clock.value(), 0);
-
-        // Check serialization
-        let json =
-            serde_json::to_string(&metadata).expect("Should serialize ExecutorMetadata to JSON");
-        assert!(json.contains(&format!("\"id\":\"{}\"", metadata.id.get())));
-        assert!(json.contains(&format!(
-            "\"executor_version\":\"{}\"",
-            metadata.executor_version
-        )));
-        assert!(json.contains(&format!("\"addr\":\"{}\"", metadata.addr)));
-        assert!(json.contains(&format!("\"state\":\"{}\"", metadata.state.as_ref())));
-        assert!(json.contains(&format!("\"tombstoned\":{}", metadata.tombstoned)));
-        assert!(json.contains(&format!("\"state_hash\":\"{}\"", metadata.state_hash)));
-        assert!(json.contains("\"clock\":42"));
-        assert!(json.contains("\"vector_clock\":1"));
     }
 }
 

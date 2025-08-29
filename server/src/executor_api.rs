@@ -37,9 +37,8 @@ use crate::{
         ExecutorMetadata,
         ExecutorMetadataBuilder,
         FunctionAllowlist,
-        FunctionExecutorBuilder,
+        FunctionExecutor,
         FunctionExecutorDiagnostics,
-        FunctionExecutorDiagnosticsBuilder,
         FunctionExecutorId,
         GPUResources,
         GraphVersion,
@@ -389,27 +388,26 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .unwrap_or(1);
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
-
-        let state = match function_executor_state.status() {
-            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
-            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
-            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
-            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated {
-                reason: termination_reason,
-                failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
+        Ok(FunctionExecutor {
+            id: FunctionExecutorId::new(id.clone()),
+            namespace: namespace.clone(),
+            compute_graph_name: compute_graph_name.clone(),
+            compute_fn_name: compute_fn_name.clone(),
+            version: GraphVersion(version.clone()),
+            state: match function_executor_state.status() {
+                FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
+                FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
+                FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
+                FunctionExecutorStatus::Terminated => {
+                    data_model::FunctionExecutorState::Terminated {
+                        reason: termination_reason,
+                        failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
+                    }
+                }
             },
-        };
-
-        FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new(id.clone()))
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .version(GraphVersion(version.clone()))
-            .state(state)
-            .resources(resources)
-            .max_concurrency(max_concurrency)
-            .build()
+            resources,
+            max_concurrency,
+        })
     }
 }
 
@@ -456,16 +454,15 @@ fn to_function_executor_diagnostics(
         &blob_storage_url,
     );
 
-    let diags = FunctionExecutorDiagnosticsBuilder::default()
-        .id(FunctionExecutorId::new(id.to_string()))
-        .namespace(namespace)
-        .graph_name(graph_name)
-        .function_name(function_name)
-        .graph_version(GraphVersion(graph_version))
-        .startup_stdout(startup_stdout)
-        .startup_stderr(startup_stderr)
-        .build()?;
-    Ok(diags)
+    Ok(data_model::FunctionExecutorDiagnostics {
+        id: FunctionExecutorId::new(id.to_string()),
+        namespace,
+        graph_name,
+        function_name,
+        graph_version: GraphVersion(graph_version),
+        startup_stdout,
+        startup_stderr,
+    })
 }
 
 fn to_function_executor_diagnostics_vector(

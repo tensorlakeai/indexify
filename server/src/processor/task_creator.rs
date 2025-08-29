@@ -14,7 +14,6 @@ use crate::{
         GraphInvocationOutcome,
         InvokeComputeGraphEvent,
         ReduceTask,
-        ReduceTaskBuilder,
         RunningTaskStatus,
         Task,
         TaskOutcome,
@@ -451,14 +450,14 @@ impl TaskCreator {
                     //    new task for the reducer
                     // and remove the reducer task for which we created the new task.
 
-                    let reduction_task = ReduceTaskBuilder::default()
-                        .namespace(task.namespace.clone())
-                        .compute_graph_name(task.compute_graph_name.clone())
-                        .invocation_id(task.invocation_id.clone())
-                        .compute_fn_name(edge_compute_node.name.clone())
-                        .input(output.clone())
-                        .id(nanoid::nanoid!())
-                        .build()?;
+                    let reduction_task = ReduceTask {
+                        namespace: task.namespace.clone(),
+                        compute_graph_name: task.compute_graph_name.clone(),
+                        invocation_id: task.invocation_id.clone(),
+                        compute_fn_name: edge_compute_node.name.clone(),
+                        input: output.clone(),
+                        id: nanoid::nanoid!(),
+                    };
                     new_reduction_tasks.push(reduction_task);
                     continue;
                 }

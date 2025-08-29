@@ -527,28 +527,25 @@ impl ComputeGraph {
             ))
         })?;
 
-        let compute_graph = data_model::ComputeGraphBuilder::default()
-            .name(self.name)
-            .namespace(self.namespace)
-            .description(self.description)
-            .start_fn(start_fn)
-            .tags(self.tags.unwrap_or_default())
-            .version(self.version.into())
-            .code(ComputeGraphCode {
+        let compute_graph = data_model::ComputeGraph {
+            name: self.name,
+            namespace: self.namespace,
+            description: self.description,
+            start_fn,
+            tags: self.tags.unwrap_or_default(),
+            version: self.version.into(),
+            code: ComputeGraphCode {
                 sha256_hash: sha256_hash.to_string(),
                 size,
                 path: code_path.to_string(),
-            })
-            .nodes(nodes)
-            .edges(self.edges.clone())
-            .created_at(0)
-            .runtime_information(self.runtime_information.into())
-            .tombstoned(self.tombstoned)
-            .state(data_model::ComputeGraphState::Active)
-            .build()
-            .map_err(|e| {
-                IndexifyAPIError::bad_request(&format!("Failed to build ComputeGraph: {e}"))
-            })?;
+            },
+            nodes,
+            edges: self.edges.clone(),
+            created_at: 0,
+            runtime_information: self.runtime_information.into(),
+            tombstoned: self.tombstoned,
+            state: data_model::ComputeGraphState::Active,
+        };
         Ok(compute_graph)
     }
 }

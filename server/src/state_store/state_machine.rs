@@ -16,15 +16,14 @@ use tracing::{debug, error, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
+        self,
         Allocation,
         ComputeGraph,
         ComputeGraphVersion,
-        FunctionExecutorDiagnostics,
         GcUrl,
-        GcUrlBuilder,
         GraphInvocationCtx,
         InvocationPayload,
-        NamespaceBuilder,
+        Namespace,
         NodeOutput,
         StateChange,
         Task,
@@ -64,6 +63,10 @@ pub enum IndexifyObjectsColumns {
     FunctionExecutorDiagnostics, // Function Executor ID -> FunctionExecutorDiagnostics
 
     GcUrls, // List of URLs pending deletion
+
+    SystemTasks, // Long running tasks involving multiple invocations
+
+    Stats, // Stats
 }
 
 impl IndexifyObjectsColumns {
@@ -77,12 +80,12 @@ impl IndexifyObjectsColumns {
 }
 
 pub(crate) fn upsert_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
-    let ns = NamespaceBuilder::default()
-        .name(req.name.clone())
-        .created_at(get_epoch_time_in_ms())
-        .blob_storage_bucket(req.blob_storage_bucket.clone())
-        .blob_storage_region(req.blob_storage_region.clone())
-        .build()?;
+    let ns = Namespace {
+        name: req.name.clone(),
+        created_at: get_epoch_time_in_ms(),
+        blob_storage_bucket: req.blob_storage_bucket.clone(),
+        blob_storage_region: req.blob_storage_region.clone(),
+    };
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put_cf(
         &IndexifyObjectsColumns::Namespaces.cf_db(&db),
@@ -245,10 +248,10 @@ pub(crate) fn delete_invocation(
                     .iter()
                     .flatten()
                     .try_for_each(|data| -> Result<()> {
-                        let gc_url = GcUrlBuilder::default()
-                            .url(data.path.clone())
-                            .namespace(req.namespace.clone())
-                            .build()?;
+                        let gc_url = GcUrl {
+                            url: data.path.clone(),
+                            namespace: req.namespace.clone(),
+                        };
                         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
                         txn.put_cf(
                             &IndexifyObjectsColumns::GcUrls.cf_db(&db),
@@ -287,10 +290,10 @@ pub(crate) fn delete_invocation(
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         for payload in value.payloads {
-            let gc_url = GcUrlBuilder::default()
-                .url(payload.path.clone())
-                .namespace(req.namespace.clone())
-                .build()?;
+            let gc_url = GcUrl {
+                url: payload.path.clone(),
+                namespace: req.namespace.clone(),
+            };
             let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
             txn.put_cf(
                 &IndexifyObjectsColumns::GcUrls.cf_db(&db),
@@ -544,10 +547,10 @@ pub fn delete_compute_graph(
         let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
 
         // mark all code urls for gc.
-        let gc_url = GcUrlBuilder::default()
-            .url(value.code.path.clone())
-            .namespace(namespace.to_string())
-            .build()?;
+        let gc_url = GcUrl {
+            url: value.code.path.clone(),
+            namespace: namespace.to_string(),
+        };
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put_cf(
             &IndexifyObjectsColumns::GcUrls.cf_db(&db),
@@ -849,7 +852,7 @@ pub fn ingest_task_outputs(
 pub fn upsert_function_executor_diagnostics(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    fe_diagnostics: &FunctionExecutorDiagnostics,
+    fe_diagnostics: &data_model::FunctionExecutorDiagnostics,
 ) -> Result<()> {
     let serialized_fe_diagnostics = JsonEncoder::encode(fe_diagnostics)?;
     txn.put_cf(

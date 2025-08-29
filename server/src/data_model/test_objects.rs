@@ -6,12 +6,10 @@ pub mod tests {
 
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, NodeOutput, RuntimeInformation};
     use crate::data_model::{
-        ComputeGraphBuilder,
         ComputeGraphState,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
-        ExecutorMetadataBuilder,
         FunctionRetryPolicy,
         GraphInvocationCtx,
         GraphInvocationCtxBuilder,
@@ -113,40 +111,39 @@ pub mod tests {
         let fn_b = test_compute_fn("fn_b", max_retries);
         let fn_c = test_compute_fn("fn_c", max_retries);
 
-        ComputeGraphBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .state(ComputeGraphState::Active)
-            .name("graph_A".to_string())
-            .tags(HashMap::from([
+        ComputeGraph {
+            namespace: TEST_NAMESPACE.to_string(),
+            state: ComputeGraphState::Active,
+            name: "graph_A".to_string(),
+            tags: HashMap::from([
                 ("tag1".to_string(), "val1".to_string()),
                 ("tag2".to_string(), "val2".to_string()),
-            ]))
-            .tombstoned(false)
-            .nodes(HashMap::from([
+            ]),
+            tombstoned: false,
+            nodes: HashMap::from([
                 ("fn_b".to_string(), fn_b),
                 ("fn_c".to_string(), fn_c),
                 ("fn_a".to_string(), fn_a.clone()),
-            ]))
-            .version(crate::data_model::GraphVersion::from("1"))
-            .edges(HashMap::from([(
+            ]),
+            version: crate::data_model::GraphVersion::from("1"),
+            edges: HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]))
-            .description("description graph_A".to_string())
-            .code(ComputeGraphCode {
+            )]),
+            description: "description graph_A".to_string(),
+            code: ComputeGraphCode {
                 path: "cg_path".to_string(),
                 size: 23,
                 sha256_hash: "hash123".to_string(),
-            })
-            .created_at(5)
-            .start_fn(fn_a)
-            .runtime_information(RuntimeInformation {
+            },
+            created_at: 5,
+            start_fn: fn_a,
+            runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
                 sdk_version: "1.2.3".to_string(),
-            })
-            .build()
-            .unwrap()
+            },
+        }
     }
 
     pub fn test_graph_a() -> ComputeGraph {
@@ -154,24 +151,24 @@ pub mod tests {
     }
 
     pub fn test_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
-        ExecutorMetadataBuilder::default()
-            .id(id)
-            .executor_version("1.0.0".to_string())
-            .function_allowlist(None)
-            .addr("".to_string())
-            .labels(Default::default())
-            .host_resources(crate::data_model::HostResources {
+        ExecutorMetadata {
+            id,
+            executor_version: "1.0.0".to_string(),
+            function_allowlist: None,
+            addr: "".to_string(),
+            labels: Default::default(),
+            // Executor must have resources to be schedulable.
+            host_resources: crate::data_model::HostResources {
                 cpu_ms_per_sec: 8 * 1000, // 8 cores
                 memory_bytes: 16 * 1024 * 1024 * 1024,
                 disk_bytes: 100 * 1024 * 1024 * 1024,
                 gpu: None,
-            })
-            .state(Default::default())
-            .function_executors(Default::default())
-            .tombstoned(false)
-            .state_hash("state_hash".to_string())
-            .clock(0)
-            .build()
-            .unwrap()
+            },
+            state: Default::default(),
+            function_executors: Default::default(),
+            tombstoned: false,
+            state_hash: "state_hash".to_string(),
+            clock: 0,
+        }
     }
 }
