@@ -8,7 +8,6 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     ops::Deref,
     str,
-    time::{SystemTime, UNIX_EPOCH},
     vec,
 };
 
@@ -22,7 +21,7 @@ use tracing::info;
 
 use crate::{
     data_model::clocks::{Linearizable, VectorClock},
-    utils::get_epoch_time_in_ms,
+    utils::{get_epoch_time_in_ms, get_epoch_time_in_ns},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1274,9 +1273,7 @@ pub struct Task {
 
 impl TaskBuilder {
     fn default_creation_time_ns(&self) -> u128 {
-        let current_time = SystemTime::now();
-        let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
-        duration.as_nanos()
+        get_epoch_time_in_ns()
     }
 }
 
@@ -2217,7 +2214,9 @@ impl Linearizable for Namespace {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::Duration};
+
+    use mock_instant::global::MockClock;
 
     use super::*;
     use crate::data_model::{
@@ -2630,6 +2629,8 @@ mod tests {
 
     #[test]
     fn test_allocation_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let target = AllocationTarget {
             executor_id: "executor-1".into(),
             function_executor_id: "fe-1".into(),
@@ -2659,7 +2660,7 @@ mod tests {
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, TaskOutcome::Success);
         assert!(!allocation.id.is_empty());
-        assert!(allocation.created_at > 0);
+        assert_eq!(allocation.created_at, 9999999999);
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
         assert_eq!(allocation.vector_clock.value(), 0);
@@ -2694,6 +2695,8 @@ mod tests {
 
     #[test]
     fn test_node_output_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let compute_fn_name = "fn".to_string();
@@ -2733,7 +2736,7 @@ mod tests {
         assert_eq!(node_output.payloads, payloads);
         assert_eq!(node_output.next_functions, next_functions);
         assert_eq!(node_output.encoding, encoding);
-        assert!(node_output.created_at > 0);
+        assert_eq!(node_output.created_at, 9999999999);
         assert!(node_output.reducer_output);
         assert!(!node_output.id.is_empty());
         assert!(node_output.invocation_error_payload.is_none());
@@ -2796,6 +2799,8 @@ mod tests {
 
     #[test]
     fn test_invocation_payload_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let encoding = "application/octet-stream".to_string();
@@ -2821,7 +2826,7 @@ mod tests {
         assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
         assert_eq!(invocation_payload.encoding, encoding);
         assert_eq!(invocation_payload.payload, payload);
-        assert!(invocation_payload.created_at > 0);
+        assert_eq!(invocation_payload.created_at, 9999999999);
         assert!(!invocation_payload.id.is_empty());
         assert_eq!(invocation_payload.vector_clock.value(), 0);
 
@@ -2859,6 +2864,8 @@ mod tests {
 
     #[test]
     fn test_graph_invocation_ctx_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let invocation_id = "invoc-1".to_string();
@@ -2909,7 +2916,7 @@ mod tests {
         assert_eq!(ctx.outstanding_tasks, 0);
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
         assert!(ctx.invocation_error.is_none());
-        assert!(ctx.created_at > 0);
+        assert_eq!(ctx.created_at, 9999999999);
         assert_eq!(ctx.vector_clock.value(), 0);
 
         // fn_task_analytics should have an entry for each node
@@ -2948,6 +2955,8 @@ mod tests {
 
     #[test]
     fn test_task_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let compute_fn_name = "fn".to_string();
@@ -2992,7 +3001,7 @@ mod tests {
         assert_eq!(task.outcome, TaskOutcome::Unknown);
         assert_eq!(task.attempt_number, 0);
         assert!(!task.id.get().is_empty());
-        assert!(task.creation_time_ns > 0);
+        assert_eq!(task.creation_time_ns, 9999999999999999);
         assert!(!task.key().is_empty());
         assert_eq!(task.vector_clock.value(), 0);
 
