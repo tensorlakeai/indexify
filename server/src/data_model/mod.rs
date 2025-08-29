@@ -28,6 +28,16 @@ use crate::{
 #[serde(transparent)]
 pub struct EpochTime(u128);
 
+impl EpochTime {
+    pub fn as_nanos(&self) -> u128 {
+        self.0
+    }
+
+    fn to_be_bytes(&self) -> [u8; 16] {
+        self.0.to_be_bytes()
+    }
+}
+
 impl Default for EpochTime {
     fn default() -> Self {
         get_epoch_time_in_ms().into()
@@ -37,20 +47,6 @@ impl Default for EpochTime {
 impl fmt::Display for EpochTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl Deref for EpochTime {
-    type Target = u128;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for EpochTime {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
