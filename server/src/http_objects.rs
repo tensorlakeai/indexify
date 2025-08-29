@@ -336,6 +336,25 @@ impl From<data_model::CacheKey> for CacheKey {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ApplicationFunction {
+    pub name: String,
+    pub description: String,
+    pub is_api: bool,
+    pub is_reducer: bool,
+    pub secret_names: Vec<String>,
+    pub timeout_sec: TimeoutSeconds,
+    pub resources: NodeResources,
+    pub retry_policy: NodeRetryPolicy,
+    pub cache_key: Option<CacheKey>,
+    #[serde(default)]
+    pub parameters: Vec<ParameterMetadata>,
+    #[serde(default)]
+    pub return_type: Option<serde_json::Value>,
+    pub placement_constraints: PlacementConstraints,
+    pub max_concurrency: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
