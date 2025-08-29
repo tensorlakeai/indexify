@@ -21,56 +21,8 @@ use tracing::info;
 
 use crate::{
     data_model::clocks::{Linearizable, VectorClock},
-    utils::get_epoch_time_in_ms,
+    utils::{get_epoch_time_in_ms, get_epoch_time_in_ns},
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct EpochTime(u128);
-
-impl Default for EpochTime {
-    fn default() -> Self {
-        get_epoch_time_in_ms().into()
-    }
-}
-
-impl fmt::Display for EpochTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Deref for EpochTime {
-    type Target = u128;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for EpochTime {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<u64> for EpochTime {
-    fn from(value: u64) -> Self {
-        EpochTime(value as u128)
-    }
-}
-
-impl From<EpochTime> for u128 {
-    fn from(value: EpochTime) -> Self {
-        value.0
-    }
-}
-
-impl PartialOrd for EpochTime {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.cmp(&other.0))
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -179,8 +131,8 @@ pub struct Allocation {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u128,
     pub outcome: TaskOutcome,
     #[builder(setter(strip_option), default)]
     pub diagnostics: Option<TaskDiagnostics>,
@@ -189,6 +141,12 @@ pub struct Allocation {
     pub execution_duration_ms: Option<u64>,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl AllocationBuilder {
+    fn default_created_at(&self) -> u128 {
+        get_epoch_time_in_ms() as u128
+    }
 }
 
 impl Linearizable for Allocation {
@@ -452,6 +410,7 @@ pub struct ComputeGraph {
     #[serde(default)]
     #[builder(default)]
     pub tags: HashMap<String, String>,
+    #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
@@ -465,6 +424,12 @@ pub struct ComputeGraph {
     pub state: ComputeGraphState,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl ComputeGraphBuilder {
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 impl Linearizable for ComputeGraph {
@@ -703,8 +668,8 @@ pub struct NodeOutput {
     pub invocation_id: String,
     pub payloads: Vec<DataPayload>,
     pub next_functions: Vec<String>,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     #[builder(default = "self.default_encoding()")]
     pub encoding: String,
     pub allocation_id: String,
@@ -802,6 +767,10 @@ impl NodeOutputBuilder {
     fn default_encoding(&self) -> String {
         "application/octet-stream".to_string()
     }
+
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -811,8 +780,8 @@ pub struct InvocationPayload {
     pub namespace: String,
     pub compute_graph_name: String,
     pub payload: DataPayload,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     pub encoding: String,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -856,6 +825,10 @@ impl InvocationPayloadBuilder {
         payload.path.hash(&mut hasher);
 
         Ok(format!("{:x}", hasher.finish()))
+    }
+
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
     }
 }
 
@@ -975,13 +948,19 @@ pub struct GraphInvocationCtx {
     #[builder(default)]
     pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
-    #[serde(default)]
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[serde(default = "get_epoch_time_in_ms")]
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     #[builder(setter(strip_option), default)]
     pub invocation_error: Option<GraphInvocationError>,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl GraphInvocationCtxBuilder {
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 impl Linearizable for GraphInvocationCtx {
@@ -1282,14 +1261,20 @@ pub struct Task {
     pub status: TaskStatus,
     #[builder(default)]
     pub outcome: TaskOutcome,
-    #[builder(default)]
-    pub creation_time_ns: EpochTime,
+    #[builder(default = "self.default_creation_time_ns()")]
+    pub creation_time_ns: u128,
     pub graph_version: GraphVersion,
     pub cache_key: Option<CacheKey>,
     #[builder(default)]
     pub attempt_number: u32,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl TaskBuilder {
+    fn default_creation_time_ns(&self) -> u128 {
+        get_epoch_time_in_ns()
+    }
 }
 
 impl Linearizable for Task {
@@ -2229,7 +2214,9 @@ impl Linearizable for Namespace {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::Duration};
+
+    use mock_instant::global::MockClock;
 
     use super::*;
     use crate::data_model::{
@@ -2642,6 +2629,8 @@ mod tests {
 
     #[test]
     fn test_allocation_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let target = AllocationTarget {
             executor_id: "executor-1".into(),
             function_executor_id: "fe-1".into(),
@@ -2671,7 +2660,7 @@ mod tests {
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, TaskOutcome::Success);
         assert!(!allocation.id.is_empty());
-        assert!(allocation.created_at > EpochTime(0));
+        assert_eq!(allocation.created_at, 9999999999);
         assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
         assert_eq!(allocation.vector_clock.value(), 0);
@@ -2706,6 +2695,8 @@ mod tests {
 
     #[test]
     fn test_node_output_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let compute_fn_name = "fn".to_string();
@@ -2745,7 +2736,7 @@ mod tests {
         assert_eq!(node_output.payloads, payloads);
         assert_eq!(node_output.next_functions, next_functions);
         assert_eq!(node_output.encoding, encoding);
-        assert!(node_output.created_at > EpochTime(0));
+        assert_eq!(node_output.created_at, 9999999999);
         assert!(node_output.reducer_output);
         assert!(!node_output.id.is_empty());
         assert!(node_output.invocation_error_payload.is_none());
@@ -2808,6 +2799,8 @@ mod tests {
 
     #[test]
     fn test_invocation_payload_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let encoding = "application/octet-stream".to_string();
@@ -2833,7 +2826,7 @@ mod tests {
         assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
         assert_eq!(invocation_payload.encoding, encoding);
         assert_eq!(invocation_payload.payload, payload);
-        assert!(invocation_payload.created_at > EpochTime(0));
+        assert_eq!(invocation_payload.created_at, 9999999999);
         assert!(!invocation_payload.id.is_empty());
         assert_eq!(invocation_payload.vector_clock.value(), 0);
 
@@ -2871,6 +2864,8 @@ mod tests {
 
     #[test]
     fn test_graph_invocation_ctx_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let invocation_id = "invoc-1".to_string();
@@ -2921,7 +2916,7 @@ mod tests {
         assert_eq!(ctx.outstanding_tasks, 0);
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
         assert!(ctx.invocation_error.is_none());
-        assert!(ctx.created_at > EpochTime(0));
+        assert_eq!(ctx.created_at, 9999999999);
         assert_eq!(ctx.vector_clock.value(), 0);
 
         // fn_task_analytics should have an entry for each node
@@ -2960,6 +2955,8 @@ mod tests {
 
     #[test]
     fn test_task_builder_build_success() {
+        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
+
         let namespace = "test-ns".to_string();
         let compute_graph_name = "graph".to_string();
         let compute_fn_name = "fn".to_string();
@@ -3004,7 +3001,7 @@ mod tests {
         assert_eq!(task.outcome, TaskOutcome::Unknown);
         assert_eq!(task.attempt_number, 0);
         assert!(!task.id.get().is_empty());
-        assert!(task.creation_time_ns > EpochTime(0));
+        assert_eq!(task.creation_time_ns, 9999999999999999);
         assert!(!task.key().is_empty());
         assert_eq!(task.vector_clock.value(), 0);
 

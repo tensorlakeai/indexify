@@ -212,7 +212,7 @@ pub async fn invoke_with_object_v1(
         .graph_version(compute_graph.version.clone())
         .invocation_id(invocation_payload.id.clone())
         .fn_task_analytics(compute_graph.fn_task_analytics())
-        .created_at(invocation_payload.created_at.clone())
+        .created_at(invocation_payload.created_at)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
@@ -363,7 +363,7 @@ pub async fn invoke_with_object(
         .graph_version(compute_graph.version.clone())
         .invocation_id(invocation_payload.id.clone())
         .fn_task_analytics(compute_graph.fn_task_analytics())
-        .created_at(invocation_payload.created_at.clone())
+        .created_at(invocation_payload.created_at)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

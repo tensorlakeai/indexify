@@ -34,13 +34,24 @@ cd "$(dirname "$0")"
 summary_file=".run_tests_summary.txt"
 rm -f $summary_file
 
-# Indexify tests.
-indexify_test_files=$(find . -name 'test_*.py')
-# Tensorlke SDK tests verify user visible functionality end-to-end.
-tensorlake_sdk_test_files=$(find ../../tensorlake/tests/workflows_sdk -name 'test_*.py')
-
+# Indexify tests, excluding timed based tests that can fail if the executor is busy.
+indexify_test_files=$(find . -name 'test_*.py' ! -name '*test_invoke_duration*' ! -name '*test_graph_timeouts*')
 run_test_suite "$indexify_test_files" "Indexify"
-run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"
+
+# Indexify timed based tests that can fail if the executor is busy.
+indexify_test_files=$(find . -name '*test_invoke_duration*')
+run_test_suite "$indexify_test_files" "Indexify Invoke Duration tests"
+
+indexify_test_files=$(find . -name '*test_graph_timeouts*')
+run_test_suite "$indexify_test_files" "Indexify Graph timeouts"
+
+# If you want to skip the Tensorlake SDK tests,
+# you can set TENSORLAKE_SDK_SKIP_TESTS=true in your environment.
+if [[ -z "${TENSORLAKE_SDK_SKIP_TESTS}" ]]; then
+  # Tensorlake SDK tests verify user visible functionality end-to-end.
+  tensorlake_sdk_test_files=$(find ../../tensorlake/tests/workflows_sdk -name 'test_*.py')
+  run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"
+fi
 
 if [ $tests_exit_code -eq 0 ]; then
   echo "All tests passed!" >> $summary_file

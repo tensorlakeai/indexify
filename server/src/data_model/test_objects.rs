@@ -103,7 +103,7 @@ pub mod tests {
             .graph_version(GraphVersion::default())
             .invocation_id(invocation_payload.id.clone())
             .fn_task_analytics(compute_graph.fn_task_analytics())
-            .created_at(invocation_payload.created_at.clone())
+            .created_at(invocation_payload.created_at)
             .build()
             .unwrap()
     }

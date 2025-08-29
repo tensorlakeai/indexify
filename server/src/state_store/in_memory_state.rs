@@ -1,7 +1,6 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    ops::Deref,
     sync::Arc,
 };
 
@@ -135,7 +134,7 @@ pub struct UnallocatedTaskId {
 impl UnallocatedTaskId {
     pub fn new(task: &Task) -> Self {
         Self {
-            task_creation_time_ns: task.creation_time_ns.clone().into(),
+            task_creation_time_ns: task.creation_time_ns,
             task_key: task.key(),
         }
     }
@@ -349,10 +348,7 @@ impl InMemoryMetrics {
                                 .values()
                                 .filter(|inv| !inv.completed)
                                 .map(|inv| {
-                                    get_elapsed_time(
-                                        *inv.created_at.deref(),
-                                        TimeUnit::Milliseconds,
-                                    )
+                                    get_elapsed_time(inv.created_at.into(), TimeUnit::Milliseconds)
                                 })
                                 .max_by(|a, b| {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
@@ -394,10 +390,7 @@ impl InMemoryMetrics {
                                 .values()
                                 .filter(|task| !task.is_terminal())
                                 .map(|task| {
-                                    get_elapsed_time(
-                                        *task.creation_time_ns.deref(),
-                                        TimeUnit::Nanoseconds,
-                                    )
+                                    get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds)
                                 })
                                 .max_by(|a, b| {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
@@ -792,7 +785,7 @@ impl InMemoryState {
 
                         // Record metrics
                         self.task_pending_latency.record(
-                            get_elapsed_time(*task.creation_time_ns.deref(), TimeUnit::Nanoseconds),
+                            get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
                         );
 
@@ -888,7 +881,7 @@ impl InMemoryState {
                                         // Record metrics
                                         self.allocation_running_latency.record(
                                             get_elapsed_time(
-                                                *allocation.created_at.deref(),
+                                                allocation.created_at,
                                                 TimeUnit::Milliseconds,
                                             ),
                                             &[KeyValue::new(
@@ -913,7 +906,7 @@ impl InMemoryState {
                     // Record metrics
                     self.allocation_completion_latency.record(
                         get_elapsed_time(
-                            *allocation_output.allocation.created_at.deref(),
+                            allocation_output.allocation.created_at,
                             TimeUnit::Milliseconds,
                         ),
                         &[KeyValue::new(
