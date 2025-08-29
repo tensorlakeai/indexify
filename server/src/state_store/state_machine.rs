@@ -64,16 +64,6 @@ pub enum IndexifyObjectsColumns {
     FunctionExecutorDiagnostics, // Function Executor ID -> FunctionExecutorDiagnostics
 
     GcUrls, // List of URLs pending deletion
-
-    // IMPORTANT! DO NOT DELETE THE FOLLOWING COLUMNS
-    // SystemTasks and Stats are still in the state store even
-    // though they are not referenced anywhere in the codebase.
-    //
-    // If you remove them, Indexify Server will fail to start
-    // because it won't be able to load the existing RocksDB column families.
-    SystemTasks, // Long running tasks involving multiple invocations
-
-    Stats, // Stats
 }
 
 impl IndexifyObjectsColumns {
