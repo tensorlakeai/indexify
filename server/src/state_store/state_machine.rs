@@ -454,12 +454,12 @@ pub(crate) fn create_or_update_compute_graph(
     let new_compute_graph_version = match existing_compute_graph {
         Some(Ok(mut existing_compute_graph)) => {
             existing_compute_graph.update(compute_graph.clone());
-            existing_compute_graph.to_version()
+            Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.to_version())
         }
         Some(Err(e)) => {
             return Err(anyhow!("failed to decode existing compute graph: {}", e));
         }
-        None => compute_graph.to_version(),
+        None => Ok(compute_graph.to_version()),
     }?;
     info!(
         "new compute graph version: {}",

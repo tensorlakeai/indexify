@@ -487,7 +487,7 @@ impl ComputeGraph {
         self.tags = update.tags;
     }
 
-    pub fn to_version(&self) -> Result<ComputeGraphVersion> {
+    pub fn to_version(&self) -> ComputeGraphVersion {
         ComputeGraphVersionBuilder::default()
             .namespace(self.namespace.clone())
             .compute_graph_name(self.name.clone())
@@ -500,7 +500,7 @@ impl ComputeGraph {
             .runtime_information(self.runtime_information.clone())
             .state(self.state.clone())
             .build()
-            .map_err(Into::into)
+            .expect("ComputeGraphVersionBuilder should build successfully")
     }
 
     pub fn can_be_scheduled(
@@ -2159,7 +2159,6 @@ mod tests {
         let fn_a = test_compute_fn("fn_a", 0);
         let fn_b = test_compute_fn("fn_b", 0);
         let fn_c = test_compute_fn("fn_c", 0);
-
         let original_graph: ComputeGraph = ComputeGraphBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .name("graph1".to_string())
@@ -2192,7 +2191,6 @@ mod tests {
             .build()
             .unwrap();
 
-        let original_version = original_graph.to_version().unwrap();
         struct TestCase {
             description: &'static str,
             update: ComputeGraph,
@@ -2205,7 +2203,7 @@ mod tests {
                 description: "no graph and version changes",
                 update: original_graph.clone(),
                 expected_graph: original_graph.clone(),
-                expected_version: original_version.clone(),
+                expected_version: original_graph.to_version(),
             },
             TestCase {
                 description: "version update",
@@ -2219,7 +2217,7 @@ mod tests {
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("100"),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             TestCase {
@@ -2237,7 +2235,7 @@ mod tests {
                 },
                 expected_version:ComputeGraphVersion {
                     version: GraphVersion::from("100"),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Runtime information.
@@ -2265,7 +2263,7 @@ mod tests {
                         minor_version: 12, // different
                         ..original_graph.runtime_information.clone()
                     },
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Code.
@@ -2293,7 +2291,7 @@ mod tests {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Edges.
@@ -2321,7 +2319,7 @@ mod tests {
                         "fn_a".to_string(),
                         vec!["fn_c".to_string(), "fn_b".to_string()],
                     )]),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // start_fn.
@@ -2340,7 +2338,7 @@ mod tests {
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     start_fn: fn_b.clone(),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Adding a node.
@@ -2374,7 +2372,7 @@ mod tests {
                         ("fn_c".to_string(), fn_c.clone()),
                         ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
                     ]),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Removing a node.
@@ -2403,7 +2401,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                     ]),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
             // Changing a node's image.
@@ -2434,7 +2432,7 @@ mod tests {
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
-                    ..original_version.clone()
+                    ..original_graph.to_version()
                 },
             },
         ];
@@ -2448,9 +2446,9 @@ mod tests {
                 test_case.description
             );
             assert_eq!(
-                updated_graph.to_version().unwrap(),
-                test_case.expected_version,
-                "different ComputeGraphVersion for test `{}`",
+                updated_graph.to_version(),
+                test_case.expected_version.clone(),
+                "{}",
                 test_case.description
             );
         }
