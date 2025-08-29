@@ -14,6 +14,7 @@ use crate::{
     },
     http_objects::{
         self,
+        ApplicationFunction,
         ComputeFn,
         GraphVersion,
         IndexifyAPIError,
@@ -23,6 +24,21 @@ use crate::{
     },
     utils::get_epoch_time_in_ms,
 };
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Application {
+    pub name: String,
+    pub namespace: String,
+    pub description: String,
+    // This is not supplied by the client, do we need this here?
+    #[serde(default)]
+    pub tombstoned: bool,
+    pub version: GraphVersion,
+    pub tags: HashMap<String, String>,
+    pub functions: HashMap<String, ApplicationFunction>,
+    #[serde(default = "get_epoch_time_in_ms")]
+    pub created_at: u64,
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {

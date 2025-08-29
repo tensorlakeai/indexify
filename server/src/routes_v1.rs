@@ -44,7 +44,7 @@ use crate::{
     },
     http_objects_v1::{self, GraphRequests},
     routes::{
-        compute_graphs::{self, create_or_update_compute_graph_v1},
+        compute_graphs::{self, create_or_update_application, create_or_update_compute_graph_v1},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
         invoke::{self, progress_stream},
         routes_state::RouteState,
@@ -120,6 +120,10 @@ pub fn configure_v1_routes(route_state: RouteState) -> Router {
 /// Namespace router with namespace specific layers.
 fn v1_namespace_routes(route_state: RouteState) -> Router {
     Router::new()
+    .route(
+            "/applications",
+            post(create_or_update_application).with_state(route_state.clone()),
+        )
         .route(
             "/compute-graphs",
             post(create_or_update_compute_graph_v1).with_state(route_state.clone()),
