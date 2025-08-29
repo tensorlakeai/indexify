@@ -348,7 +348,7 @@ impl InMemoryMetrics {
                                 .values()
                                 .filter(|inv| !inv.completed)
                                 .map(|inv| {
-                                    get_elapsed_time(&inv.created_at, TimeUnit::Milliseconds)
+                                    get_elapsed_time(&inv.created_at.into(), TimeUnit::Milliseconds)
                                 })
                                 .max_by(|a, b| {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)

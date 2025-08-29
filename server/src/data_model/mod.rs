@@ -32,10 +32,6 @@ impl EpochTime {
     pub fn as_nanos(&self) -> u128 {
         self.0
     }
-
-    fn to_be_bytes(&self) -> [u8; 16] {
-        self.0.to_be_bytes()
-    }
 }
 
 impl Default for EpochTime {
@@ -448,6 +444,7 @@ pub struct ComputeGraph {
     #[serde(default)]
     #[builder(default)]
     pub tags: HashMap<String, String>,
+    #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
@@ -461,6 +458,12 @@ pub struct ComputeGraph {
     pub state: ComputeGraphState,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl ComputeGraphBuilder {
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 impl Linearizable for ComputeGraph {
@@ -699,8 +702,8 @@ pub struct NodeOutput {
     pub invocation_id: String,
     pub payloads: Vec<DataPayload>,
     pub next_functions: Vec<String>,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     #[builder(default = "self.default_encoding()")]
     pub encoding: String,
     pub allocation_id: String,
@@ -798,6 +801,10 @@ impl NodeOutputBuilder {
     fn default_encoding(&self) -> String {
         "application/octet-stream".to_string()
     }
+
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -807,8 +814,8 @@ pub struct InvocationPayload {
     pub namespace: String,
     pub compute_graph_name: String,
     pub payload: DataPayload,
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     pub encoding: String,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -852,6 +859,10 @@ impl InvocationPayloadBuilder {
         payload.path.hash(&mut hasher);
 
         Ok(format!("{:x}", hasher.finish()))
+    }
+
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
     }
 }
 
@@ -971,13 +982,19 @@ pub struct GraphInvocationCtx {
     #[builder(default)]
     pub outstanding_reducer_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
-    #[serde(default)]
-    #[builder(default)]
-    pub created_at: EpochTime,
+    #[serde(default = "get_epoch_time_in_ms")]
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
     #[builder(setter(strip_option), default)]
     pub invocation_error: Option<GraphInvocationError>,
     #[builder(default)]
     vector_clock: VectorClock,
+}
+
+impl GraphInvocationCtxBuilder {
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
 }
 
 impl Linearizable for GraphInvocationCtx {
@@ -2741,7 +2758,7 @@ mod tests {
         assert_eq!(node_output.payloads, payloads);
         assert_eq!(node_output.next_functions, next_functions);
         assert_eq!(node_output.encoding, encoding);
-        assert!(node_output.created_at > EpochTime(0));
+        assert!(node_output.created_at > 0);
         assert!(node_output.reducer_output);
         assert!(!node_output.id.is_empty());
         assert!(node_output.invocation_error_payload.is_none());
@@ -2829,7 +2846,7 @@ mod tests {
         assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
         assert_eq!(invocation_payload.encoding, encoding);
         assert_eq!(invocation_payload.payload, payload);
-        assert!(invocation_payload.created_at > EpochTime(0));
+        assert!(invocation_payload.created_at > 0);
         assert!(!invocation_payload.id.is_empty());
         assert_eq!(invocation_payload.vector_clock.value(), 0);
 
@@ -2917,7 +2934,7 @@ mod tests {
         assert_eq!(ctx.outstanding_tasks, 0);
         assert_eq!(ctx.outstanding_reducer_tasks, 0);
         assert!(ctx.invocation_error.is_none());
-        assert!(ctx.created_at > EpochTime(0));
+        assert!(ctx.created_at > 0);
         assert_eq!(ctx.vector_clock.value(), 0);
 
         // fn_task_analytics should have an entry for each node

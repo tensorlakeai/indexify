@@ -695,7 +695,8 @@ pub(crate) fn handle_scheduler_update(
                 namespace = invocation_ctx.namespace,
                 graph = invocation_ctx.compute_graph_name,
                 outcome = invocation_ctx.outcome.to_string(),
-                duration_sec = get_elapsed_time(&invocation_ctx.created_at, TimeUnit::Milliseconds),
+                duration_sec =
+                    get_elapsed_time(&invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"
             );
         }
