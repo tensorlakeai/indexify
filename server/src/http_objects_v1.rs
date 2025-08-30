@@ -170,7 +170,7 @@ impl Task {
             status: task.status.into(),
             graph_version: task.graph_version.into(),
             allocations,
-            created_at: task.creation_time_ns.into(),
+            created_at: task.creation_time_ns,
         }
     }
 }
@@ -325,7 +325,7 @@ impl From<data_model::Allocation> for Allocation {
             id: allocation.id.to_string(),
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
-            created_at: allocation.created_at.into(),
+            created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
