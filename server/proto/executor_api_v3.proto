@@ -144,6 +144,8 @@ message FunctionExecutorDescription {
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional string output_payload_uri_prefix = 12;
     optional uint32 max_concurrency = 13;
+    optional FunctionRetryPolicy retry_policy = 14;
+    optional uint32 timeout_ms = 15;
 }
 
 message FunctionExecutorState {
@@ -202,7 +204,7 @@ message ReportExecutorStateResponse {
 }
 
 // ===== get_desired_executor_states RPC =====
-message TaskRetryPolicy {
+message FunctionRetryPolicy {
     optional uint32 max_retries = 1;
     optional uint32 initial_delay_ms = 2;
     optional uint32 max_delay_ms = 3;
@@ -213,19 +215,12 @@ message TaskRetryPolicy {
 message TaskAllocation {
     optional string allocation_id = 1;
     optional string task_id = 2;
-    optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string graph_version = 5;
-    optional string function_name = 6;
     optional string graph_invocation_id = 7;
-    optional uint32 timeout_ms = 11;
-    optional DataPayload input = 12;
-    optional DataPayload reducer_input = 13;
+    optional DataPayload input = 8;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     optional string output_payload_uri_prefix = 14;
-    optional TaskRetryPolicy retry_policy = 15;
     // BLOB URI prefix for the invocation error payloads.
     optional string invocation_error_payload_uri_prefix = 16;
     optional string function_executor_id = 17;
@@ -337,16 +332,13 @@ message AllocationResult {
     optional string task_id = 1;
     optional string allocation_id = 2;
     optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string graph_version = 5;
-    optional string function_name = 6;
     optional string graph_invocation_id = 7;
     optional AllocationOutcomeCode outcome_code = 9;
     optional AllocationFailureReason failure_reason = 10;
 
     optional FunctionOutput function_output = 11;
     // User payload for invocation error if task failed with invocation error.
-    optional DataPayload invocation_error_output = 12;
+    optional DataPayload request_exception = 12;
     optional uint64 execution_duration_ms = 13;
 }
 
