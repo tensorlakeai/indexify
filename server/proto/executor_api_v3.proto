@@ -29,22 +29,16 @@ message DataPayload {
 // or via a separate manifest/index of per-item pointers.
 message DataPayloadDescriptor {
     enum Kind {
-      COLLECTION = 0;
-      
-      OBJECT = 1;
+      OBJECT = 0;
+      COLLECTION = 1;
     }
-  
     optional Kind kind = 1;
-  
     repeated ItemPointer items = 2;
   }
   
-  // Describes one item as a byte range in a blob (and optionally its own URI).
   message ItemPointer {
-    // Byte range of the item within the parent DataPayload.
     optional uint64 offset = 2;
     optional uint64 size = 3;
-    // Optional integrity check for the item bytes.
     optional string sha256_hash = 5;
   }
 
@@ -267,8 +261,6 @@ enum AllocationFailureReason {
 }
 
 message ExecutionPlanUpdate {
-  optional string request_id           = 1;  
-
   oneof op {
     FunctionCall function_call = 10;
     MapOp        map           = 11;
@@ -320,7 +312,7 @@ message ReduceOp {
 message FunctionOutput {
   optional string request_id     = 1;
 
-  repeated FunctionCall added_functions = 3;
+  repeated ExecutionPlanUpdate update_execution_plan = 3;
 
   optional DataPayload output = 4;
 
