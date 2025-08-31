@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    // pin::Pin,
     sync::{
         atomic::{self, AtomicU64},
         Arc,
@@ -14,7 +13,7 @@ use in_memory_state::{InMemoryMetrics, InMemoryState};
 use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB};
+use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
@@ -24,7 +23,7 @@ use crate::{
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
-    state_store::invocation_events::RequestStartedEvent,
+    state_store::{driver::rocksdb::RocksDBDriver, invocation_events::RequestStartedEvent},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -86,7 +85,7 @@ impl Default for ExecutorState {
 }
 
 pub struct IndexifyState {
-    pub db: Arc<TransactionDB>,
+    pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
     pub state_change_id_seq: Arc<AtomicU64>,
@@ -101,7 +100,7 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
 }
 
-fn open_database<I>(path: PathBuf, column_families: I) -> Result<Arc<TransactionDB>>
+pub(crate) fn open_database<I>(path: PathBuf, column_families: I) -> Result<RocksDBDriver>
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
@@ -110,9 +109,7 @@ where
         column_families: column_families.collect::<Vec<_>>(),
     });
 
-    driver::open_database(options)
-        .map(|db| db.db.clone())
-        .map_err(Into::into)
+    driver::open_database(options).map_err(Into::into)
 }
 
 impl IndexifyState {
@@ -128,7 +125,7 @@ impl IndexifyState {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        let db = open_database(path, sm_column_families)?;
+        let db = Arc::new(open_database(path, sm_column_families)?);
 
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
@@ -189,7 +186,7 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
-        let txn = self.db.transaction();
+        let txn = self.db.db.transaction();
 
         match &request.payload {
             RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
@@ -534,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.db.transaction();
         let ctx = GraphInvocationCtxBuilder::default()
             .namespace("namespace1".to_string())
             .compute_graph_name("cg1".to_string())
@@ -554,7 +551,7 @@ mod tests {
         .unwrap();
         state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_1).unwrap();
         tx.commit().unwrap();
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
@@ -562,7 +559,7 @@ mod tests {
         .unwrap();
         state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_2).unwrap();
         tx.commit().unwrap();
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.db.transaction();
         let state_change_3 = state_changes::invoke_compute_graph(
             &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
@@ -635,9 +632,7 @@ mod tests {
 
         let db = open_database(path.clone(), columns_iter)?;
         for name in &columns {
-            let cf = db
-                .cf_handle(name)
-                .ok_or_else(|| anyhow!("column family not found: {name}"))?;
+            let cf = db.column_family(name);
             db.put_cf(&cf, b"key", b"value")?;
         }
         drop(db);

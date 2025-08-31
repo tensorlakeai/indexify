@@ -5,7 +5,7 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{driver::rocksdb::RocksDBDriver, state_machine::IndexifyObjectsColumns};
 
 /// Migration to rebuild the invocation context secondary indexes by dropping
 /// and recreating the column family
@@ -21,21 +21,20 @@ impl Migration for V8RebuildInvocationCtxSecondaryIndexMigration {
         "Rebuild invocation context secondary indexes"
     }
 
-    fn prepare(&self, ctx: &PrepareContext) -> Result<rocksdb::TransactionDB> {
+    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         // Drop and recreate the secondary index column family instead of truncating
         info!("Rebuilding secondary index column family");
 
         ctx.reopen_with_cf_operations(|db| {
             // Drop if exists
             let cf_name = IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref();
-            if db.cf_handle(cf_name).is_some() {
-                info!("Dropping secondary index column family");
-                db.drop_cf(cf_name)?;
-            }
+            let _cf = db.column_family(cf_name);
+            info!("Dropping secondary index column family");
+            db.drop_cf(cf_name)?;
 
             // Create fresh
             info!("Creating new secondary index column family");
-            db.create_cf(cf_name, &rocksdb::Options::default())?;
+            db.create_cf(cf_name, &Default::default())?;
 
             Ok(())
         })
@@ -179,7 +178,7 @@ mod tests {
                         );
                         let encoded = serde_json::to_vec(ctx_obj).unwrap();
                         db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
                             key,
                             &encoded,
                         )?;
@@ -187,13 +186,17 @@ mod tests {
 
                     // Create some invalid secondary indexes (to be replaced)
                     db.put_cf(
-                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                        db.column_family(
+                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+                        ),
                         b"invalid_index_1",
                         [],
                     )?;
 
                     db.put_cf(
-                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                        db.column_family(
+                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+                        ),
                         b"invalid_index_2",
                         [],
                     )?;
@@ -206,14 +209,18 @@ mod tests {
                     // Check invalid indexes are gone
                     assert!(db
                         .get_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                            db.column_family(
+                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()
+                            ),
                             b"invalid_index_1"
                         )?
                         .is_none());
 
                     assert!(db
                         .get_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                            db.column_family(
+                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()
+                            ),
                             b"invalid_index_2"
                         )?
                         .is_none());
@@ -255,24 +262,20 @@ mod tests {
                         }),
                     ];
 
+                    let cf = db.column_family(
+                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+                    );
                     for ctx_obj in &contexts {
                         let secondary_key = create_secondary_index_key(ctx_obj)?;
-                        let exists = db
-                            .get_cf(
-                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
-                                &secondary_key,
-                            )?
-                            .is_some();
+                        let exists = db.get_cf(cf, &secondary_key)?.is_some();
 
                         assert!(exists, "Secondary index not found for {ctx_obj:?}");
                     }
 
                     // Check total count of secondary indexes
                     let secondary_indexes = db
-                        .iterator_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
-                            rocksdb::IteratorMode::Start,
-                        )
+                        .db
+                        .iterator_cf(cf, rocksdb::IteratorMode::Start)
                         .collect::<Vec<_>>();
 
                     assert_eq!(

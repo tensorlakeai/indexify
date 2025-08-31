@@ -122,7 +122,7 @@ mod tests {
 
                     for (key, value) in &tasks {
                         db.put_cf(
-                            IndexifyObjectsColumns::Tasks.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -148,7 +148,7 @@ mod tests {
                     );
 
                     db.put_cf(
-                        IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                        db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
                         key,
                         serde_json::to_vec(&invocation_ctx)?.as_slice(),
                     )?;
@@ -159,18 +159,15 @@ mod tests {
                     // Verify: Check that orphaned task was deleted
 
                     // Task1 (not orphaned) should still exist
+                    let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
                     let task1_key = b"test_ns|test_graph|invocation1|test_fn|task1";
-                    let task1_exists = db
-                        .get_cf(IndexifyObjectsColumns::Tasks.cf_db(db), task1_key)?
-                        .is_some();
+                    let task1_exists = db.get_cf(cf, task1_key)?.is_some();
 
                     assert!(task1_exists, "Task1 should still exist");
 
                     // Task2 (orphaned) should be deleted
                     let task2_key = b"test_ns|test_graph|invocation2|test_fn|task2";
-                    let task2_exists = db
-                        .get_cf(IndexifyObjectsColumns::Tasks.cf_db(db), task2_key)?
-                        .is_some();
+                    let task2_exists = db.get_cf(cf, task2_key)?.is_some();
 
                     assert!(!task2_exists, "Task2 should be deleted");
 

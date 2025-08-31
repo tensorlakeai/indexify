@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rocksdb::TransactionDB;
 
 use super::contexts::{MigrationContext, PrepareContext};
+use crate::state_store::driver::rocksdb::RocksDBDriver;
 
 /// Trait defining a database migration
 pub trait Migration {
@@ -13,7 +13,7 @@ pub trait Migration {
 
     /// DB preparation - column family operations before transaction
     /// Default implementation simply opens the DB with existing column families
-    fn prepare(&self, ctx: &PrepareContext) -> Result<TransactionDB> {
+    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         ctx.open_db()
     }
 

@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use opentelemetry::KeyValue;
-use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
+use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
@@ -25,7 +25,10 @@ use crate::{
         UnprocessedStateChanges,
     },
     metrics::{self, Timer},
-    state_store::serializer::{JsonEncode, JsonEncoder},
+    state_store::{
+        driver::{rocksdb::RocksDBDriver, Reader},
+        serializer::{JsonEncode, JsonEncoder},
+    },
     utils::get_epoch_time_in_ms,
 };
 
@@ -35,12 +38,12 @@ pub enum CursorDirection {
 }
 
 pub struct StateReader {
-    db: Arc<TransactionDB>,
+    db: Arc<RocksDBDriver>,
     metrics: Arc<metrics::StateStoreMetrics>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<TransactionDB>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
+    pub fn new(db: Arc<RocksDBDriver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
         Self { db, metrics }
     }
 
@@ -48,32 +51,20 @@ impl StateReader {
         &self,
         keys: Vec<&[u8]>,
         column: IndexifyObjectsColumns,
-    ) -> Result<Vec<Option<V>>>
+    ) -> Result<Vec<V>>
     where
         V: DeserializeOwned,
     {
         let kvs = &[KeyValue::new("op", "get_rows_from_cf_multi_key")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf_handle = self
-            .db
-            .cf_handle(column.as_ref())
-            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
-        let mut items = Vec::with_capacity(keys.len());
-        let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k.to_vec())).collect();
-        let values = self.db.multi_get_cf(multi_get_keys);
-        for (key, value) in keys.into_iter().zip(values.into_iter()) {
-            let val: Option<V> = if let Some(value) = value? {
-                Some(JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?)
-            } else {
-                warn!(
-                    "Key not found: {}",
-                    String::from_utf8(key.to_vec()).unwrap_or_default()
-                );
-                None
-            };
-            items.push(val);
+        let result = self.db.list_existent_items(column.as_ref(), keys)?;
+        let mut items: Vec<V> = Vec::with_capacity(result.len());
+        for v in result {
+            let de = JsonEncoder::decode(v.as_ref())?;
+            items.push(de);
         }
+
         Ok(items)
     }
 
@@ -90,10 +81,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_rows_from_cf_with_limits")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf_handle = self
-            .db
-            .cf_handle(column.as_ref())
-            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
+        let cf_handle = self.db.column_family(column.as_ref());
 
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(10_194_304);
@@ -102,6 +90,7 @@ impl StateReader {
             None => IteratorMode::From(key_prefix, Direction::Forward),
         };
         let iter = self
+            .db
             .db
             .iterator_cf_opt(&cf_handle, read_options, iterator_mode);
 
@@ -137,7 +126,10 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let result_bytes = match self.db.get_cf(&column.cf_db(&self.db), key)? {
+        let result_bytes = match self
+            .db
+            .get_cf(self.db.column_family(column.as_ref()), key)?
+        {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
@@ -267,8 +259,11 @@ impl StateReader {
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(4_194_304);
 
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
+        let cf = self
+            .db
+            .column_family(IndexifyObjectsColumns::UnprocessedStateChanges.as_ref());
         let iter = self
+            .db
             .db
             .iterator_cf_opt(&cf, read_options, IteratorMode::Start);
         let mut state_changes = Vec::new();
@@ -344,11 +339,8 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_all_rows_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf_handle = self
-            .db
-            .cf_handle(column.as_ref())
-            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
-        let iter = self.db.iterator_cf(&cf_handle, IteratorMode::Start);
+        let cf_handle = self.db.column_family(column.as_ref());
+        let iter = self.db.db.iterator_cf(&cf_handle, IteratorMode::Start);
 
         iter.map(|item| {
             item.map_err(|e| anyhow::anyhow!(e.to_string()))
@@ -409,8 +401,9 @@ impl StateReader {
         lower_bound.extend(&0_u64.to_be_bytes());
         read_options.set_iterate_lower_bound(lower_bound);
 
-        let mut iter = self.db.raw_iterator_cf_opt(
-            &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&self.db),
+        let mut iter = self.db.db.raw_iterator_cf_opt(
+            self.db
+                .column_family(IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()),
             read_options,
         );
 
@@ -506,11 +499,7 @@ impl StateReader {
             IndexifyObjectsColumns::GraphInvocationCtx,
         )?;
 
-        Ok((
-            invocations.into_iter().flatten().collect(),
-            prev_cursor,
-            next_cursor,
-        ))
+        Ok((invocations, prev_cursor, next_cursor))
     }
 
     pub fn list_compute_graphs(
@@ -661,9 +650,10 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_node_output_by_key")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let value = self
+        let cf = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), key)?;
+            .column_family(IndexifyObjectsColumns::FnOutputs.as_ref());
+        let value = self.db.get_cf(cf, key)?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Ok(None),
@@ -681,7 +671,8 @@ impl StateReader {
 
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
+            self.db
+                .column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
             &key,
         )?;
         if value.is_none() {
@@ -703,10 +694,13 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "fn_output_payload")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
+        let cf = self
+            .db
+            .column_family(IndexifyObjectsColumns::FnOutputs.as_ref());
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)
+            .get_cf(cf, &key)
             .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
@@ -789,6 +783,42 @@ mod tests {
         let cursor = result.1;
         assert_eq!(result.0.len(), 2);
         assert_eq!(cursor, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_rows_from_cf_multi_key() -> Result<()> {
+        let indexify_state = TestStateStore::new().await?.indexify_state;
+        for i in 0..4 {
+            let name = format!("test_{i}");
+            indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateNameSpace(NamespaceRequest {
+                        name: name.clone(),
+                        blob_storage_bucket: None,
+                        blob_storage_region: None,
+                    }),
+                })
+                .await
+                .unwrap();
+        }
+
+        let reader = indexify_state.reader();
+        let keys = vec![
+            "test_1".as_bytes(),
+            "test_2".as_bytes(),
+            "test_3".as_bytes(),
+            "test_non_existent".as_bytes(),
+        ];
+        let result = reader
+            .get_rows_from_cf_multi_key::<Namespace>(keys, IndexifyObjectsColumns::Namespaces)
+            .unwrap();
+
+        assert_eq!(3, result.len());
+        assert!(result.iter().any(|r| r.name == "test_1"));
+        assert!(result.iter().any(|r| r.name == "test_2"));
+        assert!(result.iter().any(|r| r.name == "test_3"));
 
         Ok(())
     }

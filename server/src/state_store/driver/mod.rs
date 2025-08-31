@@ -10,9 +10,10 @@
 
 use std::{fmt, sync::Arc};
 
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::data_model::clocks::Linearizable;
+use crate::{data_model::clocks::Linearizable, state_store::driver::rocksdb::RocksDBTransaction};
 
 pub mod rocksdb;
 use rocksdb::RocksDBDriver;
@@ -63,11 +64,16 @@ impl Error {
 pub trait Writer {
     /// Start a new Transaction in the database.
     #[allow(dead_code)]
-    fn start_transaction(&self) -> Result<Arc<dyn Transaction + '_>, Error>;
+    fn start_transaction(&self) -> Result<Transaction, Error>;
 }
 
 /// Reader defines all the read operations for a give driver.
-pub trait Reader {}
+pub trait Reader {
+    /// Return the items in the database that match the keys passed as
+    /// arguments. If the key does not exist in the database, the value is
+    /// not returned, it's just ignored.
+    fn list_existent_items(&self, column: &str, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>;
+}
 
 /// AtomicComparator defines atomic functions that compare
 /// incoming records with existent records in the database.
@@ -88,27 +94,13 @@ pub trait AtomicComparator {
     #[allow(dead_code)]
     fn compare_and_swap<R>(
         &self,
-        tx: Arc<dyn Transaction>,
+        tx: Arc<Transaction>,
         table: &str,
         key: &str,
         record: R,
     ) -> Result<(), Error>
     where
         R: Linearizable + Serialize + DeserializeOwned + fmt::Debug;
-}
-
-/// Transaction is a wrapper around specific database transactions.
-/// Since different databases have different transaction semantics,
-/// this trait allow us to hide those semantics from the caller's
-/// point of view.
-pub trait Transaction {
-    #[allow(dead_code)]
-    fn commit(self) -> Result<(), Error>;
-    #[allow(dead_code)]
-    fn rollback(&self) -> Result<(), Error>;
-
-    fn get_for_update(&self, table: &str, key: &str) -> Result<Option<Vec<u8>>, Error>;
-    fn put(&self, table: &str, key: &str, record: &[u8]) -> Result<(), Error>;
 }
 
 /// Driver defines all the operations a database driver needs to support.
@@ -131,10 +123,29 @@ pub enum ConnectionOptions {
 ///
 /// It returns a `RocksDBDriver` at the moment because there is no other option
 /// supported. This helps keep the code backward compatible.
-pub fn open_database(options: ConnectionOptions) -> Result<Arc<RocksDBDriver>, Error> {
+pub fn open_database(options: ConnectionOptions) -> Result<RocksDBDriver, Error> {
     match options {
         ConnectionOptions::RocksDB(options) => {
             rocksdb::RocksDBDriver::open(options).map_err(Into::into)
+        }
+    }
+}
+
+/// Transaction is a wrapper around specific database transactions.
+/// Since different databases have different transaction semantics,
+/// this enum allow us to hide those semantics from the caller's
+/// point of view.
+///
+/// We use an enum instead of a trait because it easier to validate
+/// that the inner transaction uses the right driver.
+pub enum Transaction<'db> {
+    RocksDB(RocksDBTransaction<'db>),
+}
+
+impl fmt::Debug for Transaction<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Transaction::RocksDB(_) => write!(f, "Transaction::RocksDB"),
         }
     }
 }

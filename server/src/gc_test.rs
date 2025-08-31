@@ -85,7 +85,9 @@ mod tests {
                 .build()?;
 
             indexify_state.db.put_cf(
-                &IndexifyObjectsColumns::GraphInvocations.cf_db(&indexify_state.db),
+                indexify_state
+                    .db
+                    .column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
                 invocation.key().as_bytes(),
                 &JsonEncoder::encode(&invocation)?,
             )?;
@@ -105,7 +107,9 @@ mod tests {
                 .build()?;
 
             indexify_state.db.put_cf(
-                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
+                indexify_state
+                    .db
+                    .column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
                 invocation.key().as_bytes(),
                 &JsonEncoder::encode(&graph_ctx)?,
             )?;
@@ -130,7 +134,9 @@ mod tests {
             let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;
             indexify_state.db.put_cf(
-                &IndexifyObjectsColumns::FnOutputs.cf_db(&indexify_state.db),
+                indexify_state
+                    .db
+                    .column_family(IndexifyObjectsColumns::FnOutputs.as_ref()),
                 key,
                 &serialized_output,
             )?;

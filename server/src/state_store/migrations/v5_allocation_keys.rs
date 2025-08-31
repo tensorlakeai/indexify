@@ -187,7 +187,7 @@ mod tests {
 
                     for (key, value) in &contexts {
                         db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -223,7 +223,7 @@ mod tests {
 
                     for (key, value) in &allocations {
                         db.put_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::Allocations.as_ref()),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -255,7 +255,7 @@ mod tests {
 
                     for (key, value) in &tasks {
                         db.put_cf(
-                            IndexifyObjectsColumns::Tasks.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -268,24 +268,15 @@ mod tests {
                     // removed
 
                     // Old allocation keys should be gone
-                    assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
-                            b"allocation1"
-                        )?
-                        .is_none());
+                    let cf = db.column_family(IndexifyObjectsColumns::Allocations.as_ref());
 
-                    assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
-                            b"allocation2"
-                        )?
-                        .is_none());
+                    assert!(db.get_cf(cf, b"allocation1")?.is_none());
+
+                    assert!(db.get_cf(cf, b"allocation2")?.is_none());
 
                     // Valid allocation should be migrated with new key format
                     let new_key = b"test_ns|test_graph|inv1|test_fn1|task1|exec1";
-                    let migrated_allocation =
-                        db.get_cf(IndexifyObjectsColumns::Allocations.cf_db(db), new_key)?;
+                    let migrated_allocation = db.get_cf(cf, new_key)?;
 
                     assert!(
                         migrated_allocation.is_some(),
@@ -294,8 +285,7 @@ mod tests {
 
                     // Orphaned allocation should not exist
                     let orphaned_key = b"test_ns|test_graph|inv2|test_fn2|task2|exec2";
-                    let orphaned_allocation =
-                        db.get_cf(IndexifyObjectsColumns::Allocations.cf_db(db), orphaned_key)?;
+                    let orphaned_allocation = db.get_cf(cf, orphaned_key)?;
 
                     assert!(
                         orphaned_allocation.is_none(),
@@ -303,18 +293,13 @@ mod tests {
                     );
 
                     // Valid task should still exist
-                    let valid_task = db.get_cf(
-                        IndexifyObjectsColumns::Tasks.cf_db(db),
-                        b"test_ns|test_graph|inv1|test_fn1|task1",
-                    )?;
+                    let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+                    let valid_task = db.get_cf(cf, b"test_ns|test_graph|inv1|test_fn1|task1")?;
 
                     assert!(valid_task.is_some(), "Valid task should still exist");
 
                     // Orphaned task should be deleted
-                    let orphaned_task = db.get_cf(
-                        IndexifyObjectsColumns::Tasks.cf_db(db),
-                        b"test_ns|test_graph|inv2|test_fn2|task2",
-                    )?;
+                    let orphaned_task = db.get_cf(cf, b"test_ns|test_graph|inv2|test_fn2|task2")?;
 
                     assert!(orphaned_task.is_none(), "Orphaned task should be deleted");
 

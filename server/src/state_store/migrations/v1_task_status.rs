@@ -143,7 +143,7 @@ mod tests {
 
                     for (key, value) in tasks {
                         db.put_cf(
-                            IndexifyObjectsColumns::Tasks.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
                             &key,
                             serde_json::to_vec(&value)?.as_slice(),
                         )?;
@@ -154,9 +154,8 @@ mod tests {
                 |db| {
                     // Verify: Check that status fields were added properly
                     let verify_status = |key: &[u8], expected_status: &str| -> Result<()> {
-                        let bytes = db
-                            .get_cf(IndexifyObjectsColumns::Tasks.cf_db(db), key)?
-                            .unwrap();
+                        let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+                        let bytes = db.get_cf(cf, key)?.unwrap();
                         let task: serde_json::Value = serde_json::from_slice(&bytes)?;
                         assert_eq!(task["status"].as_str().unwrap(), expected_status);
                         Ok(())

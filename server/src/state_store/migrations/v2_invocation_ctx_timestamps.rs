@@ -30,15 +30,12 @@ impl Migration for V2InvocationTimestampsMigration {
                     &IndexifyObjectsColumns::GraphInvocationCtx,
                     key,
                     |invocation_ctx| {
-                        let invocation_bytes = ctx
+                        let cf = ctx
                             .db
-                            .get_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(ctx.db), key)?
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "invocation not found for invocation ctx: {}",
-                                    key_str
-                                )
-                            })?;
+                            .column_family(IndexifyObjectsColumns::GraphInvocations.as_ref());
+                        let invocation_bytes = ctx.db.get_cf(cf, key)?.ok_or_else(|| {
+                            anyhow::anyhow!("invocation not found for invocation ctx: {}", key_str)
+                        })?;
 
                         let invocation = ctx.parse_json(&invocation_bytes)?;
 
@@ -156,7 +153,7 @@ mod tests {
 
                     for (key, value) in invocations {
                         db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocations.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
                             &key,
                             serde_json::to_vec(&value)?.as_slice(),
                         )?;
@@ -164,7 +161,7 @@ mod tests {
 
                     for (key, value) in contexts {
                         db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
                             &key,
                             serde_json::to_vec(&value)?.as_slice(),
                         )?;
@@ -175,9 +172,9 @@ mod tests {
                 |db| {
                     // Verify: Check that timestamps were added to contexts
                     let verify_timestamp = |key: &[u8], expected_timestamp: u64| -> Result<()> {
-                        let bytes = db
-                            .get_cf(IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db), key)?
-                            .unwrap();
+                        let cf =
+                            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref());
+                        let bytes = db.get_cf(cf, key)?.unwrap();
                         let ctx_json: serde_json::Value = serde_json::from_slice(&bytes)?;
                         assert_eq!(ctx_json["created_at"].as_u64().unwrap(), expected_timestamp);
                         Ok(())

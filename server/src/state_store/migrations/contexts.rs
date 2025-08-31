@@ -3,17 +3,21 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use rocksdb::{
     ColumnFamily,
+    ColumnFamilyDescriptor,
     IteratorMode,
     Options,
     ReadOptions,
     Transaction,
     TransactionDB,
-    TransactionDBOptions,
     DB,
 };
 use serde_json::Value;
 
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{
+    self,
+    driver::rocksdb::RocksDBDriver,
+    state_machine::IndexifyObjectsColumns,
+};
 
 /// Context for database preparation phase of migrations
 pub struct PrepareContext {
@@ -29,25 +33,21 @@ impl PrepareContext {
     }
 
     /// Open database with all existing column families
-    pub fn open_db(&self) -> Result<TransactionDB> {
+    pub fn open_db(&self) -> Result<RocksDBDriver> {
         let cfs = match DB::list_cf(&self.db_opts, &self.path) {
             Ok(cfs) => cfs,
             Err(e) => return Err(anyhow!("Failed to list column families: {}", e)),
-        };
+        }
+        .into_iter()
+        .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        TransactionDB::open_cf(
-            &self.db_opts,
-            &TransactionDBOptions::default(),
-            &self.path,
-            &cfs,
-        )
-        .map_err(|e| anyhow!("Failed to open DB: {}", e))
+        state_store::open_database(self.path.clone(), cfs)
     }
 
     /// Helper to perform column family operations and reopen DB
-    pub fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<TransactionDB>
+    pub fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<RocksDBDriver>
     where
-        F: FnOnce(&mut TransactionDB) -> Result<()>,
+        F: FnOnce(&mut RocksDBDriver) -> Result<()>,
     {
         // Open DB
         let mut db = self.open_db()?;
@@ -71,18 +71,18 @@ impl PrepareContext {
 
 /// Context for applying migration logic
 pub struct MigrationContext<'a> {
-    pub db: &'a TransactionDB,
+    pub db: &'a RocksDBDriver,
     pub txn: &'a Transaction<'a, TransactionDB>,
 }
 
 impl<'a> MigrationContext<'a> {
-    pub fn new(db: &'a TransactionDB, txn: &'a Transaction<'a, TransactionDB>) -> Self {
+    pub fn new(db: &'a RocksDBDriver, txn: &'a Transaction<'a, TransactionDB>) -> Self {
         Self { db, txn }
     }
 
     /// Get column family handle
-    pub fn cf(&self, column_family: &'a IndexifyObjectsColumns) -> &'a ColumnFamily {
-        column_family.cf_db(self.db)
+    pub fn cf(&self, column_family: &IndexifyObjectsColumns) -> &ColumnFamily {
+        self.db.column_family(column_family.as_ref())
     }
 
     /// Iterate over all entries in a column family
@@ -99,6 +99,7 @@ impl<'a> MigrationContext<'a> {
 
         let iter =
             self.db
+                .db
                 .iterator_cf_opt(self.cf(column_family), read_options, IteratorMode::Start);
 
         for kv in iter {
@@ -201,7 +202,7 @@ impl<'a> MigrationContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rocksdb::ColumnFamilyDescriptor;
+    use rocksdb::{ColumnFamilyDescriptor, TransactionDBOptions};
     use serde_json::json;
     use tempfile::TempDir;
 
@@ -258,23 +259,13 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
-        // Set up test DB with a column family
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-
         let cf_name = IndexifyObjectsColumns::Tasks.as_ref();
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new("default", Options::default()),
             ColumnFamilyDescriptor::new(cf_name, Options::default()),
         ];
 
-        let db = TransactionDB::open_cf_descriptors(
-            &db_opts,
-            &TransactionDBOptions::default(),
-            path,
-            cf_descriptors,
-        )?;
+        let db = state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter())?;
 
         // Add test data
         let test_json = json!({
@@ -286,10 +277,11 @@ mod tests {
         let key = b"test_key";
         let value = serde_json::to_vec(&test_json)?;
 
-        db.put_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), key, &value)?;
+        let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+        db.put_cf(&cf, key, &value)?;
 
         // Create migration context
-        let txn = db.transaction();
+        let txn = db.db.transaction();
         let ctx = MigrationContext::new(&db, &txn);
 
         // Test JSON operations
@@ -306,9 +298,8 @@ mod tests {
         txn.commit()?;
 
         // Verify changes
-        let updated_bytes = db
-            .get_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), key)?
-            .unwrap();
+        let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+        let updated_bytes = db.get_cf(cf, key)?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 
         assert_eq!(updated_json["new_field"], "value");

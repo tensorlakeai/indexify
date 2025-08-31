@@ -3,7 +3,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
-    use rocksdb::{IteratorMode, TransactionDB};
+    use rocksdb::IteratorMode;
     use strum::IntoEnumIterator;
 
     use crate::{
@@ -17,6 +17,7 @@ mod tests {
         executors::EXECUTOR_TIMEOUT,
         service::Service,
         state_store::{
+            driver::rocksdb::RocksDBDriver,
             requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
             state_machine::IndexifyObjectsColumns,
             test_state_store,
@@ -26,7 +27,7 @@ mod tests {
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
 
-    fn assert_cf_counts(db: Arc<TransactionDB>, mut asserts: HashMap<String, usize>) -> Result<()> {
+    fn assert_cf_counts(db: Arc<RocksDBDriver>, mut asserts: HashMap<String, usize>) -> Result<()> {
         if !asserts.contains_key(IndexifyObjectsColumns::StateMachineMetadata.as_ref()) {
             asserts.insert(
                 IndexifyObjectsColumns::StateMachineMetadata
@@ -36,9 +37,10 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
-            let cf = col.cf_db(&db);
-            let count = db.iterator_cf(cf, IteratorMode::Start).count();
+            let cf = db.column_family(col.as_ref());
+            let count = db.db.iterator_cf(cf, IteratorMode::Start).count();
             let all = db
+                .db
                 .full_iterator_cf(cf, IteratorMode::Start)
                 .filter_map(|result| result.ok())
                 .map(|(k, v)| {
