@@ -22,6 +22,11 @@ message DataPayload {
     // Not set and ignored by Server right now.
     optional uint64 encoding_version = 3;
 
+    // start of additional metadata to help with deserialization
+    optional uint64 metadata_offset = 4;
+    // size of the metadata
+    optional uint64 metadata_size = 5;
+
     optional DataPayloadDescriptor collection = 8;
 }
 
