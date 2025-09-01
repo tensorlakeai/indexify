@@ -11,6 +11,7 @@ enum DataPayloadEncoding {
     DATA_PAYLOAD_ENCODING_UTF8_TEXT = 2;
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE = 3;
     DATA_PAYLOAD_ENCODING_BINARY_ZIP = 4;
+    DATA_PAYLOAD_ENCODING_RAW = 5;
 }
 
 message DataPayload {
@@ -22,12 +23,19 @@ message DataPayload {
     // Not set and ignored by Server right now.
     optional uint64 encoding_version = 3;
 
-    // start of additional metadata to help with deserialization
-    optional uint64 metadata_offset = 4;
-    // size of the metadata
+    optional string content_type = 10;
+
+    // size of the metadata (optional)
+    // DataPayload metadata is stored at the head of the binary 
+    // blob. This metadata is used optionally to store additional 
+    // metadata for the type of the object that is stored 
+    // so that we can deserialize the object correctly.
     optional uint64 metadata_size = 5;
 
     optional DataPayloadDescriptor collection = 8;
+
+    // This is the ID of the function call that returned this datapayload.
+    optional string function_call_id = 9;
 }
 
 // Describes how to iterate a collection "in place" (byte ranges)
@@ -214,18 +222,20 @@ message FunctionRetryPolicy {
 message TaskAllocation {
     optional string allocation_id = 1;
     optional string task_id = 2;
-    optional string graph_invocation_id = 7;
+    optional string request_id = 7;
     // TODO REMOVE THIS SINCE IT IS A DUPLICATE OF POSITIONAL_ARGS of KEYWORD_ARGS
-    optional DataPayload input = 8;
-    repeated DataPayload positional_args = 9;
-    map<string, DataPayload> keyword_args = 10;
+    repeated DataPayload args = 8;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     optional string output_payload_uri_prefix = 14;
     // BLOB URI prefix for the invocation error payloads.
-    optional string invocation_error_payload_uri_prefix = 16;
+    optional string request_error_payload_uri_prefix = 16;
     optional string function_executor_id = 17;
+
+    // If the function call metadata is not set, this implies 
+    // that the function call is for an API function.
+    optional bytes function_call_metadata = 18;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -271,7 +281,6 @@ enum AllocationFailureReason {
 message ExecutionPlanUpdate {
   oneof op {
     FunctionCall function_call = 10;
-    MapOp        map           = 11;
     ReduceOp     reduce        = 12;
   }
 }
@@ -284,62 +293,70 @@ message FunctionRef {
 }
 
 message FunctionCall {
+    // The ID of the function call. 
+    // When all the dependencies of the function call are resolved, the 
+    // resulting DataPayload will have the same ID. 
+    // This allows resolving datapayloads of resolved functions calls when it's upstream is called again.
+    // The ID is unique within the scope of the request.
     optional string id = 1;
-  optional FunctionRef target = 2;
-  repeated FunctionArgs positional_args = 3;
-  map<string, FunctionArgs> keyword_args    = 4;
+    optional FunctionRef target = 2;
+    repeated FunctionArg args = 3;
+
+    // This metadata will contain opaque metadata which will allow the SDK 
+    // to connect the datapayloads of resolved functions calls when it's finally called again.
+    // The SDK can store additional opaque metadata for it's own use.
+    optional bytes call_metadata = 5;
 }
 
-message FunctionArgs {
+message FunctionArg {
   oneof source {
-    string from_node_id  = 1;
+    string function_call_id = 1;
     DataPayload inline_data = 2;
   }
 }
 
+
+// tensorlake.reduce(Datapayload(shape=collection), items=[.], target=FunctionRef(namespace="tensorlake", graph_name="reduce", function_name="reduce"), index=3)
+
 message MapOp {
-  optional FunctionArgs   collection = 1;   // resolves to a list/array payload
+  optional FunctionArg   collection = 1;   // resolves to a list/array payload
   optional FunctionRef target     = 2;
 
     // Where to place the per-item payload among the positional args (default 0).
     optional uint32 item_arg_index = 3;
 
     // Fixed side-inputs applied to every item (optional).
-    repeated FunctionArgs  extra_positional_args = 4;  // appended around item per item_arg_index
-    map<string, FunctionArgs> extra_keyword_args    = 5;
+    repeated FunctionArg  extra_positional_args = 4;  // appended around item per item_arg_index
+    map<string, FunctionArg> extra_keyword_args    = 5;
 }
 
 message ReduceOp {
-  optional FunctionArgs   collection             = 1; 
+  optional FunctionArg   collection             = 1; 
   optional FunctionRef reducer                = 2;
 
-  optional FunctionArgs initial_value    = 5;
+  optional FunctionArg initial_value    = 5;
   optional uint32      batch_size    = 6; 
 }
 
-message FunctionOutput {
-  optional string request_id     = 1;
-
-  repeated ExecutionPlanUpdate update_execution_plan = 3;
-
-  optional DataPayload output = 4;
-
-  optional string source_function_id = 10;
-  optional uint64 update_seq = 11;
+message ExecutionPlanUpdates {
+  repeated ExecutionPlanUpdate updates = 1;
 }
 
 message AllocationResult {
     optional string task_id = 1;
     optional string allocation_id = 2;
     optional string namespace = 3;
-    optional string graph_invocation_id = 7;
+    optional string request_id = 7;
     optional AllocationOutcomeCode outcome_code = 9;
     optional AllocationFailureReason failure_reason = 10;
 
-    optional FunctionOutput function_output = 11;
+    oneof return_value {
+      DataPayload value = 12;
+      ExecutionPlanUpdates updates = 13;
+    }
     // User payload for invocation error if task failed with invocation error.
-    optional DataPayload request_exception = 12;
-    optional uint64 execution_duration_ms = 13;
+    optional DataPayload request_exception = 14;
+    optional uint64 execution_duration_ms = 15;
 }
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
