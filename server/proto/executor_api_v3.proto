@@ -315,27 +315,11 @@ message FunctionArg {
   }
 }
 
-
-// tensorlake.reduce(Datapayload(shape=collection), items=[.], target=FunctionRef(namespace="tensorlake", graph_name="reduce", function_name="reduce"), index=3)
-
-message MapOp {
-  optional FunctionArg   collection = 1;   // resolves to a list/array payload
-  optional FunctionRef target     = 2;
-
-    // Where to place the per-item payload among the positional args (default 0).
-    optional uint32 item_arg_index = 3;
-
-    // Fixed side-inputs applied to every item (optional).
-    repeated FunctionArg  extra_positional_args = 4;  // appended around item per item_arg_index
-    map<string, FunctionArg> extra_keyword_args    = 5;
-}
-
 message ReduceOp {
-  optional FunctionArg   collection             = 1; 
+  repeated FunctionArg  collection             = 1; 
   optional FunctionRef reducer                = 2;
 
   optional FunctionArg initial_value    = 5;
-  optional uint32      batch_size    = 6; 
 }
 
 message ExecutionPlanUpdates {
