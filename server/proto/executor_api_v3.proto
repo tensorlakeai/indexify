@@ -215,7 +215,10 @@ message TaskAllocation {
     optional string allocation_id = 1;
     optional string task_id = 2;
     optional string graph_invocation_id = 7;
+    // TODO REMOVE THIS SINCE IT IS A DUPLICATE OF POSITIONAL_ARGS of KEYWORD_ARGS
     optional DataPayload input = 8;
+    repeated DataPayload positional_args = 9;
+    map<string, DataPayload> keyword_args = 10;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
