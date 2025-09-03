@@ -32,28 +32,13 @@ message DataPayload {
     // so that we can deserialize the object correctly.
     optional uint64 metadata_size = 5;
 
-    optional DataPayloadDescriptor collection = 8;
+    optional uint64 offset = 6;
+    optional uint64 size = 7;
+    optional string sha256_hash = 8;
 
     // This is the ID of the function call that returned this datapayload.
     optional string function_call_id = 9;
 }
-
-// Describes how to iterate a collection "in place" (byte ranges)
-// or via a separate manifest/index of per-item pointers.
-message DataPayloadDescriptor {
-    enum Kind {
-      OBJECT = 0;
-      COLLECTION = 1;
-    }
-    optional Kind kind = 1;
-    repeated ItemPointer items = 2;
-  }
-  
-  message ItemPointer {
-    optional uint64 offset = 2;
-    optional uint64 size = 3;
-    optional string sha256_hash = 5;
-  }
 
 // ===== report_executor_state RPC =====
 enum GPUModel {
@@ -223,7 +208,6 @@ message TaskAllocation {
     optional string allocation_id = 1;
     optional string task_id = 2;
     optional string request_id = 7;
-    // TODO REMOVE THIS SINCE IT IS A DUPLICATE OF POSITIONAL_ARGS of KEYWORD_ARGS
     repeated DataPayload args = 8;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
@@ -330,6 +314,8 @@ message AllocationResult {
     optional string task_id = 1;
     optional string allocation_id = 2;
     optional string namespace = 3;
+    optional string graph_name = 4;
+    optional string function_name = 5;
     optional string request_id = 7;
     optional AllocationOutcomeCode outcome_code = 9;
     optional AllocationFailureReason failure_reason = 10;
