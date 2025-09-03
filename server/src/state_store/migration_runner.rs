@@ -1,13 +1,12 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use rocksdb::{Transaction, TransactionDB};
 use tracing::info;
 
 use crate::{
     data_model::StateMachineMetadata,
     state_store::{
-        driver::rocksdb::RocksDBDriver,
+        driver::{rocksdb::RocksDBDriver, Transaction, Writer},
         migrations::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
@@ -83,7 +82,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
             .with_context(|| format!("Preparing DB for migration to v{to_version}"))?;
 
         // Apply migration in a transaction
-        let txn = db.db.transaction();
+        let txn = db.transaction();
 
         // Create migration context
         let migration_ctx = MigrationContext::new(&db, &txn);
@@ -95,7 +94,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
 
         // Update metadata in the same transaction
         sm_meta.db_version = to_version;
-        write_sm_meta(&db, &txn, &sm_meta)?;
+        write_sm_meta(&txn, &sm_meta)?;
 
         info!("Committing migration to v{}", to_version);
         txn.commit()
@@ -114,8 +113,8 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
 
 /// Read state machine metadata from the database
 pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
-    let meta = db.get_cf(
-        db.column_family(IndexifyObjectsColumns::StateMachineMetadata.as_ref()),
+    let meta = db.get(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
     )?;
     match meta {
@@ -128,14 +127,10 @@ pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
 }
 
 /// Write state machine metadata to the database
-pub fn write_sm_meta(
-    db: &RocksDBDriver,
-    txn: &Transaction<TransactionDB>,
-    sm_meta: &StateMachineMetadata,
-) -> Result<()> {
+pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
     let serialized_meta = JsonEncoder::encode(sm_meta)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::StateMachineMetadata.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
         &serialized_meta,
     )?;
@@ -219,12 +214,12 @@ mod tests {
         let db = state_store::open_database(path.to_path_buf(), sm_column_families)?;
 
         // Set initial version to 1
-        let txn = db.db.transaction();
+        let txn = db.transaction();
         let initial_meta = StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
         };
-        write_sm_meta(&db, &txn, &initial_meta)?;
+        write_sm_meta(&txn, &initial_meta)?;
         txn.commit()?;
         drop(db);
 

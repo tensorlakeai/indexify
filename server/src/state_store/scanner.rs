@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use opentelemetry::KeyValue;
-use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
 
@@ -26,15 +25,27 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Reader},
+        driver::{rocksdb::RocksDBDriver, IterOptions, RangeOptionsBuilder, Reader},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
 };
 
+#[derive(Clone, Debug, Default)]
 pub enum CursorDirection {
+    #[default]
     Forward,
     Backward,
+}
+
+impl CursorDirection {
+    pub fn is_forward(&self) -> bool {
+        matches!(self, Self::Forward)
+    }
+
+    pub fn is_backward(&self) -> bool {
+        !self.is_forward()
+    }
 }
 
 pub struct StateReader {
@@ -81,18 +92,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_rows_from_cf_with_limits")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf_handle = self.db.column_family(column.as_ref());
+        let iter_options = IterOptions::default().starting_at(restart_key.unwrap_or(key_prefix));
 
-        let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(10_194_304);
-        let iterator_mode = match restart_key {
-            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(key_prefix, Direction::Forward),
-        };
-        let iter = self
-            .db
-            .db
-            .iterator_cf_opt(&cf_handle, read_options, iterator_mode);
+        let iter = self.db.iter(column.as_ref(), iter_options);
 
         let mut items = Vec::new();
         let limit = limit.unwrap_or(usize::MAX);
@@ -102,7 +104,7 @@ impl StateReader {
             if !key.starts_with(key_prefix) {
                 break;
             }
-            let value = JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let value = JsonEncoder::decode(&value)?;
             if items.len() < limit {
                 items.push(value);
             } else {
@@ -126,10 +128,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let result_bytes = match self
-            .db
-            .get_cf(self.db.column_family(column.as_ref()), key)?
-        {
+        let result_bytes = match self.db.get(column.as_ref(), key)? {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
@@ -256,16 +255,10 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
-
-        let cf = self
-            .db
-            .column_family(IndexifyObjectsColumns::UnprocessedStateChanges.as_ref());
-        let iter = self
-            .db
-            .db
-            .iterator_cf_opt(&cf, read_options, IteratorMode::Start);
+        let iter = self.db.iter(
+            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
+            Default::default(),
+        );
         let mut state_changes = Vec::new();
         for (_, value) in iter.flatten() {
             let state_change = JsonEncoder::decode::<StateChange>(&value)?;
@@ -339,8 +332,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_all_rows_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf_handle = self.db.column_family(column.as_ref());
-        let iter = self.db.db.iterator_cf(&cf_handle, IteratorMode::Start);
+        let iter = self.db.iter(column.as_ref(), Default::default());
 
         iter.map(|item| {
             item.map_err(|e| anyhow::anyhow!(e.to_string()))
@@ -389,109 +381,40 @@ impl StateReader {
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes(), b"|"].concat();
 
-        let direction = direction.unwrap_or(CursorDirection::Forward);
-        let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(10_194_304);
-
         let mut upper_bound = key_prefix.clone();
         upper_bound.extend(&get_epoch_time_in_ms().to_be_bytes());
-        read_options.set_iterate_upper_bound(upper_bound);
 
         let mut lower_bound = key_prefix.clone();
         lower_bound.extend(&0_u64.to_be_bytes());
-        read_options.set_iterate_lower_bound(lower_bound);
 
-        let mut iter = self.db.db.raw_iterator_cf_opt(
-            self.db
-                .column_family(IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()),
-            read_options,
-        );
+        let range_options = RangeOptionsBuilder::default()
+            .upper_bound(upper_bound.into())
+            .lower_bound(lower_bound.into())
+            .direction(direction.clone())
+            .cursor(cursor)
+            .limit(limit)
+            .build()?;
 
-        match cursor {
-            Some(cursor) => {
-                match direction {
-                    CursorDirection::Backward => iter.seek(cursor),
-                    CursorDirection::Forward => iter.seek_for_prev(cursor),
-                }
-                // Skip the first item (cursor position)
-                if iter.valid() {
-                    match direction {
-                        CursorDirection::Forward => iter.prev(),
-                        CursorDirection::Backward => iter.next(),
-                    }
-                }
-            }
-            None => match direction {
-                CursorDirection::Backward => iter.seek_to_first(), // Start at beginning of range
-                CursorDirection::Forward => iter.seek_to_last(),   // Start at end of range
-            },
-        }
-
-        let mut rows = Vec::new();
-        let mut next_cursor = None;
-        let mut prev_cursor = None;
-
-        // Collect results
-        while iter.valid() && rows.len() < limit {
-            if let Some((key, _v)) = iter.item() {
-                rows.push(key.to_vec());
-            } else {
-                break; // No valid item found
-            }
-
-            // Move the iterator after capturing the current item
-            match direction {
-                CursorDirection::Forward => iter.prev(),
-                CursorDirection::Backward => iter.next(),
-            }
-        }
-
-        // Check if there are more items after our limit
-        if iter.valid() {
-            let key = rows.last().cloned();
-            match direction {
-                CursorDirection::Forward => {
-                    next_cursor = key;
-                }
-                CursorDirection::Backward => {
-                    prev_cursor = key;
-                }
-            }
-        }
-
-        // Set the previous cursor if we have a valid item
-        if cursor.is_some() {
-            let key = rows.first().cloned();
-            match direction {
-                CursorDirection::Forward => {
-                    prev_cursor = key;
-                }
-                CursorDirection::Backward => {
-                    next_cursor = key;
-                }
-            }
-        }
+        let range = self.db.get_key_range(
+            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+            range_options,
+        )?;
 
         // Process the collected keys
-        let mut invocation_prefixes: Vec<Vec<u8>> = Vec::new();
-        for key in rows {
-            if let Some(invocation_id) =
-                GraphInvocationCtx::get_invocation_id_from_secondary_index_key(&key)
-            {
-                invocation_prefixes.push(
-                    GraphInvocationCtx::key_from(namespace, compute_graph, &invocation_id)
-                        .as_bytes()
-                        .to_vec(),
-                );
-            }
-        }
+        let mut invocation_prefixes = range
+            .items
+            .iter()
+            .flat_map(|key| GraphInvocationCtx::get_invocation_id_from_secondary_index_key(key))
+            .map(|invocation_id| {
+                GraphInvocationCtx::key_from(namespace, compute_graph, &invocation_id)
+                    .as_bytes()
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
 
-        match direction {
-            CursorDirection::Forward => {}
-            CursorDirection::Backward => {
-                // We keep the ordering the same even if we traverse in the opposite direction
-                invocation_prefixes.reverse();
-            }
+        if range.direction.is_backward() {
+            // We keep the ordering the same even if we traverse in the opposite direction
+            invocation_prefixes.reverse();
         }
 
         let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
@@ -499,7 +422,11 @@ impl StateReader {
             IndexifyObjectsColumns::GraphInvocationCtx,
         )?;
 
-        Ok((invocations, prev_cursor, next_cursor))
+        Ok((
+            invocations,
+            range.prev_cursor.map(|c| c.to_vec()),
+            range.next_cursor.map(|c| c.to_vec()),
+        ))
     }
 
     pub fn list_compute_graphs(
@@ -650,10 +577,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_node_output_by_key")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf = self
+        let value = self
             .db
-            .column_family(IndexifyObjectsColumns::FnOutputs.as_ref());
-        let value = self.db.get_cf(cf, key)?;
+            .get(IndexifyObjectsColumns::FnOutputs.as_ref(), key)?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Ok(None),
@@ -669,12 +595,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "invocation_ctx")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
+        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
-        let value = self.db.get_cf(
-            self.db
-                .column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
-            &key,
-        )?;
+        let value = self.db.get(cf, &key)?;
         if value.is_none() {
             return Ok(None);
         }
@@ -694,13 +617,11 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "fn_output_payload")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf = self
-            .db
-            .column_family(IndexifyObjectsColumns::FnOutputs.as_ref());
+        let cf = IndexifyObjectsColumns::FnOutputs.as_ref();
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
-            .get_cf(cf, &key)
+            .get(cf, &key)
             .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),

@@ -11,12 +11,15 @@
 use std::{fmt, sync::Arc};
 
 use bytes::Bytes;
+use derive_builder::Builder;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{data_model::clocks::Linearizable, state_store::driver::rocksdb::RocksDBTransaction};
+use crate::{data_model::clocks::Linearizable, state_store::scanner::CursorDirection};
 
 pub mod rocksdb;
-use rocksdb::RocksDBDriver;
+use rocksdb::*;
+
+pub type KVBytes = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -63,8 +66,7 @@ impl Error {
 /// Writer defines all the write operations for a given driver.
 pub trait Writer {
     /// Start a new Transaction in the database.
-    #[allow(dead_code)]
-    fn start_transaction(&self) -> Result<Transaction, Error>;
+    fn transaction(&self) -> Transaction;
 }
 
 /// Reader defines all the read operations for a give driver.
@@ -73,6 +75,94 @@ pub trait Reader {
     /// arguments. If the key does not exist in the database, the value is
     /// not returned, it's just ignored.
     fn list_existent_items(&self, column: &str, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>;
+
+    /// Return a list of keys from a given range in an iterator.
+    fn get_key_range(&self, column: &str, options: RangeOptions) -> Result<Range, Error>;
+
+    /// Iterate over a list of Key/Value pairs.
+    fn iter(
+        &self,
+        column: &str,
+        options: IterOptions,
+    ) -> impl Iterator<Item = Result<KVBytes, Error>>;
+}
+
+/// Struct that holds the information returned by `Reader::get_key_range`.
+#[derive(Builder, Clone, Debug)]
+pub struct Range {
+    pub items: Vec<Bytes>,
+    pub direction: CursorDirection,
+    pub prev_cursor: Option<Bytes>,
+    pub next_cursor: Option<Bytes>,
+}
+
+/// Options that you can provide to perform a key range search.
+#[derive(Builder, Clone, Debug, Default)]
+pub struct RangeOptions<'db> {
+    #[builder(default)]
+    cursor: Option<&'db [u8]>,
+    #[builder(setter(strip_option), default)]
+    upper_bound: Option<Bytes>,
+    #[builder(setter(strip_option), default)]
+    lower_bound: Option<Bytes>,
+    #[builder(default)]
+    direction: Option<CursorDirection>,
+    #[builder(default = "100")]
+    limit: usize,
+}
+
+/// Options that you can provide to iterate over a Key/Value pair.
+pub enum IterOptions<'db> {
+    RocksDB((rocksdb::ReadOptions, Option<rocksdb::IteratorMode<'db>>)),
+}
+
+impl<'db> IterOptions<'db> {
+    /// 4MB
+    pub const DEFAULT_BLOCK_SIZE: usize = 4_194_304;
+    /// 10MB
+    pub const LARGE_BLOCK_SIZE: usize = 10_194_304;
+
+    pub fn new_rocksdb_options() -> Self {
+        let mut read_options = rocksdb::ReadOptions::default();
+        read_options.set_readahead_size(Self::DEFAULT_BLOCK_SIZE);
+
+        IterOptions::RocksDB((read_options, None))
+    }
+
+    pub fn with_block_size(self, block_size: usize) -> Self {
+        let Self::RocksDB(this) = self;
+
+        let mut read_options = this.0;
+        read_options.set_readahead_size(block_size);
+
+        IterOptions::RocksDB((read_options, this.1))
+    }
+
+    pub fn starting_at(self, token: &'db [u8]) -> Self {
+        let mode = IteratorMode::From(token, Direction::Forward);
+        self.with_mode(mode)
+    }
+
+    fn with_mode(self, mode: rocksdb::IteratorMode<'db>) -> Self {
+        let Self::RocksDB(this) = self;
+        IterOptions::RocksDB((this.0, Some(mode)))
+    }
+
+    #[cfg(test)]
+    pub fn scan_fully(self) -> Self {
+        let Self::RocksDB(this) = self;
+
+        let mut read_options = this.0;
+        read_options.set_total_order_seek(true);
+
+        IterOptions::RocksDB((read_options, this.1))
+    }
+}
+
+impl<'db> Default for IterOptions<'db> {
+    fn default() -> Self {
+        Self::new_rocksdb_options()
+    }
 }
 
 /// AtomicComparator defines atomic functions that compare
@@ -147,5 +237,42 @@ impl fmt::Debug for Transaction<'_> {
         match self {
             Transaction::RocksDB(_) => write!(f, "Transaction::RocksDB"),
         }
+    }
+}
+
+impl<'db> Transaction<'db> {
+    pub fn commit(self) -> Result<(), Error> {
+        let Self::RocksDB(tx) = self;
+        tx.commit()
+    }
+
+    pub fn get<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<Option<Vec<u8>>, Error> {
+        let Self::RocksDB(tx) = self;
+        tx.get(table, key)
+    }
+
+    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &self,
+        table: &str,
+        key: K,
+        value: V,
+    ) -> Result<(), Error> {
+        let Self::RocksDB(tx) = self;
+        tx.put(table, key, value)
+    }
+
+    pub fn delete<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<(), Error> {
+        let Self::RocksDB(tx) = self;
+        tx.delete(table, key)
+    }
+
+    pub fn iter(
+        &'db self,
+        table: &str,
+        prefix: &'db [u8],
+        options: IterOptions,
+    ) -> impl Iterator<Item = Result<KVBytes, Error>> + 'db {
+        let Self::RocksDB(tx) = self;
+        tx.iter(table, prefix, options)
     }
 }

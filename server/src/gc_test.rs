@@ -84,10 +84,8 @@ mod tests {
                 .encoding("application/octet-stream".to_string())
                 .build()?;
 
-            indexify_state.db.put_cf(
-                indexify_state
-                    .db
-                    .column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
+            indexify_state.db.put(
+                IndexifyObjectsColumns::GraphInvocations.as_ref(),
                 invocation.key().as_bytes(),
                 &JsonEncoder::encode(&invocation)?,
             )?;
@@ -106,10 +104,8 @@ mod tests {
                 .fn_task_analytics(compute_graph.fn_task_analytics())
                 .build()?;
 
-            indexify_state.db.put_cf(
-                indexify_state
-                    .db
-                    .column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+            indexify_state.db.put(
+                IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                 invocation.key().as_bytes(),
                 &JsonEncoder::encode(&graph_ctx)?,
             )?;
@@ -133,10 +129,8 @@ mod tests {
                 .build()?;
             let key = output.key();
             let serialized_output = JsonEncoder::encode(&output)?;
-            indexify_state.db.put_cf(
-                indexify_state
-                    .db
-                    .column_family(IndexifyObjectsColumns::FnOutputs.as_ref()),
+            indexify_state.db.put(
+                IndexifyObjectsColumns::FnOutputs.as_ref(),
                 key,
                 &serialized_output,
             )?;

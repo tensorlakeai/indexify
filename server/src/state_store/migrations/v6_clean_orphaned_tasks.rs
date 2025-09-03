@@ -23,7 +23,7 @@ impl Migration for V6CleanOrphanedTasksMigration {
         // We need to collect keys first since we'll be modifying the collection
         let mut orphaned_task_keys = Vec::new();
 
-        ctx.iterate_cf(&IndexifyObjectsColumns::Tasks, |key, value| {
+        ctx.iterate(&IndexifyObjectsColumns::Tasks, |key, value| {
             num_total_tasks += 1;
 
             let task: serde_json::Value = serde_json::from_slice(value)
@@ -38,8 +38,8 @@ impl Migration for V6CleanOrphanedTasksMigration {
 
             if ctx
                 .db
-                .get_cf(
-                    ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtx),
+                .get(
+                    IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                     invocation_ctx_key.as_bytes(),
                 )?
                 .is_none()
@@ -54,7 +54,7 @@ impl Migration for V6CleanOrphanedTasksMigration {
         // Delete the orphaned tasks
         for key in orphaned_task_keys {
             ctx.txn
-                .delete_cf(ctx.cf(&IndexifyObjectsColumns::Tasks), &key)?;
+                .delete(IndexifyObjectsColumns::Tasks.as_ref(), &key)?;
             num_deleted_tasks += 1;
         }
 
@@ -121,8 +121,8 @@ mod tests {
                     ];
 
                     for (key, value) in &tasks {
-                        db.put_cf(
-                            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
+                        db.put(
+                            IndexifyObjectsColumns::Tasks.as_ref(),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -147,8 +147,8 @@ mod tests {
                         invocation_ctx["invocation_id"].as_str().unwrap()
                     );
 
-                    db.put_cf(
-                        db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+                    db.put(
+                        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                         key,
                         serde_json::to_vec(&invocation_ctx)?.as_slice(),
                     )?;
@@ -159,15 +159,15 @@ mod tests {
                     // Verify: Check that orphaned task was deleted
 
                     // Task1 (not orphaned) should still exist
-                    let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+                    let cf = IndexifyObjectsColumns::Tasks.as_ref();
                     let task1_key = b"test_ns|test_graph|invocation1|test_fn|task1";
-                    let task1_exists = db.get_cf(cf, task1_key)?.is_some();
+                    let task1_exists = db.get(cf, task1_key)?.is_some();
 
                     assert!(task1_exists, "Task1 should still exist");
 
                     // Task2 (orphaned) should be deleted
                     let task2_key = b"test_ns|test_graph|invocation2|test_fn|task2";
-                    let task2_exists = db.get_cf(cf, task2_key)?.is_some();
+                    let task2_exists = db.get(cf, task2_key)?.is_some();
 
                     assert!(!task2_exists, "Task2 should be deleted");
 

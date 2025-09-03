@@ -1,14 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use rocksdb::{
-    AsColumnFamilyRef,
-    Direction,
-    IteratorMode,
-    ReadOptions,
-    Transaction,
-    TransactionDB,
-};
 use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
@@ -30,7 +22,7 @@ use crate::{
         TaskOutcome,
     },
     state_store::{
-        driver::rocksdb::RocksDBDriver,
+        driver::{rocksdb::RocksDBDriver, IterOptions, Transaction},
         requests::{
             AllocationOutput,
             DeleteInvocationRequest,
@@ -86,8 +78,8 @@ pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -
         .blob_storage_region(req.blob_storage_region.clone())
         .build()?;
     let serialized_namespace = JsonEncoder::encode(&ns)?;
-    db.put_cf(
-        db.column_family(IndexifyObjectsColumns::Namespaces.as_ref()),
+    db.put(
+        IndexifyObjectsColumns::Namespaces.as_ref(),
         &ns.name,
         serialized_namespace,
     )?;
@@ -95,11 +87,7 @@ pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -
     Ok(())
 }
 
-pub fn create_invocation(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    req: &InvokeComputeGraphRequest,
-) -> Result<()> {
+pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> Result<()> {
     let span = info_span!(
         "create_invocation",
         namespace = req.namespace,
@@ -110,29 +98,29 @@ pub fn create_invocation(
 
     let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
     let cg = txn
-        .get_for_update_cf(
-            db.column_family(IndexifyObjectsColumns::ComputeGraphs.as_ref()),
+        .get(
+            IndexifyObjectsColumns::ComputeGraphs.as_ref(),
             &compute_graph_key,
-            true,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
     if cg.tombstoned {
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
+
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::GraphInvocations.as_ref(),
         req.invocation_payload.key(),
         &serialized_data_object,
     )?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
     )?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
         req.ctx.secondary_index_key(),
         [],
     )?;
@@ -145,13 +133,7 @@ pub fn create_invocation(
     Ok(())
 }
 
-pub(crate) fn delete_invocation(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    req: &DeleteInvocationRequest,
-) -> Result<()> {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
+pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest) -> Result<()> {
     let span = info_span!(
         "delete_invocation",
         namespace = req.namespace,
@@ -166,8 +148,8 @@ pub(crate) fn delete_invocation(
     let invocation_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
     let invocation_ctx = txn
-        .get_cf(
-            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+        .get(
+            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
         .map_err(|e| anyhow!("failed to get invocation: {:?}", e))?;
@@ -187,8 +169,8 @@ pub(crate) fn delete_invocation(
         let invocation_key =
             InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
 
-        txn.delete_cf(
-            db.column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
+        txn.delete(
+            IndexifyObjectsColumns::GraphInvocations.as_ref(),
             &invocation_key,
         )?;
     }
@@ -197,18 +179,17 @@ pub(crate) fn delete_invocation(
     let task_prefix =
         Task::key_prefix_for_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
     // delete all tasks for this invocation
-    let cf = db.column_family(IndexifyObjectsColumns::Tasks.as_ref());
+    let cf = IndexifyObjectsColumns::Tasks.as_ref();
 
-    for iter in make_prefix_iterator(
-        txn,
-        db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
+    for iter in txn.iter(
+        IndexifyObjectsColumns::Tasks.as_ref(),
         task_prefix.as_bytes(),
-        &None,
+        Default::default(),
     ) {
         let (key, value) = iter?;
         let value = Box::new(JsonEncoder::decode::<Task>(&value)?);
         tasks_deleted.push(value);
-        txn.delete_cf(cf, &key)?;
+        txn.delete(cf, &key)?;
     }
 
     // delete all task outputs for this invocation
@@ -227,8 +208,8 @@ pub(crate) fn delete_invocation(
         &req.invocation_id,
     );
     // delete all allocations for this invocation
-    let cf = db.column_family(IndexifyObjectsColumns::Allocations.as_ref());
-    for iter in make_prefix_iterator(txn, cf, allocation_prefix.as_bytes(), &None) {
+    let cf = IndexifyObjectsColumns::Allocations.as_ref();
+    for iter in txn.iter(cf, allocation_prefix.as_bytes(), Default::default()) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<Allocation>(&value)?;
         if value.invocation_id == req.invocation_id {
@@ -239,7 +220,7 @@ pub(crate) fn delete_invocation(
                 "deleting allocation",
             );
 
-            txn.delete_cf(cf, &key)?;
+            txn.delete(cf, &key)?;
             if let Some(diagnostic) = value.diagnostics {
                 [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
                     .iter()
@@ -250,8 +231,8 @@ pub(crate) fn delete_invocation(
                             .namespace(req.namespace.clone())
                             .build()?;
                         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-                        txn.put_cf(
-                            db.column_family(IndexifyObjectsColumns::GcUrls.as_ref()),
+                        txn.put(
+                            IndexifyObjectsColumns::GcUrls.as_ref(),
                             gc_url.key().as_bytes(),
                             &serialized_gc_url,
                         )?;
@@ -264,23 +245,27 @@ pub(crate) fn delete_invocation(
     // Delete Graph Invocation Context
     delete_cf_prefix(
         txn,
-        db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         invocation_ctx_key.as_bytes(),
     )?;
 
     // Delete Graph Invocation Context Secondary Index
-    txn.delete_cf(
-        db.column_family(IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref()),
+    txn.delete(
+        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
         invocation_ctx.secondary_index_key(),
     )?;
 
     let node_output_prefix =
         NodeOutput::key_prefix_from(&req.namespace, &req.compute_graph, &req.invocation_id);
 
-    let fn_outputs_cf = db.column_family(IndexifyObjectsColumns::FnOutputs.as_ref());
-    let gc_urls_cf = db.column_family(IndexifyObjectsColumns::GcUrls.as_ref());
+    let fn_outputs_cf = IndexifyObjectsColumns::FnOutputs.as_ref();
+    let gc_urls_cf = IndexifyObjectsColumns::GcUrls.as_ref();
     // mark all fn output urls for gc.
-    for iter in make_prefix_iterator(txn, fn_outputs_cf, node_output_prefix.as_bytes(), &None) {
+    for iter in txn.iter(
+        fn_outputs_cf,
+        node_output_prefix.as_bytes(),
+        Default::default(),
+    ) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         for payload in value.payloads {
@@ -289,18 +274,14 @@ pub(crate) fn delete_invocation(
                 .namespace(req.namespace.clone())
                 .build()?;
             let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-            txn.put_cf(gc_urls_cf, gc_url.key().as_bytes(), &serialized_gc_url)?;
+            txn.put(gc_urls_cf, gc_url.key().as_bytes(), &serialized_gc_url)?;
         }
-        txn.delete_cf(fn_outputs_cf, &key)?;
+        txn.delete(fn_outputs_cf, &key)?;
     }
     Ok(())
 }
 
-fn update_task_versions_for_cg(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    compute_graph: &ComputeGraph,
-) -> Result<()> {
+fn update_task_versions_for_cg(txn: &Transaction, compute_graph: &ComputeGraph) -> Result<()> {
     let span = info_span!(
         "update_task_versions_for_cg",
         namespace = compute_graph.namespace,
@@ -311,13 +292,13 @@ fn update_task_versions_for_cg(
 
     let tasks_prefix =
         Task::key_prefix_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(10_194_304);
-    let iter = make_prefix_iterator(
-        txn,
-        db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
+
+    let iter_options = IterOptions::default().with_block_size(IterOptions::LARGE_BLOCK_SIZE);
+
+    let iter = txn.iter(
+        IndexifyObjectsColumns::Tasks.as_ref(),
         tasks_prefix.as_bytes(),
-        &None,
+        iter_options,
     );
 
     let mut tasks_to_update = HashMap::new();
@@ -343,8 +324,8 @@ fn update_task_versions_for_cg(
     );
     for (task_id, task) in tasks_to_update {
         let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::Tasks.as_ref(),
             &task_id,
             &serialized_task,
         )?;
@@ -352,11 +333,7 @@ fn update_task_versions_for_cg(
     Ok(())
 }
 
-fn update_graph_invocations_for_cg(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    compute_graph: &ComputeGraph,
-) -> Result<()> {
+fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGraph) -> Result<()> {
     let cg_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(
         &compute_graph.namespace,
         &compute_graph.name,
@@ -370,11 +347,10 @@ fn update_graph_invocations_for_cg(
     );
     let _guard = span.enter();
 
-    let iter = make_prefix_iterator(
-        txn,
-        db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+    let iter = txn.iter(
+        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         cg_prefix.as_bytes(),
-        &None,
+        Default::default(),
     );
 
     let mut graph_invocation_ctx_to_update = HashMap::new();
@@ -399,8 +375,8 @@ fn update_graph_invocations_for_cg(
     );
     for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
         let serialized_task = JsonEncoder::encode(&graph_invocation_ctx)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_id,
             &serialized_task,
         )?;
@@ -409,8 +385,7 @@ fn update_graph_invocations_for_cg(
 }
 
 pub(crate) fn create_or_update_compute_graph(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
+    txn: &Transaction,
     compute_graph: ComputeGraph,
     upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
@@ -427,10 +402,9 @@ pub(crate) fn create_or_update_compute_graph(
         compute_graph.namespace, compute_graph.name, upgrade_existing_tasks_to_current_version
     );
     let existing_compute_graph = txn
-        .get_for_update_cf(
-            db.column_family(IndexifyObjectsColumns::ComputeGraphs.as_ref()),
+        .get(
+            IndexifyObjectsColumns::ComputeGraphs.as_ref(),
             compute_graph.key(),
-            true,
         )?
         .map(|v| JsonEncoder::decode::<ComputeGraph>(&v));
 
@@ -449,22 +423,24 @@ pub(crate) fn create_or_update_compute_graph(
         &new_compute_graph_version.version.0
     );
     let serialized_compute_graph_version = JsonEncoder::encode(&new_compute_graph_version)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::ComputeGraphVersions.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::ComputeGraphVersions.as_ref(),
         new_compute_graph_version.key(),
         &serialized_compute_graph_version,
     )?;
 
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::ComputeGraphs.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::ComputeGraphs.as_ref(),
         compute_graph.key(),
         &serialized_compute_graph,
     )?;
+
     if upgrade_existing_tasks_to_current_version {
-        update_task_versions_for_cg(db.clone(), txn, &compute_graph)?;
-        update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
+        update_task_versions_for_cg(txn, &compute_graph)?;
+        update_graph_invocations_for_cg(txn, &compute_graph)?;
     }
+
     info!(
         "finished creating compute graph namespace: {} name: {}, version: {}",
         compute_graph.namespace, compute_graph.name, compute_graph.version.0
@@ -472,31 +448,19 @@ pub(crate) fn create_or_update_compute_graph(
     Ok(())
 }
 
-fn delete_cf_prefix(
-    txn: &Transaction<TransactionDB>,
-    cf: &impl AsColumnFamilyRef,
-    prefix: &[u8],
-) -> Result<()> {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let iterator_mode = IteratorMode::From(prefix, Direction::Forward);
-    let iter = txn.iterator_cf_opt(cf, read_options, iterator_mode);
+fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
+    let iter = txn.iter(cf, prefix, Default::default());
     for key in iter {
         let (key, _) = key?;
         if !key.starts_with(prefix) {
             break;
         }
-        txn.delete_cf(cf, &key)?;
+        txn.delete(cf, &key)?;
     }
     Ok(())
 }
 
-pub fn delete_compute_graph(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    namespace: &str,
-    name: &str,
-) -> Result<()> {
+pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
     let span = info_span!("delete_compute_graph", namespace = namespace, graph = name,);
     let _guard = span.enter();
 
@@ -504,18 +468,17 @@ pub fn delete_compute_graph(
         "deleting compute graph: namespace: {}, name: {}",
         namespace, name
     );
-    txn.delete_cf(
-        db.column_family(IndexifyObjectsColumns::ComputeGraphs.as_ref()),
+    txn.delete(
+        IndexifyObjectsColumns::ComputeGraphs.as_ref(),
         ComputeGraph::key_from(namespace, name).as_bytes(),
     )?;
 
     let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, name);
 
-    for iter in make_prefix_iterator(
-        txn,
-        db.column_family(IndexifyObjectsColumns::GraphInvocations.as_ref()),
+    for iter in txn.iter(
+        IndexifyObjectsColumns::GraphInvocations.as_ref(),
         graph_invocation_prefix.as_bytes(),
-        &None,
+        Default::default(),
     ) {
         let (_key, value) = iter?;
         let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
@@ -524,14 +487,13 @@ pub fn delete_compute_graph(
             compute_graph: value.compute_graph_name,
             invocation_id: value.id,
         };
-        delete_invocation(db.clone(), txn, &req)?;
+        delete_invocation(txn, &req)?;
     }
 
-    for iter in make_prefix_iterator(
-        txn,
-        db.column_family(IndexifyObjectsColumns::ComputeGraphVersions.as_ref()),
+    for iter in txn.iter(
+        IndexifyObjectsColumns::ComputeGraphVersions.as_ref(),
         ComputeGraphVersion::key_prefix_from(namespace, name).as_bytes(),
-        &None,
+        Default::default(),
     ) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
@@ -542,77 +504,41 @@ pub fn delete_compute_graph(
             .namespace(namespace.to_string())
             .build()?;
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::GcUrls.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::GcUrls.as_ref(),
             gc_url.key().as_bytes(),
             &serialized_gc_url,
         )?;
-        txn.delete_cf(
-            db.column_family(IndexifyObjectsColumns::ComputeGraphVersions.as_ref()),
-            &key,
-        )?;
+        txn.delete(IndexifyObjectsColumns::ComputeGraphVersions.as_ref(), &key)?;
     }
 
     Ok(())
 }
 
-pub fn remove_gc_urls(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    urls: Vec<GcUrl>,
-) -> Result<()> {
+pub fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
     for url in urls {
-        txn.delete_cf(
-            db.column_family(IndexifyObjectsColumns::GcUrls.as_ref()),
+        txn.delete(
+            IndexifyObjectsColumns::GcUrls.as_ref(),
             url.key().as_bytes(),
         )?;
     }
     Ok(())
 }
 
-#[allow(clippy::type_complexity)]
-pub fn make_prefix_iterator<'a>(
-    txn: &'a Transaction<TransactionDB>,
-    cf_handle: &impl AsColumnFamilyRef,
-    prefix: &'a [u8],
-    restart_key: &'a Option<Vec<u8>>,
-) -> impl Iterator<Item = Result<(Box<[u8]>, Box<[u8]>)>> + 'a {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let iter = txn.iterator_cf_opt(
-        cf_handle,
-        read_options,
-        match restart_key {
-            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(prefix, Direction::Forward),
-        },
-    );
-    iter.map(|item| item.map_err(|e| anyhow!(e.to_string())))
-        .take_while(move |item| match item {
-            Ok((key, _)) => key.starts_with(prefix),
-            Err(_) => true,
-        })
-}
-
-pub(crate) fn processed_reduction_tasks(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    task: &ReductionTasks,
-) -> Result<()> {
-    let cf = db.column_family(IndexifyObjectsColumns::ReductionTasks.as_ref());
+pub(crate) fn processed_reduction_tasks(txn: &Transaction, task: &ReductionTasks) -> Result<()> {
+    let cf = IndexifyObjectsColumns::ReductionTasks.as_ref();
     for task in &task.new_reduction_tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put_cf(cf, task.key(), &serialized_task)?;
+        txn.put(cf, task.key(), &serialized_task)?;
     }
     for key in &task.processed_reduction_tasks {
-        txn.delete_cf(cf, key)?;
+        txn.delete(cf, key)?;
     }
     Ok(())
 }
 
 pub(crate) fn handle_scheduler_update(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
+    txn: &Transaction,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
     for alloc in &request.new_allocations {
@@ -628,8 +554,8 @@ pub(crate) fn handle_scheduler_update(
             "add_allocation",
         );
         let serialized_alloc = JsonEncoder::encode(&alloc)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::Allocations.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::Allocations.as_ref(),
             alloc.key(),
             serialized_alloc,
         )?;
@@ -662,14 +588,14 @@ pub(crate) fn handle_scheduler_update(
         }
 
         let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::Tasks.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::Tasks.as_ref(),
             task.key(),
             serialized_task,
         )?;
     }
 
-    processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
+    processed_reduction_tasks(txn, &request.reduction_tasks)?;
 
     for invocation_ctx in &request.updated_invocations_states {
         if invocation_ctx.completed {
@@ -684,8 +610,8 @@ pub(crate) fn handle_scheduler_update(
             );
         }
         let serialized_graph_ctx = JsonEncoder::encode(&invocation_ctx)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             invocation_ctx.key(),
             &serialized_graph_ctx,
         )?;
@@ -724,11 +650,7 @@ pub fn can_allocation_output_be_updated(
     // the graph might have been deleted before the task completes
     let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
     let graph = db
-        .db
-        .get_cf(
-            db.column_family(IndexifyObjectsColumns::ComputeGraphs.as_ref()),
-            &graph_key,
-        )
+        .get(IndexifyObjectsColumns::ComputeGraphs.as_ref(), &graph_key)
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
         info!("Compute graph not found: {}", &req.compute_graph);
@@ -739,8 +661,8 @@ pub fn can_allocation_output_be_updated(
     let invocation_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
     let invocation = db
-        .get_cf(
-            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+        .get(
+            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
@@ -757,8 +679,8 @@ pub fn can_allocation_output_be_updated(
         return Ok(false);
     }
 
-    let existing_allocation = db.get_cf(
-        db.column_family(IndexifyObjectsColumns::Allocations.as_ref()),
+    let existing_allocation = db.get(
+        IndexifyObjectsColumns::Allocations.as_ref(),
         &req.allocation_key,
     )?;
     let Some(existing_allocation) = existing_allocation else {
@@ -777,11 +699,7 @@ pub fn can_allocation_output_be_updated(
 }
 
 // returns true if task the task finishing state should be emitted.
-pub fn ingest_task_outputs(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    req: AllocationOutput,
-) -> Result<()> {
+pub fn ingest_task_outputs(txn: &Transaction, req: AllocationOutput) -> Result<()> {
     let span = info_span!(
         "ingest_task_outputs",
         namespace = &req.namespace,
@@ -792,10 +710,9 @@ pub fn ingest_task_outputs(
     );
     let _guard = span.enter();
 
-    let existing_allocation = txn.get_for_update_cf(
-        db.column_family(IndexifyObjectsColumns::Allocations.as_ref()),
+    let existing_allocation = txn.get(
+        IndexifyObjectsColumns::Allocations.as_ref(),
         &req.allocation_key,
-        true,
     )?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);
@@ -810,8 +727,8 @@ pub fn ingest_task_outputs(
     }
 
     let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::Allocations.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::Allocations.as_ref(),
         &req.allocation_key,
         &serialized_allocation,
     )?;
@@ -823,16 +740,16 @@ pub fn ingest_task_outputs(
         acc_value.reducer_output = false;
         let reducer_acc_value = JsonEncoder::encode(&acc_value)?;
         let reducer_output_key = req.node_output.reducer_acc_value_key();
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::FnOutputs.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::FnOutputs.as_ref(),
             &reducer_output_key,
             reducer_acc_value,
         )?;
     }
     // Create an output key
     let output_key = req.node_output.key();
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::FnOutputs.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::FnOutputs.as_ref(),
         &output_key,
         serialized_output,
     )?;
@@ -841,29 +758,24 @@ pub fn ingest_task_outputs(
 }
 
 pub fn upsert_function_executor_diagnostics(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
+    txn: &Transaction,
     fe_diagnostics: &FunctionExecutorDiagnostics,
 ) -> Result<()> {
     let serialized_fe_diagnostics = JsonEncoder::encode(fe_diagnostics)?;
-    txn.put_cf(
-        db.column_family(IndexifyObjectsColumns::FunctionExecutorDiagnostics.as_ref()),
+    txn.put(
+        IndexifyObjectsColumns::FunctionExecutorDiagnostics.as_ref(),
         fe_diagnostics.key(),
         serialized_fe_diagnostics,
     )?;
     Ok(())
 }
 
-pub(crate) fn save_state_changes(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
-    state_changes: &[StateChange],
-) -> Result<()> {
+pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange]) -> Result<()> {
     for state_change in state_changes {
         let key = &state_change.key();
         let serialized_state_change = JsonEncoder::encode(&state_change)?;
-        txn.put_cf(
-            db.column_family(IndexifyObjectsColumns::UnprocessedStateChanges.as_ref()),
+        txn.put(
+            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
             key,
             serialized_state_change,
         )?;
@@ -872,8 +784,7 @@ pub(crate) fn save_state_changes(
 }
 
 pub(crate) fn mark_state_changes_processed(
-    db: Arc<RocksDBDriver>,
-    txn: &Transaction<TransactionDB>,
+    txn: &Transaction,
     processed_state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in processed_state_changes {
@@ -882,35 +793,10 @@ pub(crate) fn mark_state_changes_processed(
             "marking state change as processed"
         );
         let key = &state_change.key();
-        txn.delete_cf(
-            db.column_family(IndexifyObjectsColumns::UnprocessedStateChanges.as_ref()),
+        txn.delete(
+            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
             key,
         )?;
     }
-    Ok(())
-}
-
-/// Helper function to update a column family entry in a transaction
-/// by fetching the entry, deserializing it, applying the update function,
-/// serializing it and putting it back in the column family.
-///
-/// This can be done with an exclusive lock or not.
-fn _do_cf_update<T>(
-    txn: &Transaction<TransactionDB>,
-    key: &str,
-    cf: &impl AsColumnFamilyRef,
-    update_fn: impl FnOnce(&mut T),
-    exclusive: bool,
-) -> Result<()>
-where
-    T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
-{
-    let task = txn
-        .get_for_update_cf(cf, key, exclusive)?
-        .ok_or(anyhow::anyhow!("Task not found"))?;
-    let mut task = JsonEncoder::decode::<T>(&task)?;
-    update_fn(&mut task);
-    let serialized_task = JsonEncoder::encode(&task)?;
-    txn.put_cf(cf, key, &serialized_task)?;
     Ok(())
 }

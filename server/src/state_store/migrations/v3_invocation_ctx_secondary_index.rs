@@ -30,7 +30,7 @@ impl Migration for V3SecondaryIndexesMigration {
         ) {
             ctx.reopen_with_cf_operations(|db| {
                 info!("Creating secondary index column family");
-                db.create_cf(
+                db.create(
                     IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                     &rocksdb::Options::default(),
                 )?;
@@ -53,7 +53,7 @@ impl Migration for V3SecondaryIndexesMigration {
         let mut num_total_invocation_ctx: usize = 0;
         let mut num_indexed_invocation_ctx: usize = 0;
 
-        ctx.iterate_cf(
+        ctx.iterate(
             &IndexifyObjectsColumns::GraphInvocationCtx,
             |_key, value| {
                 num_total_invocation_ctx += 1;
@@ -66,8 +66,8 @@ impl Migration for V3SecondaryIndexesMigration {
                 let secondary_index_key = create_secondary_index_key(&invocation_ctx)?;
 
                 // Store the secondary index (key -> empty value)
-                ctx.txn.put_cf(
-                    ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex),
+                ctx.txn.put(
+                    IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                     &secondary_index_key,
                     [],
                 )?;
@@ -127,7 +127,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{driver::Reader, migrations::testing::MigrationTestBuilder};
 
     #[test]
     fn test_v3_migration() -> Result<()> {
@@ -183,8 +183,8 @@ mod tests {
                             ctx_obj["invocation_id"].as_str().unwrap()
                         );
                         let encoded = serde_json::to_vec(ctx_obj).unwrap();
-                        db.put_cf(
-                            db.column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref()),
+                        db.put(
+                            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                             key,
                             &encoded,
                         )?;
@@ -231,19 +231,18 @@ mod tests {
                     ];
 
                     // Check secondary index CF was created
-                    db.column_family(
+                    let iter = db.iter(
                         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+                        Default::default(),
                     );
+                    assert!(!iter.collect::<Vec<_>>().is_empty());
 
                     // Check secondary indexes were created
                     for ctx_obj in &contexts {
                         let secondary_key = create_secondary_index_key(ctx_obj)?;
                         let exists = db
-                            .get_cf(
-                                db.column_family(
-                                    IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex
-                                        .as_ref(),
-                                ),
+                            .get(
+                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                                 &secondary_key,
                             )?
                             .is_some();
@@ -253,12 +252,9 @@ mod tests {
 
                     // Count secondary indexes
                     let secondary_indexes = db
-                        .db
-                        .iterator_cf(
-                            db.column_family(
-                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
-                            ),
-                            rocksdb::IteratorMode::Start,
+                        .iter(
+                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+                            Default::default(),
                         )
                         .collect::<Vec<_>>();
 

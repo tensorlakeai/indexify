@@ -3,7 +3,6 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
-    use rocksdb::IteratorMode;
     use strum::IntoEnumIterator;
 
     use crate::{
@@ -17,7 +16,7 @@ mod tests {
         executors::EXECUTOR_TIMEOUT,
         service::Service,
         state_store::{
-            driver::rocksdb::RocksDBDriver,
+            driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
             requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
             state_machine::IndexifyObjectsColumns,
             test_state_store,
@@ -37,11 +36,12 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
-            let cf = db.column_family(col.as_ref());
-            let count = db.db.iterator_cf(cf, IteratorMode::Start).count();
+            let count_options = IterOptions::default();
+            let count = db.iter(col.as_ref(), count_options).count();
+
+            let scan_options = IterOptions::default().scan_fully();
             let all = db
-                .db
-                .full_iterator_cf(cf, IteratorMode::Start)
+                .iter(col.as_ref(), scan_options)
                 .filter_map(|result| result.ok())
                 .map(|(k, v)| {
                     format!(

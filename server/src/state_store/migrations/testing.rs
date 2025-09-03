@@ -6,7 +6,10 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::{self, driver::rocksdb::RocksDBDriver};
+use crate::state_store::{
+    self,
+    driver::{rocksdb::RocksDBDriver, Writer},
+};
 
 /// A more complete test utility that handles custom column families
 pub struct MigrationTestBuilder {
@@ -56,7 +59,7 @@ impl MigrationTestBuilder {
         let db = migration.prepare(&prepare_ctx)?;
 
         // Apply the migration
-        let txn = db.db.transaction();
+        let txn = db.transaction();
         let migration_ctx = MigrationContext::new(&db, &txn);
 
         migration.apply(&migration_ctx)?;
@@ -94,8 +97,8 @@ mod tests {
 
         fn apply(&self, ctx: &MigrationContext) -> Result<()> {
             // Simple mock implementation that just puts a marker
-            ctx.txn.put_cf(
-                ctx.cf(&IndexifyObjectsColumns::StateMachineMetadata),
+            ctx.txn.put(
+                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                 b"migration_test",
                 format!("v{}", self.version_num).as_bytes(),
             )?;
@@ -121,8 +124,8 @@ mod tests {
                 },
                 |db| {
                     // Verify migration was applied
-                    let result = db.get_cf(
-                        db.column_family(IndexifyObjectsColumns::StateMachineMetadata.as_ref()),
+                    let result = db.get(
+                        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                         b"migration_test",
                     )?;
 

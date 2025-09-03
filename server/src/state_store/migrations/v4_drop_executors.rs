@@ -28,7 +28,7 @@ impl Migration for V4DropExecutorsMigration {
             // Drop Executors CF if it exists
             if existing_cfs.contains(&"Executors".to_string()) {
                 info!("Dropping Executors column family");
-                db.drop_cf("Executors")?;
+                db.drop("Executors")?;
             } else {
                 info!("Executors column family doesn't exist, no action needed");
             }
@@ -52,7 +52,7 @@ mod tests {
     use rocksdb::ColumnFamilyDescriptor;
 
     use super::*;
-    use crate::state_store::{self, migrations::testing::MigrationTestBuilder};
+    use crate::state_store::{self, driver::Writer, migrations::testing::MigrationTestBuilder};
 
     #[test]
     fn test_v4_migration_with_executors_cf() -> Result<()> {
@@ -82,7 +82,7 @@ mod tests {
         assert!(!cfs.contains(&"Executors".to_string()));
 
         // Run apply phase (no-op in this case)
-        let txn = db.db.transaction();
+        let txn = db.transaction();
         let migration_ctx = MigrationContext::new(&db, &txn);
         migration.apply(&migration_ctx)?;
         txn.commit()?;
@@ -102,7 +102,7 @@ mod tests {
             },
             |db| {
                 // Verify migration completes without error
-                let txn = db.db.transaction();
+                let txn = db.transaction();
                 txn.commit()?;
                 Ok(())
             },
