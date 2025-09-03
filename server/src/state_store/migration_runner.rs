@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{
     data_model::StateMachineMetadata,
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Transaction, Writer},
+        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         migrations::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,

@@ -217,7 +217,7 @@ mod tests {
         // Test reopen with CF operations
         let db = ctx.reopen_with_cf_operations(|db| {
             db.drop("test_cf")?;
-            db.create("new_cf", &Options::default())?;
+            db.create("new_cf", &Default::default())?;
             Ok(())
         })?;
 

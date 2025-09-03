@@ -5,7 +5,10 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::{driver::rocksdb::RocksDBDriver, state_machine::IndexifyObjectsColumns};
+use crate::state_store::{
+    driver::{rocksdb::RocksDBDriver, Writer},
+    state_machine::IndexifyObjectsColumns,
+};
 
 /// Migration to rebuild the invocation context secondary indexes by dropping
 /// and recreating the column family
@@ -117,7 +120,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::{driver::Reader, migrations::testing::MigrationTestBuilder};
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v7_migration() -> Result<()> {

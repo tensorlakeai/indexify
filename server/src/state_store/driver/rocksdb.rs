@@ -5,12 +5,11 @@ use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
     Error as RocksDBError,
-    Options as RocksDBOptions,
     Transaction,
     TransactionDB,
     TransactionDBOptions,
 };
-pub use rocksdb::{Direction, IteratorMode, ReadOptions};
+pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
 
@@ -88,36 +87,6 @@ impl RocksDBDriver {
 
         handle
     }
-
-    pub fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, RocksDBError>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
-        let cf = self.column_family(cf);
-        self.db.get_cf(cf, key)
-    }
-
-    pub fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), RocksDBError>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>,
-    {
-        let cf = self.column_family(cf);
-        self.db.put_cf(cf, key, value)
-    }
-
-    pub fn drop(&mut self, name: &str) -> Result<(), RocksDBError> {
-        self.db.drop_cf(name)
-    }
-
-    pub fn create<N>(&mut self, name: N, opts: &RocksDBOptions) -> Result<(), RocksDBError>
-    where
-        N: AsRef<str>,
-    {
-        self.db.create_cf(name, opts)
-    }
 }
 
 impl Writer for RocksDBDriver {
@@ -125,6 +94,28 @@ impl Writer for RocksDBDriver {
         let tx = self.db.transaction();
 
         super::Transaction::RocksDB(RocksDBTransaction { db: self, tx })
+    }
+
+    fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), DriverError>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        let cf = self.column_family(cf);
+        self.db.put_cf(cf, key, value).map_err(Error::into_generic)
+    }
+
+    fn drop(&mut self, name: &str) -> Result<(), DriverError> {
+        self.db.drop_cf(name).map_err(Error::into_generic)
+    }
+
+    fn create<N>(&mut self, name: N, opts: &super::CreateOptions) -> Result<(), DriverError>
+    where
+        N: AsRef<str>,
+    {
+        let super::CreateOptions::RocksDB(opts) = opts;
+        self.db.create_cf(name, opts).map_err(Error::into_generic)
     }
 }
 
@@ -164,6 +155,15 @@ impl AtomicComparator for RocksDBDriver {
 }
 
 impl Reader for RocksDBDriver {
+    fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, DriverError>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+    {
+        let cf = self.column_family(cf);
+        self.db.get_cf(cf, key).map_err(Error::into_generic)
+    }
+
     fn list_existent_items(
         &self,
         column: &str,
@@ -319,11 +319,6 @@ impl<'a> RocksDBTransaction<'a> {
 
     pub fn commit(self) -> Result<(), DriverError> {
         self.tx.commit().map_err(Error::into_generic)
-    }
-
-    #[allow(dead_code)]
-    fn rollback(&self) -> Result<(), DriverError> {
-        self.tx.rollback().map_err(Error::into_generic)
     }
 
     pub fn get<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<Option<Vec<u8>>, DriverError> {

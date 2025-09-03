@@ -81,7 +81,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v1_migration() -> Result<()> {

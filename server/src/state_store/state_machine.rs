@@ -22,7 +22,7 @@ use crate::{
         TaskOutcome,
     },
     state_store::{
-        driver::{rocksdb::RocksDBDriver, IterOptions, Transaction},
+        driver::{rocksdb::RocksDBDriver, IterOptions, Reader, Transaction, Writer},
         requests::{
             AllocationOutput,
             DeleteInvocationRequest,

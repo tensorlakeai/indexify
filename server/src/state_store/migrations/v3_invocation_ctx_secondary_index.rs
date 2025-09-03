@@ -5,7 +5,10 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::{driver::rocksdb::RocksDBDriver, state_machine::IndexifyObjectsColumns};
+use crate::state_store::{
+    driver::{rocksdb::RocksDBDriver, Writer},
+    state_machine::IndexifyObjectsColumns,
+};
 
 #[derive(Clone)]
 pub struct V3SecondaryIndexesMigration {}
@@ -32,7 +35,7 @@ impl Migration for V3SecondaryIndexesMigration {
                 info!("Creating secondary index column family");
                 db.create(
                     IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
-                    &rocksdb::Options::default(),
+                    &Default::default(),
                 )?;
                 Ok(())
             })
@@ -127,7 +130,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::{driver::Reader, migrations::testing::MigrationTestBuilder};
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v3_migration() -> Result<()> {

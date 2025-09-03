@@ -8,7 +8,7 @@ use super::{
 };
 use crate::state_store::{
     self,
-    driver::{rocksdb::RocksDBDriver, Writer},
+    driver::{rocksdb::RocksDBDriver, Reader, Writer},
 };
 
 /// A more complete test utility that handles custom column families

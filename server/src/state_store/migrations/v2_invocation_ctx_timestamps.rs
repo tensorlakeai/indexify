@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 
 use super::{contexts::MigrationContext, migration_trait::Migration};
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{driver::Reader, state_machine::IndexifyObjectsColumns};
 
 #[derive(Clone)]
 pub struct V2InvocationTimestampsMigration {}
@@ -80,7 +80,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v2_migration() -> Result<()> {

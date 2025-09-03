@@ -5,7 +5,7 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::driver::rocksdb::RocksDBDriver;
+use crate::state_store::driver::{rocksdb::RocksDBDriver, Writer};
 
 #[derive(Clone)]
 /// Migration to remove the deprecated Executors column family

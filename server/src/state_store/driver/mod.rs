@@ -67,10 +67,44 @@ impl Error {
 pub trait Writer {
     /// Start a new Transaction in the database.
     fn transaction(&self) -> Transaction;
+
+    fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>;
+
+    fn drop(&mut self, name: &str) -> Result<(), Error>;
+
+    fn create<N>(&mut self, name: N, opts: &CreateOptions) -> Result<(), Error>
+    where
+        N: AsRef<str>;
+}
+
+pub enum CreateOptions {
+    RocksDB(rocksdb::RocksDBOptions),
+}
+
+impl CreateOptions {
+    pub fn new_rocksdb_options() -> Self {
+        Self::RocksDB(Default::default())
+    }
+}
+
+impl Default for CreateOptions {
+    fn default() -> Self {
+        Self::new_rocksdb_options()
+    }
 }
 
 /// Reader defines all the read operations for a give driver.
 pub trait Reader {
+    // Get an item from the database.
+    fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, Error>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>;
+
     /// Return the items in the database that match the keys passed as
     /// arguments. If the key does not exist in the database, the value is
     /// not returned, it's just ignored.
