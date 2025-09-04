@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 
 use super::{contexts::MigrationContext, migration_trait::Migration};
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{driver::Reader, state_machine::IndexifyObjectsColumns};
 
 #[derive(Clone)]
 pub struct V2InvocationTimestampsMigration {}
@@ -20,7 +20,7 @@ impl Migration for V2InvocationTimestampsMigration {
         let mut num_total_invocation_ctx: usize = 0;
         let mut num_migrated_invocation_ctx: usize = 0;
 
-        ctx.iterate_cf(
+        ctx.iterate(
             &IndexifyObjectsColumns::GraphInvocationCtx,
             |key, _value| {
                 num_total_invocation_ctx += 1;
@@ -30,15 +30,10 @@ impl Migration for V2InvocationTimestampsMigration {
                     &IndexifyObjectsColumns::GraphInvocationCtx,
                     key,
                     |invocation_ctx| {
-                        let invocation_bytes = ctx
-                            .db
-                            .get_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(ctx.db), key)?
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "invocation not found for invocation ctx: {}",
-                                    key_str
-                                )
-                            })?;
+                        let cf = IndexifyObjectsColumns::GraphInvocations.as_ref();
+                        let invocation_bytes = ctx.db.get(cf, key)?.ok_or_else(|| {
+                            anyhow::anyhow!("invocation not found for invocation ctx: {}", key_str)
+                        })?;
 
                         let invocation = ctx.parse_json(&invocation_bytes)?;
 
@@ -85,7 +80,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v2_migration() -> Result<()> {
@@ -155,16 +153,16 @@ mod tests {
                     ];
 
                     for (key, value) in invocations {
-                        db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocations.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::GraphInvocations.as_ref(),
                             &key,
                             serde_json::to_vec(&value)?.as_slice(),
                         )?;
                     }
 
                     for (key, value) in contexts {
-                        db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                             &key,
                             serde_json::to_vec(&value)?.as_slice(),
                         )?;
@@ -175,9 +173,8 @@ mod tests {
                 |db| {
                     // Verify: Check that timestamps were added to contexts
                     let verify_timestamp = |key: &[u8], expected_timestamp: u64| -> Result<()> {
-                        let bytes = db
-                            .get_cf(IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db), key)?
-                            .unwrap();
+                        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
+                        let bytes = db.get(cf, key)?.unwrap();
                         let ctx_json: serde_json::Value = serde_json::from_slice(&bytes)?;
                         assert_eq!(ctx_json["created_at"].as_u64().unwrap(), expected_timestamp);
                         Ok(())

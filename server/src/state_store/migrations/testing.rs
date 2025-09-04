@@ -1,27 +1,25 @@
 use anyhow::Result;
-use rocksdb::{Options, TransactionDB, TransactionDBOptions};
+use rocksdb::ColumnFamilyDescriptor;
 use tempfile::TempDir;
 
 use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
+use crate::state_store::{
+    self,
+    driver::{rocksdb::RocksDBDriver, Reader, Writer},
+};
 
 /// A more complete test utility that handles custom column families
 pub struct MigrationTestBuilder {
     column_families: Vec<String>,
-    db_opts: Options,
 }
 
 impl MigrationTestBuilder {
     pub fn new() -> Self {
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-
         Self {
             column_families: vec!["default".to_string()],
-            db_opts,
         }
     }
 
@@ -35,19 +33,19 @@ impl MigrationTestBuilder {
     pub fn run_test<M, S, V>(self, migration: &M, setup: S, verify: V) -> Result<()>
     where
         M: Migration,
-        S: FnOnce(&TransactionDB) -> Result<()>,
-        V: FnOnce(&TransactionDB) -> Result<()>,
+        S: FnOnce(&RocksDBDriver) -> Result<()>,
+        V: FnOnce(&RocksDBDriver) -> Result<()>,
     {
         // Create temporary database directory
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
         // Create database with specified column families
-        let db = TransactionDB::open_cf(
-            &self.db_opts,
-            &TransactionDBOptions::default(),
-            path,
-            &self.column_families,
+        let db = state_store::open_database(
+            path.to_path_buf(),
+            self.column_families
+                .into_iter()
+                .map(|s| ColumnFamilyDescriptor::new(s, Default::default())),
         )?;
 
         // Run setup function to populate test data
@@ -93,14 +91,14 @@ mod tests {
             "Mock Migration"
         }
 
-        fn prepare(&self, ctx: &PrepareContext) -> Result<TransactionDB> {
+        fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
             ctx.open_db()
         }
 
         fn apply(&self, ctx: &MigrationContext) -> Result<()> {
             // Simple mock implementation that just puts a marker
-            ctx.txn.put_cf(
-                ctx.cf(&IndexifyObjectsColumns::StateMachineMetadata),
+            ctx.txn.put(
+                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                 b"migration_test",
                 format!("v{}", self.version_num).as_bytes(),
             )?;
@@ -126,8 +124,8 @@ mod tests {
                 },
                 |db| {
                     // Verify migration was applied
-                    let result = db.get_cf(
-                        IndexifyObjectsColumns::StateMachineMetadata.cf_db(db),
+                    let result = db.get(
+                        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                         b"migration_test",
                     )?;
 

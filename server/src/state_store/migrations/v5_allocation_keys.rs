@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 
 use super::{contexts::MigrationContext, migration_trait::Migration};
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{driver::Reader, state_machine::IndexifyObjectsColumns};
 
 /// Migration to reformat allocation keys and clean up orphaned allocations
 #[derive(Clone)]
@@ -41,7 +41,7 @@ impl V5AllocationKeysMigration {
         // We need to collect all keys and values first since we'll be modifying the CF
         let mut allocations_to_process = Vec::new();
 
-        ctx.iterate_cf(&IndexifyObjectsColumns::Allocations, |key, value| {
+        ctx.iterate(&IndexifyObjectsColumns::Allocations, |key, value| {
             num_total_allocations += 1;
             allocations_to_process.push((key.to_vec(), value.to_vec()));
             Ok(())
@@ -66,22 +66,22 @@ impl V5AllocationKeysMigration {
 
             // Delete the old allocation
             ctx.txn
-                .delete_cf(ctx.cf(&IndexifyObjectsColumns::Allocations), &key)?;
+                .delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)?;
 
             // Check if the allocation is orphaned by ensuring it has a graph invocation ctx
             let invocation_ctx_key = format!("{namespace}|{compute_graph}|{invocation_id}");
 
             if ctx
                 .db
-                .get_cf(
-                    ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtx),
+                .get(
+                    &IndexifyObjectsColumns::GraphInvocationCtx,
                     invocation_ctx_key.as_bytes(),
                 )?
                 .is_some()
             {
                 // Re-insert with new key
-                ctx.txn.put_cf(
-                    ctx.cf(&IndexifyObjectsColumns::Allocations),
+                ctx.txn.put(
+                    IndexifyObjectsColumns::Allocations.as_ref(),
                     new_allocation_key.as_bytes(),
                     &val_bytes,
                 )?;
@@ -107,7 +107,7 @@ impl V5AllocationKeysMigration {
         // Collect tasks to delete
         let mut tasks_to_delete = Vec::new();
 
-        ctx.iterate_cf(&IndexifyObjectsColumns::Tasks, |key, value| {
+        ctx.iterate(&IndexifyObjectsColumns::Tasks, |key, value| {
             num_total_tasks += 1;
 
             let task: serde_json::Value = ctx.parse_json(value)?;
@@ -121,8 +121,8 @@ impl V5AllocationKeysMigration {
 
             if ctx
                 .db
-                .get_cf(
-                    ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtx),
+                .get(
+                    IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                     invocation_ctx_key.as_bytes(),
                 )?
                 .is_none()
@@ -137,7 +137,7 @@ impl V5AllocationKeysMigration {
         // Delete orphaned tasks
         for key in tasks_to_delete {
             ctx.txn
-                .delete_cf(ctx.cf(&IndexifyObjectsColumns::Tasks), &key)?;
+                .delete(IndexifyObjectsColumns::Tasks.as_ref(), &key)?;
             num_deleted_tasks += 1;
         }
 
@@ -155,7 +155,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v5_migration() -> Result<()> {
@@ -186,8 +189,8 @@ mod tests {
                     ];
 
                     for (key, value) in &contexts {
-                        db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -222,8 +225,8 @@ mod tests {
                     ];
 
                     for (key, value) in &allocations {
-                        db.put_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::Allocations.as_ref(),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -254,8 +257,8 @@ mod tests {
                     ];
 
                     for (key, value) in &tasks {
-                        db.put_cf(
-                            IndexifyObjectsColumns::Tasks.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::Tasks.as_ref(),
                             key,
                             serde_json::to_vec(value)?.as_slice(),
                         )?;
@@ -268,24 +271,15 @@ mod tests {
                     // removed
 
                     // Old allocation keys should be gone
-                    assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
-                            b"allocation1"
-                        )?
-                        .is_none());
+                    let cf = IndexifyObjectsColumns::Allocations.as_ref();
 
-                    assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::Allocations.cf_db(db),
-                            b"allocation2"
-                        )?
-                        .is_none());
+                    assert!(db.get(cf, b"allocation1")?.is_none());
+
+                    assert!(db.get(cf, b"allocation2")?.is_none());
 
                     // Valid allocation should be migrated with new key format
                     let new_key = b"test_ns|test_graph|inv1|test_fn1|task1|exec1";
-                    let migrated_allocation =
-                        db.get_cf(IndexifyObjectsColumns::Allocations.cf_db(db), new_key)?;
+                    let migrated_allocation = db.get(cf, new_key)?;
 
                     assert!(
                         migrated_allocation.is_some(),
@@ -294,8 +288,7 @@ mod tests {
 
                     // Orphaned allocation should not exist
                     let orphaned_key = b"test_ns|test_graph|inv2|test_fn2|task2|exec2";
-                    let orphaned_allocation =
-                        db.get_cf(IndexifyObjectsColumns::Allocations.cf_db(db), orphaned_key)?;
+                    let orphaned_allocation = db.get(cf, orphaned_key)?;
 
                     assert!(
                         orphaned_allocation.is_none(),
@@ -303,18 +296,13 @@ mod tests {
                     );
 
                     // Valid task should still exist
-                    let valid_task = db.get_cf(
-                        IndexifyObjectsColumns::Tasks.cf_db(db),
-                        b"test_ns|test_graph|inv1|test_fn1|task1",
-                    )?;
+                    let cf = IndexifyObjectsColumns::Tasks.as_ref();
+                    let valid_task = db.get(cf, b"test_ns|test_graph|inv1|test_fn1|task1")?;
 
                     assert!(valid_task.is_some(), "Valid task should still exist");
 
                     // Orphaned task should be deleted
-                    let orphaned_task = db.get_cf(
-                        IndexifyObjectsColumns::Tasks.cf_db(db),
-                        b"test_ns|test_graph|inv2|test_fn2|task2",
-                    )?;
+                    let orphaned_task = db.get(cf, b"test_ns|test_graph|inv2|test_fn2|task2")?;
 
                     assert!(orphaned_task.is_none(), "Orphaned task should be deleted");
 

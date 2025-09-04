@@ -5,7 +5,10 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::state_machine::IndexifyObjectsColumns;
+use crate::state_store::{
+    driver::{rocksdb::RocksDBDriver, Writer},
+    state_machine::IndexifyObjectsColumns,
+};
 
 /// Migration to rebuild the invocation context secondary indexes by dropping
 /// and recreating the column family
@@ -21,21 +24,19 @@ impl Migration for V8RebuildInvocationCtxSecondaryIndexMigration {
         "Rebuild invocation context secondary indexes"
     }
 
-    fn prepare(&self, ctx: &PrepareContext) -> Result<rocksdb::TransactionDB> {
+    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         // Drop and recreate the secondary index column family instead of truncating
         info!("Rebuilding secondary index column family");
 
         ctx.reopen_with_cf_operations(|db| {
             // Drop if exists
             let cf_name = IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref();
-            if db.cf_handle(cf_name).is_some() {
-                info!("Dropping secondary index column family");
-                db.drop_cf(cf_name)?;
-            }
+            info!("Dropping secondary index column family");
+            db.drop(cf_name)?;
 
             // Create fresh
             info!("Creating new secondary index column family");
-            db.create_cf(cf_name, &rocksdb::Options::default())?;
+            db.create(cf_name, &Default::default())?;
 
             Ok(())
         })
@@ -45,7 +46,7 @@ impl Migration for V8RebuildInvocationCtxSecondaryIndexMigration {
         let mut num_total_invocation_ctx: usize = 0;
         let mut num_migrated_invocation_ctx: usize = 0;
 
-        ctx.iterate_cf(
+        ctx.iterate(
             &IndexifyObjectsColumns::GraphInvocationCtx,
             |_key, value| {
                 num_total_invocation_ctx += 1;
@@ -58,8 +59,8 @@ impl Migration for V8RebuildInvocationCtxSecondaryIndexMigration {
                 let secondary_index_key = create_secondary_index_key(&invocation_ctx)?;
 
                 // Store the secondary index (key -> empty value)
-                ctx.txn.put_cf(
-                    ctx.cf(&IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex),
+                ctx.txn.put(
+                    IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                     &secondary_index_key,
                     [],
                 )?;
@@ -119,7 +120,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_v7_migration() -> Result<()> {
@@ -178,22 +182,22 @@ mod tests {
                             ctx_obj["invocation_id"].as_str().unwrap()
                         );
                         let encoded = serde_json::to_vec(ctx_obj).unwrap();
-                        db.put_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(db),
+                        db.put(
+                            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                             key,
                             &encoded,
                         )?;
                     }
 
                     // Create some invalid secondary indexes (to be replaced)
-                    db.put_cf(
-                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                    db.put(
+                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                         b"invalid_index_1",
                         [],
                     )?;
 
-                    db.put_cf(
-                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                    db.put(
+                        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                         b"invalid_index_2",
                         [],
                     )?;
@@ -205,15 +209,15 @@ mod tests {
 
                     // Check invalid indexes are gone
                     assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                        .get(
+                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                             b"invalid_index_1"
                         )?
                         .is_none());
 
                     assert!(db
-                        .get_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
+                        .get(
+                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
                             b"invalid_index_2"
                         )?
                         .is_none());
@@ -255,25 +259,16 @@ mod tests {
                         }),
                     ];
 
+                    let cf = IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref();
                     for ctx_obj in &contexts {
                         let secondary_key = create_secondary_index_key(ctx_obj)?;
-                        let exists = db
-                            .get_cf(
-                                IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
-                                &secondary_key,
-                            )?
-                            .is_some();
+                        let exists = db.get(cf, &secondary_key)?.is_some();
 
                         assert!(exists, "Secondary index not found for {ctx_obj:?}");
                     }
 
                     // Check total count of secondary indexes
-                    let secondary_indexes = db
-                        .iterator_cf(
-                            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(db),
-                            rocksdb::IteratorMode::Start,
-                        )
-                        .collect::<Vec<_>>();
+                    let secondary_indexes = db.iter(cf, Default::default()).collect::<Vec<_>>();
 
                     assert_eq!(
                         secondary_indexes.len(),

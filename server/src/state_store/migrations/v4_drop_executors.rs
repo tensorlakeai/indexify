@@ -5,6 +5,7 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
+use crate::state_store::driver::{rocksdb::RocksDBDriver, Writer};
 
 #[derive(Clone)]
 /// Migration to remove the deprecated Executors column family
@@ -19,7 +20,7 @@ impl Migration for V4DropExecutorsMigration {
         "Drop Executors column family"
     }
 
-    fn prepare(&self, ctx: &PrepareContext) -> Result<rocksdb::TransactionDB> {
+    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         // Check if the Executors CF exists and drop it if needed
         let existing_cfs = ctx.list_cfs()?;
 
@@ -27,7 +28,7 @@ impl Migration for V4DropExecutorsMigration {
             // Drop Executors CF if it exists
             if existing_cfs.contains(&"Executors".to_string()) {
                 info!("Dropping Executors column family");
-                db.drop_cf("Executors")?;
+                db.drop("Executors")?;
             } else {
                 info!("Executors column family doesn't exist, no action needed");
             }
@@ -48,10 +49,10 @@ impl Migration for V4DropExecutorsMigration {
 
 #[cfg(test)]
 mod tests {
-    use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
+    use rocksdb::ColumnFamilyDescriptor;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{self, driver::Writer, migrations::testing::MigrationTestBuilder};
 
     #[test]
     fn test_v4_migration_with_executors_cf() -> Result<()> {
@@ -63,21 +64,12 @@ mod tests {
 
         // First create a DB with Executors CF
         {
-            let mut db_opts = Options::default();
-            db_opts.create_missing_column_families(true);
-            db_opts.create_if_missing(true);
-
             let cf_descriptors = vec![
-                ColumnFamilyDescriptor::new("default", Options::default()),
-                ColumnFamilyDescriptor::new("Executors", Options::default()),
+                ColumnFamilyDescriptor::new("default", Default::default()),
+                ColumnFamilyDescriptor::new("Executors", Default::default()),
             ];
 
-            let _db: TransactionDB = TransactionDB::open_cf_descriptors(
-                &db_opts,
-                &TransactionDBOptions::default(),
-                path,
-                cf_descriptors,
-            )?;
+            let _db = state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter())?;
             // DB is dropped here when it goes out of scope
         }
 

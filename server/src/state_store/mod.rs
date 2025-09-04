@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    // pin::Pin,
     sync::{
         atomic::{self, AtomicU64},
         Arc,
@@ -14,7 +13,7 @@ use in_memory_state::{InMemoryMetrics, InMemoryState};
 use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB};
+use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
@@ -24,7 +23,10 @@ use crate::{
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
-    state_store::invocation_events::RequestStartedEvent,
+    state_store::{
+        driver::{rocksdb::RocksDBDriver, Writer},
+        invocation_events::RequestStartedEvent,
+    },
 };
 
 #[derive(Debug, Clone, Default)]
@@ -86,7 +88,7 @@ impl Default for ExecutorState {
 }
 
 pub struct IndexifyState {
-    pub db: Arc<TransactionDB>,
+    pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
     pub state_change_id_seq: Arc<AtomicU64>,
@@ -101,7 +103,7 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
 }
 
-fn open_database<I>(path: PathBuf, column_families: I) -> Result<Arc<TransactionDB>>
+pub(crate) fn open_database<I>(path: PathBuf, column_families: I) -> Result<RocksDBDriver>
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
@@ -110,9 +112,7 @@ where
         column_families: column_families.collect::<Vec<_>>(),
     });
 
-    driver::open_database(options)
-        .map(|db| db.db.clone())
-        .map_err(Into::into)
+    driver::open_database(options).map_err(Into::into)
 }
 
 impl IndexifyState {
@@ -128,7 +128,7 @@ impl IndexifyState {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        let db = open_database(path, sm_column_families)?;
+        let db = Arc::new(open_database(path, sm_column_families)?);
 
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
@@ -200,67 +200,37 @@ impl IndexifyState {
                     invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
                     graph = invoke_compute_graph_request.compute_graph_name.clone(),
                 );
-                state_machine::create_invocation(
-                    self.db.clone(),
-                    &txn,
-                    invoke_compute_graph_request,
-                )?;
+                state_machine::create_invocation(&txn, invoke_compute_graph_request)?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
-                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
-                state_machine::mark_state_changes_processed(
-                    self.db.clone(),
-                    &txn,
-                    processed_state_changes,
-                )?;
+                state_machine::handle_scheduler_update(&txn, request)?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 state_machine::create_or_update_compute_graph(
-                    self.db.clone(),
                     &txn,
                     req.compute_graph.clone(),
                     req.upgrade_tasks_to_current_version,
                 )?;
             }
             RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
-                state_machine::delete_compute_graph(
-                    self.db.clone(),
-                    &txn,
-                    &request.namespace,
-                    &request.name,
-                )?;
-                state_machine::mark_state_changes_processed(
-                    self.db.clone(),
-                    &txn,
-                    processed_state_changes,
-                )?;
+                state_machine::delete_compute_graph(&txn, &request.namespace, &request.name)?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
-                state_machine::delete_invocation(self.db.clone(), &txn, request)?;
-                state_machine::mark_state_changes_processed(
-                    self.db.clone(),
-                    &txn,
-                    processed_state_changes,
-                )?;
+                state_machine::delete_invocation(&txn, request)?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::UpsertExecutor(request) => {
                 for fe_diagnostics in &request.function_executor_diagnostics {
-                    state_machine::upsert_function_executor_diagnostics(
-                        self.db.clone(),
-                        &txn,
-                        fe_diagnostics,
-                    )?;
+                    state_machine::upsert_function_executor_diagnostics(&txn, fe_diagnostics)?;
                 }
 
                 for allocation_output in &request.allocation_outputs {
-                    state_machine::ingest_task_outputs(
-                        self.db.clone(),
-                        &txn,
-                        allocation_output.clone(),
-                    )?;
+                    state_machine::ingest_task_outputs(&txn, allocation_output.clone())?;
                 }
 
                 if request.update_executor_state {
@@ -282,22 +252,21 @@ impl IndexifyState {
                 );
             }
             RequestPayload::RemoveGcUrls(urls) => {
-                state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
+                state_machine::remove_gc_urls(&txn, urls.clone())?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(self.db.clone(), &txn, state_changes)?;
+                state_machine::mark_state_changes_processed(&txn, state_changes)?;
             }
             _ => {} // Handle other request types as needed
         };
 
         let new_state_changes = request.state_changes(&self.state_change_id_seq)?;
         if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
+            state_machine::save_state_changes(&txn, &new_state_changes)?;
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
-            &self.db,
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
@@ -552,16 +521,18 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_1).unwrap();
+        state_machine::save_state_changes(&tx, &state_change_1).unwrap();
         tx.commit().unwrap();
+
         let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
         )
         .unwrap();
-        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_2).unwrap();
+        state_machine::save_state_changes(&tx, &state_change_2).unwrap();
         tx.commit().unwrap();
+
         let tx = indexify_state.db.transaction();
         let state_change_3 = state_changes::invoke_compute_graph(
             &indexify_state.state_change_id_seq,
@@ -573,8 +544,9 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_3).unwrap();
+        state_machine::save_state_changes(&tx, &state_change_3).unwrap();
         tx.commit().unwrap();
+
         let state_changes = indexify_state
             .reader()
             .unprocessed_state_changes(&None, &None)
@@ -635,10 +607,7 @@ mod tests {
 
         let db = open_database(path.clone(), columns_iter)?;
         for name in &columns {
-            let cf = db
-                .cf_handle(name)
-                .ok_or_else(|| anyhow!("column family not found: {name}"))?;
-            db.put_cf(&cf, b"key", b"value")?;
+            db.put(name, b"key", b"value")?;
         }
         drop(db);
 

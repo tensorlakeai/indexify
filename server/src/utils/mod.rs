@@ -24,30 +24,6 @@ macro_rules! unwrap_or_continue {
     };
 }
 
-pub trait OptionInspectNone<T> {
-    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self;
-}
-
-impl<T> OptionInspectNone<T> for Option<T> {
-    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self {
-        match &self {
-            Some(_) => (),
-            None => inspector_function(),
-        }
-        self
-    }
-}
-
-impl<T> OptionInspectNone<T> for &Option<T> {
-    fn inspect_none(self, inspector_function: impl FnOnce()) -> Self {
-        match &self {
-            Some(_) => (),
-            None => inspector_function(),
-        }
-        self
-    }
-}
-
 /// A [`Stream`] wrapper that automatically runs a custom action when dropped.
 #[pin_project(PinnedDrop)]
 pub struct StreamGuard<S, F>

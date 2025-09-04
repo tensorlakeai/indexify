@@ -27,7 +27,7 @@ nanoid = "0.4.0"
 object_store = { version="0.12.3", features = ["aws"] }
 uuid = { version = "1.18.0", features = ["v4"] }
 tower-http = { version = "0.6.6", default-features = false, features = ["cors", "trace"] }
-bytes = "1.10.1"
+bytes = { version = "1.10.1", features = ["serde"] }
 ciborium = "0.2.2"
 rand = "0.9.2"
 hex = "0.4.3"

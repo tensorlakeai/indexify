@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use rocksdb::{Transaction, TransactionDB};
 use tracing::info;
 
 use crate::{
     data_model::StateMachineMetadata,
     state_store::{
+        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         migrations::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
@@ -94,7 +94,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
 
         // Update metadata in the same transaction
         sm_meta.db_version = to_version;
-        write_sm_meta(&db, &txn, &sm_meta)?;
+        write_sm_meta(&txn, &sm_meta)?;
 
         info!("Committing migration to v{}", to_version);
         txn.commit()
@@ -112,9 +112,9 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
 }
 
 /// Read state machine metadata from the database
-pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
-    let meta = db.get_cf(
-        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(db),
+pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
+    let meta = db.get(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
     )?;
     match meta {
@@ -127,14 +127,10 @@ pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
 }
 
 /// Write state machine metadata to the database
-pub fn write_sm_meta(
-    db: &TransactionDB,
-    txn: &Transaction<TransactionDB>,
-    sm_meta: &StateMachineMetadata,
-) -> Result<()> {
+pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
     let serialized_meta = JsonEncoder::encode(sm_meta)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(db),
+    txn.put(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
         &serialized_meta,
     )?;
@@ -143,12 +139,12 @@ pub fn write_sm_meta(
 
 #[cfg(test)]
 mod tests {
-    use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDBOptions};
+    use rocksdb::{ColumnFamilyDescriptor, Options};
     use strum::IntoEnumIterator;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::state_store::migrations::migration_trait::Migration;
+    use crate::state_store::{self, migrations::migration_trait::Migration};
 
     #[derive(Clone)]
     struct MockMigration {
@@ -165,7 +161,7 @@ mod tests {
             self.name
         }
 
-        fn prepare(&self, ctx: &PrepareContext) -> Result<TransactionDB> {
+        fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
             // Simple mock - just open DB
             ctx.open_db()
         }
@@ -215,16 +211,7 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        let mut db_opts = Options::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
-
-        let db = TransactionDB::open_cf_descriptors(
-            &db_opts,
-            &TransactionDBOptions::default(),
-            path,
-            sm_column_families,
-        )?;
+        let db = state_store::open_database(path.to_path_buf(), sm_column_families)?;
 
         // Set initial version to 1
         let txn = db.transaction();
@@ -232,7 +219,7 @@ mod tests {
             db_version: 0,
             last_change_idx: 0,
         };
-        write_sm_meta(&db, &txn, &initial_meta)?;
+        write_sm_meta(&txn, &initial_meta)?;
         txn.commit()?;
         drop(db);
 
