@@ -304,8 +304,6 @@ message FunctionArg {
 message ReduceOp {
   repeated FunctionArg  collection             = 1; 
   optional FunctionRef reducer                = 2;
-
-  optional FunctionArg initial_value    = 5;
 }
 
 message ExecutionPlanUpdates {
