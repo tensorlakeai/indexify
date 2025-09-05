@@ -205,6 +205,8 @@ message FunctionRetryPolicy {
 }
 
 message TaskAllocation {
+    optional string namespace = 3;
+    optional string graph_name = 4;
     optional string allocation_id = 1;
     optional string task_id = 2;
     optional string request_id = 7;
