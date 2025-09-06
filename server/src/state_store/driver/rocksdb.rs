@@ -106,8 +106,11 @@ impl Writer for RocksDBDriver {
         self.db.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
-    fn drop(&mut self, name: &str) -> Result<(), DriverError> {
-        self.db.drop_cf(name).map_err(Error::into_generic)
+    fn drop<N>(&mut self, cf: N) -> Result<(), DriverError>
+    where
+        N: AsRef<str>,
+    {
+        self.db.drop_cf(cf.as_ref()).map_err(Error::into_generic)
     }
 
     fn create<N>(&mut self, name: N, opts: &super::CreateOptions) -> Result<(), DriverError>
@@ -120,18 +123,23 @@ impl Writer for RocksDBDriver {
 }
 
 impl AtomicComparator for RocksDBDriver {
-    fn compare_and_swap<R>(
+    fn compare_and_swap<N, K, R>(
         &self,
         tx: Arc<super::Transaction>,
-        table: &str,
-        key: &str,
+        cf: N,
+        key: K,
         new_record: R,
     ) -> Result<(), DriverError>
     where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
         R: Linearizable + Serialize + DeserializeOwned + fmt::Debug,
     {
+        let name = cf.as_ref();
+        let key = key.as_ref();
+
         let tx = unwrap_rocksdb_transaction(&tx);
-        let cf = tx.column_family(table);
+        let cf = tx.column_family(name);
 
         let existing_record = tx.get_for_update_cf(cf, key)?;
 
@@ -141,8 +149,8 @@ impl AtomicComparator for RocksDBDriver {
 
             if old_record.vector_clock() > new_record.vector_clock() {
                 return Err(DriverError::MismatchedClock {
-                    table: table.to_string(),
-                    field: key.to_string(),
+                    table: name.to_string(),
+                    key: String::from_utf8_lossy(key).to_string(),
                 });
             }
         }
@@ -164,12 +172,11 @@ impl Reader for RocksDBDriver {
         self.db.get_cf(cf, key).map_err(Error::into_generic)
     }
 
-    fn list_existent_items(
-        &self,
-        column: &str,
-        keys: Vec<&[u8]>,
-    ) -> Result<Vec<Bytes>, DriverError> {
-        let cf_handle = self.column_family(column);
+    fn list_existent_items<N>(&self, cf: N, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, DriverError>
+    where
+        N: AsRef<str>,
+    {
+        let cf_handle = self.column_family(cf.as_ref());
 
         let mut items = Vec::with_capacity(keys.len());
         let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k.to_vec())).collect();
@@ -189,7 +196,10 @@ impl Reader for RocksDBDriver {
         Ok(items)
     }
 
-    fn get_key_range(&self, column: &str, options: RangeOptions) -> Result<Range, DriverError> {
+    fn get_key_range<N>(&self, cf: N, options: RangeOptions) -> Result<Range, DriverError>
+    where
+        N: AsRef<str>,
+    {
         let direction = options.direction.unwrap_or_default();
 
         let mut read_options = ReadOptions::default();
@@ -201,7 +211,7 @@ impl Reader for RocksDBDriver {
             read_options.set_iterate_lower_bound(lower_bound);
         }
 
-        let cf = self.column_family(column);
+        let cf = self.column_family(cf.as_ref());
         let mut iter = self.db.raw_iterator_cf_opt(cf, read_options);
 
         match options.cursor {
@@ -277,17 +287,20 @@ impl Reader for RocksDBDriver {
         })
     }
 
-    fn iter(
+    fn iter<N>(
         &self,
-        column: &str,
+        cf: N,
         options: super::IterOptions,
-    ) -> impl Iterator<Item = Result<super::KVBytes, DriverError>> {
+    ) -> impl Iterator<Item = Result<super::KVBytes, DriverError>>
+    where
+        N: AsRef<str>,
+    {
         let super::IterOptions::RocksDB((opts, mode)) = options;
         let mode = mode.unwrap_or(IteratorMode::Start);
 
         let iter = self
             .db
-            .iterator_cf_opt(self.column_family(column), opts, mode);
+            .iterator_cf_opt(self.column_family(cf.as_ref()), opts, mode);
 
         iter.map(|item| item.map_err(Error::into_generic))
     }
@@ -313,15 +326,21 @@ pub(crate) struct RocksDBTransaction<'a> {
 }
 
 impl<'a> RocksDBTransaction<'a> {
-    fn column_family(&self, name: &str) -> &ColumnFamily {
-        self.db.column_family(name)
+    fn column_family<N>(&self, cf: N) -> &ColumnFamily
+    where
+        N: AsRef<str>,
+    {
+        self.db.column_family(cf)
     }
 
     pub fn commit(self) -> Result<(), DriverError> {
         self.tx.commit().map_err(Error::into_generic)
     }
 
-    pub fn get<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<Option<Vec<u8>>, DriverError> {
+    pub fn get<N, K: AsRef<[u8]>>(&self, table: N, key: K) -> Result<Option<Vec<u8>>, DriverError>
+    where
+        N: AsRef<str>,
+    {
         let cf = self.column_family(table);
         self.get_for_update_cf(cf, key)
     }
@@ -336,27 +355,30 @@ impl<'a> RocksDBTransaction<'a> {
             .map_err(Error::into_generic)
     }
 
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &self,
-        table: &str,
-        key: K,
-        value: V,
-    ) -> Result<(), DriverError> {
-        let cf = self.column_family(table);
+    pub fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), DriverError>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        let cf = self.column_family(cf);
         self.put_cf(cf, key, value)
     }
 
-    fn put_cf<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &self,
-        cf: &ColumnFamily,
-        key: K,
-        value: V,
-    ) -> Result<(), DriverError> {
+    fn put_cf<K, V>(&self, cf: &ColumnFamily, key: K, value: V) -> Result<(), DriverError>
+    where
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
         self.tx.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
-    pub fn delete<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<(), DriverError> {
-        let cf = self.column_family(table);
+    pub fn delete<N, K>(&self, cf: N, key: K) -> Result<(), DriverError>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+    {
+        let cf = self.column_family(cf.as_ref());
         self.delete_cf(cf, key)
     }
 
@@ -364,15 +386,18 @@ impl<'a> RocksDBTransaction<'a> {
         self.tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
-    pub fn iter(
+    pub fn iter<N>(
         &'a self,
-        table: &str,
+        cf: N,
         prefix: &'a [u8],
         options: IterOptions,
-    ) -> impl Iterator<Item = Result<super::KVBytes, DriverError>> + 'a {
+    ) -> impl Iterator<Item = Result<super::KVBytes, DriverError>> + 'a
+    where
+        N: AsRef<str>,
+    {
         let IterOptions::RocksDB((read_options, mode)) = options;
 
-        let cf = self.column_family(table);
+        let cf = self.column_family(cf.as_ref());
         let mode = mode.unwrap_or(IteratorMode::From(prefix, Direction::Forward));
 
         let iter = self.tx.iterator_cf_opt(cf, read_options, mode);

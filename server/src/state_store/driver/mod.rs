@@ -25,11 +25,11 @@ pub type KVBytes = (Box<[u8]>, Box<[u8]>);
 #[non_exhaustive]
 pub enum Error {
     #[error(
-        "Failed to store record, the records didn't match the vector clock. table: {}, field: {}",
+        "Failed to store record, the records didn't match the vector clock. table: {}, key: {}",
         table,
-        field
+        key
     )]
-    MismatchedClock { table: String, field: String },
+    MismatchedClock { table: String, key: String },
 
     #[error("Failed to decode a serialized record. error: {}", source)]
     JsonDecoderFailed { source: anyhow::Error },
@@ -74,9 +74,11 @@ pub trait Writer {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>;
 
-    fn drop(&mut self, name: &str) -> Result<(), Error>;
+    fn drop<N>(&mut self, cf: N) -> Result<(), Error>
+    where
+        N: AsRef<str>;
 
-    fn create<N>(&mut self, name: N, opts: &CreateOptions) -> Result<(), Error>
+    fn create<N>(&mut self, cf: N, opts: &CreateOptions) -> Result<(), Error>
     where
         N: AsRef<str>;
 }
@@ -108,17 +110,19 @@ pub trait Reader {
     /// Return the items in the database that match the keys passed as
     /// arguments. If the key does not exist in the database, the value is
     /// not returned, it's just ignored.
-    fn list_existent_items(&self, column: &str, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>;
+    fn list_existent_items<N>(&self, cf: N, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>
+    where
+        N: AsRef<str>;
 
     /// Return a list of keys from a given range in an iterator.
-    fn get_key_range(&self, column: &str, options: RangeOptions) -> Result<Range, Error>;
+    fn get_key_range<N>(&self, cf: N, options: RangeOptions) -> Result<Range, Error>
+    where
+        N: AsRef<str>;
 
     /// Iterate over a list of Key/Value pairs.
-    fn iter(
-        &self,
-        column: &str,
-        options: IterOptions,
-    ) -> impl Iterator<Item = Result<KVBytes, Error>>;
+    fn iter<N>(&self, cf: N, options: IterOptions) -> impl Iterator<Item = Result<KVBytes, Error>>
+    where
+        N: AsRef<str>;
 }
 
 /// Struct that holds the information returned by `Reader::get_key_range`.
@@ -216,14 +220,16 @@ pub trait AtomicComparator {
     /// needs to reconcile the changes before trying to write its
     /// changes.
     #[allow(dead_code)]
-    fn compare_and_swap<R>(
+    fn compare_and_swap<N, K, R>(
         &self,
         tx: Arc<Transaction>,
-        table: &str,
-        key: &str,
+        cf: N,
+        key: K,
         record: R,
     ) -> Result<(), Error>
     where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
         R: Linearizable + Serialize + DeserializeOwned + fmt::Debug;
 }
 
@@ -280,33 +286,44 @@ impl<'db> Transaction<'db> {
         tx.commit()
     }
 
-    pub fn get<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<Option<Vec<u8>>, Error> {
+    pub fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, Error>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+    {
         let Self::RocksDB(tx) = self;
-        tx.get(table, key)
+        tx.get(cf, key)
     }
 
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &self,
-        table: &str,
-        key: K,
-        value: V,
-    ) -> Result<(), Error> {
+    pub fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
         let Self::RocksDB(tx) = self;
-        tx.put(table, key, value)
+        tx.put(cf, key, value)
     }
 
-    pub fn delete<K: AsRef<[u8]>>(&self, table: &str, key: K) -> Result<(), Error> {
+    pub fn delete<N, K>(&self, cf: N, key: K) -> Result<(), Error>
+    where
+        N: AsRef<str>,
+        K: AsRef<[u8]>,
+    {
         let Self::RocksDB(tx) = self;
-        tx.delete(table, key)
+        tx.delete(cf, key)
     }
 
-    pub fn iter(
+    pub fn iter<N>(
         &'db self,
-        table: &str,
+        cf: N,
         prefix: &'db [u8],
         options: IterOptions,
-    ) -> impl Iterator<Item = Result<KVBytes, Error>> + 'db {
+    ) -> impl Iterator<Item = Result<KVBytes, Error>> + 'db
+    where
+        N: AsRef<str>,
+    {
         let Self::RocksDB(tx) = self;
-        tx.iter(table, prefix, options)
+        tx.iter(cf, prefix, options)
     }
 }
