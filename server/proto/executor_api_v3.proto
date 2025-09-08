@@ -36,8 +36,14 @@ message DataPayload {
     optional uint64 size = 7;
     optional string sha256_hash = 8;
 
-    // This is the ID of the function call that returned this datapayload.
-    optional string function_call_id = 9;
+    // This is the ID of the function call that returned this datapayload
+    // as it's return value.
+    // payload which are statically passed as function arguments don't have this field set.
+    optional string source_function_call_id = 9;
+
+    // This is an opaque ID. It will be always set. This needs to be used in function call
+    // metadata to uniquely identify the position of the payload in the function call.
+    optional string id = 15;
 }
 
 // ===== report_executor_state RPC =====
@@ -302,8 +308,9 @@ message FunctionArg {
 }
 
 message ReduceOp {
-  repeated FunctionArg  collection             = 1; 
-  optional FunctionRef reducer                = 2;
+  repeated FunctionArg  collection = 1; 
+  optional FunctionRef reducer     = 2;
+  optional bytes call_metadata     = 5;
 }
 
 message ExecutionPlanUpdates {
@@ -311,7 +318,6 @@ message ExecutionPlanUpdates {
 }
 
 message AllocationResult {
-    optional string task_id = 1;
     optional string allocation_id = 2;
     optional string namespace = 3;
     optional string graph_name = 4;
