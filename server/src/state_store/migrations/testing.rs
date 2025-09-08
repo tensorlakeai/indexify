@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use rocksdb::ColumnFamilyDescriptor;
 use tempfile::TempDir;
@@ -6,9 +8,12 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::{
-    self,
-    driver::{rocksdb::RocksDBDriver, Reader, Writer},
+use crate::{
+    metrics::StateStoreMetrics,
+    state_store::{
+        self,
+        driver::{rocksdb::RocksDBDriver, Reader, Writer},
+    },
 };
 
 /// A more complete test utility that handles custom column families
@@ -40,12 +45,14 @@ impl MigrationTestBuilder {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
+        let metrics = Arc::new(StateStoreMetrics::new());
         // Create database with specified column families
         let db = state_store::open_database(
             path.to_path_buf(),
             self.column_families
                 .into_iter()
                 .map(|s| ColumnFamilyDescriptor::new(s, Default::default())),
+            metrics,
         )?;
 
         // Run setup function to populate test data

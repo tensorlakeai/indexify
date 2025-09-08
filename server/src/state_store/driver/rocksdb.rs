@@ -1,6 +1,7 @@
 use std::{fmt, path::PathBuf, sync::Arc};
 
 use bytes::Bytes;
+use opentelemetry::KeyValue;
 use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
@@ -15,6 +16,7 @@ use tracing::{error, warn};
 
 use crate::{
     data_model::clocks::Linearizable,
+    metrics::{Increment, StateStoreMetrics},
     state_store::{
         driver::{
             AtomicComparator,
@@ -55,11 +57,15 @@ pub(crate) struct Options {
 /// Driver to connect with a RocksDB database.
 pub(crate) struct RocksDBDriver {
     db: TransactionDB,
+    metrics: Arc<StateStoreMetrics>,
 }
 
 impl RocksDBDriver {
     /// Open a new connection with a RocksDB database.
-    pub(crate) fn open(driver_options: Options) -> Result<RocksDBDriver, Error> {
+    pub(crate) fn open(
+        driver_options: Options,
+        metrics: Arc<StateStoreMetrics>,
+    ) -> Result<RocksDBDriver, Error> {
         let mut db_opts = RocksDBOptions::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
@@ -72,7 +78,7 @@ impl RocksDBDriver {
         )
         .map_err(|source| Error::OpenDatabaseFailed { source })?;
 
-        Ok(RocksDBDriver { db })
+        Ok(RocksDBDriver { db, metrics })
     }
 }
 
@@ -102,6 +108,9 @@ impl Writer for RocksDBDriver {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.metrics.driver_writes, attrs);
+
         let cf = self.column_family(cf);
         self.db.put_cf(cf, key, value).map_err(Error::into_generic)
     }
@@ -168,6 +177,9 @@ impl Reader for RocksDBDriver {
         N: AsRef<str>,
         K: AsRef<[u8]>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+
         let cf = self.column_family(cf);
         self.db.get_cf(cf, key).map_err(Error::into_generic)
     }
@@ -176,6 +188,9 @@ impl Reader for RocksDBDriver {
     where
         N: AsRef<str>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+
         let cf_handle = self.column_family(cf.as_ref());
 
         let mut items = Vec::with_capacity(keys.len());
@@ -200,6 +215,9 @@ impl Reader for RocksDBDriver {
     where
         N: AsRef<str>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+
         let direction = options.direction.unwrap_or_default();
 
         let mut read_options = ReadOptions::default();
@@ -295,6 +313,9 @@ impl Reader for RocksDBDriver {
     where
         N: AsRef<str>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+
         let super::IterOptions::RocksDB((opts, mode)) = options;
         let mode = mode.unwrap_or(IteratorMode::Start);
 
@@ -341,6 +362,9 @@ impl<'a> RocksDBTransaction<'a> {
     where
         N: AsRef<str>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.db.metrics.driver_reads, attrs);
+
         let cf = self.column_family(table);
         self.get_for_update_cf(cf, key)
     }
@@ -361,6 +385,9 @@ impl<'a> RocksDBTransaction<'a> {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.db.metrics.driver_writes, attrs);
+
         let cf = self.column_family(cf);
         self.put_cf(cf, key, value)
     }
@@ -378,6 +405,9 @@ impl<'a> RocksDBTransaction<'a> {
         N: AsRef<str>,
         K: AsRef<[u8]>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.db.metrics.driver_writes, attrs);
+
         let cf = self.column_family(cf.as_ref());
         self.delete_cf(cf, key)
     }
@@ -395,6 +425,9 @@ impl<'a> RocksDBTransaction<'a> {
     where
         N: AsRef<str>,
     {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.db.metrics.driver_reads, attrs);
+
         let IterOptions::RocksDB((read_options, mode)) = options;
 
         let cf = self.column_family(cf.as_ref());

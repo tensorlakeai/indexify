@@ -1,13 +1,16 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use serde_json::Value;
 
-use crate::state_store::{
-    self,
-    driver::{rocksdb::RocksDBDriver, Reader, Transaction},
-    state_machine::IndexifyObjectsColumns,
+use crate::{
+    metrics::StateStoreMetrics,
+    state_store::{
+        self,
+        driver::{rocksdb::RocksDBDriver, Reader, Transaction},
+        state_machine::IndexifyObjectsColumns,
+    },
 };
 
 /// Context for database preparation phase of migrations
@@ -32,7 +35,8 @@ impl PrepareContext {
         .into_iter()
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        state_store::open_database(self.path.clone(), cfs)
+        let metrics = Arc::new(StateStoreMetrics::new());
+        state_store::open_database(self.path.clone(), cfs, metrics)
     }
 
     /// Helper to perform column family operations and reopen DB
@@ -241,7 +245,9 @@ mod tests {
             ColumnFamilyDescriptor::new(cf_name, Options::default()),
         ];
 
-        let db = state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter())?;
+        let metrics = Arc::new(StateStoreMetrics::new());
+        let db =
+            state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter(), metrics)?;
 
         // Add test data
         let test_json = json!({
