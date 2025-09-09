@@ -189,7 +189,7 @@ impl Reader for RocksDBDriver {
         N: AsRef<str>,
     {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+        let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
         let cf_handle = self.column_family(cf.as_ref());
 
@@ -216,7 +216,7 @@ impl Reader for RocksDBDriver {
         N: AsRef<str>,
     {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+        let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
         let direction = options.direction.unwrap_or_default();
 
@@ -314,7 +314,7 @@ impl Reader for RocksDBDriver {
         N: AsRef<str>,
     {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
+        let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
         let super::IterOptions::RocksDB((opts, mode)) = options;
         let mode = mode.unwrap_or(IteratorMode::Start);
@@ -406,7 +406,7 @@ impl<'a> RocksDBTransaction<'a> {
         K: AsRef<[u8]>,
     {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.db.metrics.driver_writes, attrs);
+        let _inc = Increment::inc(&self.db.metrics.driver_deletes, attrs);
 
         let cf = self.column_family(cf.as_ref());
         self.delete_cf(cf, key)
@@ -426,7 +426,7 @@ impl<'a> RocksDBTransaction<'a> {
         N: AsRef<str>,
     {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.db.metrics.driver_reads, attrs);
+        let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);
 
         let IterOptions::RocksDB((read_options, mode)) = options;
 

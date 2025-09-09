@@ -338,6 +338,8 @@ pub struct StateStoreMetrics {
     pub state_metrics_write: Histogram<f64>,
     pub driver_writes: Counter<u64>,
     pub driver_reads: Counter<u64>,
+    pub driver_scans: Counter<u64>,
+    pub driver_deletes: Counter<u64>,
 }
 
 impl Default for StateStoreMetrics {
@@ -381,12 +383,24 @@ impl StateStoreMetrics {
             .with_description("Number of state driver reads")
             .build();
 
+        let driver_scans = meter
+            .u64_counter("indexify.state_driver_scans")
+            .with_description("Number of state driver scans")
+            .build();
+
+        let driver_deletes = meter
+            .u64_counter("indexify.state_driver_deletes")
+            .with_description("Number of state driver deletes")
+            .build();
+
         Self {
             state_write,
             state_read,
             state_metrics_write,
             driver_writes,
             driver_reads,
+            driver_scans,
+            driver_deletes,
         }
     }
 }
