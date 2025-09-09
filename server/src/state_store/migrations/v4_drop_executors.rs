@@ -49,10 +49,15 @@ impl Migration for V4DropExecutorsMigration {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rocksdb::ColumnFamilyDescriptor;
 
     use super::*;
-    use crate::state_store::{self, driver::Writer, migrations::testing::MigrationTestBuilder};
+    use crate::{
+        metrics::StateStoreMetrics,
+        state_store::{self, driver::Writer, migrations::testing::MigrationTestBuilder},
+    };
 
     #[test]
     fn test_v4_migration_with_executors_cf() -> Result<()> {
@@ -69,7 +74,12 @@ mod tests {
                 ColumnFamilyDescriptor::new("Executors", Default::default()),
             ];
 
-            let _db = state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter())?;
+            let metrics = Arc::new(StateStoreMetrics::new());
+            let _db = state_store::open_database(
+                path.to_path_buf(),
+                cf_descriptors.into_iter(),
+                metrics,
+            )?;
             // DB is dropped here when it goes out of scope
         }
 

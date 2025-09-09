@@ -18,6 +18,7 @@ use super::routes_state::RouteState;
 use crate::{
     data_model::{self, ComputeGraphState, GraphInvocationCtxBuilder, InvocationPayloadBuilder},
     http_objects::{IndexifyAPIError, RequestId},
+    metrics::Increment,
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -28,16 +29,15 @@ use crate::{
 async fn create_invocation_progress_stream(
     id: String,
     mut rx: Receiver<InvocationStateChangeEvent>,
-    state: RouteState,
+    state: &RouteState,
     namespace: String,
     compute_graph: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
+    let reader = state.indexify_state.reader();
+
     async_stream::stream! {
         // check completion when starting stream
-        match state
-            .indexify_state
-            .reader()
-            .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+        match reader.invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
         {
             Ok(Some(invocation)) => {
                 if invocation.completed {
@@ -85,9 +85,7 @@ async fn create_invocation_progress_stream(
                         "lagging behind task event stream by {} events", num);
 
                     // Check if completion happened during lag
-                    match state
-                        .indexify_state
-                        .reader()
+                    match reader
                         .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
                     {
                         Ok(Some(context)) => {
@@ -150,6 +148,8 @@ pub async fn invoke_with_object_v1(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let _inc = Increment::inc(&state.metrics.invocations, &[]);
+
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
@@ -161,7 +161,6 @@ pub async fn invoke_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    state.metrics.invocations.add(1, &[]);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
@@ -181,7 +180,9 @@ pub async fn invoke_with_object_v1(
         sha256_hash: put_result.sha256_hash,
         offset: 0, // Whole BLOB was written, so offset is 0
     };
+
     state.metrics.invocation_bytes.add(data_payload.size, &[]);
+
     let invocation_payload = InvocationPayloadBuilder::default()
         .namespace(namespace.clone())
         .compute_graph_name(compute_graph.clone())
@@ -224,11 +225,11 @@ pub async fn invoke_with_object_v1(
         ctx: graph_invocation_ctx.clone(),
     });
     if accept_header.contains("application/json") {
-        return return_request_id(state, request.clone(), id.clone()).await;
+        return return_request_id(&state, request.clone(), id.clone()).await;
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
-            state,
+            &state,
             request.clone(),
             id.clone(),
             namespace,
@@ -242,7 +243,7 @@ pub async fn invoke_with_object_v1(
 }
 
 async fn return_request_id(
-    state: RouteState,
+    state: &RouteState,
     request_payload: RequestPayload,
     request_id: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
@@ -264,7 +265,7 @@ async fn return_request_id(
 }
 
 async fn return_sse_response(
-    state: RouteState,
+    state: &RouteState,
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
@@ -303,13 +304,14 @@ pub async fn invoke_with_object(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let _inc = Increment::inc(&state.metrics.invocations, &[]);
+
     let encoding = headers
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    state.metrics.invocations.add(1, &[]);
     let should_block = params.block_until_finish.unwrap_or(false);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
@@ -388,8 +390,9 @@ pub async fn invoke_with_object(
         Box<dyn tokio_stream::Stream<Item = Result<Event, axum::Error>> + Send>,
     > = match rx {
         Some(rx) => {
-            let s = create_invocation_progress_stream(id, rx, state, namespace, compute_graph.name)
-                .await;
+            let s =
+                create_invocation_progress_stream(id, rx, &state, namespace, compute_graph.name)
+                    .await;
             Box::pin(s)
         }
         None => {
@@ -427,7 +430,8 @@ pub async fn progress_stream(
     let rx = state.indexify_state.task_event_stream();
 
     let invocation_event_stream =
-        create_invocation_progress_stream(invocation_id, rx, state, namespace, compute_graph).await;
+        create_invocation_progress_stream(invocation_id, rx, &state, namespace, compute_graph)
+            .await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()

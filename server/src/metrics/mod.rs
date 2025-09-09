@@ -184,12 +184,6 @@ pub trait TimerUpdate {
     fn add(&self, duration: Duration, labels: &[KeyValue]);
 }
 
-impl TimerUpdate for Counter<f64> {
-    fn add(&self, duration: Duration, labels: &[KeyValue]) {
-        self.add(duration.as_secs_f64(), labels);
-    }
-}
-
 impl TimerUpdate for Histogram<f64> {
     fn add(&self, duration: Duration, labels: &[KeyValue]) {
         self.record(duration.as_secs_f64(), labels);
@@ -215,6 +209,33 @@ impl<'a, T: TimerUpdate + Sync> Timer<'a, T> {
 impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
     fn drop(&mut self) {
         self.metric.add(self.start.elapsed(), self.labels);
+    }
+}
+
+pub trait AutoIncrement {
+    fn increment(&self, labels: &[KeyValue]);
+}
+
+impl AutoIncrement for Counter<u64> {
+    fn increment(&self, labels: &[KeyValue]) {
+        self.add(1, labels);
+    }
+}
+
+pub struct Increment<'a, T: AutoIncrement + Sync> {
+    metric: &'a T,
+    labels: &'a [KeyValue],
+}
+
+impl<'a, T: AutoIncrement + Sync> Increment<'a, T> {
+    pub fn inc(metric: &'a T, labels: &'a [KeyValue]) -> Self {
+        Self { metric, labels }
+    }
+}
+
+impl<'a, T: AutoIncrement + Sync> Drop for Increment<'a, T> {
+    fn drop(&mut self) {
+        self.metric.increment(self.labels);
     }
 }
 
@@ -315,6 +336,10 @@ pub struct StateStoreMetrics {
     pub state_write: Histogram<f64>,
     pub state_read: Histogram<f64>,
     pub state_metrics_write: Histogram<f64>,
+    pub driver_writes: Counter<u64>,
+    pub driver_reads: Counter<u64>,
+    pub driver_scans: Counter<u64>,
+    pub driver_deletes: Counter<u64>,
 }
 
 impl Default for StateStoreMetrics {
@@ -348,10 +373,34 @@ impl StateStoreMetrics {
             .with_description("State metrics writing latency in seconds")
             .build();
 
+        let driver_writes = meter
+            .u64_counter("indexify.state_driver_writes")
+            .with_description("Number of state driver writes")
+            .build();
+
+        let driver_reads = meter
+            .u64_counter("indexify.state_driver_reads")
+            .with_description("Number of state driver reads")
+            .build();
+
+        let driver_scans = meter
+            .u64_counter("indexify.state_driver_scans")
+            .with_description("Number of state driver scans")
+            .build();
+
+        let driver_deletes = meter
+            .u64_counter("indexify.state_driver_deletes")
+            .with_description("Number of state driver deletes")
+            .build();
+
         Self {
             state_write,
             state_read,
             state_metrics_write,
+            driver_writes,
+            driver_reads,
+            driver_scans,
+            driver_deletes,
         }
     }
 }

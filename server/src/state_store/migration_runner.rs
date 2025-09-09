@@ -139,12 +139,17 @@ pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rocksdb::{ColumnFamilyDescriptor, Options};
     use strum::IntoEnumIterator;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::state_store::{self, migrations::migration_trait::Migration};
+    use crate::{
+        metrics::StateStoreMetrics,
+        state_store::{self, migrations::migration_trait::Migration},
+    };
 
     #[derive(Clone)]
     struct MockMigration {
@@ -211,7 +216,8 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        let db = state_store::open_database(path.to_path_buf(), sm_column_families)?;
+        let metrics = Arc::new(StateStoreMetrics::new());
+        let db = state_store::open_database(path.to_path_buf(), sm_column_families, metrics)?;
 
         // Set initial version to 1
         let txn = db.transaction();

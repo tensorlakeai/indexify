@@ -14,7 +14,11 @@ use bytes::Bytes;
 use derive_builder::Builder;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{data_model::clocks::Linearizable, state_store::scanner::CursorDirection};
+use crate::{
+    data_model::clocks::Linearizable,
+    metrics::StateStoreMetrics,
+    state_store::scanner::CursorDirection,
+};
 
 pub mod rocksdb;
 use rocksdb::*;
@@ -253,10 +257,13 @@ pub enum ConnectionOptions {
 ///
 /// It returns a `RocksDBDriver` at the moment because there is no other option
 /// supported. This helps keep the code backward compatible.
-pub fn open_database(options: ConnectionOptions) -> Result<RocksDBDriver, Error> {
+pub fn open_database(
+    options: ConnectionOptions,
+    metrics: Arc<StateStoreMetrics>,
+) -> Result<RocksDBDriver, Error> {
     match options {
         ConnectionOptions::RocksDB(options) => {
-            rocksdb::RocksDBDriver::open(options).map_err(Into::into)
+            rocksdb::RocksDBDriver::open(options, metrics).map_err(Into::into)
         }
     }
 }

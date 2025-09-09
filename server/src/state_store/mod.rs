@@ -103,7 +103,11 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
 }
 
-pub(crate) fn open_database<I>(path: PathBuf, column_families: I) -> Result<RocksDBDriver>
+pub(crate) fn open_database<I>(
+    path: PathBuf,
+    column_families: I,
+    metrics: Arc<StateStoreMetrics>,
+) -> Result<RocksDBDriver>
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
@@ -112,7 +116,7 @@ where
         column_families: column_families.collect::<Vec<_>>(),
     });
 
-    driver::open_database(options).map_err(Into::into)
+    driver::open_database(options, metrics).map_err(Into::into)
 }
 
 impl IndexifyState {
@@ -128,11 +132,15 @@ impl IndexifyState {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        let db = Arc::new(open_database(path, sm_column_families)?);
+        let state_store_metrics = Arc::new(StateStoreMetrics::new());
+        let db = Arc::new(open_database(
+            path,
+            sm_column_families,
+            state_store_metrics.clone(),
+        )?);
 
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
-        let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
@@ -605,7 +613,8 @@ mod tests {
         let tmp_dir = tempfile::tempdir()?;
         let path = tmp_dir.path().to_path_buf();
 
-        let db = open_database(path.clone(), columns_iter)?;
+        let state_store_metrics = Arc::new(StateStoreMetrics::new());
+        let db = open_database(path.clone(), columns_iter, state_store_metrics.clone())?;
         for name in &columns {
             db.put(name, b"key", b"value")?;
         }
@@ -621,7 +630,7 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        open_database(path, sm_column_families).expect(
+        open_database(path, sm_column_families, state_store_metrics).expect(
             "failed to open database with the column families defined in IndexifyObjectsColumns",
         );
 
