@@ -2,14 +2,14 @@ use anyhow::anyhow;
 use axum::{
     body::Body,
     extract::{Path, State},
-    response::{IntoResponse, NoContent, Response},
+    response::Response,
 };
 use futures::TryStreamExt;
 
 use super::routes_state::RouteState;
 use crate::{
     blob_store::BlobStorage,
-    data_model::{DataPayload, GraphInvocationError},
+    data_model::{DataPayload, FunctionCallId, GraphInvocationError},
     http_objects::{IndexifyAPIError, RequestError},
 };
 
@@ -56,83 +56,10 @@ pub async fn download_invocation_error(
     }))
 }
 
-pub async fn download_fn_output_payload(
-    Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
-        String,
-        String,
-        String,
-        String,
-        String,
-    )>,
-    State(state): State<RouteState>,
-) -> Result<Response<Body>, IndexifyAPIError> {
-    // The ID will be node_output_id|index
-    let (node_output_id, index) = id
-        .split_once('|')
-        .map(|(id, index)| (id, index.parse::<usize>().unwrap_or(0)))
-        .unwrap_or((id.as_str(), 0));
-
-    let output = state
-        .indexify_state
-        .reader()
-        .fn_output_payload(
-            &namespace,
-            &compute_graph,
-            &invocation_id,
-            &fn_name,
-            node_output_id,
-        )
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
-                e
-            ))
-        })?
-        .ok_or(IndexifyAPIError::not_found(
-            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
-                .as_str(),
-        ))?;
-
-    let encoding = output.encoding.clone();
-
-    let payload = &output.payloads[index];
-    let storage_reader = state
-        .blob_storage
-        .get_blob_store(&namespace)
-        .get(
-            &payload.path,
-            Some(payload.offset..payload.offset + payload.size),
-        )
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    // Check if the content type is JSON
-    if encoding == "application/json" {
-        let json_bytes = storage_reader
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
-            .await
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
-
-        return Response::builder()
-            .header("Content-Type", encoding)
-            .header("Content-Hash", payload.sha256_hash.clone())
-            .header("Content-Length", payload.size.to_string())
-            .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
-    }
-    Response::builder()
-        .header("Content-Type", encoding)
-        .header("Content-Length", payload.size.to_string())
-        .header("Content-Hash", payload.sha256_hash.clone())
-        .body(Body::from_stream(storage_reader))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
-}
-
 /// Get function output by index
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
+    path = "v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output/{fn_call_id}",
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
@@ -140,42 +67,38 @@ pub async fn download_fn_output_payload(
     ),
 )]
 pub async fn v1_download_fn_output_payload(
-    Path((namespace, compute_graph, invocation_id, fn_name, id, index)): Path<(
-        String,
-        String,
-        String,
-        String,
-        String,
-        usize,
-    )>,
+    Path((namespace, application, request_id, fn_call_id)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
-    let output = state
+    let ctx = state
         .indexify_state
         .reader()
-        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &id)
+        .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
+                "failed to get graph invocation context: {}",
                 e
             ))
         })?
-        .ok_or(IndexifyAPIError::not_found(
-            format!("fn output not found: {namespace}/{compute_graph}/{invocation_id}/{fn_name}")
-                .as_str(),
-        ))?;
+        .ok_or(IndexifyAPIError::not_found("request context not found"))?;
+    let fn_run = ctx
+        .function_runs
+        .get(&FunctionCallId::from(fn_call_id.as_str()))
+        .ok_or(IndexifyAPIError::not_found("function call id not found"))?;
 
-    let encoding = output.encoding.clone();
+    let payload = fn_run
+        .output
+        .clone()
+        .ok_or(IndexifyAPIError::not_found("function run output not found"))?;
 
-    let payload = &output.payloads[index];
     let blob_storage = state.blob_storage.get_blob_store(&namespace);
-    stream_data_payload(payload, &blob_storage, &encoding).await
+    stream_data_payload(&payload, &blob_storage, &payload.encoding).await
 }
 
 /// Get function output
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}",
+    path = "v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output",
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
@@ -183,33 +106,32 @@ pub async fn v1_download_fn_output_payload(
     ),
 )]
 pub async fn v1_download_fn_output_payload_simple(
-    Path((namespace, compute_graph, invocation_id, fn_name)): Path<(
-        String,
-        String,
-        String,
-        String,
-    )>,
+    Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
-    let output = state
+    let ctx = state
         .indexify_state
         .reader()
-        .fn_output_payload_first(&namespace, &compute_graph, &invocation_id, &fn_name)
+        .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
+                "failed to get graph invocation context: {}",
                 e
             ))
-        })?;
-    let Some(output) = output else {
-        return Ok(NoContent.into_response());
-    };
+        })?
+        .ok_or(IndexifyAPIError::not_found("request context not found"))?;
 
-    let encoding = output.encoding.clone();
+    let fn_run = ctx
+        .function_runs
+        .get(&FunctionCallId::from(request_id.as_str()))
+        .ok_or(IndexifyAPIError::not_found("function run not found"))?;
+    let payload = fn_run
+        .output
+        .clone()
+        .ok_or(IndexifyAPIError::not_found("function run output not found"))?;
 
-    let payload = &output.payloads[0];
     let blob_storage = state.blob_storage.get_blob_store(&namespace);
-    stream_data_payload(payload, &blob_storage, &encoding).await
+    stream_data_payload(&payload, &blob_storage, &payload.encoding).await
 }
 
 async fn stream_data_payload(

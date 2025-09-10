@@ -248,24 +248,31 @@ impl GraphProcessor {
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut indexes_guard = indexes.write().await;
         let clock = indexes_guard.clock;
-        let mut task_creator = task_creator::TaskCreator::new(self.indexify_state.clone(), clock);
+        let task_creator = task_creator::TaskCreator::new(
+            self.indexify_state.clone(),
+            clock,
+            self.task_cache.clone(),
+        );
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
         let task_allocator = TaskAllocationProcessor::new(clock, &fe_manager);
 
         let req = match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(_) | ChangeType::AllocationOutputsIngested(_) => {
-                if let ChangeType::AllocationOutputsIngested(req) = &state_change.change_type {
-                    self.task_cache
-                        .handle_task_outputs(req, &indexes_guard)
-                        .await;
-                }
+            ChangeType::InvokeComputeGraph(_) => {
+                let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
 
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
+                }
+            }
+            ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
-                    .invoke(&mut indexes_guard, &state_change.change_type)
+                    .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
 
-                scheduler_update.extend(self.task_cache.try_allocate(&mut indexes_guard).await?);
                 scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {

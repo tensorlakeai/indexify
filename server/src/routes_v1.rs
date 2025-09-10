@@ -10,7 +10,7 @@ use axum::{
     Router,
 };
 use base64::prelude::*;
-use compute_graphs::{delete_compute_graph, get_compute_graph, list_compute_graphs};
+use compute_graphs::{applications, delete_application, get_application};
 use download::download_invocation_error;
 use invoke::invoke_with_object_v1;
 use tracing::info;
@@ -22,29 +22,23 @@ use crate::{
         Allocation,
         CacheKey,
         ComputeFn,
-        ComputeGraph,
-        ComputeGraphsList,
         CreateNamespace,
         CursorDirection,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
-        GraphInvocations,
         GraphVersion,
         IndexifyAPIError,
-        Invocation,
         ListParams,
         Namespace,
         NamespaceList,
         RuntimeInformation,
         StateChangesResponse,
-        Task,
         TaskOutcome,
-        Tasks,
-        UnallocatedTasks,
+        UnallocatedFunctionRuns,
     },
-    http_objects_v1::{self, GraphRequests},
+    http_objects_v1::{self, Application, ApplicationsList, FunctionRun, GraphRequests},
     routes::{
-        compute_graphs::{self, create_or_update_application, create_or_update_compute_graph_v1},
+        compute_graphs::{self, create_or_update_application},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
         invoke::{self, progress_stream},
         routes_state::RouteState,
@@ -65,12 +59,12 @@ use crate::{
         paths(
             invoke::invoke_with_object_v1,
             graph_requests,
-            find_invocation,
-            compute_graphs::create_or_update_compute_graph_v1,
-            compute_graphs::list_compute_graphs,
-            compute_graphs::get_compute_graph,
-            compute_graphs::delete_compute_graph,
-            list_tasks,
+            find_request,
+            compute_graphs::create_or_update_application,
+            compute_graphs::applications,
+            compute_graphs::get_application,
+            compute_graphs::delete_application,
+            list_function_runs,
             delete_invocation,
             download::v1_download_fn_output_payload,
         ),
@@ -80,22 +74,18 @@ use crate::{
                 NamespaceList,
                 IndexifyAPIError,
                 Namespace,
-                ComputeGraph,
+                Application,
 		        CacheKey,
                 ComputeFn,
                 ListParams,
-                ComputeGraphCreateType,
-                ComputeGraphsList,
+                ApplicationsList,
                 ExecutorMetadata,
                 RuntimeInformation,
-                Task,
                 TaskOutcome,
-                Tasks,
-                GraphInvocations,
                 GraphVersion,
                 Allocation,
                 ExecutorsAllocationsResponse,
-                UnallocatedTasks,
+                UnallocatedFunctionRuns,
                 StateChangesResponse,
             )
         ),
@@ -120,61 +110,52 @@ pub fn configure_v1_routes(route_state: RouteState) -> Router {
 /// Namespace router with namespace specific layers.
 fn v1_namespace_routes(route_state: RouteState) -> Router {
     Router::new()
-    .route(
+        .route(
             "/applications",
             post(create_or_update_application).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs",
-            post(create_or_update_compute_graph_v1).with_state(route_state.clone()),
+            "/applications",
+            get(applications).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs",
-            get(list_compute_graphs).with_state(route_state.clone()),
+            "/applications/{application}",
+            delete(delete_application).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}",
-            delete(delete_compute_graph).with_state(route_state.clone()),
+            "/applications/{application}",
+            get(get_application).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}",
-            get(get_compute_graph).with_state(route_state.clone()),
-        )
-        .route(
-            "/compute-graphs/{compute_graph}",
+            "/applications/{application}",
             post(invoke_with_object_v1).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests",
+            "/applications/{application}/requests",
             get(graph_requests).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}",
-            get(find_invocation).with_state(route_state.clone()),
+            "/applications/{application}/requests/{request_id}",
+            get(find_request).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/progress",
+            "/applications/{application}/requests/{request_id}/progress",
             get(progress_stream).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}",
+            "/applications/{application}/requests/{request_id}",
             delete(delete_invocation).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/tasks",
-            get(list_tasks).with_state(route_state.clone()),
+            "/applications/{application}/requests/{request_id}/function-runs",
+            get(list_function_runs).with_state(route_state.clone()),
         )
-        // FIXME: remove this route once we migrate tensorlake sdk to this
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/fn/{fn_name}/outputs/{id}/index/{index}",
+            "/applications/{application}/requests/{request_id}/output/{fn_call_id}",
             get(v1_download_fn_output_payload).with_state(route_state.clone()),
         )
         .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}/id/{id}/index/{index}",
-            get(v1_download_fn_output_payload).with_state(route_state.clone()),
-        )
-        .route(
-            "/compute-graphs/{compute_graph}/requests/{request_id}/output/{fn_name}",
+            "/applications/{application}/requests/{request_id}/output",
             get(v1_download_fn_output_payload_simple).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
@@ -219,14 +200,6 @@ async fn namespace_middleware(
     Ok(next.run(request).await)
 }
 
-#[allow(dead_code)]
-#[derive(ToSchema)]
-struct ComputeGraphCreateType {
-    compute_graph: ComputeGraph,
-    #[schema(format = "binary")]
-    code: String,
-}
-
 /// List requests for a workflow
 #[utoipa::path(
     get,
@@ -236,7 +209,7 @@ struct ComputeGraphCreateType {
         ListParams
     ),
     responses(
-        (status = 200, description = "List Graph Invocations", body = GraphInvocations),
+        (status = 200, description = "List Graph Invocations", body = http_objects_v1::GraphRequests),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
@@ -288,30 +261,25 @@ async fn graph_requests(
         ListParams
     ),
     responses(
-        (status = 200, description = "list tasks for a given request id", body = Tasks),
+        (status = 200, description = "list tasks for a given request id", body = http_objects_v1::FunctionRuns),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
 #[axum::debug_handler]
-async fn list_tasks(
+async fn list_function_runs(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
-) -> Result<Json<http_objects_v1::Tasks>, IndexifyAPIError> {
+) -> Result<Json<http_objects_v1::FunctionRuns>, IndexifyAPIError> {
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
-    let (tasks, cursor) = state
+    let invocation_ctx = state
         .indexify_state
         .reader()
-        .list_tasks_by_compute_graph(
-            &namespace,
-            &compute_graph,
-            &invocation_id,
-            cursor.as_deref(),
-            params.limit,
-        )
-        .map_err(IndexifyAPIError::internal_error)?;
+        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
     let allocations = state
         .indexify_state
         .reader()
@@ -321,25 +289,25 @@ async fn list_tasks(
         HashMap::new();
     for allocation in allocations {
         allocations_by_task_id
-            .entry(allocation.task_id.to_string())
+            .entry(allocation.function_call_id.to_string())
             .or_default()
             .push(allocation.into());
     }
-    let mut http_tasks = vec![];
-    for task in tasks {
+    let mut http_function_runs = vec![];
+    for function_run in invocation_ctx.function_runs.values() {
         let allocations = allocations_by_task_id
-            .get(task.id.get())
+            .get(&function_run.id.0.to_string())
             .cloned()
             .clone()
             .unwrap_or_default();
-        http_tasks.push(http_objects_v1::Task::from_data_model_task(
-            task,
+        http_function_runs.push(http_objects_v1::FunctionRun::from_data_model_function_run(
+            function_run.clone(),
             allocations,
         ));
     }
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
-    Ok(Json(http_objects_v1::Tasks {
-        tasks: http_tasks,
+    Ok(Json(http_objects_v1::FunctionRuns {
+        function_runs: http_function_runs,
         cursor,
     }))
 }
@@ -350,12 +318,12 @@ async fn list_tasks(
     path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
     tag = "retrieve",
     responses(
-        (status = 200, description = "Details about a given invocation", body = Invocation),
+        (status = 200, description = "Details about a given invocation", body = http_objects_v1::Request),
         (status = NOT_FOUND, description = "Invocation not found"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-async fn find_invocation(
+async fn find_request(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<http_objects_v1::Request>, IndexifyAPIError> {
@@ -366,28 +334,21 @@ async fn find_invocation(
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
 
-    let (outputs, _cursor) = state
-        .indexify_state
-        .reader()
-        .list_outputs_by_compute_graph(&namespace, &compute_graph, &invocation_id, None, None)
-        .map_err(IndexifyAPIError::internal_error)?;
-    let mut http_outputs = vec![];
-    for output in outputs {
-        http_outputs.push(http_objects_v1::FnOutput {
-            id: output.id.clone(),
-            num_outputs: output.payloads.len() as u64,
-            compute_fn: output.compute_fn_name.clone(),
-            created_at: output.created_at.into(),
-        });
-    }
+    let function_run = invocation_ctx
+        .function_runs
+        .get(&invocation_id.as_str().into())
+        .ok_or(IndexifyAPIError::not_found("function run not found"))?
+        .clone();
+
+    let output = function_run.output.clone().map(|output| output.into());
 
     let invocation_error = download_invocation_error(
-        invocation_ctx.invocation_error.clone(),
+        invocation_ctx.request_error.clone(),
         &state.blob_storage.get_blob_store(&namespace),
     )
     .await?;
 
-    let request = http_objects_v1::Request::build(invocation_ctx, http_outputs, invocation_error);
+    let request = http_objects_v1::Request::build(invocation_ctx, output, invocation_error);
 
     Ok(Json(request))
 }

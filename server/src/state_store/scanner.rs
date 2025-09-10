@@ -11,16 +11,11 @@ use crate::{
         Allocation,
         ComputeGraph,
         ComputeGraphVersion,
-        DataPayload,
-        FunctionExecutorDiagnostics,
         GcUrl,
         GraphInvocationCtx,
         GraphVersion,
-        InvocationPayload,
         Namespace,
-        NodeOutput,
         StateChange,
-        Task,
         UnprocessedStateChanges,
     },
     metrics::{self, Timer},
@@ -138,86 +133,6 @@ impl StateReader {
         Ok(Some(result))
     }
 
-    pub fn get_diagnostic_payload(
-        &self,
-        ns: &str,
-        cg: &str,
-        inv_id: &str,
-        id: &str,
-        file: &str,
-    ) -> Result<Option<DataPayload>> {
-        let kvs = &[KeyValue::new("op", "get_diagnostic_payload")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let allocation_key = Allocation::key_from(ns, cg, inv_id, id);
-
-        let Some(allocation) = self.get_allocation(&allocation_key)? else {
-            return Ok(None);
-        };
-
-        if let Some(diagnostics) = allocation.diagnostics {
-            match file {
-                "stdout" => {
-                    if let Some(stdout) = diagnostics.stdout {
-                        return Ok(Some(stdout));
-                    }
-                }
-                "stderr" => {
-                    if let Some(stderr) = diagnostics.stderr {
-                        return Ok(Some(stderr));
-                    }
-                }
-                _ => {
-                    return Err(anyhow::anyhow!("Invalid file type"));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    pub fn get_function_executor_startup_diagnostic_payload(
-        &self,
-        ns: &str,
-        cg: &str,
-        func: &str,
-        ver: &str,
-        fe_id: &str,
-        file: &str,
-    ) -> Result<Option<DataPayload>> {
-        let kvs = &[KeyValue::new(
-            "op",
-            "get_function_executor_diagnostic_payload",
-        )];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let fe_diagnostics_key = FunctionExecutorDiagnostics::key_from(ns, cg, func, ver, fe_id);
-        let fe_diagnostics: Option<FunctionExecutorDiagnostics> = self.get_from_cf(
-            &IndexifyObjectsColumns::FunctionExecutorDiagnostics,
-            fe_diagnostics_key,
-        )?;
-        let Some(fe_diagnostics) = fe_diagnostics else {
-            return Ok(None);
-        };
-
-        match file {
-            "stdout" => {
-                if let Some(stdout) = fe_diagnostics.startup_stdout {
-                    return Ok(Some(stdout));
-                }
-            }
-            "stderr" => {
-                if let Some(stderr) = fe_diagnostics.startup_stderr {
-                    return Ok(Some(stderr));
-                }
-            }
-            _ => {
-                return Err(anyhow::anyhow!("Invalid file type"));
-            }
-        }
-
-        Ok(None)
-    }
-
     pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "get_gc_urls")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -230,25 +145,6 @@ impl StateReader {
             Some(limit),
         )?;
         Ok((urls, cursor))
-    }
-
-    pub fn get_graph_input(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-    ) -> Result<Option<DataPayload>> {
-        let kvs = &[KeyValue::new("op", "get_graph_input")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let key = InvocationPayload::key_from(namespace, compute_graph, invocation_id);
-        let Some(input) = self.get_from_cf::<InvocationPayload, _>(
-            &IndexifyObjectsColumns::GraphInvocations,
-            key.as_bytes(),
-        )?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(input.payload))
     }
 
     pub fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
@@ -512,80 +408,6 @@ impl StateReader {
         Ok(allocations)
     }
 
-    pub fn list_outputs_by_compute_graph(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        restart_key: Option<&[u8]>,
-        limit: Option<usize>,
-    ) -> Result<(Vec<NodeOutput>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "list_outputs_by_compute_graph")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = NodeOutput::key_prefix_from(namespace, compute_graph, invocation_id);
-        let (node_outputs, cursor) = self.get_rows_from_cf_with_limits::<NodeOutput>(
-            key_prefix.as_bytes(),
-            restart_key,
-            IndexifyObjectsColumns::FnOutputs,
-            limit,
-        )?;
-        let node_outputs = node_outputs
-            .into_iter()
-            .filter(|node_output| !node_output.reducer_output)
-            .collect();
-        Ok((node_outputs, cursor))
-    }
-
-    pub fn get_task(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        task_id: &str,
-    ) -> Result<Option<Task>> {
-        let kvs = &[KeyValue::new("op", "get_task")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = Task::key_from(namespace, compute_graph, invocation_id, compute_fn, task_id);
-        let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
-        Ok(task)
-    }
-
-    pub fn list_tasks_by_compute_graph(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        restart_key: Option<&[u8]>,
-        limit: Option<usize>,
-    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "list_tasks_by_compute_graph")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
-        self.get_rows_from_cf_with_limits::<Task>(
-            key_prefix.as_bytes(),
-            restart_key,
-            IndexifyObjectsColumns::Tasks,
-            limit,
-        )
-    }
-
-    pub fn get_node_output_by_key(&self, key: &str) -> Result<Option<NodeOutput>> {
-        let kvs = &[KeyValue::new("op", "get_node_output_by_key")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let value = self
-            .db
-            .get(IndexifyObjectsColumns::FnOutputs.as_ref(), key)?;
-        match value {
-            Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Ok(None),
-        }
-    }
-
     pub fn invocation_ctx(
         &self,
         namespace: &str,
@@ -605,52 +427,7 @@ impl StateReader {
             .map_err(|e| anyhow!("unable to decode invocation ctx: {}", e))?;
         Ok(Some(invocation_ctx))
     }
-
-    pub fn fn_output_payload(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        id: &str,
-    ) -> Result<Option<NodeOutput>> {
-        let kvs = &[KeyValue::new("op", "fn_output_payload")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let cf = IndexifyObjectsColumns::FnOutputs.as_ref();
-        let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
-        let value = self
-            .db
-            .get(cf, &key)
-            .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
-        match value {
-            Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Ok(None),
-        }
-    }
-
-    pub fn fn_output_payload_first(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-    ) -> Result<Option<NodeOutput>> {
-        let kvs = &[KeyValue::new("op", "fn_output_payload_first")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}");
-
-        let (node_outputs, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
-            key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::FnOutputs,
-            Some(1),
-        )?;
-        Ok(node_outputs.first().cloned())
-    }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

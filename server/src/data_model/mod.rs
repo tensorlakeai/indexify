@@ -5,7 +5,7 @@ pub mod test_objects;
 use std::{
     collections::HashMap,
     fmt::{self, Display},
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::Hash,
     ops::Deref,
     str,
     vec,
@@ -57,12 +57,6 @@ impl From<&str> for ExecutorId {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
-
-impl TaskId {
-    pub fn get(&self) -> &str {
-        &self.0
-    }
-}
 
 impl Display for TaskId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -121,12 +115,18 @@ impl std::ops::DerefMut for AllocationId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputArgs {
+    pub function_call_id: Option<FunctionCallId>,
+    pub data_payload: DataPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct Allocation {
     #[builder(default)]
     pub id: AllocationId,
     pub target: AllocationTarget,
-    pub task_id: TaskId,
+    pub function_call_id: FunctionCallId,
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -135,12 +135,13 @@ pub struct Allocation {
     pub created_at: u128,
     pub outcome: TaskOutcome,
     #[builder(setter(strip_option), default)]
-    pub diagnostics: Option<TaskDiagnostics>,
     pub attempt_number: u32,
     #[builder(setter(into, strip_option), default)]
     pub execution_duration_ms: Option<u64>,
+    pub input_args: Vec<InputArgs>,
     #[builder(default)]
     vector_clock: VectorClock,
+    pub call_metadata: bytes::Bytes,
 }
 
 impl AllocationBuilder {
@@ -177,18 +178,95 @@ impl Allocation {
         format!("{namespace}|{compute_graph}|{invocation_id}|")
     }
 
-    pub fn task_key(&self) -> String {
-        Task::key_from(
-            &self.namespace,
-            &self.compute_graph,
-            &self.invocation_id,
-            &self.compute_fn,
-            &self.task_id.to_string(),
-        )
-    }
-
     pub fn is_terminal(&self) -> bool {
         matches!(self.outcome, TaskOutcome::Success | TaskOutcome::Failure(_))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct FunctionCallId(pub String);
+
+impl Display for FunctionCallId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for FunctionCallId {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub function_call_id: FunctionCallId,
+    pub inputs: Vec<FunctionArgs>,
+    pub fn_name: String,
+    pub call_metadata: bytes::Bytes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FunctionArgs {
+    FunctionRunOutput(FunctionCallId),
+    DataPayload(DataPayload),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReduceOperation {
+    pub collection: Vec<FunctionArgs>,
+    pub fn_name: String,
+    pub call_metadata: bytes::Bytes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ComputeOp {
+    Reduce(ReduceOperation),
+    FunctionCall(FunctionCall),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct FunctionRun {
+    pub id: FunctionCallId,
+    pub request_id: String,
+    pub namespace: String,
+    pub application: String,
+    pub name: String,
+    pub graph_version: GraphVersion,
+    pub compute_op: ComputeOp,
+    pub input_args: Vec<InputArgs>,
+    #[builder(default)]
+    pub output: Option<DataPayload>,
+    pub status: TaskStatus,
+    #[builder(default)]
+    pub cache_hit: bool,
+    #[builder(default)]
+    pub outcome: Option<TaskOutcome>,
+    pub attempt_number: u32,
+    #[builder(default = "self.default_creation_time_ns()")]
+    pub creation_time_ns: u128,
+    #[builder(default)]
+    vector_clock: VectorClock,
+    pub call_metadata: bytes::Bytes,
+}
+
+impl FunctionRunBuilder {
+    fn default_creation_time_ns(&self) -> u128 {
+        get_epoch_time_in_ns()
+    }
+}
+
+impl FunctionRun {
+    pub fn key_compute_graph_version(&self, graph_name: &str) -> String {
+        format!("{}|{}|{}", self.namespace, graph_name, self.graph_version.0,)
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}|{}", self.namespace, self.application, self.id)
+    }
+
+    pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}|{application}|{request_id}|")
     }
 }
 
@@ -312,38 +390,22 @@ pub struct ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn create_task(
+    pub fn create_function_call(
         &self,
-        namespace: &str,
-        compute_graph_name: &str,
-        invocation_id: &str,
-        input: DataPayload,
-        acc_input: Option<DataPayload>,
-        graph_version: &GraphVersion,
-    ) -> Result<Task> {
-        let name = self.name.clone();
-        let cache_key = self.cache_key.clone();
-        let task = TaskBuilder::default()
-            .namespace(namespace.to_string())
-            .compute_fn_name(name)
-            .compute_graph_name(compute_graph_name.to_string())
-            .invocation_id(invocation_id.to_string())
-            .input(input)
-            .acc_input(acc_input)
-            .graph_version(graph_version.clone())
-            .cache_key(cache_key)
-            .build()?;
-        Ok(task)
+        function_call_id: FunctionCallId,
+        inputs: Vec<DataPayload>,
+        call_metadata: bytes::Bytes,
+    ) -> FunctionCall {
+        FunctionCall {
+            function_call_id,
+            inputs: inputs
+                .into_iter()
+                .map(|input| FunctionArgs::DataPayload(input))
+                .collect(),
+            fn_name: self.name.clone(),
+            call_metadata,
+        }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ComputeGraphCode {
-    pub path: String,
-    pub size: u64,
-    // FIXME: this is a random string right now because CloudPickle hashes are different for the
-    // same code.
-    pub sha256_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -414,10 +476,9 @@ pub struct ComputeGraph {
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
-    pub code: ComputeGraphCode,
+    pub code: DataPayload,
     pub start_fn: ComputeFn,
     pub nodes: HashMap<String, ComputeFn>,
-    pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
     #[serde(default)]
     #[builder(default)]
@@ -459,7 +520,6 @@ impl ComputeGraph {
 
         self.version = update.version;
         self.code = update.code;
-        self.edges = update.edges;
         self.start_fn = update.start_fn;
         self.runtime_information = update.runtime_information;
         self.nodes = update.nodes.clone();
@@ -476,7 +536,6 @@ impl ComputeGraph {
             .code(self.code.clone())
             .start_fn(self.start_fn.clone())
             .nodes(self.nodes.clone())
-            .edges(self.edges.clone())
             .runtime_information(self.runtime_information.clone())
             .state(self.state.clone())
             .build()
@@ -564,14 +623,6 @@ impl ComputeGraph {
 
         Ok(())
     }
-
-    pub fn fn_task_analytics(&self) -> HashMap<String, TaskAnalytics> {
-        let mut fn_task_analytics = HashMap::new();
-        for (fn_name, _node) in self.nodes.iter() {
-            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
-        }
-        fn_task_analytics
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -581,7 +632,7 @@ pub struct ComputeGraphVersion {
     pub compute_graph_name: String,
     pub created_at: u64,
     pub version: GraphVersion,
-    pub code: ComputeGraphCode,
+    pub code: DataPayload,
     pub start_fn: ComputeFn,
     #[builder(default)]
     pub nodes: HashMap<String, ComputeFn>,
@@ -602,6 +653,35 @@ impl Linearizable for ComputeGraphVersion {
 }
 
 impl ComputeGraphVersion {
+    pub fn create_function_run(
+        &self,
+        fn_call: &FunctionCall,
+        input_args: Vec<InputArgs>,
+        request_id: &str,
+    ) -> Result<FunctionRun> {
+        FunctionRunBuilder::default()
+            .id(fn_call.function_call_id.clone())
+            .namespace(self.namespace.clone())
+            .application(self.compute_graph_name.clone())
+            .graph_version(self.version.clone())
+            .compute_op(ComputeOp::FunctionCall(FunctionCall {
+                function_call_id: fn_call.function_call_id.clone(),
+                inputs: fn_call.inputs.clone(),
+                fn_name: fn_call.fn_name.clone(),
+                call_metadata: fn_call.call_metadata.clone(),
+            }))
+            .input_args(input_args)
+            .name(fn_call.fn_name.clone())
+            .request_id(request_id.to_string())
+            .status(TaskStatus::Pending)
+            .attempt_number(0)
+            .call_metadata(fn_call.call_metadata.clone())
+            .creation_time_ns(get_epoch_time_in_ns())
+            .vector_clock(VectorClock::default())
+            .build()
+            .map_err(|e| anyhow!("failed to create function run: {}", e))
+    }
+
     pub fn key(&self) -> String {
         ComputeGraphVersion::key_from(&self.namespace, &self.compute_graph_name, &self.version)
     }
@@ -629,9 +709,9 @@ impl ComputeGraphVersion {
             .collect()
     }
 
-    pub fn task_max_retries(&self, task: &Task) -> Option<u32> {
+    pub fn task_max_retries(&self, task: &FunctionRun) -> Option<u32> {
         self.nodes
-            .get(&task.compute_fn_name)
+            .get(&task.name)
             .map(|node| node.retry_policy.max_retries)
     }
 }
@@ -641,195 +721,33 @@ pub struct RouterOutput {
     pub edges: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct DataPayload {
+    #[builder(default = "self.default_id()")]
+    pub id: String,
     pub path: String,
+    pub metadata_size: u64,
+    pub offset: u64,
     pub size: u64,
     pub sha256_hash: String,
-    // The default 0 is used for DataPayloads stored in state store
-    // before we introduced multiple DataPayloads stored inside a single BLOB.
-    #[serde(default)]
-    pub offset: u64,
+    #[builder(default = "self.default_encoding()")]
+    pub encoding: String,
+}
+
+impl DataPayloadBuilder {
+    fn default_encoding(&self) -> String {
+        "application/octet-stream".to_string()
+    }
+
+    fn default_id(&self) -> String {
+        nanoid::nanoid!()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskDiagnostics {
     pub stdout: Option<DataPayload>,
     pub stderr: Option<DataPayload>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct NodeOutput {
-    #[builder(setter(skip), default = "self.generate_id()?")]
-    pub id: String,
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub compute_fn_name: String,
-    pub invocation_id: String,
-    pub payloads: Vec<DataPayload>,
-    pub next_functions: Vec<String>,
-    #[builder(default = "self.default_created_at()")]
-    pub created_at: u64,
-    #[builder(default = "self.default_encoding()")]
-    pub encoding: String,
-    pub allocation_id: String,
-    #[builder(default)]
-    pub invocation_error_payload: Option<DataPayload>,
-
-    // If this is the output of an individual reducer
-    // We need this here since we are going to filter out the individual reducer outputs
-    // and return the accumulated output
-    #[builder(default)]
-    pub reducer_output: bool,
-
-    #[builder(default)]
-    vector_clock: VectorClock,
-}
-
-impl Linearizable for NodeOutput {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
-impl NodeOutput {
-    // We store the last reducer output separately
-    // because that's the value that's interesting to the user
-    // and not the intermediate values since they are not useful other than for
-    // debugging
-    pub fn reducer_acc_value_key(&self) -> String {
-        format!(
-            "{}|{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.invocation_id, self.compute_fn_name,
-        )
-    }
-
-    pub fn key(&self) -> String {
-        NodeOutput::key_from(
-            &self.namespace,
-            &self.compute_graph_name,
-            &self.invocation_id,
-            &self.compute_fn_name,
-            &self.id,
-        )
-    }
-
-    pub fn key_from(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        id: &str,
-    ) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|{compute_fn}|{id}")
-    }
-
-    pub fn key_prefix_from(namespace: &str, compute_graph: &str, invocation_id: &str) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|")
-    }
-}
-
-impl NodeOutputBuilder {
-    fn generate_id(&self) -> Result<String, String> {
-        let namespace = self
-            .namespace
-            .as_deref()
-            .ok_or("namespace is required to generate the id")?;
-        let cg_name = self
-            .compute_graph_name
-            .clone()
-            .ok_or("compute_graph_name is required to generate the id")?;
-        let fn_name = self
-            .compute_fn_name
-            .clone()
-            .ok_or("compute_fn_name is required to generate the id")?;
-        let invocation_id = self
-            .invocation_id
-            .clone()
-            .ok_or("invocation_id is required to generate the id")?;
-        let allocation_id = self
-            .allocation_id
-            .clone()
-            .ok_or("allocation_id is required to generate the id")?;
-
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        cg_name.hash(&mut hasher);
-        fn_name.hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        allocation_id.hash(&mut hasher);
-
-        Ok(format!("{:x}", hasher.finish()))
-    }
-
-    // This needs to be a function and not a constant because
-    // derive_builder requires it to be a function.
-    fn default_encoding(&self) -> String {
-        "application/octet-stream".to_string()
-    }
-
-    fn default_created_at(&self) -> u64 {
-        get_epoch_time_in_ms()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct InvocationPayload {
-    #[builder(setter(skip), default = "self.generate_id()?")]
-    pub id: String,
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub payload: DataPayload,
-    #[builder(default = "self.default_created_at()")]
-    pub created_at: u64,
-    pub encoding: String,
-    #[builder(default)]
-    vector_clock: VectorClock,
-}
-
-impl Linearizable for InvocationPayload {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
-impl InvocationPayload {
-    pub fn key(&self) -> String {
-        InvocationPayload::key_from(&self.namespace, &self.compute_graph_name, &self.id)
-    }
-
-    pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
-        format!("{ns}|{cg}|{id}")
-    }
-}
-
-impl InvocationPayloadBuilder {
-    fn generate_id(&self) -> Result<String, String> {
-        let namespace = self
-            .namespace
-            .as_deref()
-            .ok_or("namespace is required to generate the id")?;
-        let cg_name = self
-            .compute_graph_name
-            .clone()
-            .ok_or("compute_graph_name is required to generate the id")?;
-        let payload = self
-            .payload
-            .as_ref()
-            .ok_or("payload is required to generate the id")?;
-
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        cg_name.hash(&mut hasher);
-        payload.sha256_hash.hash(&mut hasher);
-        payload.path.hash(&mut hasher);
-
-        Ok(format!("{:x}", hasher.finish()))
-    }
-
-    fn default_created_at(&self) -> u64 {
-        get_epoch_time_in_ms()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -926,35 +844,31 @@ impl From<TaskFailureReason> for GraphInvocationFailureReason {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct GraphInvocationError {
     pub function_name: String,
     pub payload: DataPayload,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
     pub graph_version: GraphVersion,
-    pub invocation_id: String,
-    #[builder(default)]
-    pub completed: bool,
+    pub request_id: String,
     #[serde(default)]
     #[builder(default)]
-    pub outcome: GraphInvocationOutcome,
-    #[builder(default)]
-    pub outstanding_tasks: u64,
-    #[builder(default)]
-    pub outstanding_reducer_tasks: u64,
-    pub fn_task_analytics: HashMap<String, TaskAnalytics>,
-    #[serde(default = "get_epoch_time_in_ms")]
+    pub outcome: Option<GraphInvocationOutcome>,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
-    pub invocation_error: Option<GraphInvocationError>,
+    pub request_error: Option<GraphInvocationError>,
     #[builder(default)]
     vector_clock: VectorClock,
+
+    #[builder(default)]
+    pub function_runs: HashMap<FunctionCallId, FunctionRun>,
+    pub function_calls: HashMap<FunctionCallId, FunctionCall>,
 }
 
 impl GraphInvocationCtxBuilder {
@@ -970,73 +884,10 @@ impl Linearizable for GraphInvocationCtx {
 }
 
 impl GraphInvocationCtx {
-    pub fn create_tasks(&mut self, tasks: &[Task], reducer_tasks: &[ReduceTask]) {
-        for task in tasks {
-            let fn_name = task.compute_fn_name.clone();
-            self.fn_task_analytics
-                .entry(fn_name.clone())
-                .or_default()
-                .pending();
-        }
-        self.outstanding_tasks += tasks.len() as u64;
-        self.outstanding_reducer_tasks += reducer_tasks.len() as u64;
-
-        for reducer_task in reducer_tasks {
-            let fn_name = reducer_task.compute_fn_name.clone();
-            self.fn_task_analytics
-                .entry(fn_name.clone())
-                .or_default()
-                .queued_reducer(1);
-        }
-    }
-
-    pub fn update_analytics(&mut self, task: &Task) {
-        let fn_name = task.compute_fn_name.clone();
-        if let Some(analytics) = self.fn_task_analytics.get_mut(&fn_name) {
-            match task.outcome {
-                TaskOutcome::Success => {
-                    analytics.success();
-                    self.outstanding_tasks -= 1;
-                }
-                TaskOutcome::Failure(_) => {
-                    analytics.fail();
-                    self.outstanding_tasks -= 1;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    pub fn complete_reducer_task(&mut self, reducer_task_fn_name: &str) {
-        if let Some(analytics) = self.fn_task_analytics.get_mut(reducer_task_fn_name) {
-            analytics.completed_reducer(1);
-        }
-        self.outstanding_reducer_tasks -= 1;
-    }
-
-    pub fn all_tasks_completed(&self) -> bool {
-        self.outstanding_tasks == 0 && self.outstanding_reducer_tasks == 0
-    }
-
-    pub fn tasks_completed(&self, compute_fn_name: &str) -> bool {
-        if let Some(analytics) = self.fn_task_analytics.get(compute_fn_name) {
-            analytics.pending_tasks == 0 && analytics.queued_reducer_tasks == 0
-        } else {
-            false
-        }
-    }
-
-    pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
-        if self.outstanding_tasks == 0 || force_complete {
-            self.completed = true;
-            self.outcome = outcome;
-        }
-    }
-
     pub fn key(&self) -> String {
         format!(
             "{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.invocation_id
+            self.namespace, self.compute_graph_name, self.request_id
         )
     }
 
@@ -1048,7 +899,7 @@ impl GraphInvocationCtx {
         key.push(b'|');
         key.extend_from_slice(&self.created_at.to_be_bytes());
         key.push(b'|');
-        key.extend_from_slice(self.invocation_id.as_bytes());
+        key.extend_from_slice(self.request_id.as_bytes());
         key
     }
 
@@ -1067,60 +918,12 @@ impl GraphInvocationCtx {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct ReduceTask {
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub invocation_id: String,
-    pub compute_fn_name: String,
-
-    pub input: DataPayload,
-    pub id: String,
-
-    #[builder(default)]
-    vector_clock: VectorClock,
-}
-
-impl Linearizable for ReduceTask {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
-impl ReduceTask {
-    pub fn key(&self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.namespace,
-            self.compute_graph_name,
-            self.invocation_id,
-            self.compute_fn_name,
-            self.id,
-        )
-    }
-
-    pub fn key_prefix_from(
-        namespace: &str,
-        compute_graph_name: &str,
-        invocation_id: &str,
-        compute_fn_name: &str,
-    ) -> String {
-        format!("{namespace}|{compute_graph_name}|{invocation_id}|{compute_fn_name}|",)
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     #[default]
     Unknown,
     Success,
     Failure(TaskFailureReason),
-}
-
-impl TaskOutcome {
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Success | Self::Failure(_))
-    }
 }
 
 impl Display for TaskOutcome {
@@ -1242,151 +1045,6 @@ impl Display for TaskStatus {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
-pub struct Task {
-    #[builder(setter(skip), default = "self.generate_id()")]
-    pub id: TaskId,
-    pub namespace: String,
-    pub compute_fn_name: String,
-    pub compute_graph_name: String,
-    pub invocation_id: String,
-    #[builder(default)]
-    pub cache_hit: bool,
-    // Input to the function
-    pub input: DataPayload,
-    // Input to the reducer function
-    pub acc_input: Option<DataPayload>,
-    #[serde(default)]
-    #[builder(default = "self.default_status()")]
-    pub status: TaskStatus,
-    #[builder(default)]
-    pub outcome: TaskOutcome,
-    #[builder(default = "self.default_creation_time_ns()")]
-    pub creation_time_ns: u128,
-    pub graph_version: GraphVersion,
-    pub cache_key: Option<CacheKey>,
-    #[builder(default)]
-    pub attempt_number: u32,
-    #[builder(default)]
-    vector_clock: VectorClock,
-}
-
-impl TaskBuilder {
-    fn default_creation_time_ns(&self) -> u128 {
-        get_epoch_time_in_ns()
-    }
-}
-
-impl Linearizable for Task {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
-impl Task {
-    pub fn is_terminal(&self) -> bool {
-        self.status == TaskStatus::Completed || self.outcome.is_terminal()
-    }
-
-    pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
-        format!("{namespace}|{compute_graph}|")
-    }
-
-    pub fn key_compute_graph_version(&self) -> String {
-        format!(
-            "{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.graph_version.0,
-        )
-    }
-
-    pub fn key_prefix_for_invocation(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-    ) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|")
-    }
-
-    pub fn key(&self) -> String {
-        // <namespace>_<compute_graph_name>_<invocation_id>_<fn_name>_<task_id>
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.namespace,
-            self.compute_graph_name,
-            self.invocation_id,
-            self.compute_fn_name,
-            self.id
-        )
-    }
-
-    pub fn key_from(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        fn_name: &str,
-        id: &str,
-    ) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|{fn_name}|{id}")
-    }
-}
-
-impl Display for Task {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input: {:?}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input, self.outcome
-        )
-    }
-}
-
-impl TaskBuilder {
-    fn generate_id(&self) -> TaskId {
-        TaskId(uuid::Uuid::new_v4().to_string())
-    }
-
-    fn default_status(&self) -> TaskStatus {
-        TaskStatus::Pending
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct TaskAnalytics {
-    pub pending_tasks: u64,
-    pub successful_tasks: u64,
-    pub failed_tasks: u64,
-    pub queued_reducer_tasks: u64,
-}
-
-impl TaskAnalytics {
-    pub fn pending(&mut self) {
-        self.pending_tasks += 1;
-    }
-
-    pub fn success(&mut self) {
-        self.successful_tasks += 1;
-        // This is for upgrade path from older versions
-        if self.pending_tasks > 0 {
-            self.pending_tasks -= 1;
-        }
-    }
-
-    pub fn fail(&mut self) {
-        self.failed_tasks += 1;
-        if self.pending_tasks > 0 {
-            self.pending_tasks -= 1;
-        }
-    }
-
-    pub fn queued_reducer(&mut self, count: u64) {
-        self.queued_reducer_tasks += count;
-    }
-
-    pub fn completed_reducer(&mut self, count: u64) {
-        self.queued_reducer_tasks -= count;
-    }
-}
-
 // FIXME Remove in next release
 fn default_executor_ver() -> String {
     "0.2.17".to_string()
@@ -1395,8 +1053,8 @@ fn default_executor_ver() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FunctionURI {
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub compute_fn_name: String,
+    pub application: String,
+    pub fn_name: String,
     pub version: GraphVersion,
 }
 
@@ -1404,8 +1062,8 @@ impl From<FunctionExecutorServerMetadata> for FunctionURI {
     fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
-            compute_graph_name: fe_meta.function_executor.compute_graph_name.clone(),
-            compute_fn_name: fe_meta.function_executor.compute_fn_name.clone(),
+            application: fe_meta.function_executor.compute_graph_name.clone(),
+            fn_name: fe_meta.function_executor.compute_fn_name.clone(),
             version: fe_meta.function_executor.version.clone(),
         }
     }
@@ -1421,20 +1079,20 @@ impl From<&FunctionExecutor> for FunctionURI {
     fn from(fe: &FunctionExecutor) -> Self {
         FunctionURI {
             namespace: fe.namespace.clone(),
-            compute_graph_name: fe.compute_graph_name.clone(),
-            compute_fn_name: fe.compute_fn_name.clone(),
+            application: fe.compute_graph_name.clone(),
+            fn_name: fe.compute_fn_name.clone(),
             version: fe.version.clone(),
         }
     }
 }
 
-impl From<&Task> for FunctionURI {
-    fn from(task: &Task) -> Self {
+impl From<&FunctionRun> for FunctionURI {
+    fn from(function_run: &FunctionRun) -> Self {
         FunctionURI {
-            namespace: task.namespace.clone(),
-            compute_graph_name: task.compute_graph_name.clone(),
-            compute_fn_name: task.compute_fn_name.clone(),
-            version: task.graph_version.clone(),
+            namespace: function_run.namespace.clone(),
+            application: function_run.application.clone(),
+            fn_name: function_run.name.clone(),
+            version: function_run.graph_version.clone(),
         }
     }
 }
@@ -1444,7 +1102,7 @@ impl Display for FunctionURI {
         write!(
             f,
             "{}|{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.compute_fn_name, self.version
+            self.namespace, self.application, self.fn_name, self.version
         )
     }
 }
@@ -1765,62 +1423,19 @@ impl FunctionAllowlist {
                 .is_none_or(|version| version == &function_executor.version)
     }
 
-    pub fn matches_task(&self, task: &Task) -> bool {
+    pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &task.namespace) &&
+            .is_none_or(|ns| ns == &function_run.namespace) &&
             self.compute_graph_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &task.compute_graph_name) &&
+                .is_none_or(|cg_name| cg_name == &function_run.application) &&
             self.compute_fn_name
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &task.compute_fn_name) &&
+                .is_none_or(|fn_name| fn_name == &function_run.name) &&
             self.version
                 .as_ref()
-                .is_none_or(|version| version == &task.graph_version)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-// Stores historical information about a Function Executor. It is persisted in
-// state store so it's available after FE termination.
-pub struct FunctionExecutorDiagnostics {
-    pub id: FunctionExecutorId,
-    pub namespace: String,
-    pub graph_name: String,
-    pub function_name: String,
-    pub graph_version: GraphVersion,
-    pub startup_stdout: Option<DataPayload>,
-    pub startup_stderr: Option<DataPayload>,
-    #[builder(default)]
-    vector_clock: VectorClock,
-}
-
-impl Linearizable for FunctionExecutorDiagnostics {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
-impl FunctionExecutorDiagnostics {
-    pub fn key(&self) -> String {
-        Self::key_from(
-            &self.namespace,
-            &self.graph_name,
-            &self.function_name,
-            &self.graph_version.0,
-            self.id.get(),
-        )
-    }
-
-    pub fn key_from(
-        namespace: &str,
-        graph_name: &str,
-        function_name: &str,
-        graph_version: &str,
-        function_executor_id: &str,
-    ) -> String {
-        format!("{namespace}|{graph_name}|{function_name}|{graph_version}|{function_executor_id}")
+                .is_none_or(|version| version == &function_run.graph_version)
     }
 }
 
@@ -1992,11 +1607,11 @@ impl Linearizable for ExecutorMetadata {
 }
 
 impl ExecutorMetadata {
-    pub fn is_task_allowed(&self, task: &Task) -> bool {
+    pub fn is_function_allowed(&self, function_run: &FunctionRun) -> bool {
         if let Some(function_allowlist) = &self.function_allowlist {
             function_allowlist
                 .iter()
-                .any(|allowlist| allowlist.matches_task(task))
+                .any(|allowlist| allowlist.matches_function(function_run))
         } else {
             true
         }
@@ -2038,20 +1653,17 @@ impl fmt::Display for TaskFinalizedEvent {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub task_id: TaskId,
-    pub node_output_key: String,
-    pub allocation_key: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TaskCreatedEvent {
-    pub task: Task,
+    pub function_call_id: FunctionCallId,
+    pub data_payload: Option<DataPayload>,
+    pub new_function_calls: Vec<ComputeOp>,
+    pub allocation_key: String,
+    pub request_exception: Option<DataPayload>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -2077,7 +1689,7 @@ pub struct ExecutorUpsertedEvent {
     pub executor_id: ExecutorId,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
     AllocationOutputsIngested(AllocationOutputIngestedEvent),
@@ -2100,7 +1712,7 @@ impl fmt::Display for ChangeType {
             ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
                 "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",
-                ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,
+                ev.namespace, ev.invocation_id, ev.compute_graph, ev.function_call_id,
             ),
             ChangeType::TombstoneComputeGraph(ev) => write!(
                 f,
@@ -2216,13 +1828,13 @@ impl Linearizable for Namespace {
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
+    use bytes::Bytes;
     use mock_instant::global::MockClock;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::test_compute_fn,
         ComputeGraph,
-        ComputeGraphCode,
         ComputeGraphVersion,
         GraphVersion,
         RuntimeInformation,
@@ -2248,14 +1860,14 @@ mod tests {
                 ("fn_c".to_string(), fn_c.clone()),
             ]))
             .version(crate::data_model::GraphVersion::from("1"))
-            .edges(HashMap::from([(
-                "fn_a".to_string(),
-                vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]))
-            .code(ComputeGraphCode {
+            .code(DataPayload {
+                id: "code_id".to_string(),
                 path: "cgc_path".to_string(),
                 size: 23,
                 sha256_hash: "hash_code".to_string(),
+                encoding: "application/octet-stream".to_string(),
+                metadata_size: 0,
+                offset: 0,
             })
             .created_at(5)
             .start_fn(fn_a.clone())
@@ -2348,7 +1960,7 @@ mod tests {
                 description: "changing code with version change should change code",
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
-                    code: ComputeGraphCode {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
@@ -2356,7 +1968,7 @@ mod tests {
                 },
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"), // different
-                    code: ComputeGraphCode {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
@@ -2364,7 +1976,7 @@ mod tests {
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
-                    code: ComputeGraphCode {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
@@ -2376,26 +1988,14 @@ mod tests {
                 description: "changing edges with version change should change edges",
                 update: ComputeGraph {
                     version: GraphVersion::from("2"), // different
-                    edges: HashMap::from([(
-                        "fn_a".to_string(),
-                        vec!["fn_c".to_string(), "fn_b".to_string()], // c and b swapped
-                    )]),
                     ..original_graph.clone()
                 },
                 expected_graph: ComputeGraph {
                     version: GraphVersion::from("2"),
-                    edges: HashMap::from([(
-                        "fn_a".to_string(),
-                        vec!["fn_c".to_string(), "fn_b".to_string()],
-                    )]),
                     ..original_graph.clone()
                 },
                 expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
-                    edges: HashMap::from([(
-                        "fn_a".to_string(),
-                        vec!["fn_c".to_string(), "fn_b".to_string()],
-                    )]),
                     ..original_version.clone()
                 },
             },
@@ -2531,102 +2131,6 @@ mod tests {
         }
     }
 
-    // Check function pattern
-    fn check_compute_parent<F>(node: &str, mut expected_parents: Vec<&str>, configure_graph: F)
-    where
-        F: FnOnce(&mut ComputeGraphVersion),
-    {
-        let fn_a = test_compute_fn("fn_a", 0);
-        let mut graph_version = ComputeGraphVersionBuilder::default()
-            .namespace(String::new())
-            .compute_graph_name(String::new())
-            .created_at(0)
-            .version(GraphVersion::default())
-            .state(ComputeGraphState::Active)
-            .code(ComputeGraphCode {
-                path: String::new(),
-                size: 0,
-                sha256_hash: String::new(),
-            })
-            .start_fn(fn_a)
-            .nodes(HashMap::new())
-            .edges(HashMap::new())
-            .runtime_information(RuntimeInformation {
-                major_version: 0,
-                minor_version: 0,
-                sdk_version: "1.2.3".to_string(),
-            })
-            .build()
-            .unwrap();
-
-        configure_graph(&mut graph_version);
-
-        let mut parent_nodes = graph_version.get_compute_parent_nodes(node);
-        parent_nodes.sort();
-        expected_parents.sort();
-
-        assert_eq!(parent_nodes, expected_parents, "Failed for node: {node}");
-    }
-
-    #[test]
-    fn test_get_compute_parent_scenarios() {
-        check_compute_parent("compute2", vec!["compute1"], |graph| {
-            graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
-            graph.nodes = HashMap::from([
-                ("compute1".to_string(), test_compute_fn("compute1", 0)),
-                ("compute2".to_string(), test_compute_fn("compute2", 0)),
-            ]);
-        });
-        check_compute_parent("nonexistent", vec![], |_| {});
-
-        // More complex routing scenarios
-        check_compute_parent("compute2", vec!["compute1"], |graph| {
-            graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
-            graph.nodes = HashMap::from([
-                ("compute1".to_string(), test_compute_fn("compute1", 0)),
-                ("compute2".to_string(), test_compute_fn("compute2", 0)),
-            ]);
-        });
-
-        check_compute_parent("compute2", vec!["compute3"], |graph| {
-            graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
-            graph.nodes = HashMap::from([
-                ("compute3".to_string(), test_compute_fn("compute3", 0)),
-                ("compute2".to_string(), test_compute_fn("compute2", 0)),
-            ]);
-        });
-
-        check_compute_parent("compute2", vec!["compute3"], |graph| {
-            graph.edges = HashMap::from([("compute3".to_string(), vec!["compute2".to_string()])]);
-            graph.nodes = HashMap::from([
-                ("compute3".to_string(), test_compute_fn("compute3", 0)),
-                ("compute2".to_string(), test_compute_fn("compute2", 0)),
-            ]);
-        });
-
-        // test multiple parents
-        check_compute_parent(
-            "compute5",
-            vec!["compute1", "compute2", "compute3", "compute4"],
-            |graph| {
-                graph.edges = HashMap::from([
-                    ("compute1".to_string(), vec!["compute5".to_string()]),
-                    ("compute2".to_string(), vec!["compute5".to_string()]),
-                    ("compute3".to_string(), vec!["compute5".to_string()]),
-                    ("compute4".to_string(), vec!["compute5".to_string()]),
-                ]);
-                graph.nodes = HashMap::from([
-                    ("compute1".to_string(), test_compute_fn("compute1", 0)),
-                    ("compute2".to_string(), test_compute_fn("compute1", 0)),
-                    ("compute3".to_string(), test_compute_fn("compute1", 0)),
-                    ("compute4".to_string(), test_compute_fn("compute1", 0)),
-                    ("compute5".to_string(), test_compute_fn("compute1", 0)),
-                    ("compute6".to_string(), test_compute_fn("compute1", 0)),
-                ]);
-            },
-        );
-    }
-
     #[test]
     fn test_allocation_builder_build_success() {
         MockClock::set_system_time(Duration::from_nanos(9999999999999999));
@@ -2635,14 +2139,26 @@ mod tests {
             executor_id: "executor-1".into(),
             function_executor_id: "fe-1".into(),
         };
-        let task_id: TaskId = "task-1".into();
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
             .compute_graph("graph".to_string())
             .compute_fn("fn".to_string())
             .invocation_id("invoc-1".to_string())
-            .task_id(task_id.clone())
+            .function_call_id("task-1".into())
+            .input_args(vec![InputArgs {
+                function_call_id: None,
+                data_payload: DataPayload {
+                    id: "test".to_string(),
+                    path: "test".to_string(),
+                    metadata_size: 0,
+                    encoding: "application/octet-stream".to_string(),
+                    size: 23,
+                    sha256_hash: "hash1232".to_string(),
+                    offset: 0,
+                },
+            }])
             .target(target.clone())
+            .call_metadata(Bytes::new())
             .attempt_number(1)
             .outcome(TaskOutcome::Success)
             .build()
@@ -2651,7 +2167,7 @@ mod tests {
         assert_eq!(allocation.compute_graph, "graph");
         assert_eq!(allocation.compute_fn, "fn");
         assert_eq!(allocation.invocation_id, "invoc-1");
-        assert_eq!(allocation.task_id, task_id);
+        assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
         assert_eq!(
             allocation.target.function_executor_id,
@@ -2661,7 +2177,6 @@ mod tests {
         assert_eq!(allocation.outcome, TaskOutcome::Success);
         assert!(!allocation.id.is_empty());
         assert_eq!(allocation.created_at, 9999999999);
-        assert!(allocation.diagnostics.is_none());
         assert!(allocation.execution_duration_ms.is_none());
         assert_eq!(allocation.vector_clock.value(), 0);
 
@@ -2678,7 +2193,10 @@ mod tests {
             "\"invocation_id\":\"{}\"",
             allocation.invocation_id
         )));
-        assert!(json.contains(&format!("\"task_id\":\"{}\"", allocation.task_id.get())));
+        assert!(json.contains(&format!(
+            "\"function_call_id\":\"{}\"",
+            allocation.function_call_id
+        )));
         assert!(json.contains(&format!(
             "\"target\":{{\"executor_id\":\"{}\",\"function_executor_id\":\"{}\"}}",
             allocation.target.executor_id.get(),
@@ -2688,178 +2206,8 @@ mod tests {
         assert!(json.contains(&"\"outcome\":\"Success\"".to_string()));
         assert!(json.contains(&format!("\"id\":\"{}\"", allocation.id)));
         assert!(json.contains(&format!("\"created_at\":{}", allocation.created_at)));
-        assert!(json.contains("\"diagnostics\":null"));
         assert!(json.contains("\"execution_duration_ms\":null"));
         assert!(json.contains("\"vector_clock\":1"));
-    }
-
-    #[test]
-    fn test_node_output_builder_build_success() {
-        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
-
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let allocation_id = "alloc-1".to_string();
-        let payload = DataPayload {
-            path: "some/path".to_string(),
-            size: 123,
-            sha256_hash: "abc123".to_string(),
-            offset: 0,
-        };
-        let payloads = vec![payload.clone()];
-        let next_functions = vec!["next_fn".to_string()];
-        let encoding = "application/octet-stream".to_string();
-
-        let mut builder = NodeOutputBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .invocation_id(invocation_id.clone())
-            .allocation_id(allocation_id.clone())
-            .payloads(payloads.clone())
-            .next_functions(next_functions.clone())
-            .encoding(encoding.clone())
-            .reducer_output(true);
-
-        let node_output = builder
-            .build()
-            .expect("NodeOutput should build successfully");
-
-        assert_eq!(node_output.namespace, namespace);
-        assert_eq!(node_output.compute_graph_name, compute_graph_name);
-        assert_eq!(node_output.compute_fn_name, compute_fn_name);
-        assert_eq!(node_output.invocation_id, invocation_id);
-        assert_eq!(node_output.allocation_id, allocation_id);
-        assert_eq!(node_output.payloads, payloads);
-        assert_eq!(node_output.next_functions, next_functions);
-        assert_eq!(node_output.encoding, encoding);
-        assert_eq!(node_output.created_at, 9999999999);
-        assert!(node_output.reducer_output);
-        assert!(!node_output.id.is_empty());
-        assert!(node_output.invocation_error_payload.is_none());
-        assert_eq!(node_output.vector_clock.value(), 0);
-
-        // Check key format
-        let key = node_output.key();
-        assert!(key.starts_with(&format!(
-            "{}|{}|{}|{}|",
-            node_output.namespace,
-            node_output.compute_graph_name,
-            node_output.invocation_id,
-            node_output.compute_fn_name
-        )));
-        assert!(key.ends_with(&node_output.id));
-
-        // Check reducer_acc_value_key format
-        let reducer_key = node_output.reducer_acc_value_key();
-        assert_eq!(
-            reducer_key,
-            format!(
-                "{}|{}|{}|{}",
-                node_output.namespace,
-                node_output.compute_graph_name,
-                node_output.invocation_id,
-                node_output.compute_fn_name
-            )
-        );
-
-        // Check JSON serialization
-        let json =
-            serde_json::to_string(&node_output).expect("Should serialize NodeOutput to JSON");
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", node_output.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            node_output.compute_graph_name
-        )));
-        assert!(json.contains(&format!(
-            "\"compute_fn_name\":\"{}\"",
-            node_output.compute_fn_name
-        )));
-        assert!(json.contains(&format!(
-            "\"invocation_id\":\"{}\"",
-            node_output.invocation_id
-        )));
-        assert!(json.contains(&format!(
-            "\"allocation_id\":\"{}\"",
-            node_output.allocation_id
-        )));
-        assert!(json.contains(&format!("\"encoding\":\"{}\"", node_output.encoding)));
-        assert!(json.contains(&"\"reducer_output\":true".to_string()));
-        assert!(json.contains(&format!("\"id\":\"{}\"", node_output.id)));
-        assert!(json.contains("\"invocation_error_payload\":null"));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"payloads\":["));
-        assert!(json.contains(&format!("\"path\":\"{}\"", payload.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", payload.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", payload.size)));
-    }
-
-    #[test]
-    fn test_invocation_payload_builder_build_success() {
-        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
-
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let encoding = "application/octet-stream".to_string();
-        let payload = DataPayload {
-            path: "input/path".to_string(),
-            size: 456,
-            sha256_hash: "def456".to_string(),
-            offset: 0,
-        };
-
-        let mut builder = InvocationPayloadBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .encoding(encoding.clone())
-            .payload(payload.clone());
-
-        let invocation_payload = builder
-            .build()
-            .expect("InvocationPayload should build successfully");
-
-        assert_eq!(invocation_payload.namespace, namespace);
-        assert_eq!(invocation_payload.compute_graph_name, compute_graph_name);
-        assert_eq!(invocation_payload.encoding, encoding);
-        assert_eq!(invocation_payload.payload, payload);
-        assert_eq!(invocation_payload.created_at, 9999999999);
-        assert!(!invocation_payload.id.is_empty());
-        assert_eq!(invocation_payload.vector_clock.value(), 0);
-
-        // Check key format
-        let key = invocation_payload.key();
-        assert_eq!(
-            key,
-            format!(
-                "{}|{}|{}",
-                invocation_payload.namespace,
-                invocation_payload.compute_graph_name,
-                invocation_payload.id
-            )
-        );
-
-        // Check JSON serialization
-        let json = serde_json::to_string(&invocation_payload)
-            .expect("Should serialize InvocationPayload to JSON");
-        assert!(json.contains(&format!(
-            "\"namespace\":\"{}\"",
-            invocation_payload.namespace
-        )));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            invocation_payload.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"encoding\":\"{}\"", invocation_payload.encoding)));
-        assert!(json.contains(&format!("\"id\":\"{}\"", invocation_payload.id)));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"payload\":{"));
-        assert!(json.contains(&format!("\"path\":\"{}\"", payload.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", payload.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", payload.size)));
     }
 
     #[test]
@@ -2873,7 +2221,7 @@ mod tests {
 
         // Minimal ComputeGraph for the builder
         let fn_a = test_compute_fn("fn_a", 0);
-        let compute_graph = ComputeGraphBuilder::default()
+        let _compute_graph = ComputeGraphBuilder::default()
             .namespace(namespace.clone())
             .name(compute_graph_name.clone())
             .tombstoned(false)
@@ -2882,8 +2230,11 @@ mod tests {
             .state(ComputeGraphState::Active)
             .nodes(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
             .version(graph_version.clone())
-            .edges(HashMap::new())
-            .code(ComputeGraphCode {
+            .code(DataPayload {
+                id: "code_id".to_string(),
+                encoding: "application/octet-stream".to_string(),
+                metadata_size: 0,
+                offset: 0,
                 path: "path".to_string(),
                 size: 1,
                 sha256_hash: "hash".to_string(),
@@ -2901,27 +2252,21 @@ mod tests {
         let ctx = GraphInvocationCtxBuilder::default()
             .namespace(namespace.clone())
             .compute_graph_name(compute_graph_name.clone())
-            .invocation_id(invocation_id.clone())
+            .request_id(invocation_id.clone())
+            .function_calls(HashMap::new())
+            .function_runs(HashMap::new())
             .graph_version(graph_version.clone())
-            .fn_task_analytics(compute_graph.fn_task_analytics())
             .build()
             .expect("GraphInvocationCtx should build successfully");
 
         assert_eq!(ctx.namespace, namespace);
         assert_eq!(ctx.compute_graph_name, compute_graph_name);
-        assert_eq!(ctx.invocation_id, invocation_id);
+        assert_eq!(ctx.request_id, invocation_id);
         assert_eq!(ctx.graph_version, graph_version);
-        assert!(!ctx.completed);
-        assert_eq!(ctx.outcome, GraphInvocationOutcome::Unknown);
-        assert_eq!(ctx.outstanding_tasks, 0);
-        assert_eq!(ctx.outstanding_reducer_tasks, 0);
-        assert!(ctx.invocation_error.is_none());
+        assert_eq!(ctx.outcome, None);
+        assert!(ctx.request_error.is_none());
         assert_eq!(ctx.created_at, 9999999999);
         assert_eq!(ctx.vector_clock.value(), 0);
-
-        // fn_task_analytics should have an entry for each node
-        assert_eq!(ctx.fn_task_analytics.len(), compute_graph.nodes.len());
-        assert!(ctx.fn_task_analytics.contains_key("fn_a"));
 
         // Check key format
         let key = ctx.key();
@@ -2929,7 +2274,7 @@ mod tests {
             key,
             format!(
                 "{}|{}|{}",
-                ctx.namespace, ctx.compute_graph_name, ctx.invocation_id
+                ctx.namespace, ctx.compute_graph_name, ctx.request_id
             )
         );
 
@@ -2941,108 +2286,12 @@ mod tests {
             "\"compute_graph_name\":\"{}\"",
             ctx.compute_graph_name
         )));
-        assert!(json.contains(&format!("\"invocation_id\":\"{}\"", ctx.invocation_id)));
+        assert!(json.contains(&format!("\"request_id\":\"{}\"", ctx.request_id)));
         assert!(json.contains(&format!("\"graph_version\":\"{}\"", ctx.graph_version)));
-        assert!(json.contains("\"completed\":false"));
-        assert!(json.contains("\"outcome\":\"Unknown\""));
-        assert!(json.contains("\"outstanding_tasks\":0"));
-        assert!(json.contains("\"outstanding_reducer_tasks\":0"));
-        assert!(json.contains("\"fn_task_analytics\":{"));
+        assert!(json.contains("\"outcome\":null"));
         assert!(json.contains("\"created_at\":"));
-        assert!(json.contains("\"invocation_error\":null"));
+        assert!(json.contains("\"request_error\":null"));
         assert!(json.contains("\"vector_clock\":1"));
-    }
-
-    #[test]
-    fn test_task_builder_build_success() {
-        MockClock::set_system_time(Duration::from_nanos(9999999999999999));
-
-        let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let graph_version = GraphVersion::from("42");
-        let input = DataPayload {
-            path: "input/path".to_string(),
-            size: 789,
-            sha256_hash: "ghi789".to_string(),
-            offset: 0,
-        };
-        let acc_input = Some(DataPayload {
-            path: "acc/path".to_string(),
-            size: 321,
-            sha256_hash: "acc321".to_string(),
-            offset: 0,
-        });
-        let cache_key = CacheKey::from("cache-key");
-
-        let mut builder = TaskBuilder::default();
-        builder
-            .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .invocation_id(invocation_id.clone())
-            .input(input.clone())
-            .acc_input(acc_input.clone())
-            .graph_version(graph_version.clone())
-            .cache_key(Some(cache_key.clone()));
-
-        let task = builder.build().expect("Task should build successfully");
-
-        assert_eq!(task.namespace, namespace);
-        assert_eq!(task.compute_graph_name, compute_graph_name);
-        assert_eq!(task.compute_fn_name, compute_fn_name);
-        assert_eq!(task.invocation_id, invocation_id);
-        assert_eq!(task.input, input);
-        assert_eq!(task.acc_input, acc_input);
-        assert_eq!(task.graph_version, graph_version);
-        assert_eq!(task.cache_key, Some(cache_key.clone()));
-        assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.outcome, TaskOutcome::Unknown);
-        assert_eq!(task.attempt_number, 0);
-        assert!(!task.id.get().is_empty());
-        assert_eq!(task.creation_time_ns, 9999999999999999);
-        assert!(!task.key().is_empty());
-        assert_eq!(task.vector_clock.value(), 0);
-
-        // Check key format
-        let key = task.key();
-        assert!(key.starts_with(&format!(
-            "{}|{}|{}|{}|",
-            task.namespace, task.compute_graph_name, task.invocation_id, task.compute_fn_name
-        )));
-        assert!(key.ends_with(&task.id.get()));
-
-        // Check JSON serialization
-        let json = serde_json::to_string(&task).expect("Should serialize Task to JSON");
-        assert!(json.contains(&format!("\"namespace\":\"{}\"", task.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            task.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"compute_fn_name\":\"{}\"", task.compute_fn_name)));
-        assert!(json.contains(&format!("\"invocation_id\":\"{}\"", task.invocation_id)));
-        assert!(json.contains(&format!("\"id\":\"{}\"", task.id.get())));
-        assert!(json.contains("\"status\":\"Pending\""));
-        assert!(json.contains("\"outcome\":\"Unknown\""));
-        assert!(json.contains(&format!("\"graph_version\":\"{}\"", task.graph_version)));
-        assert!(json.contains(&format!("\"cache_key\":\"{cache_key}\"")));
-        assert!(json.contains("\"cache_hit\":false"));
-        assert!(json.contains("\"vector_clock\":1"));
-        assert!(json.contains("\"input\":{"));
-        assert!(json.contains(&format!("\"path\":\"{}\"", input.path)));
-        assert!(json.contains(&format!("\"sha256_hash\":\"{}\"", input.sha256_hash)));
-        assert!(json.contains(&format!("\"size\":{}", input.size)));
-        assert!(json.contains("\"acc_input\":{"));
-        assert!(json.contains(&format!(
-            "\"path\":\"{}\"",
-            acc_input.as_ref().unwrap().path
-        )));
-        assert!(json.contains(&format!(
-            "\"sha256_hash\":\"{}\"",
-            acc_input.as_ref().unwrap().sha256_hash
-        )));
-        assert!(json.contains(&format!("\"size\":{}", acc_input.as_ref().unwrap().size)));
     }
 
     #[test]

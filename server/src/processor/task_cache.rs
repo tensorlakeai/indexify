@@ -1,26 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+};
 
 use tokio::sync::Mutex;
 use tracing::{debug, span};
 
 use crate::{
-    data_model::{
-        AllocationOutputIngestedEvent,
-        CacheKey,
-        ChangeType,
-        NodeOutput,
-        StateChangeBuilder,
-        StateChangeId,
-        Task,
-        TaskOutcome,
-        TaskStatus,
-    },
-    state_store::{
-        in_memory_state::{InMemoryState, UnallocatedTaskId},
-        requests::SchedulerUpdateRequest,
-        IndexifyState,
-    },
-    utils,
+    data_model::{CacheKey, DataPayload},
+    state_store::IndexifyState,
 };
 
 pub struct CacheState {
@@ -28,7 +17,7 @@ pub struct CacheState {
     outputs_ingested: usize,
     cache_checks: usize,
     cache_hits: usize,
-    map: HashMap<String, HashMap<(CacheKey, String), NodeOutput>>,
+    map: HashMap<String, HashMap<(CacheKey, String), DataPayload>>,
 }
 
 pub struct TaskCache {
@@ -48,138 +37,52 @@ impl TaskCache {
         }
     }
 
-    pub async fn handle_task_outputs(
+    pub async fn cache_inputs(
         &self,
-        event: &AllocationOutputIngestedEvent,
-        indexes: &InMemoryState,
+        namespace: &str,
+        cache_key: &CacheKey,
+        inputs: &[DataPayload],
+        output: &DataPayload,
     ) {
         let _span = span!(tracing::Level::DEBUG, "cache_write").entered();
-
-        let mut state = self.mutex.lock().await;
-        state.outputs_ingested += 1;
-
-        let Some(task) = indexes.tasks.get(&Task::key_from(
-            &event.namespace,
-            &event.compute_graph,
-            &event.invocation_id,
-            &event.compute_fn,
-            &event.task_id.to_string(),
-        )) else {
-            return;
-        };
-        let Some(cache_key) = &task.cache_key else {
-            return;
-        };
-
-        let input_hash = task.input.sha256_hash.clone();
-
-        let Ok(Some(node_output)) = state
-            .indexify_state
-            .reader()
-            .get_node_output_by_key(&event.node_output_key)
-        else {
-            return;
-        };
-
-        let namespace = event.namespace.clone();
+        let mut hasher = DefaultHasher::new();
+        for input in inputs {
+            input.sha256_hash.hash(&mut hasher);
+        }
+        let input_hash = format!("{:x}", hasher.finish());
 
         debug!("Caching the output of {namespace}/{cache_key:?}/{input_hash}");
 
-        state
+        self.mutex
+            .lock()
+            .await
             .map
-            .entry(namespace)
+            .entry(namespace.to_string())
             .or_default()
-            .insert((cache_key.clone(), input_hash.clone()), node_output);
+            .insert((cache_key.clone(), input_hash.clone()), output.clone());
     }
 
-    pub async fn try_allocate(
+    pub async fn cached_outputs(
         &self,
-        indexes: &mut InMemoryState,
-    ) -> anyhow::Result<SchedulerUpdateRequest> {
+        namespace: &str,
+        cache_key: &CacheKey,
+        inputs: &[DataPayload],
+    ) -> Option<DataPayload> {
         let _span = span!(tracing::Level::DEBUG, "cache_check").entered();
 
-        let mut state = self.mutex.lock().await;
-
-        let mut to_remove: Vec<UnallocatedTaskId> = Vec::new();
-        let mut result = SchedulerUpdateRequest::default();
-
-        for task_id in &indexes.unallocated_tasks {
-            debug!(task = ?task_id);
-            state.cache_checks += 1;
-
-            let Some(task) = indexes.tasks.get(&task_id.task_key) else {
-                continue;
-            };
-
-            let Some(cache_key) = &task.cache_key else {
-                continue;
-            };
-
-            debug!(namespace = task.namespace);
-            debug!(task_key = ?cache_key);
-
-            let Some(submap) = state.map.get(&task.namespace) else {
-                debug!("No cache namespace entry found");
-                continue;
-            };
-
-            let submap_key = (cache_key.clone(), task.input.sha256_hash.clone());
-
-            let Some(output) = submap.get(&submap_key) else {
-                debug!("No cache entry found");
-                continue;
-            };
-
-            // TODO: We need to handle the case where the previous
-            // outputs have been deleted.  It's unclear that there's a
-            // great place to do that, though (at least, not without a
-            // race condition).  We should probably migrate towards
-            // holding our knowledge of the blobstore state as part of
-            // our state, allowing Indexify to manage it explicitly.
-
-            debug!("Cache entry found; ingesting previous outputs");
-            to_remove.push(task_id.clone());
-            let mut task = *(task.clone());
-            task.status = TaskStatus::Completed;
-            task.outcome = TaskOutcome::Success;
-            task.cache_hit = true;
-
-            let change_id = state
-                .indexify_state
-                .state_change_id_seq()
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-            let state_change = StateChangeBuilder::default()
-                .namespace(Some(task.namespace.clone()))
-                .compute_graph(Some(task.compute_graph_name.clone()))
-                .invocation(Some(task.invocation_id.clone()))
-                .change_type(ChangeType::AllocationOutputsIngested(
-                    AllocationOutputIngestedEvent {
-                        namespace: task.namespace.clone(),
-                        compute_graph: task.compute_graph_name.clone(),
-                        compute_fn: task.compute_fn_name.clone(),
-                        invocation_id: task.invocation_id.clone(),
-                        task_id: task.id.clone(),
-                        node_output_key: output.key(),
-                        allocation_key: None,
-                    },
-                ))
-                .created_at(utils::get_epoch_time_in_ms())
-                .object_id(task.id.clone().to_string())
-                .id(StateChangeId::new(change_id))
-                .processed_at(None)
-                .build()?;
-
-            result.state_changes.push(state_change);
-            result.cached_task_keys.insert(task.key());
-            result.updated_tasks.insert(task.id.clone(), task);
-            state.cache_hits += 1;
+        let state = self.mutex.lock().await;
+        let mut hasher = DefaultHasher::new();
+        for input in inputs {
+            input.sha256_hash.hash(&mut hasher);
         }
+        let input_hash = format!("{:x}", hasher.finish());
 
-        for task_id in &to_remove {
-            indexes.unallocated_tasks.remove(task_id);
-        }
+        let submap_key = (cache_key.clone(), input_hash.clone());
 
-        Ok(result)
+        let Some(submap) = state.map.get(&namespace.to_string()) else {
+            debug!("No cache entry found");
+            return None;
+        };
+        submap.get(&submap_key).cloned()
     }
 }

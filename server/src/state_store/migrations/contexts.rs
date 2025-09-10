@@ -267,7 +267,7 @@ mod tests {
         let ctx = MigrationContext::new(&db, &txn);
 
         // Test JSON operations
-        ctx.update_json(&IndexifyObjectsColumns::Tasks, key, |json| {
+        ctx.update_json(&IndexifyObjectsColumns::GraphInvocationCtx, key, |json| {
             // Rename field
             ctx.rename_json_field(json, "old_field", "new_field")?;
 

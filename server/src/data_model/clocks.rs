@@ -160,6 +160,8 @@ pub trait Linearizable {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use super::*;
     use crate::data_model::{Allocation, AllocationBuilder, AllocationTarget, TaskOutcome};
 
@@ -227,7 +229,9 @@ mod tests {
             .compute_graph("graph".to_string())
             .compute_fn("fn".to_string())
             .invocation_id("invoc-1".to_string())
-            .task_id("task-1".into())
+            .function_call_id("task-1".into())
+            .input_args(vec![])
+            .call_metadata(Bytes::new())
             .target(target.clone())
             .attempt_number(1)
             .outcome(TaskOutcome::Success)

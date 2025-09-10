@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 
 use crate::{
     blob_store::PutResult,
-    http_objects::{self, IndexifyAPIError, ListParams},
+    http_objects::{IndexifyAPIError, ListParams},
     http_objects_v1,
     routes::routes_state::RouteState,
     state_store::requests::{
@@ -46,6 +46,7 @@ pub async fn create_or_update_application(
     mut application_code: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut application_manifest: Option<http_objects_v1::Application> = Option::None;
+    let mut put_result: Option<PutResult> = None;
 
     let mut upgrade_tasks_to_current_version: Option<bool> = None;
     while let Some(field) = application_code
@@ -57,6 +58,15 @@ pub async fn create_or_update_application(
         if let Some(name) = name {
             if name == "code" {
                 info!("Found application code zip in create_or_update_application request");
+                let stream = field.map(|res| res.map_err(|err| anyhow!(err)));
+                let file_name = format!("{}_{}", namespace, nanoid::nanoid!());
+                let result = state
+                    .blob_storage
+                    .get_blob_store(&namespace)
+                    .put(&file_name, stream)
+                    .await
+                    .map_err(IndexifyAPIError::internal_error)?;
+                put_result = Some(result);
             } else if name == "application" {
                 let text = field
                     .text()
@@ -86,95 +96,16 @@ pub async fn create_or_update_application(
     }
 
     let application_manifest = application_manifest.ok_or(IndexifyAPIError::bad_request(
-        "Application manifest is required",
+        "application manifest is required",
     ))?;
 
     info!(
-        "Recieved new application manifest: {:?}",
+        "received new application manifest: {:?}",
         application_manifest
     );
-    Ok(())
-}
-
-#[allow(dead_code)]
-#[derive(ToSchema)]
-struct ComputeGraphCreateType {
-    compute_graph: http_objects::ComputeGraph,
-    #[schema(format = "binary")]
-    code: String,
-}
-
-/// Create or update a workflow
-#[utoipa::path(
-    post,
-    path = "v1/namespaces/{namespace}/compute-graphs",
-    tag = "operations",
-    request_body(content_type = "multipart/form-data", content = inline(ComputeGraphCreateType)),
-    responses(
-        (status = 200, description = "create or update a compute graph"),
-        (status = INTERNAL_SERVER_ERROR, description = "unable to create compute graph")
-    ),
-)]
-pub async fn create_or_update_compute_graph_v1(
-    Path(namespace): Path<String>,
-    State(state): State<RouteState>,
-    mut compute_graph_code: Multipart,
-) -> Result<(), IndexifyAPIError> {
-    let mut compute_graph_definition: Option<http_objects_v1::ComputeGraph> = Option::None;
-    let mut put_result: Option<PutResult> = None;
-    let mut upgrade_tasks_to_current_version: Option<bool> = None;
-    while let Some(field) = compute_graph_code
-        .next_field()
-        .await
-        .map_err(|err| IndexifyAPIError::internal_error(anyhow!(err)))?
-    {
-        let name = field.name();
-        if let Some(name) = name {
-            if name == "code" {
-                let stream = field.map(|res| res.map_err(|err| anyhow!(err)));
-                let file_name = format!("{}_{}", namespace, nanoid::nanoid!());
-                let result = state
-                    .blob_storage
-                    .get_blob_store(&namespace)
-                    .put(&file_name, stream)
-                    .await
-                    .map_err(IndexifyAPIError::internal_error)?;
-                put_result = Some(result);
-            } else if name == "compute_graph" {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                let mut json_value: serde_json::Value = serde_json::from_str(&text)?;
-                json_value["namespace"] = serde_json::Value::String(namespace.clone());
-                compute_graph_definition = Some(serde_json::from_value(json_value)?);
-            } else if name == "upgrade_tasks_to_latest_version" {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                upgrade_tasks_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
-            } else if name == "code_content_type" {
-                let code_content_type = field
-                    .text()
-                    .await
-                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                if code_content_type != "application/zip" {
-                    return Err(IndexifyAPIError::bad_request(
-                        "Code content type must be application/zip",
-                    ));
-                }
-            }
-        }
-    }
-
-    let compute_graph_definition = compute_graph_definition.ok_or(
-        IndexifyAPIError::bad_request("Compute graph definition is required"),
-    )?;
-
     let put_result = put_result.ok_or(IndexifyAPIError::bad_request("Code is required"))?;
 
-    let compute_graph = compute_graph_definition.into_data_model(
+    let compute_graph = application_manifest.into_data_model(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
@@ -209,28 +140,27 @@ pub async fn create_or_update_compute_graph_v1(
     if let Err(err) = result {
         return Err(IndexifyAPIError::internal_error(err));
     }
-
-    info!("compute graph created: {}", name);
+    info!("application created: {}", name);
     Ok(())
 }
 
 /// Delete compute graph
 #[utoipa::path(
     delete,
-    path = "v1/namespaces/{namespace}/compute-graphs/{compute_graph}",
+    path = "v1/namespaces/{namespace}/applications/{application}",
     tag = "operations",
     responses(
-        (status = 200, description = "compute graph deleted successfully"),
-        (status = BAD_REQUEST, description = "unable to delete compute graph")
+        (status = 200, description = "application deleted successfully"),
+        (status = BAD_REQUEST, description = "unable to delete application")
     ),
 )]
-pub async fn delete_compute_graph(
-    Path((namespace, compute_graph)): Path<(String, String)>,
+pub async fn delete_application(
+    Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
     let request = RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
         namespace,
-        name: compute_graph.clone(),
+        name: application.clone(),
     });
     state
         .indexify_state
@@ -238,28 +168,28 @@ pub async fn delete_compute_graph(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    info!("compute graph deleted: {}", compute_graph);
+    info!("application deleted: {}", application);
     Ok(())
 }
 
 /// List compute graphs
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/compute-graphs",
+    path = "v1/namespaces/{namespace}/applications",
     tag = "operations",
     params(
         ListParams
     ),
     responses(
-        (status = 200, description = "lists compute graphs", body = http_objects_v1::ComputeGraphsList),
+        (status = 200, description = "lists applications", body = http_objects_v1::ApplicationsList),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
-pub async fn list_compute_graphs(
+pub async fn applications(
     Path(namespace): Path<String>,
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
-) -> Result<Json<http_objects_v1::ComputeGraphsList>, IndexifyAPIError> {
+) -> Result<Json<http_objects_v1::ApplicationsList>, IndexifyAPIError> {
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
@@ -269,7 +199,7 @@ pub async fn list_compute_graphs(
         .list_compute_graphs(&namespace, cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
-    Ok(Json(http_objects_v1::ComputeGraphsList {
+    Ok(Json(http_objects_v1::ApplicationsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
         cursor,
     }))
@@ -278,24 +208,24 @@ pub async fn list_compute_graphs(
 /// Get a compute graph definition
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}",
+    path = "/v1/namespaces/{namespace}/applications/{application}",
     tag = "operations",
     responses(
-        (status = 200, description = "compute graph definition", body = http_objects_v1::ComputeGraph),
+        (status = 200, description = "application definition", body = http_objects_v1::Application),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
-pub async fn get_compute_graph(
+pub async fn get_application(
     Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
-) -> Result<Json<http_objects_v1::ComputeGraph>, IndexifyAPIError> {
-    let compute_graph = state
+) -> Result<Json<http_objects_v1::Application>, IndexifyAPIError> {
+    let application = state
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &name)
         .map_err(IndexifyAPIError::internal_error)?;
-    if let Some(compute_graph) = compute_graph {
-        return Ok(Json(compute_graph.into()));
+    if let Some(application) = application {
+        return Ok(Json(application.into()));
     }
-    Err(IndexifyAPIError::not_found("Compute Graph not found"))
+    Err(IndexifyAPIError::not_found("Application not found"))
 }

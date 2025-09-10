@@ -9,16 +9,16 @@ use crate::{
     blob_store::BlobStorageConfig,
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
-        test_objects::tests::test_node_fn_output,
         Allocation,
+        ComputeOp,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
         FunctionExecutor,
         FunctionExecutorState,
+        FunctionRun,
+        GraphInvocationCtx,
         GraphVersion,
-        Task,
-        TaskDiagnostics,
         TaskOutcome,
         TaskStatus,
     },
@@ -128,20 +128,23 @@ impl TestService {
         Ok(e)
     }
 
-    pub async fn get_all_tasks(&self) -> Result<Vec<Task>> {
-        let tasks = self
+    pub async fn get_all_function_runs(&self) -> Result<Vec<Box<FunctionRun>>> {
+        let function_runs = self
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<Task>(IndexifyObjectsColumns::Tasks)?
-            .iter()
-            .map(|r| r.1.clone())
+            .get_all_rows_from_cf::<GraphInvocationCtx>(IndexifyObjectsColumns::GraphInvocationCtx)
+            .unwrap()
+            .into_iter()
+            .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
+            .flatten()
+            .map(|fr| Box::new(fr))
             .collect::<Vec<_>>();
-        Ok(tasks)
+        Ok(function_runs)
     }
 
-    pub async fn get_allocated_tasks(&self) -> Result<Vec<Task>> {
-        let tasks = self.get_all_tasks().await?;
+    pub async fn get_allocated_tasks(&self) -> Result<Vec<Box<FunctionRun>>> {
+        let tasks = self.get_all_function_runs().await?;
         let allocated_tasks = tasks
             .into_iter()
             .filter(|t| matches!(t.status, TaskStatus::Running(_)))
@@ -149,8 +152,8 @@ impl TestService {
         Ok(allocated_tasks)
     }
 
-    pub async fn get_pending_tasks(&self) -> Result<Vec<Task>> {
-        let tasks = self.get_all_tasks().await?;
+    pub async fn get_pending_function_runs(&self) -> Result<Vec<Box<FunctionRun>>> {
+        let tasks = self.get_all_function_runs().await?;
         let pending_tasks = tasks
             .into_iter()
             .filter(|t| t.status == TaskStatus::Pending)
@@ -164,7 +167,7 @@ impl TestService {
             .in_memory_state
             .read()
             .await
-            .tasks
+            .function_runs
             .clone();
 
         let pending_tasks_memory = pending_tasks_memory
@@ -178,29 +181,31 @@ impl TestService {
             "Pending tasks in mem store",
         );
 
-        let unallocated_tasks = self
+        let unallocated_function_runs = self
             .service
             .indexify_state
             .in_memory_state
             .read()
             .await
-            .unallocated_tasks
+            .unallocated_function_runs
             .clone();
 
         assert_eq!(
-            unallocated_tasks.len(),
+            unallocated_function_runs.len(),
             pending_count,
-            "Unallocated tasks in mem store",
+            "Unallocated function runs in mem store",
         );
 
         Ok(pending_tasks)
     }
 
-    pub async fn get_completed_success_tasks(&self) -> Result<Vec<Task>> {
-        let tasks = self.get_all_tasks().await?;
-        let completed_success_tasks = tasks
+    pub async fn get_success_function_runs(&self) -> Result<Vec<Box<FunctionRun>>> {
+        let function_runs = self.get_all_function_runs().await?;
+        let completed_success_tasks = function_runs
             .into_iter()
-            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
+            .filter(|t| {
+                t.status == TaskStatus::Completed && t.outcome == Some(TaskOutcome::Success)
+            })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)
     }
@@ -210,12 +215,17 @@ impl TestService {
 #[macro_export]
 macro_rules! assert_task_counts {
     ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
-        let all_tasks = $test_srv.get_all_tasks().await?;
+        let all_function_runs = $test_srv.get_all_function_runs().await?;
         let allocated_tasks = $test_srv.get_allocated_tasks().await?;
-        let pending_tasks = $test_srv.get_pending_tasks().await?;
-        let completed_success_tasks = $test_srv.get_completed_success_tasks().await?;
+        let pending_tasks = $test_srv.get_pending_function_runs().await?;
+        let completed_success_tasks = $test_srv.get_success_function_runs().await?;
 
-        assert_eq!(all_tasks.len(), $total, "Total Tasks: {:#?}", all_tasks);
+        assert_eq!(
+            all_function_runs.len(),
+            $total,
+            "Total Tasks: {:#?}",
+            all_function_runs
+        );
         assert_eq!(
             allocated_tasks.len(),
             $allocated,
@@ -267,61 +277,40 @@ macro_rules! assert_executor_state {
 }
 
 pub struct FinalizeTaskArgs {
-    pub num_outputs: i32,
     pub task_outcome: TaskOutcome,
-    pub reducer_fn: Option<String>,
-    pub diagnostics: Option<TaskDiagnostics>,
     pub allocation_key: String,
+    pub graph_version: String,
+    pub graph_updates: Vec<ComputeOp>,
+    pub data_payload: Option<DataPayload>,
 }
 
 pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
     Allocation::key_from(
-        allocation.task.as_ref().unwrap().namespace(),
-        allocation.task.as_ref().unwrap().graph_name(),
-        allocation.task.as_ref().unwrap().graph_invocation_id(),
-        allocation.allocation_id.as_ref().unwrap(),
+        &allocation.namespace.as_ref().unwrap(),
+        &allocation.graph_name.as_ref().unwrap(),
+        &allocation.request_id.as_ref().unwrap(),
+        &allocation.allocation_id.as_ref().unwrap(),
     )
 }
 
 impl FinalizeTaskArgs {
-    pub fn new(allocation_key: String) -> FinalizeTaskArgs {
+    pub fn new(
+        allocation_key: String,
+        graph_version: String,
+        graph_updates: Vec<ComputeOp>,
+        data_payload: Option<DataPayload>,
+    ) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
-            num_outputs: 1,
             task_outcome: TaskOutcome::Success,
-            reducer_fn: None,
-            diagnostics: None,
             allocation_key,
+            graph_version,
+            graph_updates,
+            data_payload,
         }
     }
 
     pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
         self.task_outcome = task_outcome;
-        self
-    }
-
-    pub fn diagnostics(mut self, stdout: bool, stderr: bool) -> FinalizeTaskArgs {
-        self.diagnostics = Some(TaskDiagnostics {
-            stdout: if stdout {
-                Some(DataPayload {
-                    path: format!("stdout_{}", uuid::Uuid::new_v4()),
-                    size: 0,
-                    sha256_hash: "".to_string(),
-                    offset: 0, // stdout always uses its full BLOB
-                })
-            } else {
-                None
-            },
-            stderr: if stderr {
-                Some(DataPayload {
-                    path: format!("stderr_{}", uuid::Uuid::new_v4()),
-                    size: 0,
-                    sha256_hash: "".to_string(),
-                    offset: 0, // stderr always uses its full BLOB
-                })
-            } else {
-                None
-            },
-        });
         self
     }
 }
@@ -344,7 +333,6 @@ impl TestExecutor<'_> {
 
         let request = UpsertExecutorRequest::build(
             executor,
-            vec![],
             vec![],
             update_executor_state,
             self.test_service.service.indexify_state.clone(),
@@ -478,49 +466,6 @@ impl TestExecutor<'_> {
         task_allocation: &TaskAllocation,
         args: FinalizeTaskArgs,
     ) -> Result<()> {
-        let allocation_id = task_allocation.allocation_id.clone().unwrap();
-        let task_ref = task_allocation.task.as_ref().unwrap();
-        let graph_version = self
-            .test_service
-            .service
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(
-                task_ref.namespace(),
-                task_ref.graph_name(),
-                &GraphVersion(task_ref.graph_version().to_string()),
-            )?
-            .unwrap();
-        let node_output = test_node_fn_output(
-            task_ref.graph_invocation_id(),
-            task_ref.graph_name(),
-            task_ref.function_name(),
-            args.reducer_fn.clone(),
-            args.num_outputs as usize,
-            allocation_id,
-            graph_version
-                .edges
-                .get(task_ref.function_name())
-                .cloned()
-                .unwrap_or_default(),
-        );
-
-        // get the task from the state store
-        let task = self
-            .test_service
-            .service
-            .indexify_state
-            .reader()
-            .get_task(
-                task_ref.namespace(),
-                task_ref.graph_name(),
-                task_ref.graph_invocation_id(),
-                task_ref.function_name(),
-                task_ref.id(),
-            )
-            .unwrap()
-            .unwrap();
-
         let mut allocation = self
             .test_service
             .service
@@ -531,22 +476,18 @@ impl TestExecutor<'_> {
             .unwrap();
 
         allocation.outcome = args.task_outcome;
-        allocation.diagnostics = args.diagnostics.clone();
 
         let ingest_task_outputs_request = AllocationOutput {
-            namespace: task.namespace.clone(),
-            compute_graph: task.compute_graph_name.clone(),
-            compute_fn: task.compute_fn_name.clone(),
-            invocation_id: task.invocation_id.clone(),
-            node_output,
+            request_exception: None,
+            graph_updates: args.graph_updates,
             executor_id: self.executor_id.clone(),
-            allocation_key: args.allocation_key.clone(),
+            invocation_id: task_allocation.request_id.clone().unwrap(),
+            data_payload: args.data_payload,
             allocation,
         };
 
         let request = UpsertExecutorRequest::build(
             self.executor_metadata.clone(),
-            vec![],
             vec![ingest_task_outputs_request],
             false,
             self.test_service.service.indexify_state.clone(),

@@ -2,27 +2,56 @@
 pub mod tests {
     use std::collections::HashMap;
 
-    use rand::Rng;
+    use bytes::Bytes;
+    use nanoid::nanoid;
 
-    use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, NodeOutput, RuntimeInformation};
-    use crate::data_model::{
-        ComputeGraphBuilder,
-        ComputeGraphState,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorMetadataBuilder,
-        FunctionRetryPolicy,
-        GraphInvocationCtx,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
+    use super::super::{ComputeFn, ComputeGraph, RuntimeInformation};
+    use crate::{
+        data_model::{
+            ComputeGraphBuilder,
+            ComputeGraphState,
+            ComputeOp,
+            DataPayload,
+            ExecutorId,
+            ExecutorMetadata,
+            ExecutorMetadataBuilder,
+            FunctionArgs,
+            FunctionCall,
+            FunctionCallId,
+            FunctionRetryPolicy,
+            GraphInvocationCtx,
+            GraphInvocationCtxBuilder,
+            InputArgs,
+        },
+        utils::get_epoch_time_in_ms,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
+
+    pub fn mock_updates() -> Vec<ComputeOp> {
+        let fn_b = mock_function_call_with_name(
+            "fn_b",
+            vec![FunctionArgs::DataPayload(mock_data_payload())],
+        );
+        let fn_c = mock_function_call_with_name(
+            "fn_c",
+            vec![FunctionArgs::DataPayload(mock_data_payload())],
+        );
+        let fn_d = mock_function_call_with_name(
+            "fn_d",
+            vec![
+                FunctionArgs::FunctionRunOutput(fn_b.function_call_id.clone()),
+                FunctionArgs::FunctionRunOutput(fn_c.function_call_id.clone()),
+            ],
+        );
+        let updates = vec![
+            ComputeOp::FunctionCall(fn_b),
+            ComputeOp::FunctionCall(fn_c),
+            ComputeOp::FunctionCall(fn_d),
+        ];
+        updates
+    }
 
     pub fn test_compute_fn(name: &str, max_retries: u32) -> ComputeFn {
         ComputeFn {
@@ -38,80 +67,47 @@ pub mod tests {
         }
     }
 
-    pub fn test_node_fn_output(
-        invocation_id: &str,
-        graph: &str,
-        compute_fn_name: &str,
-        reducer_fn: Option<String>,
-        num_outputs: usize,
-        allocation_id: String,
-        next_functions: Vec<String>,
-    ) -> NodeOutput {
-        let mut path = rand::rng()
-            .sample_iter(rand::distr::Alphanumeric)
-            .take(7)
-            .map(char::from)
-            .collect::<String>(); // Generate a random string for the path
-        if let Some(reducer_fn) = reducer_fn {
-            // Simulating overriding the existing output for accumulators
-            path = format!("{invocation_id}-{graph}-{reducer_fn}");
+    pub fn mock_data_payload() -> DataPayload {
+        DataPayload {
+            id: nanoid!(),
+            metadata_size: 0,
+            encoding: "application/octet-stream".to_string(),
+            path: nanoid!(),
+            size: 23,
+            sha256_hash: nanoid!(),
+            offset: 0,
         }
-        NodeOutputBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .compute_fn_name(compute_fn_name.to_string())
-            .compute_graph_name(graph.to_string())
-            .invocation_id(invocation_id.to_string())
-            .allocation_id(allocation_id)
-            .payloads(
-                (0..num_outputs)
-                    .map(|_| DataPayload {
-                        sha256_hash: "3433".to_string(),
-                        path: path.clone(),
-                        size: 12,
-                        offset: 0,
-                    })
-                    .collect(),
-            )
-            .next_functions(next_functions)
-            .build()
-            .unwrap()
     }
 
-    pub fn test_invocation_payload_graph_a() -> InvocationPayload {
-        InvocationPayloadBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .compute_graph_name("graph_A".to_string())
-            .payload(DataPayload {
-                path: "test".to_string(),
-                size: 23,
-                sha256_hash: "hash1232".to_string(),
-                offset: 0,
-            })
-            .encoding("application/octet-stream".to_string())
-            .build()
+    pub fn mock_request_ctx(namespace: &str, compute_graph: &ComputeGraph) -> GraphInvocationCtx {
+        let request_id = nanoid!();
+        let fn_call = mock_function_call();
+        let input_args = vec![InputArgs {
+            function_call_id: None,
+            data_payload: mock_data_payload(),
+        }];
+        let fn_run = compute_graph
+            .to_version()
             .unwrap()
-    }
-
-    pub fn test_invocation_ctx(
-        namespace: &str,
-        compute_graph: &ComputeGraph,
-        invocation_payload: &InvocationPayload,
-    ) -> GraphInvocationCtx {
+            .create_function_run(&fn_call, input_args, &request_id)
+            .unwrap();
         GraphInvocationCtxBuilder::default()
             .namespace(namespace.to_string())
+            .request_id(request_id)
             .compute_graph_name(compute_graph.name.clone())
-            .graph_version(GraphVersion::default())
-            .invocation_id(invocation_payload.id.clone())
-            .fn_task_analytics(compute_graph.fn_task_analytics())
-            .created_at(invocation_payload.created_at)
+            .graph_version(compute_graph.version.clone())
+            .function_runs(HashMap::from([(fn_run.id.clone(), fn_run)]))
+            .function_calls(HashMap::from([(fn_call.function_call_id.clone(), fn_call)]))
+            .created_at(get_epoch_time_in_ms())
             .build()
             .unwrap()
     }
 
-    pub fn test_graph_a_retry(max_retries: u32) -> ComputeGraph {
+    pub fn mock_graph_with_retries(max_retries: u32) -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", max_retries);
         let fn_b = test_compute_fn("fn_b", max_retries);
         let fn_c = test_compute_fn("fn_c", max_retries);
+        let fn_d = test_compute_fn("fn_d", max_retries);
 
         ComputeGraphBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
@@ -126,14 +122,15 @@ pub mod tests {
                 ("fn_b".to_string(), fn_b),
                 ("fn_c".to_string(), fn_c),
                 ("fn_a".to_string(), fn_a.clone()),
+                ("fn_d".to_string(), fn_d),
             ]))
             .version(crate::data_model::GraphVersion::from("1"))
-            .edges(HashMap::from([(
-                "fn_a".to_string(),
-                vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]))
             .description("description graph_A".to_string())
-            .code(ComputeGraphCode {
+            .code(DataPayload {
+                id: "code_id".to_string(),
+                metadata_size: 0,
+                offset: 0,
+                encoding: "application/octet-stream".to_string(),
                 path: "cg_path".to_string(),
                 size: 23,
                 sha256_hash: "hash123".to_string(),
@@ -149,11 +146,24 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn test_graph_a() -> ComputeGraph {
-        test_graph_a_retry(0)
+    pub fn mock_graph() -> ComputeGraph {
+        mock_graph_with_retries(0)
     }
 
-    pub fn test_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
+    pub fn mock_function_call_with_name(fn_name: &str, inputs: Vec<FunctionArgs>) -> FunctionCall {
+        FunctionCall {
+            function_call_id: FunctionCallId(nanoid!()),
+            inputs,
+            fn_name: fn_name.to_string(),
+            call_metadata: Bytes::new(),
+        }
+    }
+
+    pub fn mock_function_call() -> FunctionCall {
+        mock_function_call_with_name("fn_a", vec![FunctionArgs::DataPayload(mock_data_payload())])
+    }
+
+    pub fn mock_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
         ExecutorMetadataBuilder::default()
             .id(id)
             .executor_version("1.0.0".to_string())

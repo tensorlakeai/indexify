@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{anyhow, Result};
 use if_chain::if_chain;
 use rand::seq::IndexedRandom;
@@ -15,15 +17,14 @@ use crate::{
         FunctionExecutorState,
         FunctionExecutorTerminationReason,
         FunctionResources,
-        GraphInvocationCtx,
+        FunctionRun,
         RunningTaskStatus,
-        Task,
         TaskOutcome,
         TaskStatus,
     },
     processor::{targets, task_policy::TaskRetryPolicy},
     state_store::{
-        in_memory_state::InMemoryState,
+        in_memory_state::{FunctionRunKey, InMemoryState},
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
@@ -85,16 +86,16 @@ impl FunctionExecutorManager {
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
-        task: &Task,
+        task: &FunctionRun,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             target: targets::SCHEDULER,
             "create_function_executor",
             namespace = task.namespace,
-            invocation_id = task.invocation_id,
-            task_id = task.id.get(),
-            graph = task.compute_graph_name,
-            "fn" = task.compute_fn_name,
+            invocation_id = task.request_id,
+            function_call_id = task.id.to_string(),
+            graph = task.application,
+            "fn" = task.name,
             graph_version = task.graph_version.to_string(),
         );
         let _guard = span.enter();
@@ -103,7 +104,7 @@ impl FunctionExecutorManager {
         let mut candidates = in_memory_state.candidate_executors(task)?;
         if candidates.is_empty() {
             debug!(target: targets::SCHEDULER, "no candidates found for task, running vacuum");
-            let fe_resource = in_memory_state.fe_resource_for_task(task)?;
+            let fe_resource = in_memory_state.fe_resource_for_function_run(task)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
             in_memory_state.update_state(
@@ -126,8 +127,8 @@ impl FunctionExecutorManager {
         let node_resources = in_memory_state
             .get_fe_resources_by_uri(
                 &task.namespace,
-                &task.compute_graph_name,
-                &task.compute_fn_name,
+                &task.application,
+                &task.name,
                 &task.graph_version,
             )
             .ok_or(anyhow!("failed to get function executor resources"))?;
@@ -143,8 +144,8 @@ impl FunctionExecutorManager {
         let node_max_concurrency = in_memory_state
             .get_fe_max_concurrency_by_uri(
                 &task.namespace,
-                &task.compute_graph_name,
-                &task.compute_fn_name,
+                &task.application,
+                &task.name,
                 &task.graph_version,
             )
             .ok_or(anyhow!("failed to get function executor max concurrency"))?;
@@ -152,8 +153,8 @@ impl FunctionExecutorManager {
         // Create a new function executor
         let function_executor = FunctionExecutorBuilder::default()
             .namespace(task.namespace.clone())
-            .compute_graph_name(task.compute_graph_name.clone())
-            .compute_fn_name(task.compute_fn_name.clone())
+            .compute_graph_name(task.application.clone())
+            .compute_fn_name(task.name.clone())
             .version(task.graph_version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(fe_resources.clone())
@@ -326,13 +327,24 @@ impl FunctionExecutorManager {
                 .cloned()
                 .unwrap_or_default();
             for alloc in allocs {
-                let Some(mut task) = in_memory_state.tasks.get(&alloc.task_key()).cloned() else {
+                let Some(mut function_run) = in_memory_state
+                    .function_runs
+                    .get(&FunctionRunKey::from(&alloc))
+                    .cloned()
+                else {
+                    continue;
+                };
+                let Some(mut ctx) = in_memory_state
+                    .invocation_ctx
+                    .get(&function_run.clone().into())
+                    .cloned()
+                else {
                     continue;
                 };
                 // Idempotency: we only act on this alloc's task if the task is currently
                 // running this alloc. This is because we handle allocation
                 // failures on FE termination and alloc output ingestion paths.
-                if task.status !=
+                if function_run.status !=
                     TaskStatus::Running(RunningTaskStatus {
                         allocation_id: alloc.id.clone(),
                     })
@@ -341,51 +353,47 @@ impl FunctionExecutorManager {
                 }
 
                 if_chain! {
-                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&task);
+                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&function_run);
                         if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
                 then {
                             if blame_alloc_ids.contains(&alloc.id.to_string()) {
                                 let mut updated_alloc = *alloc.clone();
                                 updated_alloc.outcome = TaskOutcome::Failure((*termination_reason).into());
                                 TaskRetryPolicy::handle_allocation_outcome(
-                                    &mut task,
+                                    &mut function_run,
                                     &updated_alloc,
                                     compute_graph_version,
                                 );
                             } else {
                                 // This allocation wasn't blamed for the FE termination,
                                 // retry without involving the task retry policy but still fail the alloc.
-                                task.status = TaskStatus::Pending;
+                                function_run.status = TaskStatus::Pending;
                             }
 
                             // Count failed tasks for logging
-                            if task.status == TaskStatus::Completed {
+                            if function_run.status == TaskStatus::Completed {
                                 failed_tasks += 1;
                             }
                         }
                 else {
                             // Could not get compute graph version, or function executor not terminated; set task to pending
-                            task.status = TaskStatus::Pending;
+                            function_run.status = TaskStatus::Pending;
                         }
                     }
-                update.updated_tasks.insert(task.id.clone(), *task.clone());
-                let invocation_ctx_key = GraphInvocationCtx::key_from(
-                    &task.namespace,
-                    &task.compute_graph_name,
-                    &task.invocation_id,
-                );
-                if let Some(invocation_ctx) = in_memory_state
-                    .invocation_ctx
-                    .get(&invocation_ctx_key)
-                    .cloned()
-                {
-                    if task.status == TaskStatus::Completed {
-                        let mut invocation_ctx = invocation_ctx.clone();
-                        invocation_ctx.completed = true;
-                        invocation_ctx.outcome = task.outcome.into();
-                        update.updated_invocations_states.push(*invocation_ctx);
-                    }
+
+                update
+                    .updated_function_runs
+                    .entry(ctx.key())
+                    .or_insert(HashSet::new())
+                    .insert(function_run.id.clone());
+                ctx.function_runs
+                    .insert(function_run.id.clone(), *function_run.clone());
+                if function_run.status == TaskStatus::Completed {
+                    ctx.outcome = function_run.outcome.map(|o| o.into());
                 }
+                update
+                    .updated_invocations_states
+                    .insert(ctx.key(), *ctx.clone());
             }
         }
 
@@ -470,7 +478,7 @@ impl FunctionExecutorManager {
     pub fn select_or_create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
-        task: &Task,
+        task: &FunctionRun,
     ) -> Result<(Option<AllocationTarget>, SchedulerUpdateRequest)> {
         let mut update = SchedulerUpdateRequest::default();
         let mut function_executors =

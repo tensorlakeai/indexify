@@ -3,11 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    data_model::test_objects::tests::{
-        self,
-        test_invocation_ctx,
-        test_invocation_payload_graph_a,
-        TEST_NAMESPACE,
+    data_model::{
+        test_objects::tests::{
+            self,
+            mock_data_payload,
+            mock_function_call,
+            mock_request_ctx,
+            TEST_NAMESPACE,
+        },
+        InputArgs,
     },
     state_store::{
         requests::{
@@ -37,9 +41,10 @@ impl TestStateStore {
 }
 
 pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries: u32) -> String {
+    let cg = tests::mock_graph_with_retries(max_retries);
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: tests::test_graph_a_retry(max_retries),
+        compute_graph: cg.clone(),
         upgrade_tasks_to_current_version: true,
     };
     indexify_state
@@ -48,16 +53,12 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
         })
         .await
         .unwrap();
-    let invocation_payload = test_invocation_payload_graph_a();
-    let ctx = test_invocation_ctx(
-        TEST_NAMESPACE,
-        &tests::test_graph_a_retry(max_retries),
-        &invocation_payload,
-    );
+    let ctx = mock_request_ctx(TEST_NAMESPACE, &cg);
+    let request_id = ctx.request_id.clone();
+
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph_name: "graph_A".to_string(),
-        invocation_payload: invocation_payload.clone(),
+        compute_graph_name: cg.name.clone(),
         ctx,
     };
     indexify_state
@@ -66,7 +67,7 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
         })
         .await
         .unwrap();
-    invocation_payload.id
+    request_id
 }
 
 pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
