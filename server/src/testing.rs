@@ -115,7 +115,7 @@ impl TestService {
         Ok(())
     }
 
-    pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor> {
+    pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor<'_>> {
         let mut e = TestExecutor {
             executor_id: executor.id.clone(),
             executor_metadata: executor.clone(),
