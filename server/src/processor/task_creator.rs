@@ -154,7 +154,6 @@ impl TaskCreator {
         }
 
         if let TaskOutcome::Failure(failure_reason) = allocation.outcome {
-            println!("task failed, stopping scheduling of child tasks");
             trace!("task failed, stopping scheduling of child tasks");
             function_run.status = TaskStatus::Completed;
             function_run.outcome = Some(allocation.outcome);

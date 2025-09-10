@@ -7,7 +7,7 @@ mod testing;
 // migrations
 // Diptanu - Leaving these here so that we can see
 // how to write new migrations
-//mod v1_task_status;
+mod v1_fake_migration;
 //mod v2_invocation_ctx_timestamps;
 //mod v3_invocation_ctx_secondary_index;
 //mod v4_drop_executors;

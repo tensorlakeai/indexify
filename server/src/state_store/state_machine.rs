@@ -158,7 +158,6 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
             payload_urls.insert(output.path.clone());
         }
     }
-    println!("GC payload_urls: {:?}", payload_urls);
     for payload_url in payload_urls {
         let gc_url = GcUrlBuilder::default()
             .url(payload_url)
