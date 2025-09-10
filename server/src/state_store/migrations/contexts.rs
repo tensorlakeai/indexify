@@ -40,6 +40,7 @@ impl PrepareContext {
     }
 
     /// Helper to perform column family operations and reopen DB
+    #[allow(dead_code)]
     pub fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<RocksDBDriver>
     where
         F: FnOnce(&mut RocksDBDriver) -> Result<()>,
@@ -67,6 +68,7 @@ impl PrepareContext {
 /// Context for applying migration logic
 pub struct MigrationContext<'a> {
     pub db: &'a RocksDBDriver,
+    #[allow(dead_code)]
     pub txn: &'a Transaction<'a>,
 }
 

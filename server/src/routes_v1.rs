@@ -58,14 +58,14 @@ use crate::{
 #[openapi(
         paths(
             invoke::invoke_with_object_v1,
-            graph_requests,
+            list_requests,
             find_request,
             compute_graphs::create_or_update_application,
             compute_graphs::applications,
             compute_graphs::get_application,
             compute_graphs::delete_application,
             list_function_runs,
-            delete_invocation,
+            delete_request,
             download::v1_download_fn_output_payload,
         ),
         components(
@@ -132,7 +132,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}/requests",
-            get(graph_requests).with_state(route_state.clone()),
+            get(list_requests).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests/{request_id}",
@@ -144,7 +144,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}/requests/{request_id}",
-            delete(delete_invocation).with_state(route_state.clone()),
+            delete(delete_request).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests/{request_id}/function-runs",
@@ -203,7 +203,7 @@ async fn namespace_middleware(
 /// List requests for a workflow
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests",
     tag = "ingestion",
     params(
         ListParams
@@ -213,7 +213,7 @@ async fn namespace_middleware(
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-async fn graph_requests(
+async fn list_requests(
     Path((namespace, compute_graph)): Path<(String, String)>,
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
@@ -255,14 +255,15 @@ async fn graph_requests(
 /// List tasks for a request
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/tasks",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/function-runs",
     tag = "operations",
     params(
         ListParams
     ),
     responses(
-        (status = 200, description = "list tasks for a given request id", body = http_objects_v1::FunctionRuns),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+        (status = 200, description = "list function runs for a given request id", body = http_objects_v1::FunctionRuns),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
+        (status = NOT_FOUND, description = "request not found")
     ),
 )]
 #[axum::debug_handler]
@@ -279,7 +280,7 @@ async fn list_function_runs(
         .reader()
         .invocation_ctx(&namespace, &compute_graph, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?
-        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
     let allocations = state
         .indexify_state
         .reader()
@@ -315,12 +316,12 @@ async fn list_function_runs(
 /// Get request status by id
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}",
     tag = "retrieve",
     responses(
-        (status = 200, description = "Details about a given invocation", body = http_objects_v1::Request),
-        (status = NOT_FOUND, description = "Invocation not found"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+        (status = 200, description = "details about a given request", body = http_objects_v1::Request),
+        (status = NOT_FOUND, description = "request not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
 async fn find_request(
@@ -356,15 +357,16 @@ async fn find_request(
 /// Delete a specific request
 #[utoipa::path(
     delete,
-    path = "/v1/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}",
     tag = "operations",
     responses(
         (status = 200, description = "request has been deleted"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
+        (status = NOT_FOUND, description = "request not found")
     ),
 )]
 #[axum::debug_handler]
-async fn delete_invocation(
+async fn delete_request(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {

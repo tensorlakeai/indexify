@@ -27,6 +27,7 @@ pub type KVBytes = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+#[allow(dead_code)]
 pub enum Error {
     #[error(
         "Failed to store record, the records didn't match the vector clock. table: {}, key: {}",
@@ -68,6 +69,7 @@ impl Error {
 }
 
 /// Writer defines all the write operations for a given driver.
+#[allow(dead_code)]
 pub trait Writer {
     /// Start a new Transaction in the database.
     fn transaction(&self) -> Transaction<'_>;
@@ -87,6 +89,7 @@ pub trait Writer {
         N: AsRef<str>;
 }
 
+#[allow(dead_code)]
 pub enum CreateOptions {
     RocksDB(rocksdb::RocksDBOptions),
 }

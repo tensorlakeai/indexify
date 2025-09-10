@@ -63,7 +63,8 @@ pub async fn download_invocation_error(
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
+        (status = NOT_FOUND, description = "resource not found")
     ),
 )]
 pub async fn v1_download_fn_output_payload(
@@ -80,7 +81,7 @@ pub async fn v1_download_fn_output_payload(
                 e
             ))
         })?
-        .ok_or(IndexifyAPIError::not_found("request context not found"))?;
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
     let fn_run = ctx
         .function_runs
         .get(&FunctionCallId::from(fn_call_id.as_str()))
@@ -102,7 +103,8 @@ pub async fn v1_download_fn_output_payload(
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
+        (status = NOT_FOUND, description = "resource not found")
     ),
 )]
 pub async fn v1_download_fn_output_payload_simple(

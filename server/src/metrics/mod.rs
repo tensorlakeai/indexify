@@ -52,6 +52,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub struct CounterGuard<'a, F>
 where
     F: Fn(&str, i64),
