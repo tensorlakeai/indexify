@@ -1,7 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    vec,
+    collections::{HashMap, HashSet}, process::exit, sync::Arc, vec
 };
 
 use anyhow::Result;
@@ -107,34 +105,6 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        if let TaskOutcome::Failure(failure_reason) = allocation.outcome {
-            println!("task failed, stopping scheduling of child tasks");
-            trace!("task failed, stopping scheduling of child tasks");
-            function_run.status = TaskStatus::Completed;
-            function_run.outcome = Some(allocation.outcome);
-            if let Some(invocation_error_payload) = &task_finished_event.request_exception {
-                invocation_ctx.request_error = Some(GraphInvocationError {
-                    function_name: function_run.name.clone(),
-                    payload: invocation_error_payload.clone(),
-                });
-            }
-            invocation_ctx
-                .function_runs
-                .insert(function_run.id.clone(), function_run.clone());
-            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(failure_reason.into()));
-            return Ok(SchedulerUpdateRequest {
-                updated_function_runs: HashMap::from([(
-                    invocation_ctx.key(),
-                    HashSet::from([function_run.id.clone()]),
-                )]),
-                updated_invocations_states: HashMap::from([(
-                    invocation_ctx.key(),
-                    (*invocation_ctx).clone(),
-                )]),
-                ..Default::default()
-            });
-        }
-
         let mut scheduler_update = SchedulerUpdateRequest::default();
         let cg_version = in_memory_state
             .get_existing_compute_graph_version(&function_run)?
@@ -163,16 +133,44 @@ impl TaskCreator {
             .updated_invocations_states
             .insert(invocation_ctx.key(), *invocation_ctx.clone());
 
-        // If task is pending (being retried), return early
-        if function_run.status == TaskStatus::Pending {
-            return Ok(scheduler_update);
-        }
-
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
             "task_creator",
         )?;
+
+        // If task is pending (being retried), return early
+        if function_run.status == TaskStatus::Pending {
+            return Ok(scheduler_update);
+        }
+
+        if let TaskOutcome::Failure(failure_reason) = allocation.outcome {
+            println!("task failed, stopping scheduling of child tasks");
+            trace!("task failed, stopping scheduling of child tasks");
+            function_run.status = TaskStatus::Completed;
+            function_run.outcome = Some(allocation.outcome);
+            if let Some(invocation_error_payload) = &task_finished_event.request_exception {
+                invocation_ctx.request_error = Some(GraphInvocationError {
+                    function_name: function_run.name.clone(),
+                    payload: invocation_error_payload.clone(),
+                });
+            }
+            invocation_ctx
+                .function_runs
+                .insert(function_run.id.clone(), function_run.clone());
+            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(failure_reason.into()));
+            return Ok(SchedulerUpdateRequest {
+                updated_function_runs: HashMap::from([(
+                    invocation_ctx.key(),
+                    HashSet::from([function_run.id.clone()]),
+                )]),
+                updated_invocations_states: HashMap::from([(
+                    invocation_ctx.key(),
+                    (*invocation_ctx).clone(),
+                )]),
+                ..Default::default()
+            });
+        }
 
         // Update the invocation ctx with the new function calls
         for function_call in &task_finished_event.new_function_calls {
