@@ -54,7 +54,6 @@ mod tests {
                 task_allocation,
                 FinalizeTaskArgs::new(
                     allocation_key_from_proto(task_allocation),
-                    "1".to_string(),
                     mock_updates(),
                     None,
                 )
@@ -103,7 +102,6 @@ mod tests {
                 task_allocation,
                 FinalizeTaskArgs::new(
                     allocation_key_from_proto(task_allocation),
-                    "1".to_string(),
                     mock_updates(),
                     None,
                 )
@@ -198,7 +196,6 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        "1".to_string(),
                         mock_updates(),
                         None,
                     )

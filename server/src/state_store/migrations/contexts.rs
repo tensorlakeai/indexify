@@ -58,7 +58,7 @@ impl PrepareContext {
     }
 
     /// Get list of all column families
-    pub fn list_cfs(&self) -> Result<Vec<String>> {
+    pub fn _list_cfs(&self) -> Result<Vec<String>> {
         DB::list_cf(&self.db_opts, &self.path)
             .map_err(|e| anyhow!("Failed to list column families: {}", e))
     }
@@ -91,12 +91,12 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Parse JSON from bytes
-    pub fn parse_json(&self, bytes: &[u8]) -> Result<Value> {
+    pub fn _parse_json(&self, bytes: &[u8]) -> Result<Value> {
         serde_json::from_slice(bytes).map_err(|e| anyhow!("Error deserializing JSON: {}", e))
     }
 
     /// Encode JSON to bytes
-    pub fn encode_json(&self, json: &Value) -> Result<Vec<u8>> {
+    pub fn _encode_json(&self, json: &Value) -> Result<Vec<u8>> {
         serde_json::to_vec(json).map_err(|e| anyhow!("Error serializing JSON: {}", e))
     }
 
@@ -135,7 +135,7 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Helper to update a JSON object and write it back
-    pub fn update_json<F>(
+    pub fn _update_json<F>(
         &self,
         column_family: &IndexifyObjectsColumns,
         key: &[u8],
@@ -158,7 +158,7 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Get a string value from a JSON object
-    pub fn get_string_val(&self, val: &Value, key: &str) -> Result<String> {
+    pub fn _get_string_val(&self, val: &Value, key: &str) -> Result<String> {
         val.get(key)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
@@ -166,7 +166,7 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Truncate all entries in a column family
-    pub fn truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
+    pub fn _truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
         let mut count = 0;
 
         self.iterate(column_family, |key, _| {
@@ -214,7 +214,7 @@ mod tests {
         )?;
 
         // Test listing CFs
-        let cfs = ctx.list_cfs()?;
+        let cfs = ctx._list_cfs()?;
         assert!(cfs.contains(&"test_cf".to_string()));
         assert!(cfs.contains(&"default".to_string()));
 
@@ -267,7 +267,7 @@ mod tests {
         let ctx = MigrationContext::new(&db, &txn);
 
         // Test JSON operations
-        ctx.update_json(&IndexifyObjectsColumns::GraphInvocationCtx, key, |json| {
+        ctx._update_json(&IndexifyObjectsColumns::GraphInvocationCtx, key, |json| {
             // Rename field
             ctx.rename_json_field(json, "old_field", "new_field")?;
 

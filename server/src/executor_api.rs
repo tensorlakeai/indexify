@@ -532,6 +532,7 @@ impl ExecutorAPIService {
     ) -> Result<Vec<AllocationOutput>> {
         let mut allocation_output_updates = Vec::new();
         for task_result in task_results {
+            self.api_metrics.fn_outputs.add(1, &[]);
             let allocation_key = Allocation::key_from(
                 &task_result.namespace(),
                 &task_result.graph_name(),
@@ -900,7 +901,7 @@ fn prepare_data_payload(
     let offset = msg.offset.unwrap_or(0);
     DataPayloadBuilder::default()
         .id(msg.id.unwrap_or(nanoid::nanoid!()))
-        .path(blob_store_path_to_url(
+        .path(blob_store_url_to_path(
             &uri,
             blob_store_url_scheme,
             blob_store_url,

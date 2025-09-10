@@ -1,19 +1,19 @@
 use std::{
-    collections::{HashMap, HashSet}, process::exit, sync::Arc, vec
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    vec,
 };
 
 use anyhow::Result;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
         AllocationOutputIngestedEvent,
-        ComputeGraphVersion,
         ComputeOp,
         FunctionArgs,
         FunctionCall,
         FunctionCallId,
-        FunctionRun,
         GraphInvocationCtx,
         GraphInvocationError,
         GraphInvocationOutcome,
@@ -22,7 +22,7 @@ use crate::{
         TaskOutcome,
         TaskStatus,
     },
-    processor::{task_cache::TaskCache, task_policy::TaskRetryPolicy},
+    processor::task_policy::TaskRetryPolicy,
     state_store::{
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -33,15 +33,13 @@ use crate::{
 pub struct TaskCreator {
     indexify_state: Arc<IndexifyState>,
     clock: u64,
-    task_cache: Arc<TaskCache>,
 }
 
 impl TaskCreator {
-    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64, task_cache: Arc<TaskCache>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
         Self {
             indexify_state,
             clock,
-            task_cache,
         }
     }
 }
@@ -106,9 +104,20 @@ impl TaskCreator {
         };
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
-        let cg_version = in_memory_state
-            .get_existing_compute_graph_version(&function_run)?
-            .clone();
+        let Some(cg_version) = in_memory_state
+            .get_existing_compute_graph_version(&function_run)
+            .cloned()
+        else {
+            warn!(
+                function_run.id = function_run.id.to_string(),
+                function_run.request_id = function_run.request_id,
+                function_run.namespace = function_run.namespace,
+                function_run.application = function_run.application,
+                function_run.graph_version = function_run.graph_version.0,
+                "compute graph version not found, stopping scheduling of child tasks",
+            );
+            return Ok(SchedulerUpdateRequest::default());
+        };
 
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
@@ -219,20 +228,11 @@ impl TaskCreator {
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        for function_call_id in &function_call_ids {
-            let function_call = invocation_ctx
-                .function_calls
-                .get(&function_call_id)
-                .unwrap();
-        }
         let function_run_ids = invocation_ctx
             .function_runs
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        for function_run_id in &function_run_ids {
-            let function_run = invocation_ctx.function_runs.get(&function_run_id).unwrap();
-        }
         if function_call_ids.len() == function_run_ids.len() {
             invocation_ctx.outcome = Some(GraphInvocationOutcome::Success);
             scheduler_update
@@ -244,12 +244,6 @@ impl TaskCreator {
             .difference(&function_run_ids)
             .cloned()
             .collect::<HashSet<_>>();
-        for function_call_id in &ready_function_calls {
-            let function_call = invocation_ctx
-                .function_calls
-                .get(&function_call_id)
-                .unwrap();
-        }
         for function_call_id in ready_function_calls {
             let function_call = invocation_ctx
                 .function_calls

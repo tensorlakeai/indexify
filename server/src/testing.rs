@@ -18,7 +18,6 @@ use crate::{
         FunctionExecutorState,
         FunctionRun,
         GraphInvocationCtx,
-        GraphVersion,
         TaskOutcome,
         TaskStatus,
     },
@@ -279,7 +278,6 @@ macro_rules! assert_executor_state {
 pub struct FinalizeTaskArgs {
     pub task_outcome: TaskOutcome,
     pub allocation_key: String,
-    pub graph_version: String,
     pub graph_updates: Vec<ComputeOp>,
     pub data_payload: Option<DataPayload>,
 }
@@ -296,14 +294,12 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
 impl FinalizeTaskArgs {
     pub fn new(
         allocation_key: String,
-        graph_version: String,
         graph_updates: Vec<ComputeOp>,
         data_payload: Option<DataPayload>,
     ) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
             task_outcome: TaskOutcome::Success,
             allocation_key,
-            graph_version,
             graph_updates,
             data_payload,
         }

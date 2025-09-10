@@ -366,27 +366,15 @@ impl IndexifyState {
                         let function_run =
                             ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                         if let Some(function_run) = function_run {
-                            if sched_update.cached_task_keys.contains(&function_run.key()) {
-                                let _ = self.task_event_tx.send(
-                                    InvocationStateChangeEvent::TaskMatchedCache(
-                                        invocation_events::TaskMatchedCache {
-                                            request_id: function_run.request_id.clone(),
-                                            fn_name: function_run.name.clone(),
-                                            task_id: function_run.id.to_string(),
-                                        },
-                                    ),
-                                );
-                            } else {
-                                let _ = self.task_event_tx.send(
-                                    InvocationStateChangeEvent::TaskCreated(
+                            let _ =
+                                self.task_event_tx
+                                    .send(InvocationStateChangeEvent::TaskCreated(
                                         invocation_events::TaskCreated {
                                             request_id: function_run.request_id.clone(),
                                             fn_name: function_run.name.clone(),
                                             task_id: function_run.id.to_string(),
                                         },
-                                    ),
-                                );
-                            }
+                                    ));
                         }
                     }
                 }

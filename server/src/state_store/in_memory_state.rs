@@ -1444,10 +1444,10 @@ impl InMemoryState {
     pub fn get_existing_compute_graph_version<'a>(
         &'a self,
         function_run: &FunctionRun,
-    ) -> Result<&'a Box<ComputeGraphVersion>> {
+    ) -> Option<&'a Box<ComputeGraphVersion>> {
         self.compute_graph_versions
             .get(&function_run.key_compute_graph_version(&function_run.application))
-            .ok_or_else(|| {
+            .or_else(|| {
                 error!(
                     task_id = function_run.id.to_string(),
                     invocation_id = function_run.request_id.to_string(),
@@ -1457,7 +1457,7 @@ impl InMemoryState {
                     graph_version = function_run.graph_version.0,
                     "compute graph version not found",
                 );
-                anyhow!("compute graph version not found")
+                None
             })
     }
 }

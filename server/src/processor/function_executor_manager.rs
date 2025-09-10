@@ -353,7 +353,7 @@ impl FunctionExecutorManager {
                 }
 
                 if_chain! {
-                        if let Ok(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&function_run);
+                        if let Some(compute_graph_version) = in_memory_state.get_existing_compute_graph_version(&function_run);
                         if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
                 then {
                             if blame_alloc_ids.contains(&alloc.id.to_string()) {

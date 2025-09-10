@@ -14,7 +14,7 @@ use compute_graphs::{applications, delete_application, get_application};
 use download::download_invocation_error;
 use invoke::invoke_with_object_v1;
 use tracing::info;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
         TaskOutcome,
         UnallocatedFunctionRuns,
     },
-    http_objects_v1::{self, Application, ApplicationsList, FunctionRun, GraphRequests},
+    http_objects_v1::{self, Application, ApplicationsList, GraphRequests},
     routes::{
         compute_graphs::{self, create_or_update_application},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},

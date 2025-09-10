@@ -16,7 +16,6 @@ use crate::{
         FunctionCallId,
         FunctionExecutorId,
         FunctionExecutorServerMetadata,
-        FunctionRun,
         GcUrl,
         GraphInvocationCtx,
         HostResources,
@@ -75,7 +74,7 @@ pub enum RequestPayload {
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
-    pub cached_task_keys: HashSet<String>,
+    pub cached_task_keys: HashMap<String, DataPayload>,
     pub updated_invocations_states: HashMap<String, GraphInvocationCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,

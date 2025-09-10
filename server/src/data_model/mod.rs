@@ -694,21 +694,6 @@ impl ComputeGraphVersion {
         format!("{namespace}|{name}|")
     }
 
-    #[cfg(test)]
-    pub fn get_compute_parent_nodes(&self, node_name: &str) -> Vec<String> {
-        // Find parent of the node
-        self.edges
-            .iter()
-            .filter(|&(_, successors)| successors.contains(&node_name.to_string()))
-            .map(|(parent, _)| parent.as_str())
-            // Filter for compute node parent, traversing through routers
-            .flat_map(|parent_name| match self.nodes.get(parent_name) {
-                Some(_) => vec![parent_name.to_string()],
-                None => vec![],
-            })
-            .collect()
-    }
-
     pub fn task_max_retries(&self, task: &FunctionRun) -> Option<u32> {
         self.nodes
             .get(&task.name)

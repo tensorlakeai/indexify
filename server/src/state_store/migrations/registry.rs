@@ -26,7 +26,7 @@ impl MigrationRegistry {
     }
 
     /// Register a new migration
-    fn register(&mut self, migration: Box<dyn Migration>) {
+    fn _register(&mut self, migration: Box<dyn Migration>) {
         self.migrations.push(migration);
     }
 
@@ -103,15 +103,15 @@ mod tests {
         };
 
         // Add migrations in random order
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 3,
             name_str: "Migration 3",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 1,
             name_str: "Migration 1",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 2,
             name_str: "Migration 2",
         }));
@@ -133,11 +133,11 @@ mod tests {
         };
 
         // Add migrations with duplicate versions
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 1,
             name_str: "Migration A",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 1,
             name_str: "Migration B",
         }));
@@ -158,15 +158,15 @@ mod tests {
             migrations: Vec::new(),
         };
 
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 1,
             name_str: "Migration 1",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 2,
             name_str: "Migration 2",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 3,
             name_str: "Migration 3",
         }));
@@ -200,15 +200,15 @@ mod tests {
         assert_eq!(registry.latest_version(), 0);
 
         // Add migrations
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 1,
             name_str: "Migration 1",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 5,
             name_str: "Migration 5",
         }));
-        registry.register(Box::new(TestMigration {
+        registry._register(Box::new(TestMigration {
             version_num: 3,
             name_str: "Migration 3",
         }));
