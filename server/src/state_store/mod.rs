@@ -234,11 +234,7 @@ impl IndexifyState {
             }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
-                    state_machine::upsert_allocation(
-                        self.db.clone(),
-                        &txn,
-                        &allocation_output.allocation,
-                    )?;
+                    state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
                 }
                 if request.update_executor_state {
                     self.executor_states

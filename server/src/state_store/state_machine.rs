@@ -1,16 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
-use im::HashSet;
-use rocksdb::{
-    AsColumnFamilyRef,
-    ColumnFamily,
-    Direction,
-    IteratorMode,
-    ReadOptions,
-    Transaction,
-    TransactionDB,
-};
 use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
@@ -27,7 +20,7 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{rocksdb::RocksDBDriver, IterOptions, Reader, Transaction, Writer},
+        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         requests::{
             AllocationOutput,
             DeleteInvocationRequest,
@@ -97,8 +90,8 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
     if cg.tombstoned {
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
-    txn.put_cf(
-        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+    txn.put(
+        &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
     )?;
@@ -116,27 +109,17 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
     Ok(())
 }
 
-pub(crate) fn upsert_allocation(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    allocation: &Allocation,
-) -> Result<()> {
+pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> Result<()> {
     let serialized_allocation = JsonEncoder::encode(&allocation)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+    txn.put(
+        &IndexifyObjectsColumns::Allocations.as_ref(),
         allocation.key().as_bytes(),
         &serialized_allocation,
     )?;
     Ok(())
 }
 
-pub(crate) fn delete_invocation(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: &DeleteInvocationRequest,
-) -> Result<()> {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
+pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest) -> Result<()> {
     let span = info_span!(
         "delete_invocation",
         namespace = req.namespace,
@@ -182,8 +165,8 @@ pub(crate) fn delete_invocation(
             .namespace(req.namespace.clone())
             .build()?;
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+        txn.put(
+            &IndexifyObjectsColumns::GcUrls.as_ref(),
             gc_url.key().as_bytes(),
             &serialized_gc_url,
         )?;
@@ -206,7 +189,7 @@ pub(crate) fn delete_invocation(
                 "fn" = value.compute_fn,
                 "deleting allocation",
             );
-            txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
+            txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)?;
         }
     }
 
@@ -337,7 +320,7 @@ pub(crate) fn create_or_update_compute_graph(
     )?;
 
     if upgrade_existing_tasks_to_current_version {
-        update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
+        update_graph_invocations_for_cg(txn, &compute_graph)?;
     }
 
     info!(
@@ -374,16 +357,14 @@ pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> R
 
     let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, name);
 
-    for iter in make_prefix_iterator(
-        txn,
-        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+    for iter in txn.iter(
+        &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         graph_invocation_prefix.as_bytes(),
         Default::default(),
     ) {
         let (_key, value) = iter?;
         let value = JsonEncoder::decode::<GraphInvocationCtx>(&value)?;
         delete_invocation(
-            db.clone(),
             txn,
             &DeleteInvocationRequest {
                 namespace: value.namespace,
@@ -426,30 +407,6 @@ pub fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
         )?;
     }
     Ok(())
-}
-
-#[allow(clippy::type_complexity)]
-pub fn make_prefix_iterator<'a>(
-    txn: &'a Transaction<TransactionDB>,
-    cf_handle: &impl AsColumnFamilyRef,
-    prefix: &'a [u8],
-    restart_key: &'a Option<Vec<u8>>,
-) -> impl Iterator<Item = Result<(Box<[u8]>, Box<[u8]>)>> + 'a {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let iter = txn.iterator_cf_opt(
-        cf_handle,
-        read_options,
-        match restart_key {
-            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(prefix, Direction::Forward),
-        },
-    );
-    iter.map(|item| item.map_err(|e| anyhow!(e.to_string())))
-        .take_while(move |item| match item {
-            Ok((key, _)) => key.starts_with(prefix),
-            Err(_) => true,
-        })
 }
 
 pub(crate) fn handle_scheduler_update(
@@ -568,7 +525,7 @@ pub fn can_allocation_output_be_updated(
 
     let existing_allocation = db.get(
         IndexifyObjectsColumns::Allocations.as_ref(),
-        &req.allocation_key,
+        &req.allocation.key(),
     )?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);
@@ -585,11 +542,7 @@ pub fn can_allocation_output_be_updated(
     Ok(true)
 }
 
-pub(crate) fn save_state_changes(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    state_changes: &[StateChange],
-) -> Result<()> {
+pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange]) -> Result<()> {
     for state_change in state_changes {
         let key = &state_change.key();
         let serialized_state_change = JsonEncoder::encode(&state_change)?;

@@ -145,10 +145,10 @@ impl<'a> MigrationContext<'a> {
         F: FnOnce(&mut Value) -> Result<bool>,
     {
         if let Some(value_bytes) = self.db.get(column_family.as_ref(), key)? {
-            let mut json = self.parse_json(&value_bytes)?;
+            let mut json = self._parse_json(&value_bytes)?;
 
             if updater(&mut json)? {
-                let updated_bytes = self.encode_json(&json)?;
+                let updated_bytes = self._encode_json(&json)?;
                 self.txn.put(column_family.as_ref(), key, &updated_bytes)?;
                 return Ok(true);
             }
@@ -239,7 +239,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
-        let cf_name = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf_name = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new("default", Options::default()),
             ColumnFamilyDescriptor::new(cf_name, Options::default()),
@@ -259,7 +259,7 @@ mod tests {
         let key = b"test_key";
         let value = serde_json::to_vec(&test_json)?;
 
-        let cf = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         db.put(cf, key, &value)?;
 
         // Create migration context
@@ -280,7 +280,7 @@ mod tests {
         txn.commit()?;
 
         // Verify changes
-        let cf = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         let updated_bytes = db.get(cf, key)?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 

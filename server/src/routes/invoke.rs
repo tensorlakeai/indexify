@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    metrics::Increment,
     data_model::{self, ComputeGraphState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
     http_objects::IndexifyAPIError,
+    metrics::Increment,
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
@@ -251,7 +251,7 @@ pub async fn invoke_with_object_v1(
         ctx: graph_invocation_ctx.clone(),
     });
     if accept_header.contains("application/json") {
-        return return_request_id(state, request.clone(), request_id.clone()).await;
+        return return_request_id(&state, request.clone(), request_id.clone()).await;
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(

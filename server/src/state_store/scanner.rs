@@ -87,7 +87,11 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_rows_from_cf_with_limits")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let iter_options = IterOptions::default().starting_at(restart_key.unwrap_or(key_prefix));
+        let mut iter_options =
+            IterOptions::default().starting_at(restart_key.unwrap_or(key_prefix));
+        if limit.is_some() {
+            iter_options = iter_options.with_block_size(IterOptions::LARGE_BLOCK_SIZE);
+        }
 
         let iter = self.db.iter(column.as_ref(), iter_options);
 

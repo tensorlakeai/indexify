@@ -117,8 +117,8 @@ mod tests {
                 )]))
                 .build()?;
 
-            indexify_state.db.put_cf(
-                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
+            indexify_state.db.put(
+                &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
                 graph_ctx.key().as_bytes(),
                 &JsonEncoder::encode(&graph_ctx)?,
             )?;

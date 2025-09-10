@@ -96,7 +96,7 @@ impl RocksDBDriver {
 }
 
 impl Writer for RocksDBDriver {
-    fn transaction(&self) -> super::Transaction {
+    fn transaction(&self) -> super::Transaction<'_> {
         let tx = self.db.transaction();
 
         super::Transaction::RocksDB(RocksDBTransaction { db: self, tx })

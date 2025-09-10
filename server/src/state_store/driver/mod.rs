@@ -70,7 +70,7 @@ impl Error {
 /// Writer defines all the write operations for a given driver.
 pub trait Writer {
     /// Start a new Transaction in the database.
-    fn transaction(&self) -> Transaction;
+    fn transaction(&self) -> Transaction<'_>;
 
     fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
     where
