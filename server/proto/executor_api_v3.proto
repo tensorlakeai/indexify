@@ -311,6 +311,7 @@ message ReduceOp {
   repeated FunctionArg  collection = 1; 
   optional FunctionRef reducer     = 2;
   optional bytes call_metadata     = 5;
+  optional string id = 6;
 }
 
 message ExecutionPlanUpdates {
