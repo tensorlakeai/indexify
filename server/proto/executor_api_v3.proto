@@ -75,10 +75,10 @@ message HostResources {
 // Specification of a single function that is allowed to be run on the Executor.
 message AllowedFunction {
     optional string namespace = 1;
-    optional string graph_name = 2;
+    optional string application_name = 2;
     optional string function_name = 3;
-    // If none then any version of the graph is allowed to run on the Executor.
-    optional string graph_version = 4;
+    // If none then any version of the application is allowed to run on the Executor.
+    optional string application_version = 4;
 }
 
 enum FunctionExecutorStatus {
@@ -125,25 +125,29 @@ message FunctionExecutorResources {
     optional GPUResources gpu = 4;
 }
 
+message FunctionRef {
+    optional string namespace = 1;
+    optional string application_name = 2;
+    optional string function_name = 3;
+    optional string application_version = 4;
+}
+
 message FunctionExecutorDescription {
     optional string id = 1;
-    optional string namespace = 2;
-    optional string graph_name = 3;
-    optional string graph_version = 4;
-    optional string function_name = 5;
-    repeated string secret_names = 7;
+    optional FunctionRef function = 2;
+    repeated string secret_names = 3;
     // Timeout for customer code duration during FE creation.
-    optional uint32 customer_code_timeout_ms = 9;
-    optional DataPayload graph = 10;
-    optional FunctionExecutorResources resources = 11;
+    optional uint32 customer_code_timeout_ms = 4;
+    optional DataPayload application = 5;
+    optional FunctionExecutorResources resources = 6;
     // URI prefix for the startup output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-    optional string output_payload_uri_prefix = 12;
-    optional uint32 max_concurrency = 13;
-    optional FunctionRetryPolicy retry_policy = 14;
-    optional uint32 timeout_ms = 15;
+    optional string output_payload_uri_prefix = 7;
+    optional uint32 max_concurrency = 8;
+    optional FunctionRetryPolicy retry_policy = 9;
+    optional uint32 timeout_ms = 10;
 }
 
 message FunctionExecutorState {
@@ -211,23 +215,23 @@ message FunctionRetryPolicy {
 }
 
 message TaskAllocation {
-    optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string allocation_id = 1;
-    optional string task_id = 2;
-    optional string request_id = 7;
-    repeated DataPayload args = 8;
+    // Version is not set in function ref.
+    optional FunctionRef function = 1;
+    optional string allocation_id = 2;
+    optional string task_id = 3;
+    optional string request_id = 4;
+    repeated DataPayload args = 5;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
-    optional string output_payload_uri_prefix = 14;
-    // BLOB URI prefix for the invocation error payloads.
-    optional string request_error_payload_uri_prefix = 16;
-    optional string function_executor_id = 17;
+    optional string output_payload_uri_prefix = 6;
+    // BLOB URI prefix for the request exception payloads.
+    optional string request_exception_payload_uri_prefix = 7;
+    optional string function_executor_id = 8;
 
     // If the function call metadata is not set, this implies 
     // that the function call is for an API function.
-    optional bytes function_call_metadata = 18;
+    optional bytes function_call_metadata = 9;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -262,8 +266,8 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_ERROR = 2;
     // Function code run time exceeded its configured timeout.
     ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
-    // Function code raised InvocationError to mark the invocation as permanently failed.
-    ALLOCATION_FAILURE_REASON_INVOCATION_ERROR = 4;
+    // Function code raised RequestException to mark the request as permanently failed.
+    ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
     // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
     ALLOCATION_FAILURE_REASON_TASK_CANCELLED = 5;
     // Function Executor terminated - can't run the task allocation on it anymore.
@@ -275,13 +279,6 @@ message ExecutionPlanUpdate {
     FunctionCall function_call = 10;
     ReduceOp     reduce        = 12;
   }
-}
-
-message FunctionRef {
-  optional string namespace      = 1;
-  optional string graph_name     = 2;
-  optional string function_name  = 3;
-  optional string graph_version  = 4; // set for reproducibility
 }
 
 message FunctionCall {
@@ -321,21 +318,20 @@ message ExecutionPlanUpdates {
 }
 
 message AllocationResult {
+    optional FunctionRef function = 1;
     optional string allocation_id = 2;
-    optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string function_name = 5;
-    optional string request_id = 7;
-    optional AllocationOutcomeCode outcome_code = 9;
-    optional AllocationFailureReason failure_reason = 10;
+    optional string task_id = 3;
+    optional string request_id = 4;
+    optional AllocationOutcomeCode outcome_code = 5;
+    optional AllocationFailureReason failure_reason = 6;
 
     oneof return_value {
-      DataPayload value = 12;
-      ExecutionPlanUpdates updates = 13;
+      DataPayload value = 7;
+      ExecutionPlanUpdates updates = 8;
     }
-    // User payload for invocation error if task failed with invocation error.
-    optional DataPayload request_exception = 14;
-    optional uint64 execution_duration_ms = 15;
+    // User payload for request exception if task failed with request exception.
+    optional DataPayload request_exception = 9;
+    optional uint64 execution_duration_ms = 10;
 }
 
 message FunctionCallRequest {

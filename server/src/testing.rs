@@ -284,8 +284,8 @@ pub struct FinalizeTaskArgs {
 
 pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
     Allocation::key_from(
-        &allocation.namespace.as_ref().unwrap(),
-        &allocation.graph_name.as_ref().unwrap(),
+        &allocation.function.as_ref().unwrap().namespace.as_ref().unwrap(),
+        &allocation.function.as_ref().unwrap().application_name.as_ref().unwrap(),
         &allocation.request_id.as_ref().unwrap(),
         &allocation.allocation_id.as_ref().unwrap(),
     )

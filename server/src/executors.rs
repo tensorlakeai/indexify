@@ -21,12 +21,7 @@ use crate::{
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
-            self,
-            DataPayload,
-            DataPayloadEncoding,
-            DesiredExecutorState,
-            FunctionExecutorDescription,
-            TaskAllocation,
+            self, DataPayload, DataPayloadEncoding, DesiredExecutorState, FunctionExecutorDescription, FunctionRef, TaskAllocation
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -429,13 +424,15 @@ impl ExecutorManager {
             let fe_output_payload_uri_prefix = format!("{blob_store_url}/function_executors",);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
-                namespace: Some(fe.namespace.clone()),
-                graph_name: Some(fe.compute_graph_name.clone()),
-                graph_version: Some(fe.version.to_string()),
-                function_name: Some(fe.compute_fn_name.clone()),
+                function: Some(FunctionRef {
+                    namespace: Some(fe.namespace.clone()),
+                    application_name: Some(fe.compute_graph_name.clone()),
+                    function_name: Some(fe.compute_fn_name.clone()),
+                    application_version: Some(fe.version.to_string()),
+                }),
                 secret_names: desired_state_fe.secret_names.clone(),
                 customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
-                graph: Some(code_payload_pb),
+                application: Some(code_payload_pb),
                 retry_policy: Some(
                     compute_graph_version
                         .nodes
@@ -505,15 +502,19 @@ impl ExecutorManager {
                     allocation.invocation_id,
                 );
                 let task_allocation_pb = TaskAllocation {
-                    namespace: Some(allocation.namespace.clone()),
-                    graph_name: Some(allocation.compute_graph.clone()),
+                    function: Some(FunctionRef {
+                        namespace: Some(allocation.namespace.clone()),
+                        application_name: Some(allocation.compute_graph.clone()),
+                        function_name: Some(allocation.compute_fn.clone()),
+                        application_version: None,
+                    }),
                     function_executor_id: Some(fe_id.get().to_string()),
                     allocation_id: Some(allocation.id.to_string()),
                     task_id: Some(allocation.function_call_id.to_string()),
                     request_id: Some(allocation.invocation_id.to_string()),
                     args,
                     output_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
-                    request_error_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
+                    request_exception_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
                     function_call_metadata: Some(allocation.call_metadata.clone().into()),
                 };
                 task_allocations.push(task_allocation_pb);

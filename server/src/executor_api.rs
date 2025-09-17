@@ -78,10 +78,10 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let version = allowed_function.graph_version.map(GraphVersion);
+        let version = allowed_function.application_version.map(GraphVersion);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
-            compute_graph_name: allowed_function.graph_name,
+            compute_graph_name: allowed_function.application_name,
             compute_fn_name: allowed_function.function_name,
             version,
         })
@@ -368,26 +368,21 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .as_ref()
             .and_then(|description| description.id.clone())
             .ok_or(anyhow::anyhow!("id is required"))?;
-        let namespace = function_executor_state
+        let function_ref = function_executor_state
             .description
             .as_ref()
-            .and_then(|description| description.namespace.clone())
-            .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.graph_name.clone())
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.function_name.clone())
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
-        let version = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.graph_version.clone())
-            .ok_or(anyhow::anyhow!("version is required"))?;
+            .and_then(|description| description.function.clone())
+            .ok_or(anyhow::anyhow!("function ref is required"))?;
+        let namespace = function_ref.namespace.clone().ok_or(anyhow::anyhow!("namespace is required"))?;
+        let compute_graph_name = function_ref
+            .application_name
+            .clone()
+            .ok_or(anyhow::anyhow!("application_name is required"))?;
+        let compute_fn_name = function_ref
+            .function_name
+            .clone()
+            .ok_or(anyhow::anyhow!("function_name is required"))?;
+        let version = function_ref.application_version.clone().ok_or(anyhow::anyhow!("application_version is required"))?;
         let resources = function_executor_state
             .description
             .as_ref()
@@ -551,9 +546,13 @@ impl ExecutorAPIService {
         let mut allocation_output_updates = Vec::new();
         for task_result in task_results {
             self.api_metrics.fn_outputs.add(1, &[]);
+            let function_ref = task_result
+                .function
+                .as_ref()
+                .ok_or(anyhow::anyhow!("function ref is required"))?;
             let allocation_key = Allocation::key_from(
-                &task_result.namespace(),
-                &task_result.graph_name(),
+                &function_ref.namespace(),
+                &function_ref.application_name(),
                 &task_result.request_id(),
                 &task_result.allocation_id(),
             );
@@ -630,7 +629,7 @@ impl ExecutorAPIService {
                     executor_api_pb::AllocationFailureReason::FunctionTimeout => {
                         Some(TaskFailureReason::FunctionTimeout)
                     }
-                    executor_api_pb::AllocationFailureReason::InvocationError => {
+                    executor_api_pb::AllocationFailureReason::RequestError => {
                         Some(TaskFailureReason::InvocationError)
                     }
                     executor_api_pb::AllocationFailureReason::TaskCancelled => {
@@ -907,8 +906,8 @@ impl ExecutorApi for ExecutorAPIService {
             .namespace
             .ok_or(Status::invalid_argument("namespace is required"))?;
         let application = function_ref
-            .graph_name
-            .ok_or(Status::invalid_argument("graph name is required"))?;
+            .application_name
+            .ok_or(Status::invalid_argument("application name is required"))?;
         let fn_name = function_ref
             .function_name
             .ok_or(Status::invalid_argument("function name is required"))?;

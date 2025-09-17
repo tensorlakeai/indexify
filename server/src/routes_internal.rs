@@ -118,11 +118,11 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(list_executor_catalog).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
+            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{invocation_id}/ctx/{name}",
             post(set_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
+            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .route("/ui", get(ui_index_handler))
