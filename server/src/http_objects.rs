@@ -611,6 +611,7 @@ impl From<data_model::TaskStatus> for TaskStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct DataPayload {
+    pub id: String,
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
@@ -621,6 +622,7 @@ impl From<data_model::DataPayload> for DataPayload {
         let size = payload.size;
         let sha256_hash = payload.sha256_hash;
         Self {
+            id: payload.id,
             path: payload.path,
             size,
             sha256_hash,
