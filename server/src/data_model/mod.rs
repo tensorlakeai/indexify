@@ -214,6 +214,7 @@ pub enum FunctionArgs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReduceOperation {
+    pub function_call_id: FunctionCallId,
     pub collection: Vec<FunctionArgs>,
     pub fn_name: String,
     pub call_metadata: bytes::Bytes,
@@ -854,6 +855,10 @@ pub struct GraphInvocationCtx {
     #[builder(default)]
     pub function_runs: HashMap<FunctionCallId, FunctionRun>,
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
+
+    #[builder(default)]
+    pub child_function_calls: HashMap<String, GraphInvocationCtx>, /* Child Request ID -> Child
+                                                                    * GraphInvocationCtx */
 }
 
 impl GraphInvocationCtxBuilder {

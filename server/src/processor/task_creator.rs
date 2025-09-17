@@ -18,6 +18,7 @@ use crate::{
         GraphInvocationError,
         GraphInvocationOutcome,
         InputArgs,
+        ReduceOperation,
         RunningTaskStatus,
         TaskOutcome,
         TaskStatus,
@@ -190,33 +191,25 @@ impl TaskCreator {
                     );
                 }
                 ComputeOp::Reduce(reduce_op) => {
-                    for arg in &reduce_op.collection {
-                        match arg {
-                            FunctionArgs::DataPayload(data_payload) => {
-                                let function_call = FunctionCall {
-                                    function_call_id: FunctionCallId(nanoid::nanoid!()),
-                                    inputs: vec![FunctionArgs::DataPayload(data_payload.clone())],
-                                    fn_name: reduce_op.fn_name.clone(),
-                                    call_metadata: reduce_op.call_metadata.clone(),
-                                };
-                                invocation_ctx
-                                    .function_calls
-                                    .insert(function_call.function_call_id.clone(), function_call);
-                            }
-                            FunctionArgs::FunctionRunOutput(function_call_id) => {
-                                let function_call = FunctionCall {
-                                    function_call_id: function_call_id.clone(),
-                                    inputs: vec![FunctionArgs::FunctionRunOutput(
-                                        function_call_id.clone(),
-                                    )],
-                                    fn_name: reduce_op.fn_name.clone(),
-                                    call_metadata: reduce_op.call_metadata.clone(),
-                                };
-                                invocation_ctx
-                                    .function_calls
-                                    .insert(function_call.function_call_id.clone(), function_call);
-                            }
-                        }
+                    let mut reducer_collection = reduce_op.collection.clone();
+                    // Remove the last element from the collection since we need to set it's
+                    // function call id to the id of the reduce op. This will
+                    // let us resolve the data payload of the last function call
+                    // of a reducer as it's final output.
+                    let last_arg = reducer_collection.pop();
+                    for arg in reducer_collection {
+                        let function_call = create_function_call_from_reduce_op(reduce_op, &arg);
+                        invocation_ctx
+                            .function_calls
+                            .insert(function_call.function_call_id.clone(), function_call);
+                    }
+                    if let Some(last_arg) = last_arg.clone() {
+                        let mut function_call =
+                            create_function_call_from_reduce_op(reduce_op, &last_arg);
+                        function_call.function_call_id = reduce_op.function_call_id.clone();
+                        invocation_ctx
+                            .function_calls
+                            .insert(function_call.function_call_id.clone(), function_call);
                     }
                 }
             }
@@ -302,5 +295,25 @@ impl TaskCreator {
             "task_creator",
         )?;
         Ok(scheduler_update)
+    }
+}
+
+fn create_function_call_from_reduce_op(
+    reduce_op: &ReduceOperation,
+    function_arg: &FunctionArgs,
+) -> FunctionCall {
+    match function_arg {
+        FunctionArgs::DataPayload(data_payload) => FunctionCall {
+            function_call_id: FunctionCallId(nanoid::nanoid!()),
+            inputs: vec![FunctionArgs::DataPayload(data_payload.clone())],
+            fn_name: reduce_op.fn_name.clone(),
+            call_metadata: reduce_op.call_metadata.clone(),
+        },
+        FunctionArgs::FunctionRunOutput(function_call_id) => FunctionCall {
+            function_call_id: function_call_id.clone(),
+            inputs: vec![FunctionArgs::FunctionRunOutput(function_call_id.clone())],
+            fn_name: reduce_op.fn_name.clone(),
+            call_metadata: reduce_op.call_metadata.clone(),
+        },
     }
 }

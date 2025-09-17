@@ -464,6 +464,11 @@ fn to_internal_reduce_op(
     blob_store_url: &str,
 ) -> Result<data_model::ReduceOperation> {
     Ok(data_model::ReduceOperation {
+        function_call_id: FunctionCallId(
+            reduce_op
+                .id
+                .ok_or(anyhow::anyhow!("reduce op id is required"))?,
+        ),
         fn_name: reduce_op
             .reducer
             .ok_or(anyhow::anyhow!("reducer is required"))?
