@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, List
 
 from .function_executor_server import FunctionExecutorServer
 
@@ -19,9 +19,9 @@ class FunctionExecutorServerConfiguration:
     executor_id: str
     function_executor_id: str
     namespace: str
-    graph_name: str
+    application_name: str
     function_name: str
-    graph_version: str
+    application_version: str
     secret_names: List[str]
     cpu_ms_per_sec: int
     memory_bytes: int

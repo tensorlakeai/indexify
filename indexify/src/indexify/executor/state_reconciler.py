@@ -7,7 +7,6 @@ from typing import (
     Dict,
     Iterable,
     List,
-    Optional,
     Set,
 )
 
@@ -54,7 +53,7 @@ class ExecutorStateReconciler:
         executor_id: str,
         function_executor_server_factory: FunctionExecutorServerFactory,
         base_url: str,
-        config_path: Optional[str],
+        config_path: str | None,
         cache_path: Path,
         blob_store: BLOBStore,
         channel_manager: ChannelManager,
@@ -67,7 +66,7 @@ class ExecutorStateReconciler:
             function_executor_server_factory
         )
         self._base_url: str = base_url
-        self._config_path: Optional[str] = config_path
+        self._config_path: str | None = config_path
         self._cache_path: Path = cache_path
         self._blob_store: BLOBStore = blob_store
         self._channel_manager: ChannelManager = channel_manager
@@ -76,19 +75,19 @@ class ExecutorStateReconciler:
         self._server_backoff_interval_sec: int = server_backoff_interval_sec
 
         # Mutable state. Doesn't need lock because we access from async tasks running in the same thread.
-        self._desired_states_reader_task: Optional[asyncio.Task] = None
-        self._reconciliation_loop_task: Optional[asyncio.Task] = None
+        self._desired_states_reader: asyncio.Task | None = None
+        self._reconciliation_loop_runner: asyncio.Task | None = None
         self._function_executor_controllers: Dict[str, FunctionExecutorController] = {}
         self._shutting_down_fe_ids: Set[str] = set()
-        self._last_server_clock: Optional[int] = None
+        self._last_server_clock: int | None = None
 
         self._last_desired_state_lock = asyncio.Lock()
         self._last_desired_state_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self._last_desired_state_lock
         )
-        self._last_desired_state: Optional[DesiredExecutorState] = None
+        self._last_desired_state: DesiredExecutorState | None = None
 
-    def get_desired_state(self) -> Optional[DesiredExecutorState]:
+    def get_desired_state(self) -> DesiredExecutorState | None:
         return self._last_desired_state
 
     def run(self):
@@ -96,17 +95,17 @@ class ExecutorStateReconciler:
 
         Never raises any exceptions. Doesn't block.
         """
-        if self._reconciliation_loop_task is not None:
+        if self._reconciliation_loop_runner is not None:
             self._logger.error(
-                "reconciliation loop task is already running, skipping run call"
+                "reconciliation loop aio task is already running, skipping run call"
             )
             return
 
-        self._reconciliation_loop_task = asyncio.create_task(
+        self._reconciliation_loop_runner = asyncio.create_task(
             self._reconciliation_loop(),
             name="state reconciler reconciliation loop",
         )
-        self._desired_states_reader_task = asyncio.create_task(
+        self._desired_states_reader = asyncio.create_task(
             self._desired_states_reader_loop(),
             name="state reconciler desired states stream reader",
         )
@@ -116,28 +115,28 @@ class ExecutorStateReconciler:
 
         Never raises any exceptions.
         """
-        if self._reconciliation_loop_task is not None:
-            self._reconciliation_loop_task.cancel()
+        if self._reconciliation_loop_runner is not None:
+            self._reconciliation_loop_runner.cancel()
             try:
-                await self._reconciliation_loop_task
+                await self._reconciliation_loop_runner
             except asyncio.CancelledError:
                 # Expected cancellation, nothing to do.
                 pass
             self._logger.info("reconciliation loop is shutdown")
 
-        if self._desired_states_reader_task is not None:
-            self._desired_states_reader_task.cancel()
+        if self._desired_states_reader is not None:
+            self._desired_states_reader.cancel()
             try:
-                await self._desired_states_reader_task
+                await self._desired_states_reader
             except asyncio.CancelledError:
                 # Expected cancellation, nothing to do.
                 pass
             self._logger.info("desired states stream reader loop is shutdown")
 
         # Now all the aio tasks exited so nothing will intervene with our actions from this point.
-        fe_shutdown_tasks: List[asyncio.Task] = []
+        fe_shutdown_aio_tasks: List[asyncio.Task] = []
         for fe_controller in self._function_executor_controllers.values():
-            fe_shutdown_tasks.append(
+            fe_shutdown_aio_tasks.append(
                 asyncio.create_task(
                     fe_controller.shutdown(),
                     name=f"Shutdown Function Executor {fe_controller.function_executor_id()}",
@@ -145,8 +144,8 @@ class ExecutorStateReconciler:
             )
 
         # Run all the shutdown tasks concurrently and wait for them to complete.
-        for task in fe_shutdown_tasks:
-            await task
+        for aio_task in fe_shutdown_aio_tasks:
+            await aio_task
 
         self._function_executor_controllers.clear()
         self._logger.info("state reconciler is shutdown")
@@ -154,10 +153,10 @@ class ExecutorStateReconciler:
     async def _desired_states_reader_loop(self):
         """Reads the desired states stream from Server and processes it.
 
-        Never raises any exceptions. Get cancelled via aio task cancellation.
+        Never raises any exceptions. Gets cancelled via aio task cancellation.
         """
         while True:
-            desired_states_stream: Optional[AsyncIterable[DesiredExecutorState]] = None
+            desired_states_stream: AsyncIterable[DesiredExecutorState] | None = None
             try:
                 stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
                 # Report state once before starting the stream so Server
@@ -235,7 +234,7 @@ class ExecutorStateReconciler:
         """Continuously reconciles the desired state with the current state.
 
         Never raises any exceptions. Get cancelled via aio task cancellation."""
-        last_reconciled_state: Optional[DesiredExecutorState] = None
+        last_reconciled_state: DesiredExecutorState | None = None
         while True:
             async with self._last_desired_state_lock:
                 # Comparing object identities (references) is enough here to not reconcile
@@ -261,7 +260,7 @@ class ExecutorStateReconciler:
         """
         for attempt in range(_RECONCILIATION_RETRIES):
             try:
-                # Reconcile FEs first because Tasks depend on them.
+                # Reconcile FEs first because task allocations depend on them.
                 self._reconcile_function_executors(desired_state.function_executors)
                 self._reconcile_task_allocations(desired_state.task_allocations)
                 return
@@ -375,7 +374,7 @@ class ExecutorStateReconciler:
         # We are not cancelling this aio task in self.shutdown(). Because of this the code here should
         # not fail if the FE controller is not found in internal data structures. It can be removed
         # by self.shutdown() at any time while we're running this aio task.
-        fe_controller: Optional[FunctionExecutorController] = (
+        fe_controller: FunctionExecutorController | None = (
             self._function_executor_controllers.get(function_executor_id)
         )
         if fe_controller is None:

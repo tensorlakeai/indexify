@@ -2,7 +2,7 @@ import asyncio
 import signal
 from pathlib import Path
 from socket import gethostname
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import structlog
 
@@ -48,7 +48,7 @@ class Executor:
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str,
         grpc_server_addr: str,
-        config_path: Optional[str],
+        config_path: str | None,
         monitoring_server_host: str,
         monitoring_server_port: int,
         blob_store: BLOBStore,
@@ -100,8 +100,8 @@ class Executor:
             reported_state_handler=ReportedStateHandler(self._state_reporter),
             desired_state_handler=DesiredStateHandler(self._state_reconciler),
         )
-        self._run_aio_task: Optional[asyncio.Task] = None
-        self._shutdown_aio_task: Optional[asyncio.Task] = None
+        self._run_aio_task: asyncio.Task | None = None
+        self._shutdown_aio_task: asyncio.Task | None = None
 
         executor_info: Dict[str, str] = {
             "id": id,

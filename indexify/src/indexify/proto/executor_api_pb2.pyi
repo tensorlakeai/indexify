@@ -18,6 +18,7 @@ class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DATA_PAYLOAD_ENCODING_UTF8_TEXT: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_BINARY_ZIP: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_RAW: _ClassVar[DataPayloadEncoding]
 
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -73,27 +74,30 @@ class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_STATUS_DRAINED: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_STOPPED: _ClassVar[ExecutorStatus]
 
-class TaskOutcomeCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class AllocationOutcomeCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    TASK_OUTCOME_CODE_UNKNOWN: _ClassVar[TaskOutcomeCode]
-    TASK_OUTCOME_CODE_SUCCESS: _ClassVar[TaskOutcomeCode]
-    TASK_OUTCOME_CODE_FAILURE: _ClassVar[TaskOutcomeCode]
+    ALLOCATION_OUTCOME_CODE_UNKNOWN: _ClassVar[AllocationOutcomeCode]
+    ALLOCATION_OUTCOME_CODE_SUCCESS: _ClassVar[AllocationOutcomeCode]
+    ALLOCATION_OUTCOME_CODE_FAILURE: _ClassVar[AllocationOutcomeCode]
 
-class TaskFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class AllocationFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    TASK_FAILURE_REASON_UNKNOWN: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_INVOCATION_ERROR: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_TASK_CANCELLED: _ClassVar[TaskFailureReason]
-    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[TaskFailureReason]
+    ALLOCATION_FAILURE_REASON_UNKNOWN: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_INTERNAL_ERROR: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_FUNCTION_ERROR: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_REQUEST_ERROR: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[
+        AllocationFailureReason
+    ]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_ZIP: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_RAW: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_A100_40GB: GPUModel
 GPU_MODEL_NVIDIA_A100_80GB: GPUModel
@@ -126,39 +130,62 @@ EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
 EXECUTOR_STATUS_DRAINED: ExecutorStatus
 EXECUTOR_STATUS_STOPPED: ExecutorStatus
-TASK_OUTCOME_CODE_UNKNOWN: TaskOutcomeCode
-TASK_OUTCOME_CODE_SUCCESS: TaskOutcomeCode
-TASK_OUTCOME_CODE_FAILURE: TaskOutcomeCode
-TASK_FAILURE_REASON_UNKNOWN: TaskFailureReason
-TASK_FAILURE_REASON_INTERNAL_ERROR: TaskFailureReason
-TASK_FAILURE_REASON_FUNCTION_ERROR: TaskFailureReason
-TASK_FAILURE_REASON_FUNCTION_TIMEOUT: TaskFailureReason
-TASK_FAILURE_REASON_INVOCATION_ERROR: TaskFailureReason
-TASK_FAILURE_REASON_TASK_CANCELLED: TaskFailureReason
-TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: TaskFailureReason
+ALLOCATION_OUTCOME_CODE_UNKNOWN: AllocationOutcomeCode
+ALLOCATION_OUTCOME_CODE_SUCCESS: AllocationOutcomeCode
+ALLOCATION_OUTCOME_CODE_FAILURE: AllocationOutcomeCode
+ALLOCATION_FAILURE_REASON_UNKNOWN: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_INTERNAL_ERROR: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_FUNCTION_ERROR: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_REQUEST_ERROR: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: AllocationFailureReason
 
 class DataPayload(_message.Message):
-    __slots__ = ("size", "sha256_hash", "uri", "encoding", "encoding_version", "offset")
-    SIZE_FIELD_NUMBER: _ClassVar[int]
-    SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = (
+        "uri",
+        "encoding",
+        "encoding_version",
+        "content_type",
+        "metadata_size",
+        "offset",
+        "size",
+        "sha256_hash",
+        "source_function_call_id",
+        "id",
+    )
     URI_FIELD_NUMBER: _ClassVar[int]
     ENCODING_FIELD_NUMBER: _ClassVar[int]
     ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    METADATA_SIZE_FIELD_NUMBER: _ClassVar[int]
     OFFSET_FIELD_NUMBER: _ClassVar[int]
-    size: int
-    sha256_hash: str
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
     uri: str
     encoding: DataPayloadEncoding
     encoding_version: int
+    content_type: str
+    metadata_size: int
     offset: int
+    size: int
+    sha256_hash: str
+    source_function_call_id: str
+    id: str
     def __init__(
         self,
-        size: _Optional[int] = ...,
-        sha256_hash: _Optional[str] = ...,
         uri: _Optional[str] = ...,
         encoding: _Optional[_Union[DataPayloadEncoding, str]] = ...,
         encoding_version: _Optional[int] = ...,
+        content_type: _Optional[str] = ...,
+        metadata_size: _Optional[int] = ...,
         offset: _Optional[int] = ...,
+        size: _Optional[int] = ...,
+        sha256_hash: _Optional[str] = ...,
+        source_function_call_id: _Optional[str] = ...,
+        id: _Optional[str] = ...,
     ) -> None: ...
 
 class GPUResources(_message.Message):
@@ -190,21 +217,26 @@ class HostResources(_message.Message):
     ) -> None: ...
 
 class AllowedFunction(_message.Message):
-    __slots__ = ("namespace", "graph_name", "function_name", "graph_version")
+    __slots__ = (
+        "namespace",
+        "application_name",
+        "function_name",
+        "application_version",
+    )
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_NAME_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_VERSION_FIELD_NUMBER: _ClassVar[int]
     namespace: str
-    graph_name: str
+    application_name: str
     function_name: str
-    graph_version: str
+    application_version: str
     def __init__(
         self,
         namespace: _Optional[str] = ...,
-        graph_name: _Optional[str] = ...,
+        application_name: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
-        graph_version: _Optional[str] = ...,
+        application_version: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorResources(_message.Message):
@@ -225,55 +257,70 @@ class FunctionExecutorResources(_message.Message):
         gpu: _Optional[_Union[GPUResources, _Mapping]] = ...,
     ) -> None: ...
 
+class FunctionRef(_message.Message):
+    __slots__ = (
+        "namespace",
+        "application_name",
+        "function_name",
+        "application_version",
+    )
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_NAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_VERSION_FIELD_NUMBER: _ClassVar[int]
+    namespace: str
+    application_name: str
+    function_name: str
+    application_version: str
+    def __init__(
+        self,
+        namespace: _Optional[str] = ...,
+        application_name: _Optional[str] = ...,
+        function_name: _Optional[str] = ...,
+        application_version: _Optional[str] = ...,
+    ) -> None: ...
+
 class FunctionExecutorDescription(_message.Message):
     __slots__ = (
         "id",
-        "namespace",
-        "graph_name",
-        "graph_version",
-        "function_name",
+        "function",
         "secret_names",
-        "customer_code_timeout_ms",
-        "graph",
+        "initialization_timeout_ms",
+        "application",
         "resources",
         "output_payload_uri_prefix",
         "max_concurrency",
+        "allocation_timeout_ms",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
-    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
-    CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_FIELD_NUMBER: _ClassVar[int]
+    INITIALIZATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     MAX_CONCURRENCY_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     id: str
-    namespace: str
-    graph_name: str
-    graph_version: str
-    function_name: str
+    function: FunctionRef
     secret_names: _containers.RepeatedScalarFieldContainer[str]
-    customer_code_timeout_ms: int
-    graph: DataPayload
+    initialization_timeout_ms: int
+    application: DataPayload
     resources: FunctionExecutorResources
     output_payload_uri_prefix: str
     max_concurrency: int
+    allocation_timeout_ms: int
     def __init__(
         self,
         id: _Optional[str] = ...,
-        namespace: _Optional[str] = ...,
-        graph_name: _Optional[str] = ...,
-        graph_version: _Optional[str] = ...,
-        function_name: _Optional[str] = ...,
+        function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
         secret_names: _Optional[_Iterable[str]] = ...,
-        customer_code_timeout_ms: _Optional[int] = ...,
-        graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        initialization_timeout_ms: _Optional[int] = ...,
+        application: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
         output_payload_uri_prefix: _Optional[str] = ...,
         max_concurrency: _Optional[int] = ...,
+        allocation_timeout_ms: _Optional[int] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -299,21 +346,6 @@ class FunctionExecutorState(_message.Message):
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
         allocation_ids_caused_termination: _Optional[_Iterable[str]] = ...,
-    ) -> None: ...
-
-class FunctionExecutorUpdate(_message.Message):
-    __slots__ = ("description", "startup_stdout", "startup_stderr")
-    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
-    STARTUP_STDOUT_FIELD_NUMBER: _ClassVar[int]
-    STARTUP_STDERR_FIELD_NUMBER: _ClassVar[int]
-    description: FunctionExecutorDescription
-    startup_stdout: DataPayload
-    startup_stderr: DataPayload
-    def __init__(
-        self,
-        description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
-        startup_stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        startup_stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):
@@ -387,21 +419,16 @@ class ExecutorState(_message.Message):
     ) -> None: ...
 
 class ExecutorUpdate(_message.Message):
-    __slots__ = ("executor_id", "task_results", "function_executor_updates")
+    __slots__ = ("executor_id", "allocation_results")
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
-    TASK_RESULTS_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_EXECUTOR_UPDATES_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATION_RESULTS_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
-    task_results: _containers.RepeatedCompositeFieldContainer[TaskResult]
-    function_executor_updates: _containers.RepeatedCompositeFieldContainer[
-        FunctionExecutorUpdate
-    ]
+    allocation_results: _containers.RepeatedCompositeFieldContainer[AllocationResult]
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
-        task_results: _Optional[_Iterable[_Union[TaskResult, _Mapping]]] = ...,
-        function_executor_updates: _Optional[
-            _Iterable[_Union[FunctionExecutorUpdate, _Mapping]]
+        allocation_results: _Optional[
+            _Iterable[_Union[AllocationResult, _Mapping]]
         ] = ...,
     ) -> None: ...
 
@@ -421,92 +448,47 @@ class ReportExecutorStateResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
-class TaskRetryPolicy(_message.Message):
-    __slots__ = ("max_retries", "initial_delay_ms", "max_delay_ms", "delay_multiplier")
-    MAX_RETRIES_FIELD_NUMBER: _ClassVar[int]
-    INITIAL_DELAY_MS_FIELD_NUMBER: _ClassVar[int]
-    MAX_DELAY_MS_FIELD_NUMBER: _ClassVar[int]
-    DELAY_MULTIPLIER_FIELD_NUMBER: _ClassVar[int]
-    max_retries: int
-    initial_delay_ms: int
-    max_delay_ms: int
-    delay_multiplier: int
-    def __init__(
-        self,
-        max_retries: _Optional[int] = ...,
-        initial_delay_ms: _Optional[int] = ...,
-        max_delay_ms: _Optional[int] = ...,
-        delay_multiplier: _Optional[int] = ...,
-    ) -> None: ...
-
-class Task(_message.Message):
-    __slots__ = (
-        "id",
-        "namespace",
-        "graph_name",
-        "graph_version",
-        "function_name",
-        "graph_invocation_id",
-        "timeout_ms",
-        "input",
-        "reducer_input",
-        "output_payload_uri_prefix",
-        "retry_policy",
-        "invocation_error_payload_uri_prefix",
-    )
-    ID_FIELD_NUMBER: _ClassVar[int]
-    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
-    INPUT_FIELD_NUMBER: _ClassVar[int]
-    REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
-    RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
-    INVOCATION_ERROR_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
-    id: str
-    namespace: str
-    graph_name: str
-    graph_version: str
-    function_name: str
-    graph_invocation_id: str
-    timeout_ms: int
-    input: DataPayload
-    reducer_input: DataPayload
-    output_payload_uri_prefix: str
-    retry_policy: TaskRetryPolicy
-    invocation_error_payload_uri_prefix: str
-    def __init__(
-        self,
-        id: _Optional[str] = ...,
-        namespace: _Optional[str] = ...,
-        graph_name: _Optional[str] = ...,
-        graph_version: _Optional[str] = ...,
-        function_name: _Optional[str] = ...,
-        graph_invocation_id: _Optional[str] = ...,
-        timeout_ms: _Optional[int] = ...,
-        input: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        output_payload_uri_prefix: _Optional[str] = ...,
-        retry_policy: _Optional[_Union[TaskRetryPolicy, _Mapping]] = ...,
-        invocation_error_payload_uri_prefix: _Optional[str] = ...,
-    ) -> None: ...
-
 class TaskAllocation(_message.Message):
-    __slots__ = ("function_executor_id", "task", "allocation_id")
-    FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
-    TASK_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = (
+        "function",
+        "allocation_id",
+        "task_id",
+        "request_id",
+        "args",
+        "output_payload_uri_prefix",
+        "request_error_payload_uri_prefix",
+        "function_executor_id",
+        "function_call_metadata",
+    )
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    function_executor_id: str
-    task: Task
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ERROR_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
+    function: FunctionRef
     allocation_id: str
+    task_id: str
+    request_id: str
+    args: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    output_payload_uri_prefix: str
+    request_error_payload_uri_prefix: str
+    function_executor_id: str
+    function_call_metadata: bytes
     def __init__(
         self,
-        function_executor_id: _Optional[str] = ...,
-        task: _Optional[_Union[Task, _Mapping]] = ...,
+        function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
+        task_id: _Optional[str] = ...,
+        request_id: _Optional[str] = ...,
+        args: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        output_payload_uri_prefix: _Optional[str] = ...,
+        request_error_payload_uri_prefix: _Optional[str] = ...,
+        function_executor_id: _Optional[str] = ...,
+        function_call_metadata: _Optional[bytes] = ...,
     ) -> None: ...
 
 class GetDesiredExecutorStatesRequest(_message.Message):
@@ -534,69 +516,168 @@ class DesiredExecutorState(_message.Message):
         clock: _Optional[int] = ...,
     ) -> None: ...
 
-class TaskResult(_message.Message):
+class ExecutionPlanUpdate(_message.Message):
+    __slots__ = ("function_call", "reduce")
+    FUNCTION_CALL_FIELD_NUMBER: _ClassVar[int]
+    REDUCE_FIELD_NUMBER: _ClassVar[int]
+    function_call: FunctionCall
+    reduce: ReduceOp
+    def __init__(
+        self,
+        function_call: _Optional[_Union[FunctionCall, _Mapping]] = ...,
+        reduce: _Optional[_Union[ReduceOp, _Mapping]] = ...,
+    ) -> None: ...
+
+class FunctionCall(_message.Message):
+    __slots__ = ("id", "target", "args", "call_metadata")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    target: FunctionRef
+    args: _containers.RepeatedCompositeFieldContainer[FunctionArg]
+    call_metadata: bytes
+    def __init__(
+        self,
+        id: _Optional[str] = ...,
+        target: _Optional[_Union[FunctionRef, _Mapping]] = ...,
+        args: _Optional[_Iterable[_Union[FunctionArg, _Mapping]]] = ...,
+        call_metadata: _Optional[bytes] = ...,
+    ) -> None: ...
+
+class FunctionArg(_message.Message):
+    __slots__ = ("function_call_id", "inline_data")
+    FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    INLINE_DATA_FIELD_NUMBER: _ClassVar[int]
+    function_call_id: str
+    inline_data: DataPayload
+    def __init__(
+        self,
+        function_call_id: _Optional[str] = ...,
+        inline_data: _Optional[_Union[DataPayload, _Mapping]] = ...,
+    ) -> None: ...
+
+class ReduceOp(_message.Message):
+    __slots__ = ("id", "collection", "reducer", "call_metadata")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    COLLECTION_FIELD_NUMBER: _ClassVar[int]
+    REDUCER_FIELD_NUMBER: _ClassVar[int]
+    CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    collection: _containers.RepeatedCompositeFieldContainer[FunctionArg]
+    reducer: FunctionRef
+    call_metadata: bytes
+    def __init__(
+        self,
+        id: _Optional[str] = ...,
+        collection: _Optional[_Iterable[_Union[FunctionArg, _Mapping]]] = ...,
+        reducer: _Optional[_Union[FunctionRef, _Mapping]] = ...,
+        call_metadata: _Optional[bytes] = ...,
+    ) -> None: ...
+
+class ExecutionPlanUpdates(_message.Message):
+    __slots__ = ("updates",)
+    UPDATES_FIELD_NUMBER: _ClassVar[int]
+    updates: _containers.RepeatedCompositeFieldContainer[ExecutionPlanUpdate]
+    def __init__(
+        self, updates: _Optional[_Iterable[_Union[ExecutionPlanUpdate, _Mapping]]] = ...
+    ) -> None: ...
+
+class AllocationResult(_message.Message):
     __slots__ = (
-        "task_id",
+        "function",
         "allocation_id",
-        "namespace",
-        "graph_name",
-        "graph_version",
-        "function_name",
-        "graph_invocation_id",
+        "task_id",
+        "request_id",
         "outcome_code",
         "failure_reason",
-        "next_functions",
-        "function_outputs",
-        "stdout",
-        "stderr",
-        "invocation_error_output",
+        "value",
+        "updates",
+        "request_error",
         "execution_duration_ms",
     )
-    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
-    GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
-    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
-    STDOUT_FIELD_NUMBER: _ClassVar[int]
-    STDERR_FIELD_NUMBER: _ClassVar[int]
-    INVOCATION_ERROR_OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    UPDATES_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ERROR_FIELD_NUMBER: _ClassVar[int]
     EXECUTION_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
-    task_id: str
+    function: FunctionRef
     allocation_id: str
-    namespace: str
-    graph_name: str
-    graph_version: str
-    function_name: str
-    graph_invocation_id: str
-    outcome_code: TaskOutcomeCode
-    failure_reason: TaskFailureReason
-    next_functions: _containers.RepeatedScalarFieldContainer[str]
-    function_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
-    stdout: DataPayload
-    stderr: DataPayload
-    invocation_error_output: DataPayload
+    task_id: str
+    request_id: str
+    outcome_code: AllocationOutcomeCode
+    failure_reason: AllocationFailureReason
+    value: DataPayload
+    updates: ExecutionPlanUpdates
+    request_error: DataPayload
     execution_duration_ms: int
     def __init__(
         self,
-        task_id: _Optional[str] = ...,
+        function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
-        namespace: _Optional[str] = ...,
-        graph_name: _Optional[str] = ...,
-        graph_version: _Optional[str] = ...,
-        function_name: _Optional[str] = ...,
-        graph_invocation_id: _Optional[str] = ...,
-        outcome_code: _Optional[_Union[TaskOutcomeCode, str]] = ...,
-        failure_reason: _Optional[_Union[TaskFailureReason, str]] = ...,
-        next_functions: _Optional[_Iterable[str]] = ...,
-        function_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
-        stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        invocation_error_output: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        task_id: _Optional[str] = ...,
+        request_id: _Optional[str] = ...,
+        outcome_code: _Optional[_Union[AllocationOutcomeCode, str]] = ...,
+        failure_reason: _Optional[_Union[AllocationFailureReason, str]] = ...,
+        value: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        updates: _Optional[_Union[ExecutionPlanUpdates, _Mapping]] = ...,
+        request_error: _Optional[_Union[DataPayload, _Mapping]] = ...,
         execution_duration_ms: _Optional[int] = ...,
+    ) -> None: ...
+
+class FunctionCallRequest(_message.Message):
+    __slots__ = (
+        "parent_request_id",
+        "function",
+        "inputs",
+        "call_metadata",
+        "source_function_call_id",
+    )
+    PARENT_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    INPUTS_FIELD_NUMBER: _ClassVar[int]
+    CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    parent_request_id: str
+    function: FunctionRef
+    inputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    call_metadata: bytes
+    source_function_call_id: str
+    def __init__(
+        self,
+        parent_request_id: _Optional[str] = ...,
+        function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
+        inputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        call_metadata: _Optional[bytes] = ...,
+        source_function_call_id: _Optional[str] = ...,
+    ) -> None: ...
+
+class FunctionCallResult(_message.Message):
+    __slots__ = ("output", "exception")
+    OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    EXCEPTION_FIELD_NUMBER: _ClassVar[int]
+    output: DataPayload
+    exception: str
+    def __init__(
+        self,
+        output: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        exception: _Optional[str] = ...,
+    ) -> None: ...
+
+class FunctionCallResponse(_message.Message):
+    __slots__ = ("update", "result")
+    UPDATE_FIELD_NUMBER: _ClassVar[int]
+    RESULT_FIELD_NUMBER: _ClassVar[int]
+    update: str
+    result: FunctionCallResult
+    def __init__(
+        self,
+        update: _Optional[str] = ...,
+        result: _Optional[_Union[FunctionCallResult, _Mapping]] = ...,
     ) -> None: ...

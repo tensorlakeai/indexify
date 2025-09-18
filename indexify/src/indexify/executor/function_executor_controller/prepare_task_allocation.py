@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Any, List, Optional
+from typing import Any, List
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     BLOB,
@@ -10,7 +10,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.proto.executor_api_pb2 import DataPayload, Task
+from indexify.proto.executor_api_pb2 import DataPayload, TaskAllocation
 
 from .downloads import serialized_object_manifest_from_data_payload_proto
 from .events import TaskAllocationPreparationFinished
@@ -38,16 +38,16 @@ _OUTPUT_BLOB_OPTIMAL_CHUNKS_COUNT: int = 100
 _OUTPUT_BLOB_SLOWER_CHUNK_SIZE_BYTES: int = 1 * 1024 * 1024 * 1024  # 1 GB
 # Max output size with slower chunks is 100 * 1 GB = 100 GB.
 _OUTPUT_BLOB_SLOWER_CHUNKS_COUNT: int = 100
-# Invocation error output is using a single chunk.
-_INVOCATION_ERROR_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
+# Request error output is using a single chunk.
+_REQUEST_ERROR_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 
 async def prepare_task_allocation(
     alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
 ) -> TaskAllocationPreparationFinished:
-    """Prepares the task for execution.
+    """Prepares the task allocation for execution.
 
-    If successful then the task is runnable.
+    If successful then the task allocation is runnable.
     Doesn't raise any exceptions.
     """
     logger = logger.bind(module=__name__)
@@ -94,35 +94,25 @@ async def _prepare_task_alloc_input(
 
     Raises an exception on error.
     """
-    task: Task = alloc_info.allocation.task
-    function_init_value_blob: Optional[BLOB] = None
-    function_init_value: Optional[SerializedObjectInsideBLOB] = None
-    if task.HasField("reducer_input"):
-        function_init_value_blob = await _presign_function_input_blob(
-            data_payload=task.reducer_input,
-            blob_store=blob_store,
-            logger=logger,
-        )
-        function_init_value = _to_serialized_object_inside_blob(task.reducer_input)
-
+    alloc: TaskAllocation = alloc_info.allocation
     function_outputs_blob_uri: str = (
-        f"{task.output_payload_uri_prefix}.{alloc_info.allocation.allocation_id}.output"
+        f"{alloc.output_payload_uri_prefix}.{alloc_info.allocation.allocation_id}.output"
     )
-    invocation_error_blob_uri: str = (
-        f"{task.invocation_error_payload_uri_prefix}.{task.graph_invocation_id}.inverr"
+    request_error_blob_uri: str = (
+        f"{alloc.request_error_payload_uri_prefix}.{alloc.request_id}.req_error"
     )
 
     # The uploads are completed when finalizing the task.
-    function_outputs_blob_upload_id: Optional[str] = None
-    invocation_error_blob_upload_id: Optional[str] = None
+    function_outputs_blob_upload_id: str | None = None
+    request_error_blob_upload_id: str | None = None
 
     try:
         function_outputs_blob_upload_id = await blob_store.create_multipart_upload(
             uri=function_outputs_blob_uri,
             logger=logger,
         )
-        invocation_error_blob_upload_id = await blob_store.create_multipart_upload(
-            uri=invocation_error_blob_uri,
+        request_error_blob_upload_id = await blob_store.create_multipart_upload(
+            uri=request_error_blob_uri,
             logger=logger,
         )
     except BaseException:
@@ -132,55 +122,62 @@ async def _prepare_task_alloc_input(
                 upload_id=function_outputs_blob_upload_id,
                 logger=logger,
             )
-        if invocation_error_blob_upload_id is not None:
+        if request_error_blob_upload_id is not None:
             await blob_store.abort_multipart_upload(
-                uri=invocation_error_blob_uri,
-                upload_id=invocation_error_blob_upload_id,
+                uri=request_error_blob_uri,
+                upload_id=request_error_blob_upload_id,
                 logger=logger,
             )
         raise
 
+    args: List[SerializedObjectInsideBLOB] = []
+    arg_blobs: List[BLOB] = []
+    for arg in alloc.args:
+        arg: DataPayload
+        args.append(_to_serialized_object_inside_blob(arg))
+        arg_blob = await _presign_function_arg_blob(
+            arg=arg,
+            blob_store=blob_store,
+            logger=logger,
+        )
+        arg_blobs.append(arg_blob)
+
     return TaskAllocationInput(
         function_inputs=FunctionInputs(
-            function_input_blob=await _presign_function_input_blob(
-                data_payload=task.input,
-                blob_store=blob_store,
-                logger=logger,
-            ),
-            function_input=_to_serialized_object_inside_blob(task.input),
-            function_init_value_blob=function_init_value_blob,
-            function_init_value=function_init_value,
+            args=args,
+            arg_blobs=arg_blobs,
             function_outputs_blob=await _presign_function_outputs_blob(
                 uri=function_outputs_blob_uri,
                 upload_id=function_outputs_blob_upload_id,
                 blob_store=blob_store,
                 logger=logger,
             ),
-            invocation_error_blob=await _presign_invocation_error_blob(
-                uri=invocation_error_blob_uri,
-                upload_id=invocation_error_blob_upload_id,
+            request_error_blob=await _presign_request_error_blob(
+                uri=request_error_blob_uri,
+                upload_id=request_error_blob_upload_id,
                 blob_store=blob_store,
                 logger=logger,
             ),
+            function_call_metadata=alloc.function_call_metadata,
         ),
         function_outputs_blob_uri=function_outputs_blob_uri,
         function_outputs_blob_upload_id=function_outputs_blob_upload_id,
-        invocation_error_blob_uri=invocation_error_blob_uri,
-        invocation_error_blob_upload_id=invocation_error_blob_upload_id,
+        request_error_blob_uri=request_error_blob_uri,
+        request_error_blob_upload_id=request_error_blob_upload_id,
     )
 
 
-async def _presign_function_input_blob(
-    data_payload: DataPayload, blob_store: BLOBStore, logger: Any
+async def _presign_function_arg_blob(
+    arg: DataPayload, blob_store: BLOBStore, logger: Any
 ) -> BLOB:
     get_blob_uri: str = await blob_store.presign_get_uri(
-        uri=data_payload.uri,
+        uri=arg.uri,
         expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
         logger=logger,
     )
     chunks: List[BLOBChunk] = []
 
-    while len(chunks) * _BLOB_OPTIMAL_CHUNK_SIZE_BYTES < data_payload.size:
+    while len(chunks) * _BLOB_OPTIMAL_CHUNK_SIZE_BYTES < arg.size:
         chunks.append(
             BLOBChunk(
                 uri=get_blob_uri,  # The URI allows to read any byte range in the BLOB.
@@ -229,10 +226,10 @@ async def _presign_function_outputs_blob(
     )
 
 
-async def _presign_invocation_error_blob(
+async def _presign_request_error_blob(
     uri: str, upload_id: str, blob_store: BLOBStore, logger: Any
 ) -> BLOB:
-    """Presigns the output blob for the invocation error."""
+    """Presigns the output blob for the request error."""
     upload_chunk_uri: str = await blob_store.presign_upload_part_uri(
         uri=uri,
         part_number=1,
@@ -244,7 +241,7 @@ async def _presign_invocation_error_blob(
         chunks=[
             BLOBChunk(
                 uri=upload_chunk_uri,
-                size=_INVOCATION_ERROR_MAX_SIZE_BYTES,
+                size=_REQUEST_ERROR_MAX_SIZE_BYTES,
                 # ETag is only set by FE when returning BLOBs to us
             )
         ]

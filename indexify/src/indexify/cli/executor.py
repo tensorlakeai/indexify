@@ -18,8 +18,6 @@ import prometheus_client
 import structlog
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.executor.blob_store.local_fs_blob_store import LocalFSBLOBStore
-from indexify.executor.blob_store.s3_blob_store import S3BLOBStore
 from indexify.executor.executor import Executor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
@@ -68,7 +66,7 @@ from indexify.executor.monitoring.health_checker.generic_health_checker import (
     default=[],
     multiple=True,
     help="Functions that the executor will run "
-    "specified as <namespace>:<workflow>:<function>:<version>"
+    "specified as <namespace>:<application>:<function>:<version>"
     "version is optional, not specifying it will make the server send any version"
     "of the function. Any number of --function arguments can be passed.",
 )

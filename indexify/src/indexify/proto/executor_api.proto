@@ -11,23 +11,41 @@ enum DataPayloadEncoding {
     DATA_PAYLOAD_ENCODING_UTF8_TEXT = 2;
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE = 3;
     DATA_PAYLOAD_ENCODING_BINARY_ZIP = 4;
+    DATA_PAYLOAD_ENCODING_RAW = 5;
 }
 
 message DataPayload {
-    optional uint64 size = 2;
-    optional string sha256_hash = 3;
     // URI of the BLOB where the data is stored.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix if the data is stored on a local file system.
-    optional string uri = 4;
-    optional DataPayloadEncoding encoding = 5;
+    optional string uri = 1;
+    optional DataPayloadEncoding encoding = 2;
     // Not set and ignored by Server right now.
-    optional uint64 encoding_version = 6;
-    // Offset inside the BLOB.
-    optional uint64 offset = 7;
+    optional uint64 encoding_version = 3;
+
+    optional string content_type = 10;
+
+    // size of the metadata (optional)
+    // DataPayload metadata is stored at the head of the binary 
+    // blob. This metadata is used optionally to store additional 
+    // metadata for the type of the object that is stored 
+    // so that we can deserialize the object correctly.
+    optional uint64 metadata_size = 5;
+
+    optional uint64 offset = 6;
+    optional uint64 size = 7;
+    optional string sha256_hash = 8;
+
+    // This is the ID of the function call that returned this datapayload
+    // as it's return value.
+    // payload which are statically passed as function arguments don't have this field set.
+    optional string source_function_call_id = 9;
+
+    // This is an opaque ID. It will be always set. This needs to be used in function call
+    // metadata to uniquely identify the position of the payload in the function call.
+    optional string id = 15;
 }
 
-// ===== report_executor_state RPC =====
 enum GPUModel {
     GPU_MODEL_UNKNOWN = 0;
     GPU_MODEL_NVIDIA_A100_40GB = 1;
@@ -56,17 +74,17 @@ message HostResources {
 // Specification of a single function that is allowed to be run on the Executor.
 message AllowedFunction {
     optional string namespace = 1;
-    optional string graph_name = 2;
+    optional string application_name = 2;
     optional string function_name = 3;
-    // If none then any version of the graph is allowed to run on the Executor.
-    optional string graph_version = 4;
+    // If none then any version of the application is allowed to run on the Executor.
+    optional string application_version = 4;
 }
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
     // FE is being created.
     FUNCTION_EXECUTOR_STATUS_PENDING = 1;
-    // FE is running and ready to accept tasks.
+    // FE is running and ready to accept task allocations.
     FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
     // FE is terminated, all resources are freed.
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
@@ -106,23 +124,29 @@ message FunctionExecutorResources {
     optional GPUResources gpu = 4;
 }
 
+message FunctionRef {
+    optional string namespace = 1;
+    optional string application_name = 2;
+    optional string function_name = 3;
+    optional string application_version = 4;
+}
+
 message FunctionExecutorDescription {
     optional string id = 1;
-    optional string namespace = 2;
-    optional string graph_name = 3;
-    optional string graph_version = 4;
-    optional string function_name = 5;
-    repeated string secret_names = 7;
+    optional FunctionRef function = 2;
+    repeated string secret_names = 3;
     // Timeout for customer code duration during FE creation.
-    optional uint32 customer_code_timeout_ms = 9;
-    optional DataPayload graph = 10;
-    optional FunctionExecutorResources resources = 11;
+    optional uint32 initialization_timeout_ms = 4;
+    optional DataPayload application = 5;
+    optional FunctionExecutorResources resources = 6;
     // URI prefix for the startup output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-    optional string output_payload_uri_prefix = 12;
-    optional uint32 max_concurrency = 13;
+    optional string output_payload_uri_prefix = 7;
+    optional uint32 max_concurrency = 8;
+    // Timeout for running task allocations on FE.
+    optional uint32 allocation_timeout_ms = 9;
 }
 
 message FunctionExecutorState {
@@ -130,13 +154,6 @@ message FunctionExecutorState {
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
     repeated string allocation_ids_caused_termination = 4;
-}
-
-// Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-message FunctionExecutorUpdate {
-    optional FunctionExecutorDescription description = 1;
-    optional DataPayload startup_stdout = 2;
-    optional DataPayload startup_stderr = 3;
 }
 
 enum ExecutorStatus {
@@ -175,8 +192,7 @@ message ExecutorState {
 // then the updates from it won't be included in the next RPC.
 message ExecutorUpdate {
     optional string executor_id = 1;
-    repeated TaskResult task_results = 2;
-    repeated FunctionExecutorUpdate function_executor_updates = 3;
+    repeated AllocationResult allocation_results = 2;
 }
 
 message ReportExecutorStateRequest {
@@ -188,38 +204,24 @@ message ReportExecutorStateRequest {
 message ReportExecutorStateResponse {
 }
 
-// ===== get_desired_executor_states RPC =====
-message TaskRetryPolicy {
-    optional uint32 max_retries = 1;
-    optional uint32 initial_delay_ms = 2;
-    optional uint32 max_delay_ms = 3;
-    // The multiplier value is 1000x of the actual value to avoid working with floating point.
-    optional uint32 delay_multiplier = 4;
-}
-
-message Task {
-    optional string id = 1;
-    optional string namespace = 2;
-    optional string graph_name = 3;
-    optional string graph_version = 4;
-    optional string function_name = 5;
-    optional string graph_invocation_id = 6;
-    optional uint32 timeout_ms = 10;
-    optional DataPayload input = 11;
-    optional DataPayload reducer_input = 12;
+message TaskAllocation {
+    // Version is not set in function ref.
+    optional FunctionRef function = 1;
+    optional string allocation_id = 2;
+    optional string task_id = 3;
+    optional string request_id = 4;
+    repeated DataPayload args = 5;
     // URI prefix for the output payloads.
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
-    optional string output_payload_uri_prefix = 13;
-    optional TaskRetryPolicy retry_policy = 14;
-    // BLOB URI prefix for the invocation error payloads.
-    optional string invocation_error_payload_uri_prefix = 15;
-}
+    optional string output_payload_uri_prefix = 6;
+    // BLOB URI prefix for the request error payloads.
+    optional string request_error_payload_uri_prefix = 7;
+    optional string function_executor_id = 8;
 
-message TaskAllocation {
-    optional string function_executor_id = 1;
-    optional Task task = 2;
-    optional string allocation_id = 3;
+    // If the function call metadata is not set, this implies 
+    // that the function call is for an API function.
+    optional bytes function_call_metadata = 9;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
@@ -237,55 +239,124 @@ message DesiredExecutorState {
     optional uint64 clock = 3;
 }
 
-// ===== report_task_outcome RPC =====
-enum TaskOutcomeCode {
-    TASK_OUTCOME_CODE_UNKNOWN = 0;
-    TASK_OUTCOME_CODE_SUCCESS = 1;
-    TASK_OUTCOME_CODE_FAILURE = 2;
+enum AllocationOutcomeCode {
+    ALLOCATION_OUTCOME_CODE_UNKNOWN = 0;
+    ALLOCATION_OUTCOME_CODE_SUCCESS = 1;
+    ALLOCATION_OUTCOME_CODE_FAILURE = 2;
 }
 
-enum TaskFailureReason {
-    TASK_FAILURE_REASON_UNKNOWN = 0;
+enum AllocationFailureReason {
+    ALLOCATION_FAILURE_REASON_UNKNOWN = 0;
     // Internal error on Executor aka platform error.
-    TASK_FAILURE_REASON_INTERNAL_ERROR = 1;
+    ALLOCATION_FAILURE_REASON_INTERNAL_ERROR = 1;
     // Clear function code failure typically by raising an exception from the function code.
     // Also a grey failure where we can't determine the exact cause. We attribute these to
     // functions to prevent service abuse but not billed intenionally failing functions.
-    TASK_FAILURE_REASON_FUNCTION_ERROR = 2;
+    ALLOCATION_FAILURE_REASON_FUNCTION_ERROR = 2;
     // Function code run time exceeded its configured timeout.
-    TASK_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
-    // Function code raised InvocationError to mark the invocation as permanently failed.
-    TASK_FAILURE_REASON_INVOCATION_ERROR = 4;
+    ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
+    // Function code raised RequestException to mark the request as permanently failed.
+    ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
     // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
-    TASK_FAILURE_REASON_TASK_CANCELLED = 5;
+    ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
     // Function Executor terminated - can't run the task allocation on it anymore.
-    TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
+    ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
 
-message TaskResult {
-    optional string task_id = 1;
+message ExecutionPlanUpdate {
+  oneof op {
+    FunctionCall function_call = 10;
+    ReduceOp     reduce        = 12;
+  }
+}
+
+message FunctionCall {
+    // The ID of the function call. 
+    // When all the dependencies of the function call are resolved, the 
+    // resulting DataPayload will have the same ID. 
+    // This allows resolving datapayloads of resolved functions calls when it's upstream is called again.
+    // The ID is unique within the scope of the request.
+    optional string id = 1;
+    optional FunctionRef target = 2;
+    repeated FunctionArg args = 3;
+
+    // This metadata will contain opaque metadata which will allow the SDK 
+    // to connect the datapayloads of resolved functions calls when it's finally called again.
+    // The SDK can store additional opaque metadata for it's own use.
+    optional bytes call_metadata = 5;
+}
+
+message FunctionArg {
+  oneof source {
+    string function_call_id = 1;
+    DataPayload inline_data = 2;
+  }
+}
+
+message ReduceOp {
+    // The DataPayload of the last function call in the reducer will have the function call id set
+    // as the id of the ReduceOp.
+  optional string id = 1;
+  repeated FunctionArg  collection = 2; 
+  optional FunctionRef reducer     = 3;
+  optional bytes call_metadata     = 4;
+}
+
+message ExecutionPlanUpdates {
+  repeated ExecutionPlanUpdate updates = 1;
+}
+
+message AllocationResult {
+    optional FunctionRef function = 1;
     optional string allocation_id = 2;
-    optional string namespace = 3;
-    optional string graph_name = 4;
-    optional string graph_version = 5;
-    optional string function_name = 6;
-    optional string graph_invocation_id = 7;
-    optional TaskOutcomeCode outcome_code = 9;
-    optional TaskFailureReason failure_reason = 10;
-    // Edges that the function wants the invocation to be routed to.
-    repeated string next_functions = 11;
-    repeated DataPayload function_outputs = 12;
-    // Standard output and error streams of the function.
-    // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
-    optional DataPayload stdout = 13;
-    optional DataPayload stderr = 14;
-    // User payload for invocation error if task failed with invocation error.
-    optional DataPayload invocation_error_output = 15;
-    optional uint64 execution_duration_ms = 16;
+    optional string task_id = 3;
+    optional string request_id = 4;
+    optional AllocationOutcomeCode outcome_code = 5;
+    optional AllocationFailureReason failure_reason = 6;
+
+    oneof return_value {
+      DataPayload value = 7;
+      ExecutionPlanUpdates updates = 8;
+    }
+    // User payload for request error if allocation failed with request error.
+    optional DataPayload request_error = 9;
+    optional uint64 execution_duration_ms = 10;
 }
 
-// Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
-// Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+message FunctionCallRequest {
+    // ID of the parent request.
+    // Should be set by the Executor for safety.
+    optional string parent_request_id = 1;
+    // Reference of the target function.
+    optional FunctionRef function = 2;
+
+    // Inputs to the function.
+    repeated DataPayload inputs = 3;
+
+    // Metadata for the function call.
+    optional bytes call_metadata = 4;
+
+    // ID of the source function call.
+    // Should be set by the Executor for safety.
+    optional string source_function_call_id = 5;
+}
+
+message FunctionCallResult {
+    oneof result {
+        DataPayload output = 1;
+        string exception = 2;
+    }
+}
+
+message FunctionCallResponse {
+    oneof event {
+        string update = 1;
+        FunctionCallResult result = 2;
+    }
+}
+
+// Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+// Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 //
 // Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
 // might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
@@ -299,4 +370,8 @@ service ExecutorAPI {
     // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
     // it puts a message on the stream with the new desired state of the Executor.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
+
+    // Called by the user code to invoke a blocking function call.
+    // returns a stream until the function call is completed.
+    rpc invoke_function(FunctionCallRequest) returns (stream FunctionCallResponse) {}
 }

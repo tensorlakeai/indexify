@@ -2,17 +2,17 @@ import time
 from typing import Any
 
 from indexify.proto.executor_api_pb2 import (
-    TaskFailureReason,
-    TaskOutcomeCode,
+    AllocationFailureReason,
+    AllocationOutcomeCode,
 )
 
 from .metrics.completed_task_allocation_metrics import (
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_ALL,
+    METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_ALLOCATION_CANCELLED,
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_NONE,
-    METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_TASK_CANCELLED,
     METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_UNKNOWN,
     METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_ALL,
     METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
@@ -35,42 +35,46 @@ def emit_completed_task_allocation_metrics(
         time.monotonic() - alloc_info.start_time
     )
 
-    task_outcome_code: TaskOutcomeCode = alloc_info.output.outcome_code
-    task_failure_reason: TaskFailureReason = alloc_info.output.failure_reason
+    alloc_outcome_code: AllocationOutcomeCode = alloc_info.output.outcome_code
+    alloc_failure_reason: AllocationFailureReason = alloc_info.output.failure_reason
     metric_task_allocations_completed.labels(
         outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_ALL,
         failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_ALL,
     ).inc()
-    if task_outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_SUCCESS:
+    if alloc_outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS:
         metric_task_allocations_completed.labels(
             outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_SUCCESS,
             failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_NONE,
         ).inc()
-    elif task_outcome_code == TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE:
-        if task_failure_reason == TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR:
+    elif alloc_outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE:
+        if (
+            alloc_failure_reason
+            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
+        ):
             metric_task_allocations_completed.labels(
                 outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
                 failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
             ).inc()
         elif (
-            task_failure_reason
-            == TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
+            alloc_failure_reason
+            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
         ):
             metric_task_allocations_completed.labels(
                 outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
                 failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
             ).inc()
         elif (
-            task_failure_reason == TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED
+            alloc_failure_reason
+            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_TASK_CANCELLED
         ):
             metric_task_allocations_completed.labels(
                 outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
-                failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_TASK_CANCELLED,
+                failure_reason=METRIC_TASK_ALLOCATIONS_COMPLETED_FAILURE_REASON_ALLOCATION_CANCELLED,
             ).inc()
-        elif task_failure_reason in [
-            TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
-            TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
-            TaskFailureReason.TASK_FAILURE_REASON_INVOCATION_ERROR,
+        elif alloc_failure_reason in [
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_REQUEST_ERROR,
         ]:
             metric_task_allocations_completed.labels(
                 outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
@@ -83,5 +87,5 @@ def emit_completed_task_allocation_metrics(
             ).inc()
             logger.warning(
                 "unexpected task allocation failure reason",
-                failure_reason=TaskFailureReason.Name(task_failure_reason),
+                failure_reason=AllocationFailureReason.Name(alloc_failure_reason),
             )

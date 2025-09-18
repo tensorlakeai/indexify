@@ -3,30 +3,29 @@ import hashlib
 import platform
 import sys
 from socket import gethostname
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from indexify.proto.executor_api_pb2 import (
+    AllocationFailureReason,
+    AllocationOutcomeCode,
+    AllocationResult,
     AllowedFunction,
     ExecutorState,
     ExecutorStatus,
     ExecutorUpdate,
     FunctionExecutorState,
-    FunctionExecutorUpdate,
     GPUModel,
     GPUResources,
 )
 from indexify.proto.executor_api_pb2 import HostResources as HostResourcesProto
 from indexify.proto.executor_api_pb2 import (
     ReportExecutorStateRequest,
-    TaskFailureReason,
-    TaskOutcomeCode,
-    TaskResult,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
 from .channel_manager import ChannelManager
 from .function_allowlist import FunctionURI
-from .function_executor_controller.loggers import task_result_logger
+from .function_executor_controller.loggers import allocation_result_logger
 from .host_resources.host_resources import HostResources, HostResourcesProvider
 from .host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
 from .metrics.state_reporter import (
@@ -76,8 +75,8 @@ class ExecutorStateReporter:
             total_host_resources=self._total_host_resources,
             total_function_executor_resources=self._total_function_executor_resources,
         )
-        self._state_report_worker: Optional[asyncio.Task] = None
-        self._periodic_state_report_scheduler: Optional[asyncio.Task] = None
+        self._state_report_worker: asyncio.Task | None = None
+        self._periodic_state_report_scheduler: asyncio.Task | None = None
 
         # Mutable fields
         self._state_report_scheduled_event: asyncio.Event = asyncio.Event()
@@ -86,12 +85,11 @@ class ExecutorStateReporter:
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
-        self._pending_task_results: List[TaskResult] = []
-        self._pending_fe_updates: List[FunctionExecutorUpdate] = []
+        self._pending_allocation_results: List[AllocationResult] = []
         self._function_executor_states: Dict[str, FunctionExecutorState] = {}
-        self._last_state_report_request: Optional[ReportExecutorStateRequest] = None
+        self._last_state_report_request: ReportExecutorStateRequest | None = None
 
-    def last_state_report_request(self) -> Optional[ReportExecutorStateRequest]:
+    def last_state_report_request(self) -> ReportExecutorStateRequest | None:
         return self._last_state_report_request
 
     def update_executor_status(self, value: ExecutorStatus) -> None:
@@ -116,12 +114,8 @@ class ExecutorStateReporter:
 
         self._function_executor_states.pop(function_executor_id)
 
-    def add_completed_task_result(self, task_result: TaskResult) -> None:
-        self._pending_task_results.append(task_result)
-
-    def add_function_executor_update(self, update: FunctionExecutorUpdate) -> None:
-        """Adds a function executor update to the list of updates to be reported."""
-        self._pending_fe_updates.append(update)
+    def add_completed_allocation_result(self, alloc_result: AllocationResult) -> None:
+        self._pending_allocation_results.append(alloc_result)
 
     def schedule_state_report(self) -> None:
         """Schedules a state report to be sent to the server asap.
@@ -266,23 +260,17 @@ class ExecutorStateReporter:
     def _remove_pending_update(self) -> ExecutorUpdate:
         """Removes all pending executor updates and returns them."""
         # No races here cause we don't await.
-        task_results: List[TaskResult] = self._pending_task_results
-        self._pending_task_results = []
-
-        fe_updates: List[FunctionExecutorUpdate] = self._pending_fe_updates
-        self._pending_fe_updates = []
+        alloc_results: List[AllocationResult] = self._pending_allocation_results
+        self._pending_allocation_results = []
 
         return ExecutorUpdate(
             executor_id=self._executor_id,
-            task_results=task_results,
-            function_executor_updates=fe_updates,
+            allocation_results=alloc_results,
         )
 
     def _add_to_pending_update(self, update: ExecutorUpdate) -> None:
-        for task_result in update.task_results:
-            self.add_completed_task_result(task_result)
-        for function_executor_update in update.function_executor_updates:
-            self.add_function_executor_update(function_executor_update)
+        for alloc_result in update.allocation_results:
+            self.add_completed_allocation_result(alloc_result)
 
 
 def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
@@ -290,13 +278,13 @@ def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
 
     Doesn't raise any exceptions."""
     try:
-        for task_result in update.task_results:
-            task_result_logger(task_result, logger).info(
-                "reporting task outcome",
-                outcome_code=TaskOutcomeCode.Name(task_result.outcome_code),
+        for alloc_result in update.allocation_results:
+            allocation_result_logger(alloc_result, logger).info(
+                "reporting task allocation outcome",
+                outcome_code=AllocationOutcomeCode.Name(alloc_result.outcome_code),
                 failure_reason=(
-                    TaskFailureReason.Name(task_result.failure_reason)
-                    if task_result.HasField("failure_reason")
+                    AllocationFailureReason.Name(alloc_result.failure_reason)
+                    if alloc_result.HasField("failure_reason")
                     else "None"
                 ),
             )
@@ -315,11 +303,11 @@ def _to_allowed_function_protos(
         function_uri: FunctionURI
         allowed_function = AllowedFunction(
             namespace=function_uri.namespace,
-            graph_name=function_uri.compute_graph,
+            application_name=function_uri.application,
             function_name=function_uri.compute_fn,
         )
         if function_uri.version is not None:
-            allowed_function.graph_version = function_uri.version
+            allowed_function.application_version = function_uri.version
         allowed_functions.append(allowed_function)
 
     return allowed_functions
