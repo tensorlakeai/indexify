@@ -46,7 +46,6 @@ message DataPayload {
     optional string id = 15;
 }
 
-// ===== report_executor_state RPC =====
 enum GPUModel {
     GPU_MODEL_UNKNOWN = 0;
     GPU_MODEL_NVIDIA_A100_40GB = 1;
@@ -85,7 +84,7 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
     // FE is being created.
     FUNCTION_EXECUTOR_STATUS_PENDING = 1;
-    // FE is running and ready to accept tasks.
+    // FE is running and ready to accept task allocations.
     FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
     // FE is terminated, all resources are freed.
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
@@ -137,7 +136,7 @@ message FunctionExecutorDescription {
     optional FunctionRef function = 2;
     repeated string secret_names = 3;
     // Timeout for customer code duration during FE creation.
-    optional uint32 customer_code_timeout_ms = 4;
+    optional uint32 initialization_timeout_ms = 4;
     optional DataPayload application = 5;
     optional FunctionExecutorResources resources = 6;
     // URI prefix for the startup output payloads.
@@ -146,8 +145,8 @@ message FunctionExecutorDescription {
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional string output_payload_uri_prefix = 7;
     optional uint32 max_concurrency = 8;
-    optional FunctionRetryPolicy retry_policy = 9;
-    optional uint32 timeout_ms = 10;
+    // Timeout for running task allocations on FE.
+    optional uint32 allocation_timeout_ms = 9;
 }
 
 message FunctionExecutorState {
@@ -205,15 +204,6 @@ message ReportExecutorStateRequest {
 message ReportExecutorStateResponse {
 }
 
-// ===== get_desired_executor_states RPC =====
-message FunctionRetryPolicy {
-    optional uint32 max_retries = 1;
-    optional uint32 initial_delay_ms = 2;
-    optional uint32 max_delay_ms = 3;
-    // The multiplier value is 1000x of the actual value to avoid working with floating point.
-    optional uint32 delay_multiplier = 4;
-}
-
 message TaskAllocation {
     // Version is not set in function ref.
     optional FunctionRef function = 1;
@@ -225,8 +215,8 @@ message TaskAllocation {
     // S3 URI if the data is stored in S3.
     // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
     optional string output_payload_uri_prefix = 6;
-    // BLOB URI prefix for the request exception payloads.
-    optional string request_exception_payload_uri_prefix = 7;
+    // BLOB URI prefix for the request error payloads.
+    optional string request_error_payload_uri_prefix = 7;
     optional string function_executor_id = 8;
 
     // If the function call metadata is not set, this implies 
@@ -249,7 +239,6 @@ message DesiredExecutorState {
     optional uint64 clock = 3;
 }
 
-// ===== report_task_outcome RPC =====
 enum AllocationOutcomeCode {
     ALLOCATION_OUTCOME_CODE_UNKNOWN = 0;
     ALLOCATION_OUTCOME_CODE_SUCCESS = 1;
@@ -269,7 +258,7 @@ enum AllocationFailureReason {
     // Function code raised RequestException to mark the request as permanently failed.
     ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
     // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
-    ALLOCATION_FAILURE_REASON_TASK_CANCELLED = 5;
+    ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
     // Function Executor terminated - can't run the task allocation on it anymore.
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
@@ -329,8 +318,8 @@ message AllocationResult {
       DataPayload value = 7;
       ExecutionPlanUpdates updates = 8;
     }
-    // User payload for request exception if task failed with request exception.
-    optional DataPayload request_exception = 9;
+    // User payload for request error if allocation failed with request error.
+    optional DataPayload request_error = 9;
     optional uint64 execution_duration_ms = 10;
 }
 
@@ -366,8 +355,8 @@ message FunctionCallResponse {
     }
 }
 
-// Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
-// Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+// Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+// Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 //
 // Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
 // might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths

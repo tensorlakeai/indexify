@@ -199,17 +199,6 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl From<data_model::FunctionRetryPolicy> for executor_api_pb::FunctionRetryPolicy {
-    fn from(from: data_model::FunctionRetryPolicy) -> Self {
-        executor_api_pb::FunctionRetryPolicy {
-            max_retries: Some(from.max_retries),
-            initial_delay_ms: Some(from.initial_delay_ms),
-            delay_multiplier: Some(from.delay_multiplier),
-            max_delay_ms: Some(from.max_delay_ms),
-        }
-    }
-}
-
 impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResources {
     type Error = anyhow::Error;
 
@@ -606,7 +595,7 @@ impl ExecutorAPIService {
                 }
             }
 
-            let invocation_error_payload = match task_result.request_exception.clone() {
+            let request_error_payload = match task_result.request_error.clone() {
                 Some(exception) => Some(prepare_data_payload(
                     exception,
                     &blob_storage_url_schema,
@@ -632,7 +621,7 @@ impl ExecutorAPIService {
                     executor_api_pb::AllocationFailureReason::RequestError => {
                         Some(TaskFailureReason::InvocationError)
                     }
-                    executor_api_pb::AllocationFailureReason::TaskCancelled => {
+                    executor_api_pb::AllocationFailureReason::AllocationCancelled => {
                         Some(TaskFailureReason::TaskCancelled)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
@@ -654,7 +643,7 @@ impl ExecutorAPIService {
             allocation.execution_duration_ms = Some(execution_duration_ms);
 
             let request = AllocationOutput {
-                request_exception: invocation_error_payload,
+                request_exception: request_error_payload,
                 invocation_id: task_result.request_id().to_string(),
                 executor_id: executor_id.clone(),
                 allocation,

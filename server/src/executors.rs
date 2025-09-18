@@ -431,18 +431,9 @@ impl ExecutorManager {
                     application_version: Some(fe.version.to_string()),
                 }),
                 secret_names: desired_state_fe.secret_names.clone(),
-                customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
+                initialization_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
                 application: Some(code_payload_pb),
-                retry_policy: Some(
-                    compute_graph_version
-                        .nodes
-                        .get(&fe.compute_fn_name)
-                        .unwrap()
-                        .retry_policy
-                        .clone()
-                        .into(),
-                ),
-                timeout_ms: Some(
+                allocation_timeout_ms: Some(
                     compute_graph_version
                         .nodes
                         .get(&fe.compute_fn_name)
@@ -514,7 +505,7 @@ impl ExecutorManager {
                     request_id: Some(allocation.invocation_id.to_string()),
                     args,
                     output_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
-                    request_exception_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
+                    request_error_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
                     function_call_metadata: Some(allocation.call_metadata.clone().into()),
                 };
                 task_allocations.push(task_allocation_pb);
