@@ -34,7 +34,7 @@ pub struct Application {
     pub tombstoned: bool,
     pub version: GraphVersion,
     pub tags: HashMap<String, String>,
-    pub entry_point: String,
+    pub default_api: String,
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
@@ -57,10 +57,10 @@ impl Application {
             })?;
             nodes.insert(name, converted_node);
         }
-        let Some(start_fn) = nodes.get(&self.entry_point) else {
+        let Some(start_fn) = nodes.get(&self.default_api) else {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Entry point function '{}' not found",
-                self.entry_point
+                self.default_api
             )));
         };
 
@@ -103,7 +103,7 @@ impl From<data_model::ComputeGraph> for Application {
             namespace: compute_graph.namespace,
             description: compute_graph.description,
             tags: compute_graph.tags,
-            entry_point: compute_graph.start_fn.name,
+            default_api: compute_graph.start_fn.name,
             version: compute_graph.version.into(),
             functions: nodes,
             created_at: compute_graph.created_at,

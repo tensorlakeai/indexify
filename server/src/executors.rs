@@ -21,7 +21,13 @@ use crate::{
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
-            self, DataPayload, DataPayloadEncoding, DesiredExecutorState, FunctionExecutorDescription, FunctionRef, TaskAllocation
+            self,
+            DataPayload,
+            DataPayloadEncoding,
+            DesiredExecutorState,
+            FunctionExecutorDescription,
+            FunctionRef,
+            TaskAllocation,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -399,7 +405,7 @@ impl ExecutorManager {
                 size: Some(desired_state_fe.code_payload.size),
                 sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
                 encoding: Some(DataPayloadEncoding::BinaryZip.into()),
-                encoding_version: None,
+                encoding_version: Some(0),
                 offset: Some(desired_state_fe.code_payload.offset),
                 metadata_size: Some(desired_state_fe.code_payload.metadata_size),
                 source_function_call_id: None,
@@ -474,7 +480,7 @@ impl ExecutorManager {
                                 .unwrap_or(DataPayloadEncoding::Raw)
                                 .into(),
                         ),
-                        encoding_version: None,
+                        encoding_version: Some(0),
                         offset: Some(input_arg.data_payload.offset),
                         metadata_size: Some(input_arg.data_payload.metadata_size),
                         source_function_call_id: input_arg

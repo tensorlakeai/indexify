@@ -12,7 +12,7 @@ use axum::{
 use base64::prelude::*;
 use compute_graphs::{applications, delete_application, get_application};
 use download::download_invocation_error;
-use invoke::invoke_with_object_v1;
+use invoke::{invoke_api_with_object_v1, invoke_default_api_with_object_v1};
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -31,7 +31,6 @@ use crate::{
         ListParams,
         Namespace,
         NamespaceList,
-        RuntimeInformation,
         StateChangesResponse,
         TaskOutcome,
         UnallocatedFunctionRuns,
@@ -57,7 +56,8 @@ use crate::{
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            invoke::invoke_with_object_v1,
+            invoke::invoke_default_api_with_object_v1,
+            invoke::invoke_api_with_object_v1,
             list_requests,
             find_request,
             compute_graphs::create_or_update_application,
@@ -80,7 +80,6 @@ use crate::{
                 ListParams,
                 ApplicationsList,
                 ExecutorMetadata,
-                RuntimeInformation,
                 TaskOutcome,
                 GraphVersion,
                 Allocation,
@@ -128,7 +127,11 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}",
-            post(invoke_with_object_v1).with_state(route_state.clone()),
+            post(invoke_default_api_with_object_v1).with_state(route_state.clone()),
+        )
+        .route(
+            "/applications/{application}/{api_function}",
+            post(invoke_api_with_object_v1).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests",

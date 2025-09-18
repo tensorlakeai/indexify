@@ -610,7 +610,7 @@ class FunctionExecutorController:
         alloc_info.prepared_time = time.monotonic()
         metric_runnable_task_allocations.inc()
         metric_runnable_task_allocations_per_function_name.labels(
-            alloc_info.allocation.task.function_name
+            alloc_info.allocation.function.function_name
         ).inc()
         self._runnable_task_allocations.append(alloc_info)
         self._add_event(
@@ -691,7 +691,7 @@ class FunctionExecutorController:
         )
         metric_runnable_task_allocations.dec()
         metric_runnable_task_allocations_per_function_name.labels(
-            alloc_info.allocation.task.function_name
+            alloc_info.allocation.function.function_name
         ).dec()
         return alloc_info
 

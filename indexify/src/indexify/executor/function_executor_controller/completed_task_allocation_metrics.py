@@ -65,7 +65,7 @@ def emit_completed_task_allocation_metrics(
             ).inc()
         elif (
             alloc_failure_reason
-            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_TASK_CANCELLED
+            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED
         ):
             metric_task_allocations_completed.labels(
                 outcome_code=METRIC_TASK_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,

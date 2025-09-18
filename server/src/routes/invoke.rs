@@ -132,7 +132,8 @@ struct RequestIdV1 {
     id: String,
     request_id: String,
 }
-/// Make a request to a workflow
+
+/// Make a request to default api function of a workflow
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
@@ -144,9 +145,49 @@ struct RequestIdV1 {
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
-pub async fn invoke_with_object_v1(
+pub async fn invoke_default_api_with_object_v1(
     Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    do_invoke_api_with_object_v1(namespace, application, None, state, headers, body).await
+}
+
+/// Make a request to a particular api function of a workflow
+#[utoipa::path(
+    post,
+    path = "/v1/namespaces/{namespace}/applications/{application}/{api_function}",
+    request_body(content_type = "application/json", content = inline(serde_json::Value)),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "request successful"),
+        (status = 400, description = "bad request"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
+    ),
+)]
+pub async fn invoke_api_with_object_v1(
+    Path((namespace, application, api_function)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    do_invoke_api_with_object_v1(
+        namespace,
+        application,
+        Some(api_function),
+        state,
+        headers,
+        body,
+    )
+    .await
+}
+
+async fn do_invoke_api_with_object_v1(
+    namespace: String,
+    application: String,
+    api_function: Option<String>,
+    state: RouteState,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
@@ -203,11 +244,20 @@ pub async fn invoke_with_object_v1(
 
     let function_call_id = FunctionCallId(request_id.clone());
 
-    let fn_call = application.start_fn.create_function_call(
-        function_call_id,
-        vec![data_payload.clone()],
-        Bytes::new(),
-    );
+    let api_fn = if let Some(api_function) = api_function {
+        application
+            .nodes
+            .get(&api_function)
+            .ok_or(IndexifyAPIError::not_found(&format!(
+                "api function {} not found",
+                api_function
+            )))?
+    } else {
+        &application.start_fn
+    };
+
+    let fn_call =
+        api_fn.create_function_call(function_call_id, vec![data_payload.clone()], Bytes::new());
     let cg_version = state
         .indexify_state
         .in_memory_state

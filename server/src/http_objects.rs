@@ -476,34 +476,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RuntimeInformation {
-    pub major_version: u8,
-    pub minor_version: u8,
-    #[serde(default)]
-    pub sdk_version: String,
-}
-
-impl From<RuntimeInformation> for data_model::RuntimeInformation {
-    fn from(value: RuntimeInformation) -> Self {
-        data_model::RuntimeInformation {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-            sdk_version: value.sdk_version,
-        }
-    }
-}
-
-impl From<data_model::RuntimeInformation> for RuntimeInformation {
-    fn from(value: data_model::RuntimeInformation) -> Self {
-        Self {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-            sdk_version: value.sdk_version,
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ParameterMetadata {
     pub name: String,

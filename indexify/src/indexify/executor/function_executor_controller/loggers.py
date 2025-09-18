@@ -83,7 +83,8 @@ def task_allocation_logger(alloc: TaskAllocation, logger: Any) -> Any:
         # Keep legacy `graph` names in log tags until Server logs fully migrate to `application`.
         graph=(
             alloc.function.application_name
-            if alloc.HasField("function") and alloc.function.HasField("graph_name")
+            if alloc.HasField("function")
+            and alloc.function.HasField("application_name")
             else None
         ),
         graph_version=(
@@ -94,7 +95,8 @@ def task_allocation_logger(alloc: TaskAllocation, logger: Any) -> Any:
         ),
         app=(
             alloc.function.application_name
-            if alloc.HasField("function") and alloc.function.HasField("graph_name")
+            if alloc.HasField("function")
+            and alloc.function.HasField("application_name")
             else None
         ),
         app_version=(

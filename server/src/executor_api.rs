@@ -362,7 +362,10 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .as_ref()
             .and_then(|description| description.function.clone())
             .ok_or(anyhow::anyhow!("function ref is required"))?;
-        let namespace = function_ref.namespace.clone().ok_or(anyhow::anyhow!("namespace is required"))?;
+        let namespace = function_ref
+            .namespace
+            .clone()
+            .ok_or(anyhow::anyhow!("namespace is required"))?;
         let compute_graph_name = function_ref
             .application_name
             .clone()
@@ -371,7 +374,10 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .function_name
             .clone()
             .ok_or(anyhow::anyhow!("function_name is required"))?;
-        let version = function_ref.application_version.clone().ok_or(anyhow::anyhow!("application_version is required"))?;
+        let version = function_ref
+            .application_version
+            .clone()
+            .ok_or(anyhow::anyhow!("application_version is required"))?;
         let resources = function_executor_state
             .description
             .as_ref()

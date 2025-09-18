@@ -5,7 +5,7 @@ pub mod tests {
     use bytes::Bytes;
     use nanoid::nanoid;
 
-    use super::super::{ComputeFn, ComputeGraph, RuntimeInformation};
+    use super::super::{ComputeFn, ComputeGraph};
     use crate::{
         data_model::{
             ComputeGraphBuilder,
@@ -137,11 +137,6 @@ pub mod tests {
             })
             .created_at(5)
             .start_fn(fn_a)
-            .runtime_information(RuntimeInformation {
-                major_version: 3,
-                minor_version: 10,
-                sdk_version: "1.2.3".to_string(),
-            })
             .build()
             .unwrap()
     }

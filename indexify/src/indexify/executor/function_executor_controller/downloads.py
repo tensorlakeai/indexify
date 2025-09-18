@@ -85,7 +85,7 @@ async def _download_application_code(
         asyncio.to_thread(
             _write_cached_application,
             path=application_path,
-            graph=application,
+            application=application,
             cache_path=cache_path,
         ),
         name="application cache write",

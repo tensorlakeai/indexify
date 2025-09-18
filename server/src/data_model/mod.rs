@@ -440,14 +440,6 @@ impl Default for ImageVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RuntimeInformation {
-    pub major_version: u8,
-    pub minor_version: u8,
-    #[serde(default)]
-    pub sdk_version: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParameterMetadata {
     pub name: String,
     pub description: Option<String>,
@@ -480,7 +472,6 @@ pub struct ComputeGraph {
     pub code: DataPayload,
     pub start_fn: ComputeFn,
     pub nodes: HashMap<String, ComputeFn>,
-    pub runtime_information: RuntimeInformation,
     #[serde(default)]
     #[builder(default)]
     pub state: ComputeGraphState,
@@ -522,7 +513,6 @@ impl ComputeGraph {
         self.version = update.version;
         self.code = update.code;
         self.start_fn = update.start_fn;
-        self.runtime_information = update.runtime_information;
         self.nodes = update.nodes.clone();
         self.description = update.description;
         self.tags = update.tags;
@@ -537,7 +527,6 @@ impl ComputeGraph {
             .code(self.code.clone())
             .start_fn(self.start_fn.clone())
             .nodes(self.nodes.clone())
-            .runtime_information(self.runtime_information.clone())
             .state(self.state.clone())
             .build()
             .map_err(Into::into)
@@ -639,7 +628,6 @@ pub struct ComputeGraphVersion {
     pub nodes: HashMap<String, ComputeFn>,
     #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
-    pub runtime_information: RuntimeInformation,
     #[serde(default)]
     #[builder(default)]
     pub state: ComputeGraphState,
@@ -1827,7 +1815,6 @@ mod tests {
         ComputeGraph,
         ComputeGraphVersion,
         GraphVersion,
-        RuntimeInformation,
     };
 
     #[test]
@@ -1861,11 +1848,6 @@ mod tests {
             })
             .created_at(5)
             .start_fn(fn_a.clone())
-            .runtime_information(RuntimeInformation {
-                major_version: 3,
-                minor_version: 10,
-                sdk_version: "1.2.3".to_string(),
-            })
             .build()
             .unwrap();
 
@@ -1914,34 +1896,6 @@ mod tests {
                 },
                 expected_version:ComputeGraphVersion {
                     version: GraphVersion::from("100"),
-                    ..original_version.clone()
-                },
-            },
-            // Runtime information.
-            TestCase {
-                description: "changing runtime information with version change should change runtime information",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
-                    runtime_information: RuntimeInformation {
-                        minor_version: 12, // different
-                        ..original_graph.runtime_information.clone()
-                    },
-                    ..original_graph.clone()
-                },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
-                    runtime_information: RuntimeInformation {
-                        minor_version: 12, // different
-                        ..original_graph.runtime_information.clone()
-                    },
-                    ..original_graph.clone()
-                },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
-                    runtime_information: RuntimeInformation {
-                        minor_version: 12, // different
-                        ..original_graph.runtime_information.clone()
-                    },
                     ..original_version.clone()
                 },
             },
@@ -2231,11 +2185,6 @@ mod tests {
             })
             .created_at(123)
             .start_fn(fn_a.clone())
-            .runtime_information(RuntimeInformation {
-                major_version: 1,
-                minor_version: 2,
-                sdk_version: "1.2.3".to_string(),
-            })
             .build()
             .unwrap();
 
