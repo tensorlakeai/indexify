@@ -57,7 +57,7 @@ impl Default for ServerConfig {
             kv_storage: Default::default(),
             telemetry: TelemetryConfig::default(),
             executor_catalog: Vec::new(),
-            queue_size: 2,
+            queue_size: 1,
         }
     }
 }
