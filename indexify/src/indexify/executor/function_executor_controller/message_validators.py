@@ -57,7 +57,7 @@ def validate_task_allocation(alloc: TaskAllocation) -> None:
     validator.required_field("output_payload_uri_prefix")
     validator.required_field("request_error_payload_uri_prefix")
     validator.required_field("function_executor_id")
-    # function_call_metadata is optional.
+    validator.required_field("function_call_metadata")
 
 
 def _validate_data_payloads(

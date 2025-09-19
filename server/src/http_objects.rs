@@ -353,7 +353,7 @@ impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
             fn_name: val.name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
-            reducer: false,
+            is_api: val.is_api,
             input_encoder: "not-needed".to_string(),
             output_encoder: "".to_string(),
             secret_names: Some(val.secret_names),
@@ -405,7 +405,7 @@ pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
-    pub reducer: bool,
+    pub is_api: bool,
     #[serde(default = "default_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
@@ -439,7 +439,7 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
-            reducer: val.reducer,
+            is_api: val.is_api,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             secret_names: Some(val.secret_names),
@@ -460,7 +460,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             name: c.name,
             fn_name: c.fn_name,
             description: c.description,
-            reducer: c.reducer,
+            is_api: c.is_api,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             secret_names: c.secret_names.unwrap_or_default(),
@@ -934,7 +934,7 @@ mod tests {
 
     #[test]
     fn test_compute_fn_with_placement_constraints() {
-        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
 
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_compute_fn_with_unparseable_placement_constraints() {
-        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
 
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);

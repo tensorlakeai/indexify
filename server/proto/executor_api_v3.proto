@@ -219,8 +219,7 @@ message TaskAllocation {
     optional string request_error_payload_uri_prefix = 7;
     optional string function_executor_id = 8;
 
-    // If the function call metadata is not set, this implies 
-    // that the function call is for an API function.
+    // Always set. An empty bytes array if no metadata, e.g. for API function call.
     optional bytes function_call_metadata = 9;
 }
 
@@ -280,9 +279,7 @@ message FunctionCall {
     optional FunctionRef target = 2;
     repeated FunctionArg args = 3;
 
-    // This metadata will contain opaque metadata which will allow the SDK 
-    // to connect the datapayloads of resolved functions calls when it's finally called again.
-    // The SDK can store additional opaque metadata for it's own use.
+    // This required metadata allows SDK to restore original function call from the arguments.
     optional bytes call_metadata = 5;
 }
 
@@ -299,6 +296,7 @@ message ReduceOp {
   optional string id = 1;
   repeated FunctionArg  collection = 2; 
   optional FunctionRef reducer     = 3;
+  // This required metadata allows SDK to restore original function call from the arguments.
   optional bytes call_metadata     = 4;
 }
 

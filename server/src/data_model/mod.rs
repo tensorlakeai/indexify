@@ -369,7 +369,7 @@ pub struct ComputeFn {
     pub description: String,
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
-    pub reducer: bool,
+    pub is_api: bool,
     #[serde(default = "default_data_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
