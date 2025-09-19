@@ -24,7 +24,7 @@ class TestFunction(TensorlakeCompute):
 
 
 # Server side configuration.
-_FE_ALLOCATIONS_QUEUE_SIZE = 2
+_FE_ALLOCATIONS_QUEUE_SIZE = 1
 
 
 class TestServerFunctionExecutorScaling(unittest.TestCase):
