@@ -123,14 +123,28 @@ pub async fn v1_download_fn_output_payload_simple(
         })?
         .ok_or(IndexifyAPIError::not_found("request context not found"))?;
 
-    let fn_run = ctx
-        .function_runs
-        .get(&FunctionCallId::from(request_id.as_str()))
-        .ok_or(IndexifyAPIError::not_found("function run not found"))?;
-    let payload = fn_run
-        .output
-        .clone()
-        .ok_or(IndexifyAPIError::not_found("function run output not found"))?;
+    // FIXME: Temporary hack to test end-to-end integration with SDK client.
+    // Return any output that is already in the invocation context.
+    let function_with_output = ctx.function_runs.values().find(|fr| fr.output.is_some());
+    let payload = function_with_output
+        .and_then(|fr| fr.output.clone())
+        .map(|o| o.into());
+    if payload.is_none() {
+        return Err(IndexifyAPIError::not_found(
+            "no function outputs found for this request",
+        ));
+    }
+    let payload = payload.unwrap();
+    // See TODO in task_creator.rs on the issue that needs to be fixed.
+
+    // let fn_run = ctx
+    //     .function_runs
+    //     .get(&FunctionCallId::from(request_id.as_str()))
+    //     .ok_or(IndexifyAPIError::not_found("function run not found"))?;
+    // let payload = fn_run
+    //     .output
+    //     .clone()
+    //     .ok_or(IndexifyAPIError::not_found("function run output not found"))?;
 
     let blob_storage = state.blob_storage.get_blob_store(&namespace);
     stream_data_payload(&payload, &blob_storage, &payload.encoding).await
@@ -141,11 +155,10 @@ async fn stream_data_payload(
     blob_storage: &BlobStorage,
     encoding: &str,
 ) -> Result<Response<Body>, IndexifyAPIError> {
+    let data_size = payload.size - payload.metadata_size;
+    let data_offset = payload.offset + payload.metadata_size;
     let storage_reader = blob_storage
-        .get(
-            &payload.path,
-            Some(payload.offset..payload.offset + payload.size),
-        )
+        .get(&payload.path, Some(data_offset..data_offset + data_size))
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -158,15 +171,13 @@ async fn stream_data_payload(
 
         return Response::builder()
             .header("Content-Type", encoding)
-            .header("Content-Hash", payload.sha256_hash.clone())
-            .header("Content-Length", payload.size.to_string())
+            .header("Content-Length", data_size.to_string())
             .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     Response::builder()
         .header("Content-Type", encoding)
-        .header("Content-Length", payload.size.to_string())
-        .header("Content-Hash", payload.sha256_hash.clone())
+        .header("Content-Length", data_size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

@@ -88,6 +88,9 @@ impl TaskCreator {
             );
             return Ok(SchedulerUpdateRequest::default());
         };
+        // TODO: when output is None it means that this function returned an execution
+        // plan update. The output of the execution plan update root function
+        // call should be set as the output of this function run.
         function_run.output = task_finished_event.data_payload.clone();
 
         // If allocation_key is not None, then the output is coming from an allocation,

@@ -24,6 +24,7 @@ use crate::{
         ComputeFn,
         CreateNamespace,
         CursorDirection,
+        DataPayload,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
         GraphVersion,
@@ -344,7 +345,17 @@ async fn find_request(
         .ok_or(IndexifyAPIError::not_found("function run not found"))?
         .clone();
 
-    let output = function_run.output.clone().map(|output| output.into());
+    let mut output = function_run.output.clone().map(|output| output.into());
+    // FIXME: Temporary hack to test end-to-end integration with SDK client.
+    // See TODO in task_creator.rs on the issue that needs to be fixed.
+    if output.is_none() {
+        output = Some(DataPayload {
+            id: "fake_id".to_string(),
+            path: "fake_data_payload_path".to_string(),
+            sha256_hash: "fake_sha256_hash".to_string(),
+            size: 0,
+        });
+    }
 
     let invocation_error = download_invocation_error(
         invocation_ctx.request_error.clone(),

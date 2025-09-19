@@ -232,7 +232,7 @@ impl From<GraphInvocationFailureReason> for RequestFailureReason {
 pub struct Request {
     pub id: String,
     pub outcome: Option<RequestOutcome>,
-    pub graph_version: String,
+    pub application_version: String,
     pub created_at: u128,
     pub request_error: Option<RequestError>,
     pub output: Option<DataPayload>,
@@ -247,7 +247,7 @@ impl Request {
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
-            graph_version: ctx.graph_version.0,
+            application_version: ctx.graph_version.0,
             created_at: ctx.created_at.into(),
             request_error: invocation_error,
             output,
