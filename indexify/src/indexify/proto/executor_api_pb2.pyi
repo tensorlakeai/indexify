@@ -577,11 +577,15 @@ class ReduceOp(_message.Message):
     ) -> None: ...
 
 class ExecutionPlanUpdates(_message.Message):
-    __slots__ = ("updates",)
+    __slots__ = ("updates", "root_function_call_id")
     UPDATES_FIELD_NUMBER: _ClassVar[int]
+    ROOT_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     updates: _containers.RepeatedCompositeFieldContainer[ExecutionPlanUpdate]
+    root_function_call_id: str
     def __init__(
-        self, updates: _Optional[_Iterable[_Union[ExecutionPlanUpdate, _Mapping]]] = ...
+        self,
+        updates: _Optional[_Iterable[_Union[ExecutionPlanUpdate, _Mapping]]] = ...,
+        root_function_call_id: _Optional[str] = ...,
     ) -> None: ...
 
 class AllocationResult(_message.Message):

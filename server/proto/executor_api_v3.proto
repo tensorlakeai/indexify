@@ -302,6 +302,7 @@ message ReduceOp {
 
 message ExecutionPlanUpdates {
   repeated ExecutionPlanUpdate updates = 1;
+  optional string root_function_call_id = 2;
 }
 
 message AllocationResult {

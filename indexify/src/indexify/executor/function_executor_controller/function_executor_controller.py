@@ -996,7 +996,10 @@ def _to_execution_plan_updates_proto(
                 "unexpected FEExecutionPlanUpdate with no function_call or reduce set",
             )
 
-    return ExecutionPlanUpdates(updates=executor_updates)
+    return ExecutionPlanUpdates(
+        updates=executor_updates,
+        root_function_call_id=fe_updates.root_function_call_id,
+    )
 
 
 def _to_function_call_proto(
