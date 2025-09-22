@@ -133,9 +133,11 @@ impl TryFrom<String> for DataPayloadEncoding {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.as_str() {
             "application/json" => Ok(DataPayloadEncoding::Utf8Json),
-            "application/octet-stream" => Ok(DataPayloadEncoding::BinaryPickle),
+            "application/python-pickle" => Ok(DataPayloadEncoding::BinaryPickle),
+            "application/zip" => Ok(DataPayloadEncoding::BinaryZip),
             "text/plain" => Ok(DataPayloadEncoding::Utf8Text),
-            _ => Err(anyhow::anyhow!("unknown data payload encoding")),
+            // User supplied content type for tensorlake.File.
+            _ => Ok(DataPayloadEncoding::Raw),
         }
     }
 }
@@ -448,6 +450,7 @@ fn to_internal_function_call(
         function_call_id: FunctionCallId(
             function_call.id.ok_or(anyhow::anyhow!("id is required"))?,
         ),
+        output_consumer: None,
         fn_name: function_call
             .target
             .ok_or(anyhow::anyhow!("target is required"))?
@@ -947,6 +950,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let function_call = FunctionCall {
             function_call_id,
+            output_consumer: None,
             inputs: input_payloads
                 .into_iter()
                 .map(|dp| data_model::FunctionArgs::DataPayload(dp))
@@ -1067,14 +1071,18 @@ fn prepare_data_payload(
         .encoding
         .ok_or(anyhow::anyhow!("encoding is required"))?;
     let output_encoding = DataPayloadEncoding::try_from(output_encoding)?;
-    let encoding = match output_encoding {
+    let mut encoding = match output_encoding {
         DataPayloadEncoding::Utf8Json => "application/json",
-        DataPayloadEncoding::BinaryPickle => "application/octet-stream",
+        DataPayloadEncoding::BinaryPickle => "application/python-pickle",
         DataPayloadEncoding::Utf8Text => "text/plain",
         DataPayloadEncoding::BinaryZip => "application/zip",
         DataPayloadEncoding::Raw => "application/octet-stream",
         DataPayloadEncoding::Unknown => "application/octet-stream",
     };
+    if let Some(content_type) = msg.content_type.as_ref() {
+        // User supplied content type when a function returns tensorlake.File.
+        encoding = content_type.as_str();
+    }
     let metadata_size = msg.metadata_size.unwrap_or(0);
     let offset = msg.offset.unwrap_or(0);
     DataPayloadBuilder::default()

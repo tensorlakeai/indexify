@@ -143,7 +143,8 @@ def serialized_object_manifest_from_data_payload_proto(
     )
     if data_payload.HasField("content_type"):
         so_manifest.content_type = data_payload.content_type
-    # data_payload.source_function_call_id is not used.
+    if data_payload.HasField("source_function_call_id"):
+        so_manifest.source_function_call_id = data_payload.source_function_call_id
     # data_payload.id is not used.
 
     if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:

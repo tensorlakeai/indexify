@@ -1573,6 +1573,7 @@ mod tests {
                         "{}-{}-{}-{}",
                         namespace, application, request_id, compute_fn
                     )),
+                    output_consumer: None,
                     fn_name: compute_fn.to_string(),
                     call_metadata: Bytes::new(),
                 }))

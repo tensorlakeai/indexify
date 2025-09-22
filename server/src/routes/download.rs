@@ -128,17 +128,7 @@ pub async fn v1_download_fn_output_payload_simple(
         .function_runs
         .get(&FunctionCallId::from(request_id.as_str()))
         .ok_or(IndexifyAPIError::not_found("function run not found"))?;
-    let mut payload = api_fn_run.output.clone();
-    if payload.is_none() {
-        if let Some(child_function_call) = &api_fn_run.child_function_call {
-            let child_fn_run = ctx
-                .function_runs
-                .get(child_function_call)
-                .ok_or(IndexifyAPIError::not_found("child function run not found"))?;
-            payload = child_fn_run.output.clone();
-        }
-    }
-    if let Some(payload) = payload {
+    if let Some(payload) = api_fn_run.output.clone() {
         let blob_storage = state.blob_storage.get_blob_store(&namespace);
         return stream_data_payload(&payload, &blob_storage, &payload.encoding).await;
     }

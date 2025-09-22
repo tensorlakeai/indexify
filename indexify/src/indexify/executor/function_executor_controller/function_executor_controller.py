@@ -967,6 +967,7 @@ def _to_alloc_result_proto(
 def _to_execution_plan_updates_proto(
     fe_updates: FEExecutionPlanUpdates, output_blob_uri: str, logger: Any
 ) -> ExecutionPlanUpdates:
+    # TODO: Validate FEExecutionPlanUpdates object.
     executor_updates: List[ExecutionPlanUpdate] = []
     for fe_update in fe_updates.updates:
         fe_update: FEExecutionPlanUpdate
@@ -1081,6 +1082,7 @@ def _so_to_data_payload_proto(
     logger: Any,
 ) -> DataPayload:
     """Converts a serialized object inside BLOB to into a DataPayload."""
+    # TODO: Validate SerializedObjectInsideBLOB.
     return DataPayload(
         uri=blob_uri,
         encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
@@ -1090,8 +1092,8 @@ def _so_to_data_payload_proto(
         offset=so.offset,
         size=so.manifest.size,
         sha256_hash=so.manifest.sha256_hash,
-        # source_function_call_id is set by Server
-        id="fake_data_payload_id",  # Not used
+        source_function_call_id=so.manifest.source_function_call_id,
+        # id is not used
     )
 
 

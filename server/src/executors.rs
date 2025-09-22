@@ -409,7 +409,7 @@ impl ExecutorManager {
                 offset: Some(desired_state_fe.code_payload.offset),
                 metadata_size: Some(desired_state_fe.code_payload.metadata_size),
                 source_function_call_id: None,
-                content_type: None,
+                content_type: Some("application/zip".to_string()),
             };
             let fe = &desired_state_fe.function_executor.function_executor;
             let Some(compute_graph_version) = self
@@ -487,7 +487,7 @@ impl ExecutorManager {
                             .function_call_id
                             .as_ref()
                             .map(|id| id.to_string()),
-                        content_type: None,
+                        content_type: Some(input_arg.data_payload.encoding.clone()),
                     });
                 }
                 let output_payload_uri_prefix = format!(

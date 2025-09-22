@@ -117,6 +117,8 @@ impl std::ops::DerefMut for AllocationId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputArgs {
+    // ID of the function call that produced this payload
+    // or consumed it from its child functionc call.
     pub function_call_id: Option<FunctionCallId>,
     pub data_payload: DataPayload,
 }
@@ -201,6 +203,8 @@ impl From<&str> for FunctionCallId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub function_call_id: FunctionCallId,
+    // The function call that inherits that output value of this function run.
+    pub output_consumer: Option<FunctionCallId>,
     pub inputs: Vec<FunctionArgs>,
     pub fn_name: String,
     pub call_metadata: bytes::Bytes,
@@ -237,9 +241,10 @@ pub struct FunctionRun {
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
     #[builder(default)]
+    // Some once this function run finishes with a value output
+    // or its child call tree finishes and assigns its value output to this run.
     pub output: Option<DataPayload>,
     #[builder(default)]
-    pub child_function_call: Option<FunctionCallId>,
     pub status: TaskStatus,
     #[builder(default)]
     pub cache_hit: bool,
@@ -401,6 +406,7 @@ impl ComputeFn {
     ) -> FunctionCall {
         FunctionCall {
             function_call_id,
+            output_consumer: None,
             inputs: inputs
                 .into_iter()
                 .map(|input| FunctionArgs::DataPayload(input))
@@ -657,6 +663,7 @@ impl ComputeGraphVersion {
             .graph_version(self.version.clone())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 function_call_id: fn_call.function_call_id.clone(),
+                output_consumer: fn_call.output_consumer.clone(),
                 inputs: fn_call.inputs.clone(),
                 fn_name: fn_call.fn_name.clone(),
                 call_metadata: fn_call.call_metadata.clone(),

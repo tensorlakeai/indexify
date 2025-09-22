@@ -152,6 +152,7 @@ pub mod tests {
     pub fn mock_function_call_with_name(fn_name: &str, inputs: Vec<FunctionArgs>) -> FunctionCall {
         FunctionCall {
             function_call_id: FunctionCallId(nanoid!()),
+            output_consumer: None,
             inputs,
             fn_name: fn_name.to_string(),
             call_metadata: Bytes::new(),
