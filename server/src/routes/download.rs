@@ -5,6 +5,7 @@ use axum::{
     response::Response,
 };
 use futures::TryStreamExt;
+use hyper::StatusCode;
 
 use super::routes_state::RouteState;
 use crate::{
@@ -123,31 +124,28 @@ pub async fn v1_download_fn_output_payload_simple(
         })?
         .ok_or(IndexifyAPIError::not_found("request context not found"))?;
 
-    // FIXME: Temporary hack to test end-to-end integration with SDK client.
-    // Return any output that is already in the invocation context.
-    let function_with_output = ctx.function_runs.values().find(|fr| fr.output.is_some());
-    let payload = function_with_output
-        .and_then(|fr| fr.output.clone())
-        .map(|o| o.into());
+    let api_fn_run = ctx
+        .function_runs
+        .get(&FunctionCallId::from(request_id.as_str()))
+        .ok_or(IndexifyAPIError::not_found("function run not found"))?;
+    let mut payload = api_fn_run.output.clone();
     if payload.is_none() {
-        return Err(IndexifyAPIError::not_found(
-            "no function outputs found for this request",
-        ));
+        if let Some(child_function_call) = &api_fn_run.child_function_call {
+            let child_fn_run = ctx
+                .function_runs
+                .get(child_function_call)
+                .ok_or(IndexifyAPIError::not_found("child function run not found"))?;
+            payload = child_fn_run.output.clone();
+        }
     }
-    let payload = payload.unwrap();
-    // See TODO in task_creator.rs on the issue that needs to be fixed.
-
-    // let fn_run = ctx
-    //     .function_runs
-    //     .get(&FunctionCallId::from(request_id.as_str()))
-    //     .ok_or(IndexifyAPIError::not_found("function run not found"))?;
-    // let payload = fn_run
-    //     .output
-    //     .clone()
-    //     .ok_or(IndexifyAPIError::not_found("function run output not found"))?;
-
-    let blob_storage = state.blob_storage.get_blob_store(&namespace);
-    stream_data_payload(&payload, &blob_storage, &payload.encoding).await
+    if let Some(payload) = payload {
+        let blob_storage = state.blob_storage.get_blob_store(&namespace);
+        return stream_data_payload(&payload, &blob_storage, &payload.encoding).await;
+    }
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(Body::empty())
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
 async fn stream_data_payload(

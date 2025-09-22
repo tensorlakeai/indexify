@@ -64,6 +64,7 @@ use crate::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{
             AllocationOutput,
+            GraphUpdates,
             InvokeComputeGraphRequest,
             RequestPayload,
             StateMachineUpdateRequest,
@@ -579,7 +580,7 @@ impl ExecutorAPIService {
                 .get_blob_store(&allocation.namespace)
                 .get_url();
             let mut fn_output: Option<DataPayload> = None;
-            let mut function_calls = Vec::new();
+            let mut graph_updates: Option<GraphUpdates> = None;
             if let Some(return_value) = task_result.return_value.clone() {
                 match return_value {
                     executor_api_pb::allocation_result::ReturnValue::Value(value) => {
@@ -590,6 +591,12 @@ impl ExecutorAPIService {
                         )?);
                     }
                     executor_api_pb::allocation_result::ReturnValue::Updates(updates) => {
+                        let output_function_call_id = FunctionCallId(
+                            updates
+                                .root_function_call_id
+                                .ok_or(anyhow::anyhow!("root function call id is required"))?,
+                        );
+                        let mut function_calls = Vec::new();
                         for update in updates.updates {
                             function_calls.push(to_internal_compute_op(
                                 update,
@@ -597,6 +604,10 @@ impl ExecutorAPIService {
                                 &blob_storage_url,
                             )?);
                         }
+                        graph_updates = Some(GraphUpdates {
+                            graph_updates: function_calls,
+                            output_function_call_id,
+                        });
                     }
                 }
             }
@@ -654,7 +665,7 @@ impl ExecutorAPIService {
                 executor_id: executor_id.clone(),
                 allocation,
                 data_payload: fn_output,
-                graph_updates: function_calls,
+                graph_updates,
             };
             allocation_output_updates.push(request);
         }

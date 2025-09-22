@@ -238,6 +238,8 @@ pub struct FunctionRun {
     pub input_args: Vec<InputArgs>,
     #[builder(default)]
     pub output: Option<DataPayload>,
+    #[builder(default)]
+    pub child_function_call: Option<FunctionCallId>,
     pub status: TaskStatus,
     #[builder(default)]
     pub cache_hit: bool,
@@ -1632,6 +1634,12 @@ impl fmt::Display for TaskFinalizedEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct GraphUpdates {
+    pub graph_updates: Vec<ComputeOp>,
+    pub output_function_call_id: FunctionCallId,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub compute_graph: String,
@@ -1639,7 +1647,7 @@ pub struct AllocationOutputIngestedEvent {
     pub invocation_id: String,
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
-    pub new_function_calls: Vec<ComputeOp>,
+    pub graph_updates: Option<GraphUpdates>,
     pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
 }

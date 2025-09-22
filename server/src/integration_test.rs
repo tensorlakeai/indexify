@@ -148,7 +148,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        mock_updates(),
+                        Some(mock_updates()),
                         None,
                     )
                     .task_outcome(TaskOutcome::Success),
@@ -171,7 +171,7 @@ mod tests {
                         &task_allocation,
                         FinalizeTaskArgs::new(
                             allocation_key_from_proto(&task_allocation),
-                            vec![],
+                            None,
                             Some(mock_data_payload()),
                         )
                         .task_outcome(TaskOutcome::Success),
@@ -190,7 +190,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        vec![],
+                        None,
                         Some(mock_data_payload()),
                     )
                     .task_outcome(TaskOutcome::Success),
@@ -261,7 +261,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        vec![],
+                        None,
                         Some(mock_data_payload()),
                     )
                     .task_outcome(TaskOutcome::Success),
@@ -327,7 +327,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        mock_updates(),
+                        Some(mock_updates()),
                         None,
                     )
                     .task_outcome(TaskOutcome::Success),
@@ -355,7 +355,7 @@ mod tests {
                         &task_allocation,
                         FinalizeTaskArgs::new(
                             allocation_key_from_proto(&task_allocation),
-                            vec![],
+                            None,
                             Some(mock_data_payload()),
                         )
                         .task_outcome(TaskOutcome::Success),
@@ -373,7 +373,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        vec![],
+                        None,
                         Some(mock_data_payload()),
                     )
                     .task_outcome(TaskOutcome::Success),
@@ -478,7 +478,7 @@ mod tests {
                     task_allocation,
                     FinalizeTaskArgs::new(
                         allocation_key_from_proto(task_allocation),
-                        vec![],
+                        None,
                         None,
                         //"fn_b".to_string(),
                     )
@@ -553,7 +553,7 @@ mod tests {
                         task_allocation,
                         FinalizeTaskArgs::new(
                             allocation_key_from_proto(task_allocation),
-                            vec![],
+                            None,
                             None,
                         )
                         .task_outcome(TaskOutcome::Failure(reason)),
@@ -671,7 +671,7 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation), vec![], None)
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation), None, None)
                         .task_outcome(TaskOutcome::Failure(reason)),
                 )
                 .await?;

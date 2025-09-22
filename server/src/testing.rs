@@ -10,7 +10,6 @@ use crate::{
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         Allocation,
-        ComputeOp,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -27,6 +26,7 @@ use crate::{
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
+            GraphUpdates,
             RequestPayload,
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
@@ -278,7 +278,7 @@ macro_rules! assert_executor_state {
 pub struct FinalizeTaskArgs {
     pub task_outcome: TaskOutcome,
     pub allocation_key: String,
-    pub graph_updates: Vec<ComputeOp>,
+    pub graph_updates: Option<GraphUpdates>,
     pub data_payload: Option<DataPayload>,
 }
 
@@ -306,7 +306,7 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
 impl FinalizeTaskArgs {
     pub fn new(
         allocation_key: String,
-        graph_updates: Vec<ComputeOp>,
+        graph_updates: Option<GraphUpdates>,
         data_payload: Option<DataPayload>,
     ) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
@@ -487,7 +487,10 @@ impl TestExecutor<'_> {
 
         let ingest_task_outputs_request = AllocationOutput {
             request_exception: None,
-            graph_updates: args.graph_updates,
+            graph_updates: args.graph_updates.clone().map(|g| GraphUpdates {
+                graph_updates: g.graph_updates,
+                output_function_call_id: g.output_function_call_id,
+            }),
             executor_id: self.executor_id.clone(),
             invocation_id: task_allocation.request_id.clone().unwrap(),
             data_payload: args.data_payload,

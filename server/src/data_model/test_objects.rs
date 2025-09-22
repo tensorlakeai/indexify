@@ -23,13 +23,14 @@ pub mod tests {
             GraphInvocationCtxBuilder,
             InputArgs,
         },
+        state_store::requests::GraphUpdates,
         utils::get_epoch_time_in_ms,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
 
-    pub fn mock_updates() -> Vec<ComputeOp> {
+    pub fn mock_updates() -> GraphUpdates {
         let fn_b = mock_function_call_with_name(
             "fn_b",
             vec![FunctionArgs::DataPayload(mock_data_payload())],
@@ -48,9 +49,12 @@ pub mod tests {
         let updates = vec![
             ComputeOp::FunctionCall(fn_b),
             ComputeOp::FunctionCall(fn_c),
-            ComputeOp::FunctionCall(fn_d),
+            ComputeOp::FunctionCall(fn_d.clone()),
         ];
-        updates
+        GraphUpdates {
+            graph_updates: updates,
+            output_function_call_id: fn_d.function_call_id,
+        }
     }
 
     pub fn test_compute_fn(name: &str, max_retries: u32) -> ComputeFn {

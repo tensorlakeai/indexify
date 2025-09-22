@@ -109,13 +109,21 @@ impl SchedulerUpdateRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct GraphUpdates {
+    pub graph_updates: Vec<ComputeOp>,
+    // The function call id which is the root of the call graph of the functions
+    // calls
+    pub output_function_call_id: FunctionCallId,
+}
+
+#[derive(Debug, Clone)]
 pub struct AllocationOutput {
     pub invocation_id: String,
     pub allocation: Allocation,
     pub data_payload: Option<DataPayload>,
     pub executor_id: ExecutorId,
     pub request_exception: Option<DataPayload>,
-    pub graph_updates: Vec<ComputeOp>,
+    pub graph_updates: Option<GraphUpdates>,
 }
 
 #[derive(Debug, Clone)]

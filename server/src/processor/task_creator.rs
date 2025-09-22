@@ -46,19 +46,19 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
-    #[tracing::instrument(skip(self, in_memory_state, task_finished_event))]
+    #[tracing::instrument(skip(self, in_memory_state, alloc_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,
         in_memory_state: &mut InMemoryState,
-        task_finished_event: &AllocationOutputIngestedEvent,
+        alloc_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<SchedulerUpdateRequest> {
         let Some(mut invocation_ctx) = in_memory_state
             .invocation_ctx
             .get(
                 &GraphInvocationCtx::key_from(
-                    &task_finished_event.namespace,
-                    &task_finished_event.compute_graph,
-                    &task_finished_event.invocation_id,
+                    &alloc_finished_event.namespace,
+                    &alloc_finished_event.compute_graph,
+                    &alloc_finished_event.invocation_id,
                 )
                 .into(),
             )
@@ -75,33 +75,30 @@ impl TaskCreator {
 
         let Some(mut function_run) = invocation_ctx
             .function_runs
-            .get(&task_finished_event.function_call_id)
+            .get(&alloc_finished_event.function_call_id)
             .cloned()
         else {
             error!(
-                function_call_id = task_finished_event.function_call_id.to_string(),
-                invocation_id = task_finished_event.invocation_id,
-                namespace = task_finished_event.namespace,
-                graph = task_finished_event.compute_graph,
-                "function" = task_finished_event.compute_fn,
+                function_call_id = alloc_finished_event.function_call_id.to_string(),
+                invocation_id = alloc_finished_event.invocation_id,
+                namespace = alloc_finished_event.namespace,
+                graph = alloc_finished_event.compute_graph,
+                "function" = alloc_finished_event.compute_fn,
                 "function run not found, stopping scheduling of child tasks",
             );
             return Ok(SchedulerUpdateRequest::default());
         };
-        // TODO: when output is None it means that this function returned an execution
-        // plan update. The output of the execution plan update root function
-        // call should be set as the output of this function run.
-        function_run.output = task_finished_event.data_payload.clone();
+        function_run.output = alloc_finished_event.data_payload.clone();
 
         // If allocation_key is not None, then the output is coming from an allocation,
         // not from cache.
         let Some(allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&task_finished_event.allocation_key)?
+            .get_allocation(&alloc_finished_event.allocation_key)?
         else {
             error!(
-                allocation_key = task_finished_event.allocation_key,
+                allocation_key = alloc_finished_event.allocation_key,
                 "allocation not found, stopping scheduling of child tasks",
             );
             return Ok(SchedulerUpdateRequest::default());
@@ -161,7 +158,7 @@ impl TaskCreator {
             trace!("task failed, stopping scheduling of child tasks");
             function_run.status = TaskStatus::Completed;
             function_run.outcome = Some(allocation.outcome);
-            if let Some(invocation_error_payload) = &task_finished_event.request_exception {
+            if let Some(invocation_error_payload) = &alloc_finished_event.request_exception {
                 invocation_ctx.request_error = Some(GraphInvocationError {
                     function_name: function_run.name.clone(),
                     payload: invocation_error_payload.clone(),
@@ -185,34 +182,41 @@ impl TaskCreator {
         }
 
         // Update the invocation ctx with the new function calls
-        for function_call in &task_finished_event.new_function_calls {
-            match function_call {
-                ComputeOp::FunctionCall(function_call) => {
-                    invocation_ctx.function_calls.insert(
-                        function_call.function_call_id.clone(),
-                        function_call.clone(),
-                    );
-                }
-                ComputeOp::Reduce(reduce_op) => {
-                    let mut reducer_collection = reduce_op.collection.clone();
-                    // Remove the last element from the collection since we need to set it's
-                    // function call id to the id of the reduce op. This will
-                    // let us resolve the data payload of the last function call
-                    // of a reducer as it's final output.
-                    let last_arg = reducer_collection.pop();
-                    for arg in reducer_collection {
-                        let function_call = create_function_call_from_reduce_op(reduce_op, &arg);
-                        invocation_ctx
-                            .function_calls
-                            .insert(function_call.function_call_id.clone(), function_call);
+        if let Some(graph_updates) = &alloc_finished_event.graph_updates {
+            function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
+            invocation_ctx
+                .function_runs
+                .insert(function_run.id.clone(), function_run.clone());
+            for function_call in &graph_updates.graph_updates {
+                match function_call {
+                    ComputeOp::FunctionCall(function_call) => {
+                        invocation_ctx.function_calls.insert(
+                            function_call.function_call_id.clone(),
+                            function_call.clone(),
+                        );
                     }
-                    if let Some(last_arg) = last_arg.clone() {
-                        let mut function_call =
-                            create_function_call_from_reduce_op(reduce_op, &last_arg);
-                        function_call.function_call_id = reduce_op.function_call_id.clone();
-                        invocation_ctx
-                            .function_calls
-                            .insert(function_call.function_call_id.clone(), function_call);
+                    ComputeOp::Reduce(reduce_op) => {
+                        let mut reducer_collection = reduce_op.collection.clone();
+                        // Remove the last element from the collection since we need to set it's
+                        // function call id to the id of the reduce op. This will
+                        // let us resolve the data payload of the last function call
+                        // of a reducer as it's final output.
+                        let last_arg = reducer_collection.pop();
+                        for arg in reducer_collection {
+                            let function_call =
+                                create_function_call_from_reduce_op(reduce_op, &arg);
+                            invocation_ctx
+                                .function_calls
+                                .insert(function_call.function_call_id.clone(), function_call);
+                        }
+                        if let Some(last_arg) = last_arg.clone() {
+                            let mut function_call =
+                                create_function_call_from_reduce_op(reduce_op, &last_arg);
+                            function_call.function_call_id = reduce_op.function_call_id.clone();
+                            invocation_ctx
+                                .function_calls
+                                .insert(function_call.function_call_id.clone(), function_call);
+                        }
                     }
                 }
             }

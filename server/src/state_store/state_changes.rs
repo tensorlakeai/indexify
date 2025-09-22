@@ -12,6 +12,7 @@ use crate::{
         ExecutorId,
         ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
+        GraphUpdates,
         InvokeComputeGraphEvent,
         StateChange,
         StateChangeBuilder,
@@ -113,7 +114,13 @@ pub fn task_outputs_ingested(
                 invocation_id: request.invocation_id.clone(),
                 function_call_id: request.allocation.function_call_id.clone(),
                 data_payload: request.data_payload.clone(),
-                new_function_calls: request.graph_updates.clone(),
+                graph_updates: request
+                    .graph_updates
+                    .as_ref()
+                    .map(|graph_updates| GraphUpdates {
+                        graph_updates: graph_updates.graph_updates.clone(),
+                        output_function_call_id: graph_updates.output_function_call_id.clone(),
+                    }),
                 allocation_key: request.allocation.key(),
                 request_exception: request.request_exception.clone(),
             },
