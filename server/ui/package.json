@@ -35,7 +35,7 @@
     "react-router-dom": "^6.26.2",
     "react-toastify": "^10.0.5",
     "react-virtuoso": "^4.10.4",
-    "serve": "^14.2.3",
+    "serve": "^14.2.5",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
