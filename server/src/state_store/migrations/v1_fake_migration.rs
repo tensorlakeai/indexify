@@ -46,7 +46,7 @@ mod tests {
         let migration = V1FakeMigration {};
 
         MigrationTestBuilder::new()
-            .with_column_family(IndexifyObjectsColumns::GraphInvocationCtx.as_ref())
+            .with_column_family(IndexifyObjectsColumns::Namespaces.as_ref())
             .run_test(
                 &migration,
                 |_db| {
