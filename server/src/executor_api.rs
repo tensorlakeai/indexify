@@ -450,7 +450,6 @@ fn to_internal_function_call(
         function_call_id: FunctionCallId(
             function_call.id.ok_or(anyhow::anyhow!("id is required"))?,
         ),
-        output_consumer: None,
         fn_name: function_call
             .target
             .ok_or(anyhow::anyhow!("target is required"))?
@@ -950,7 +949,6 @@ impl ExecutorApi for ExecutorAPIService {
 
         let function_call = FunctionCall {
             function_call_id,
-            output_consumer: None,
             inputs: input_payloads
                 .into_iter()
                 .map(|dp| data_model::FunctionArgs::DataPayload(dp))

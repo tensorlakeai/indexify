@@ -90,6 +90,12 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
         function_run.output = alloc_finished_event.data_payload.clone();
+        match &alloc_finished_event.graph_updates {
+            Some(graph_updates) => {
+                function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
+            }
+            None => {}
+        }
 
         // If allocation_key is not None, then the output is coming from an allocation,
         // not from cache.
@@ -185,19 +191,12 @@ impl TaskCreator {
 
         // Update the invocation ctx with the new function calls
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
-            invocation_ctx
-                .function_runs
-                .insert(function_run.id.clone(), function_run.clone());
             for function_call in &graph_updates.graph_updates {
                 match function_call {
                     ComputeOp::FunctionCall(function_call) => {
-                        let mut function_call = function_call.clone();
-                        if function_call.function_call_id == graph_updates.output_function_call_id {
-                            function_call.output_consumer = Some(function_run.id.clone());
-                        }
                         invocation_ctx
                             .function_calls
-                            .insert(function_call.function_call_id.clone(), function_call);
+                            .insert(function_call.function_call_id.clone(), function_call.clone());
                     }
                     ComputeOp::Reduce(reduce_op) => {
                         let mut reducer_collection = reduce_op.collection.clone();
@@ -316,14 +315,12 @@ fn create_function_call_from_reduce_op(
     match function_arg {
         FunctionArgs::DataPayload(data_payload) => FunctionCall {
             function_call_id: FunctionCallId(nanoid::nanoid!()),
-            output_consumer: None, // FIXME
             inputs: vec![FunctionArgs::DataPayload(data_payload.clone())],
             fn_name: reduce_op.fn_name.clone(),
             call_metadata: reduce_op.call_metadata.clone(),
         },
         FunctionArgs::FunctionRunOutput(function_call_id) => FunctionCall {
             function_call_id: function_call_id.clone(),
-            output_consumer: None, // FIXME
             inputs: vec![FunctionArgs::FunctionRunOutput(function_call_id.clone())],
             fn_name: reduce_op.fn_name.clone(),
             call_metadata: reduce_op.call_metadata.clone(),
@@ -337,36 +334,17 @@ fn propagate_output_to_consumers(
 ) -> Result<SchedulerUpdateRequest> {
     let mut scheduler_update = SchedulerUpdateRequest::default();
     let invocation_ctx_key = invocation_ctx.key().clone();
-    // Propagate output up call tree.
-    let mut output_consumer_id = get_output_consumer(function_run);
-    while let Some(consumer_id) = output_consumer_id {
-        if let Some(consumer_run) = invocation_ctx.function_runs.get_mut(&consumer_id) {
-            consumer_run.output = function_run.output.clone();
-            scheduler_update
-                .updated_function_runs
-                .entry(invocation_ctx_key.clone())
-                .or_insert(HashSet::new())
-                .insert(function_run.id.clone());
-            output_consumer_id = get_output_consumer(&consumer_run);
-        } else {
-            error!(
-                function_call_id = function_run.id.to_string(),
-                output_consumer_function_run_id = consumer_id.to_string(),
-                invocation_id = function_run.request_id,
-                namespace = function_run.namespace,
-                graph = function_run.application,
-                fn = function_run.name,
-                "output consumer function run not found",
-            );
-            return Ok(SchedulerUpdateRequest::default());
+    for fn_run in invocation_ctx.function_runs.values_mut() {
+        if let Some(child_function_call_id) = &fn_run.child_function_call {
+            if child_function_call_id == &function_run.id {
+                fn_run.output = function_run.output.clone();
+                scheduler_update
+                    .updated_function_runs
+                    .entry(invocation_ctx_key.clone())
+                    .or_insert(HashSet::new())
+                    .insert(fn_run.id.clone());
+            }
         }
     }
     return Ok(scheduler_update);
-}
-
-fn get_output_consumer(function_run: &FunctionRun) -> Option<FunctionCallId> {
-    match &function_run.compute_op {
-        ComputeOp::FunctionCall(function_call) => function_call.output_consumer.clone(),
-        ComputeOp::Reduce(_) => None, // FIXME
-    }
 }
