@@ -7,19 +7,7 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        Allocation,
-        ComputeGraph,
-        ComputeOp,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        FunctionCallId,
-        FunctionExecutorId,
-        FunctionExecutorServerMetadata,
-        GcUrl,
-        GraphInvocationCtx,
-        HostResources,
-        StateChange,
+        Allocation, ComputeGraph, ComputeOp, DataPayload, ExecutorId, ExecutorMetadata, FunctionCallId, FunctionExecutorId, FunctionExecutorServerMetadata, FunctionRun, GcUrl, GraphInvocationCtx, HostResources, StateChange
     },
     state_store::{state_changes, IndexifyState},
 };
@@ -105,6 +93,19 @@ impl SchedulerUpdateRequest {
             .extend(other.remove_function_executors);
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
+    }
+
+    pub fn add_function_run(&mut self, function_run: FunctionRun, invocation_ctx: &mut GraphInvocationCtx) {
+            invocation_ctx
+                .function_runs
+                .insert(function_run.id.clone(), function_run.clone());
+            self.updated_function_runs
+                .entry(invocation_ctx.key())
+                .or_insert(HashSet::new())
+                .insert(function_run.id.clone());
+            self.updated_invocations_states
+                .insert(invocation_ctx.key(), invocation_ctx.clone());
+ 
     }
 }
 

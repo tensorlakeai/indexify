@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::Arc,
     vec,
 };
@@ -140,16 +140,7 @@ impl TaskCreator {
         }
 
         TaskRetryPolicy::handle_allocation_outcome(&mut function_run, &allocation, &cg_version);
-        invocation_ctx
-            .function_runs
-            .insert(function_run.id.clone(), function_run.clone());
-        scheduler_update.updated_function_runs = HashMap::from([(
-            invocation_ctx.key(),
-            HashSet::from([function_run.id.clone()]),
-        )]);
-        scheduler_update
-            .updated_invocations_states
-            .insert(invocation_ctx.key(), *invocation_ctx.clone());
+        scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
 
         in_memory_state.update_state(
             self.clock,
@@ -172,21 +163,10 @@ impl TaskCreator {
                     payload: invocation_error_payload.clone(),
                 });
             }
-            invocation_ctx
-                .function_runs
-                .insert(function_run.id.clone(), function_run.clone());
             invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(failure_reason.into()));
-            return Ok(SchedulerUpdateRequest {
-                updated_function_runs: HashMap::from([(
-                    invocation_ctx.key(),
-                    HashSet::from([function_run.id.clone()]),
-                )]),
-                updated_invocations_states: HashMap::from([(
-                    invocation_ctx.key(),
-                    (*invocation_ctx).clone(),
-                )]),
-                ..Default::default()
-            });
+            let mut scheduler_update = SchedulerUpdateRequest::default();
+            scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
+            return Ok(scheduler_update);
         }
 
         // Update the invocation ctx with the new function calls
@@ -237,9 +217,7 @@ impl TaskCreator {
             .collect::<HashSet<_>>();
         if function_call_ids.len() == function_run_ids.len() {
             invocation_ctx.outcome = Some(GraphInvocationOutcome::Success);
-            scheduler_update
-                .updated_invocations_states
-                .insert(invocation_ctx.key(), *invocation_ctx.clone());
+            scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
             return Ok(scheduler_update);
         }
         let pending_function_calls = function_call_ids
@@ -286,17 +264,7 @@ impl TaskCreator {
             let function_run = cg_version
                 .create_function_run(function_call, input_args, &invocation_ctx.request_id)
                 .unwrap();
-            invocation_ctx
-                .function_runs
-                .insert(function_run.id.clone(), function_run.clone());
-            scheduler_update
-                .updated_function_runs
-                .entry(invocation_ctx.key())
-                .or_insert(HashSet::new())
-                .insert(function_run.id.clone());
-            scheduler_update
-                .updated_invocations_states
-                .insert(invocation_ctx.key(), *invocation_ctx.clone());
+            scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
         }
 
         in_memory_state.update_state(

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use anyhow::Result;
 use tracing::{debug, info_span, warn};
 
@@ -84,21 +82,12 @@ impl<'a> TaskAllocationProcessor<'a> {
                             ));
 
                             // Add the failed function run to the update
-                            update
-                                .updated_function_runs
-                                .entry(ctx.key())
-                                .or_insert(HashSet::new())
-                                .insert(failed_function_run.id.clone());
-                            ctx.function_runs
-                                .insert(failed_function_run.id.clone(), failed_function_run);
                             ctx.outcome = Some(
                                 crate::data_model::GraphInvocationOutcome::Failure(
                                     crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
                                 )
                             );
-                            update
-                                .updated_invocations_states
-                                .insert(ctx.key(), *ctx.clone());
+                            update.add_function_run(failed_function_run.clone(), &mut ctx);
                         }
 
                         continue;
@@ -160,19 +149,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             allocation_id: allocation.id.clone(),
         });
 
-        ctx.function_runs.insert(
-            updated_function_run.id.clone(),
-            updated_function_run.clone(),
-        );
-
-        update
-            .updated_function_runs
-            .entry(ctx.key())
-            .or_insert(HashSet::new())
-            .insert(updated_function_run.id.clone());
-        update
-            .updated_invocations_states
-            .insert(ctx.key(), ctx.clone());
+        update.add_function_run(updated_function_run.clone(), ctx);
         update.new_allocations.push(allocation);
         in_memory_state.update_state(
             self.clock,
