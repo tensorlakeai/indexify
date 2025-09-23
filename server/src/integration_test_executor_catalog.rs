@@ -60,7 +60,7 @@ mod tests {
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
             compute_graph: compute_graph.clone(),
-            upgrade_tasks_to_current_version: true,
+            upgrade_requests_to_current_version: true,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -115,7 +115,7 @@ mod tests {
         let sat_cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
             compute_graph: sat_compute_graph.clone(),
-            upgrade_tasks_to_current_version: true,
+            upgrade_requests_to_current_version: true,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -227,7 +227,7 @@ mod tests {
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             compute_graph,
-                            upgrade_tasks_to_current_version: true,
+                            upgrade_requests_to_current_version: true,
                         },
                     )),
                 })
@@ -416,7 +416,7 @@ mod tests {
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             compute_graph,
-                            upgrade_tasks_to_current_version: true,
+                            upgrade_requests_to_current_version: true,
                         },
                     )),
                 })

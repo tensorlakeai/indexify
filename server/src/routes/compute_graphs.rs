@@ -48,7 +48,7 @@ pub async fn create_or_update_application(
     let mut application_manifest: Option<http_objects_v1::Application> = Option::None;
     let mut put_result: Option<PutResult> = None;
 
-    let mut upgrade_tasks_to_current_version: Option<bool> = None;
+    let mut upgrade_requests_to_current_version: Option<bool> = None;
     while let Some(field) = application_code
         .next_field()
         .await
@@ -75,12 +75,12 @@ pub async fn create_or_update_application(
                 let mut json_value: serde_json::Value = serde_json::from_str(&text)?;
                 json_value["namespace"] = serde_json::Value::String(namespace.clone());
                 application_manifest = Some(serde_json::from_value(json_value)?);
-            } else if name == "upgrade_tasks_to_latest_version" {
+            } else if name == "upgrade_requests_to_latest_code" {
                 let text = field
                     .text()
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                upgrade_tasks_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
+                upgrade_requests_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
             } else if name == "code_content_type" {
                 let code_content_type = field
                     .text()
@@ -125,13 +125,14 @@ pub async fn create_or_update_application(
     info!(
         "creating compute graph {}, upgrade existing tasks and invocations: {}",
         name,
-        upgrade_tasks_to_current_version.unwrap_or(false)
+        upgrade_requests_to_current_version.unwrap_or(false)
     );
     let request =
         RequestPayload::CreateOrUpdateComputeGraph(Box::new(CreateOrUpdateComputeGraphRequest {
             namespace,
             compute_graph,
-            upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
+            upgrade_requests_to_current_version: upgrade_requests_to_current_version
+                .unwrap_or(false),
         }));
     let result = state
         .indexify_state

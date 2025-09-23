@@ -221,7 +221,7 @@ impl IndexifyState {
                 state_machine::create_or_update_compute_graph(
                     &txn,
                     req.compute_graph.clone(),
-                    req.upgrade_tasks_to_current_version,
+                    req.upgrade_requests_to_current_version,
                 )?;
             }
             RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
@@ -666,7 +666,7 @@ mod tests {
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         compute_graph: compute_graph.clone(),
-                        upgrade_tasks_to_current_version: false,
+                        upgrade_requests_to_current_version: false,
                     },
                 )),
             })

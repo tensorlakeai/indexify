@@ -84,7 +84,7 @@ impl GraphProcessor {
                         CreateOrUpdateComputeGraphRequest {
                             namespace: compute_graph.namespace.clone(),
                             compute_graph,
-                            upgrade_tasks_to_current_version: true,
+                            upgrade_requests_to_current_version: true,
                         },
                     )),
                 })

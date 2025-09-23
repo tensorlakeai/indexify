@@ -63,17 +63,9 @@ def validate_task_allocation(alloc: TaskAllocation) -> None:
 def _validate_data_payloads(
     data_payloads: Iterable[DataPayload], field_name: str
 ) -> None:
-    """Validates the supplied iterable of DataPayloads.
-
-    Raises ValueError if any of the DataPayloads is not valid.
-    """
-    has_payload: bool = False
+    """Validates the supplied iterable of DataPayloads."""
     for data_payload in data_payloads:
         _validate_data_payload(data_payload)
-        has_payload = True
-
-    if not has_payload:
-        raise ValueError(f"At least one DataPayload is required in {field_name}.")
 
 
 def _validate_data_payload(data_payload: DataPayload) -> None:

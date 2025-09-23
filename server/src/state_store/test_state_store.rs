@@ -36,7 +36,7 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: cg.clone(),
-        upgrade_tasks_to_current_version: true,
+        upgrade_requests_to_current_version: true,
     };
     indexify_state
         .write(StateMachineUpdateRequest {

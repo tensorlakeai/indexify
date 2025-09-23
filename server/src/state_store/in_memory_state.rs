@@ -655,7 +655,7 @@ impl InMemoryState {
 
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
-                if req.upgrade_tasks_to_current_version {
+                if req.upgrade_requests_to_current_version {
                     // Update function runs
                     {
                         let mut function_runs_to_update = vec![];
