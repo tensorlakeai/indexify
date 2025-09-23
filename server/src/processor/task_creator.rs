@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    vec,
-};
+use std::{collections::HashSet, sync::Arc, vec};
 
 use anyhow::Result;
 use tracing::{error, trace, warn};
@@ -92,7 +88,8 @@ impl TaskCreator {
         function_run.output = alloc_finished_event.data_payload.clone();
         match &alloc_finished_event.graph_updates {
             Some(graph_updates) => {
-                function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
+                function_run.child_function_call =
+                    Some(graph_updates.output_function_call_id.clone());
             }
             None => {}
         }
@@ -174,9 +171,10 @@ impl TaskCreator {
             for function_call in &graph_updates.graph_updates {
                 match function_call {
                     ComputeOp::FunctionCall(function_call) => {
-                        invocation_ctx
-                            .function_calls
-                            .insert(function_call.function_call_id.clone(), function_call.clone());
+                        invocation_ctx.function_calls.insert(
+                            function_call.function_call_id.clone(),
+                            function_call.clone(),
+                        );
                     }
                     ComputeOp::Reduce(reduce_op) => {
                         let mut reducer_collection = reduce_op.collection.clone();
