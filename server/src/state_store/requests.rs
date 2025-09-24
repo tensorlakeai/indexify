@@ -13,6 +13,7 @@ use crate::{
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        FunctionCall,
         FunctionCallId,
         FunctionExecutorId,
         FunctionExecutorServerMetadata,
@@ -120,6 +121,19 @@ impl SchedulerUpdateRequest {
             .entry(invocation_ctx.key())
             .or_insert(HashSet::new())
             .insert(function_run.id.clone());
+        self.updated_invocations_states
+            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    }
+
+    pub fn add_function_call(
+        &mut self,
+        function_call: FunctionCall,
+        invocation_ctx: &mut GraphInvocationCtx,
+    ) {
+        invocation_ctx.function_calls.insert(
+            function_call.function_call_id.clone(),
+            function_call.clone(),
+        );
         self.updated_invocations_states
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }

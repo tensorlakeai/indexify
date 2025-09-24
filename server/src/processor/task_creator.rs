@@ -1,6 +1,11 @@
-use std::{collections::HashSet, sync::Arc, vec};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    vec,
+};
 
 use anyhow::Result;
+use bytes::Bytes;
 use tracing::{error, trace, warn};
 
 use crate::{
@@ -13,6 +18,7 @@ use crate::{
         FunctionRun,
         GraphInvocationCtx,
         GraphInvocationError,
+        GraphInvocationFailureReason,
         GraphInvocationOutcome,
         InputArgs,
         ReduceOperation,
@@ -176,29 +182,103 @@ impl TaskCreator {
                             function_call.clone(),
                         );
                     }
+                    _ => {}
+                }
+            }
+            for function_call in &graph_updates.graph_updates {
+                match function_call {
                     ComputeOp::Reduce(reduce_op) => {
-                        let mut reducer_collection = reduce_op.collection.clone();
-                        // Remove the last element from the collection since we need to set it's
-                        // function call id to the id of the reduce op. This will
-                        // let us resolve the data payload of the last function call
-                        // of a reducer as it's final output.
-                        let last_arg = reducer_collection.pop();
-                        for arg in reducer_collection {
-                            let function_call =
-                                create_function_call_from_reduce_op(reduce_op, &arg);
-                            invocation_ctx
-                                .function_calls
-                                .insert(function_call.function_call_id.clone(), function_call);
-                        }
-                        if let Some(last_arg) = last_arg.clone() {
-                            let mut function_call =
-                                create_function_call_from_reduce_op(reduce_op, &last_arg);
-                            function_call.function_call_id = reduce_op.function_call_id.clone();
-                            invocation_ctx
-                                .function_calls
-                                .insert(function_call.function_call_id.clone(), function_call);
+                        let mut reducer_collection = VecDeque::from(reduce_op.collection.clone());
+                        let Some(first_arg) = reducer_collection.pop_front() else {
+                            error!(
+                                request_id = invocation_ctx.request_id,
+                                "reducer collection is empty"
+                            );
+                            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
+                                GraphInvocationFailureReason::FunctionError,
+                            ));
+                            return Ok(scheduler_update);
+                        };
+
+                        let second_arg = reducer_collection.pop_front();
+                        if let Some(second_arg) = second_arg {
+                            let mut last_function_call = create_function_call_from_reduce_op1(
+                                reduce_op,
+                                &first_arg,
+                                &second_arg,
+                            );
+                            scheduler_update
+                                .add_function_call(last_function_call.clone(), &mut invocation_ctx);
+                            for arg in reducer_collection {
+                                let function_call = create_function_call_from_reduce_op1(
+                                    reduce_op,
+                                    &arg,
+                                    &FunctionArgs::FunctionRunOutput(
+                                        last_function_call.function_call_id.clone(),
+                                    ),
+                                );
+                                scheduler_update
+                                    .add_function_call(function_call.clone(), &mut invocation_ctx);
+                                last_function_call = function_call.clone();
+                            }
+                            // the last function call is assigned the id of the reduce op
+                            // this enables dependent function calls to resolve when the reduce op's
+                            // last function is resolved and it's also
+                            // the final output of the reduce op
+                            last_function_call.function_call_id =
+                                reduce_op.function_call_id.clone();
+                            scheduler_update
+                                .add_function_call(last_function_call.clone(), &mut invocation_ctx);
+                        } else {
+                            match &first_arg {
+                                FunctionArgs::DataPayload(data_payload) => {
+                                    let function_call = FunctionCall {
+                                        function_call_id: reduce_op.function_call_id.clone(),
+                                        inputs: vec![],
+                                        fn_name: "reducer".into(),
+                                        call_metadata: Bytes::new(),
+                                    };
+                                    invocation_ctx.function_calls.insert(
+                                        reduce_op.function_call_id.clone(),
+                                        function_call.clone(),
+                                    );
+                                    let mut function_run = cg_version
+                                        .create_function_run(
+                                            &function_call,
+                                            vec![],
+                                            &invocation_ctx.request_id,
+                                        )
+                                        .unwrap();
+                                    function_run.output = Some(data_payload.clone());
+                                    function_run.status = TaskStatus::Completed;
+                                    function_run.outcome = Some(TaskOutcome::Success);
+                                    scheduler_update.add_function_run(
+                                        function_run.clone(),
+                                        &mut invocation_ctx,
+                                    );
+                                    scheduler_update.extend(propagate_output_to_consumers(
+                                        &mut invocation_ctx,
+                                        &function_run,
+                                    )?);
+                                }
+                                FunctionArgs::FunctionRunOutput(function_call_id) => {
+                                    let mut function_call = invocation_ctx
+                                        .function_calls
+                                        .get(function_call_id)
+                                        .cloned()
+                                        .unwrap();
+                                    invocation_ctx.function_calls.remove(function_call_id);
+                                    function_call.function_call_id =
+                                        reduce_op.function_call_id.clone();
+                                    scheduler_update.add_function_call(
+                                        function_call.clone(),
+                                        &mut invocation_ctx,
+                                    );
+                                }
+                            }
                         }
                     }
+                    _ => {}
                 }
             }
         }
@@ -274,23 +354,19 @@ impl TaskCreator {
     }
 }
 
-fn create_function_call_from_reduce_op(
+fn create_function_call_from_reduce_op1(
     reduce_op: &ReduceOperation,
-    function_arg: &FunctionArgs,
+    first_arg: &FunctionArgs,
+    second_arg: &FunctionArgs,
 ) -> FunctionCall {
-    match function_arg {
-        FunctionArgs::DataPayload(data_payload) => FunctionCall {
-            function_call_id: FunctionCallId(nanoid::nanoid!()),
-            inputs: vec![FunctionArgs::DataPayload(data_payload.clone())],
-            fn_name: reduce_op.fn_name.clone(),
-            call_metadata: reduce_op.call_metadata.clone(),
-        },
-        FunctionArgs::FunctionRunOutput(function_call_id) => FunctionCall {
-            function_call_id: function_call_id.clone(),
-            inputs: vec![FunctionArgs::FunctionRunOutput(function_call_id.clone())],
-            fn_name: reduce_op.fn_name.clone(),
-            call_metadata: reduce_op.call_metadata.clone(),
-        },
+    let mut inputs = vec![];
+    inputs.push(first_arg.clone());
+    inputs.push(second_arg.clone());
+    FunctionCall {
+        function_call_id: FunctionCallId(nanoid::nanoid!()),
+        inputs,
+        fn_name: reduce_op.fn_name.clone(),
+        call_metadata: reduce_op.call_metadata.clone(),
     }
 }
 
@@ -300,15 +376,38 @@ fn propagate_output_to_consumers(
 ) -> Result<SchedulerUpdateRequest> {
     let mut scheduler_update = SchedulerUpdateRequest::default();
     let invocation_ctx_key = invocation_ctx.key().clone();
-    for fn_run in invocation_ctx.function_runs.values_mut() {
-        if let Some(child_function_call_id) = &fn_run.child_function_call {
-            if child_function_call_id == &function_run.id {
-                fn_run.output = function_run.output.clone();
-                scheduler_update
-                    .updated_function_runs
-                    .entry(invocation_ctx_key.clone())
-                    .or_insert(HashSet::new())
-                    .insert(fn_run.id.clone());
+    if !function_run.output.is_some() {
+        return Ok(scheduler_update);
+    }
+    let mut function_run_output_to_propagate = Some(function_run.clone());
+    let mut updated_run = true;
+    while updated_run {
+        updated_run = false;
+        // 1. Go through all the function runs
+        for fn_run in invocation_ctx.function_runs.values_mut() {
+            // 2. See if the function run is linked to a child function call for it's output
+            if let Some(child_function_call_id) = &fn_run.child_function_call {
+                let Some(function_run) = function_run_output_to_propagate.clone() else {
+                    return Ok(scheduler_update);
+                };
+                // 3. If the function run that just finished is linked to this function run
+                // assign the output to the function run
+                if child_function_call_id == &function_run.id {
+                    fn_run.output = function_run.output.clone();
+                    scheduler_update
+                        .updated_function_runs
+                        .entry(invocation_ctx_key.clone())
+                        .or_insert(HashSet::new())
+                        .insert(fn_run.id.clone());
+                    // 4. Now that this function run has an output, figure out which
+                    // function run this function run is linked to
+                    function_run_output_to_propagate = Some(fn_run.clone());
+
+                    // 5. Since we need to go through this whole process again, set updated_run to
+                    //    true
+                    updated_run = true;
+                    break;
+                }
             }
         }
     }
