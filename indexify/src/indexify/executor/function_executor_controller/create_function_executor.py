@@ -136,17 +136,22 @@ def _to_fe_created_event(
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
         )
 
-    fe_termination_reason: FunctionExecutorTerminationReason | None = None
     if (
         initialize_response.outcome_code
-        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE
+        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_SUCCESS
     ):
+        return FunctionExecutorCreated(
+            function_executor=function_executor,
+            fe_termination_reason=None,
+        )
+    else:
         if (
             initialize_response.failure_reason
             == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR
         ):
-            fe_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            return FunctionExecutorCreated(
+                function_executor=None,
+                fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
             )
         else:
             # Treat all other failure reasons as grey failures. Report them as function errors to prevent service abuse.
@@ -157,14 +162,10 @@ def _to_fe_created_event(
                     initialize_response.failure_reason
                 ),
             )
-            fe_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            return FunctionExecutorCreated(
+                function_executor=None,
+                fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
             )
-
-    return FunctionExecutorCreated(
-        function_executor=function_executor,
-        fe_termination_reason=fe_termination_reason,
-    )
 
 
 async def _create_function_executor(
