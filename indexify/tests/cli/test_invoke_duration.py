@@ -1,12 +1,12 @@
 import time
 import unittest
 
-from tensorlake import Graph, TensorlakeCompute, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
-from testing import test_graph_name
+from tensorlake import TensorlakeCompute
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 
 
+@tensorlake.cls()
 class ColdStartMeasurementFunction(TensorlakeCompute):
     name = "ColdStartMeasurementFunction"
 
@@ -16,32 +16,31 @@ class ColdStartMeasurementFunction(TensorlakeCompute):
         # This allows to not measure the latency of Server learning that Function Executor was created.
         self._init_time: float = time.time()
 
+    @tensorlake.api()
+    @tensorlake.function()
     def run(self, x: int) -> str:
         return str(self._init_time)
 
 
-@tensorlake_function()
+@tensorlake.api()
+@tensorlake.function()
 def get_start_time(x: int) -> str:
     return str(time.time())
 
 
 class TestInvokeDurations(unittest.TestCase):
+    def setUp(self):
+        deploy(__file__)
+
     def test_cold_start_duration_is_less_than_ten_sec(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=ColdStartMeasurementFunction,
-        )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
 
         invoke_start_time = time.time()
-        invocation_id = graph.run(block_until_done=True, x=1)
-        output = graph.output(invocation_id, ColdStartMeasurementFunction.name)
-        self.assertEqual(len(output), 1)
-
-        func_init_time = float(output[0])
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            ColdStartMeasurementFunction.run,
+            1,
+        )
+        output = request.output()
+        func_init_time = float(output)
         cold_start_duration = func_init_time - invoke_start_time
         print(f"cold_start_duration: {cold_start_duration} seconds")
         # The current duration we see in tests is about 3 seconds
@@ -53,30 +52,25 @@ class TestInvokeDurations(unittest.TestCase):
         self.assertLess(cold_start_duration, 10)
 
     def test_warm_start_duration_is_less_than_hundred_ms(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=get_start_time,
-        )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-
         # Cold start first.
-        invocation_id = graph.run(block_until_done=True, x=1)
-        output = graph.output(invocation_id, "get_start_time")
-        self.assertEqual(len(output), 1)
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            get_start_time,
+            1,
+        )
+        output = request.output()
+        func_start_time = float(output)
 
         # Wait for Server to learn that the created Function Executor is IDLE.
         time.sleep(10)
 
         # Measure warm start duration.
         invoke_start_time = time.time()
-        invocation_id = graph.run(block_until_done=True, x=2)
-        output = graph.output(invocation_id, "get_start_time")
-        self.assertEqual(len(output), 1)
-
-        func_start_time = float(output[0])
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            get_start_time,
+            2,
+        )
+        output = request.output()
+        func_start_time = float(output)
         warm_start_duration = func_start_time - invoke_start_time
         print(f"warm_start_duration: {warm_start_duration} seconds")
         # The current duration we see in tests is about 20 ms.

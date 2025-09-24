@@ -17,6 +17,8 @@ from testing import (
     test_graph_name,
     wait_executor_startup,
 )
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 
 
 def fetch_metrics(
@@ -30,12 +32,16 @@ def fetch_metrics(
     return metrics
 
 
-@tensorlake_function()
+@tensorlake.api()
+@tensorlake.function()
 def successful_function(arg: str) -> str:
     return "success"
 
 
 class TestMetrics(unittest.TestCase):
+    def setUp(self):
+        deploy(__file__)
+
     def test_cli_package(self):
         metrics: Dict[str, Metric] = fetch_metrics(self)
 
@@ -65,20 +71,12 @@ class TestMetrics(unittest.TestCase):
             self.assertIn("id", info_sample.labels)
 
     def test_expected_function_executor_infos(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=successful_function,
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            successful_function,
+            "ignored",
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph.run(
-            block_until_done=True,
-            arg="ignored",
-        )
-        output = graph.output(invocation_id, "successful_function")
-        self.assertEqual(output, ["success"])
+        output = request.output()
+        self.assertEqual(output, "success")
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         fe_infos_metric: Metric = metrics.get("function_executor_infos")

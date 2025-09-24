@@ -1,16 +1,13 @@
 import time
 import unittest
 
-from tensorlake import (
-    Graph,
-    GraphRequestContext,
-    tensorlake_function,
-)
-from testing import remote_or_local_graph, test_graph_name
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 
 
-@tensorlake_function(inject_ctx=True, timeout=5)
-def function_with_progress_updates(ctx: GraphRequestContext, x: int) -> str:
+@tensorlake.api()
+@tensorlake.function(timeout=5)
+def function_with_progress_updates(ctx: tensorlake.RequestContext, x: int) -> str:
     """Function that calls update_progress multiple times during execution.
 
     This function takes longer than the timeout (5 seconds) but should succeed
@@ -35,8 +32,9 @@ def function_with_progress_updates(ctx: GraphRequestContext, x: int) -> str:
     return "completed_with_progress_updates"
 
 
-@tensorlake_function(inject_ctx=True, timeout=5)
-def function_without_progress_updates(ctx: GraphRequestContext, x: int) -> str:
+@tensorlake.api()
+@tensorlake.function(timeout=5)
+def function_without_progress_updates(ctx: tensorlake.RequestContext, x: int) -> str:
     """Function that sleeps longer than timeout without reporting progress.
 
     This function should timeout because it doesn't call update_progress().
@@ -50,17 +48,17 @@ def function_without_progress_updates(ctx: GraphRequestContext, x: int) -> str:
 
 
 class TestTimeoutResetOnProgress(unittest.TestCase):
+    def setUp(self):
+        deploy(__file__)
+
     def test_function_succeeds_with_progress_updates(self):
         """Test that functions with progress updates don't timeout even if they exceed the original timeout."""
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test timeout reset on progress",
-            start_node=function_with_progress_updates,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
 
         start_time = time.monotonic()
-        invocation_id = graph.run(block_until_done=True, x=1)
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            function_with_progress_updates, 1
+        )
+        outputs = request.output()
         duration = time.monotonic() - start_time
 
         # Should take about 8 seconds (4 * 2 seconds) but succeed
@@ -68,21 +66,15 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         self.assertLess(duration, 15, "Function should complete within reasonable time")
 
         # Check that the function succeeded
-        outputs = graph.output(invocation_id, function_with_progress_updates.name)
-        self.assertEqual(len(outputs), 1)
-        self.assertEqual(outputs[0], "completed_with_progress_updates")
+        self.assertEqual(outputs, "completed_with_progress_updates")
 
     def test_function_fails_without_progress_updates(self):
         """Test that functions without progress updates timeout as expected."""
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test timeout without progress",
-            start_node=function_without_progress_updates,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
 
         start_time = time.monotonic()
-        invocation_id = graph.run(block_until_done=True, x=1)
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            function_without_progress_updates, 1
+        )
         duration = time.monotonic() - start_time
 
         # Should timeout after about 5 seconds, but CI can be slow,
@@ -90,8 +82,10 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         self.assertLess(duration, 30, "Function should timeout quickly")
 
         # Check that the function failed (no outputs)
-        outputs = graph.output(invocation_id, function_without_progress_updates.name)
-        self.assertEqual(len(outputs), 0, "Function should have failed due to timeout")
+        try:
+            outputs = request.output()
+        except Exception as e:
+            self.assertEqual(e.message, "functionerror")
 
 
 if __name__ == "__main__":

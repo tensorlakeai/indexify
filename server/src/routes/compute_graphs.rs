@@ -99,10 +99,6 @@ pub async fn create_or_update_application(
         "application manifest is required",
     ))?;
 
-    info!(
-        "received new application manifest: {:?}",
-        application_manifest
-    );
     let put_result = put_result.ok_or(IndexifyAPIError::bad_request("Code is required"))?;
 
     let compute_graph = application_manifest.into_data_model(
@@ -141,7 +137,6 @@ pub async fn create_or_update_application(
     if let Err(err) = result {
         return Err(IndexifyAPIError::internal_error(err));
     }
-    info!("application created: {}", name);
     Ok(())
 }
 

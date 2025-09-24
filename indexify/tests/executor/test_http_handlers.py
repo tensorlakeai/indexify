@@ -12,8 +12,12 @@ from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from testing import test_graph_name
 
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 
-@tensorlake_function()
+
+@tensorlake.api()
+@tensorlake.function()
 def successful_function(arg: str) -> str:
     return "success"
 
@@ -81,6 +85,9 @@ class SampleSpec:
 
 
 class TestMetrics(unittest.TestCase):
+    def setUp(self):
+        deploy(__file__)
+
     def test_all_expected_metrics_are_present(self):
         # See how metrics are mapped to their samples at https://prometheus.io/docs/concepts/metric_types/.
         expected_sample_names = [
@@ -240,20 +247,12 @@ class TestMetrics(unittest.TestCase):
     def test_expected_metrics_diff_after_successful_task_run(self):
         metrics_before: Dict[str, Metric] = fetch_metrics(self)
 
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=successful_function,
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            successful_function,
+            "ignored",
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph.run(
-            block_until_done=True,
-            arg="ignored",
-        )
-        output = graph.output(invocation_id, "successful_function")
-        self.assertEqual(output, ["success"])
+        output = request.output()
+        self.assertEqual(output, "success")
 
         metrics_after: Dict[str, Metric] = fetch_metrics(self)
 
@@ -416,20 +415,12 @@ class TestMetrics(unittest.TestCase):
             )
 
     def test_expected_metrics_after_successful_task_run(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=successful_function,
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            successful_function,
+            "ignored",
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph.run(
-            block_until_done=True,
-            arg="ignored",
-        )
-        output = graph.output(invocation_id, "successful_function")
-        self.assertEqual(output, ["success"])
+        output = request.output()
+        self.assertEqual(output, "success")
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         expected_metrics: List[SampleSpec] = [
