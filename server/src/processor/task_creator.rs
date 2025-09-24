@@ -157,7 +157,6 @@ impl TaskCreator {
         }
 
         if let TaskOutcome::Failure(failure_reason) = allocation.outcome {
-            trace!("task failed, stopping scheduling of child tasks");
             function_run.status = TaskStatus::Completed;
             function_run.outcome = Some(allocation.outcome);
             if let Some(invocation_error_payload) = &alloc_finished_event.request_exception {
@@ -189,7 +188,8 @@ impl TaskCreator {
                 match function_call {
                     ComputeOp::Reduce(reduce_op) => {
                         let mut reducer_collection = VecDeque::from(reduce_op.collection.clone());
-                        let Some(first_arg) = reducer_collection.pop_front() else {
+                        let first_arg = reducer_collection.pop_front();
+                        let Some(first_arg) = first_arg else {
                             error!(
                                 request_id = invocation_ctx.request_id,
                                 "reducer collection is empty"
@@ -225,6 +225,10 @@ impl TaskCreator {
                             // this enables dependent function calls to resolve when the reduce op's
                             // last function is resolved and it's also
                             // the final output of the reduce op
+
+                            invocation_ctx
+                                .function_calls
+                                .remove(&last_function_call.function_call_id);
                             last_function_call.function_call_id =
                                 reduce_op.function_call_id.clone();
                             scheduler_update
