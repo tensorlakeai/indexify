@@ -125,6 +125,11 @@ impl SchedulerUpdateRequest {
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }
 
+    pub fn add_invocation_state(&mut self, invocation_ctx: &GraphInvocationCtx) {
+        self.updated_invocations_states
+            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    }
+
     pub fn add_function_call(
         &mut self,
         function_call: FunctionCall,

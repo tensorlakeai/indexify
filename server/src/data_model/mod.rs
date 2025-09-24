@@ -238,6 +238,8 @@ pub struct FunctionRun {
     pub graph_version: GraphVersion,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
+    // Function call which output will be used as output of this function run
+    // once the child function call finishes.
     #[builder(default)]
     pub child_function_call: Option<FunctionCallId>,
     // Some once this function run finishes with a value output
@@ -1641,6 +1643,8 @@ impl fmt::Display for TaskFinalizedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GraphUpdates {
     pub graph_updates: Vec<ComputeOp>,
+    // The ID of the function call that produces the final output
+    // value of the call graph defined in GraphUpdates.
     pub output_function_call_id: FunctionCallId,
 }
 
