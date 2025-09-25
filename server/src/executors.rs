@@ -437,7 +437,7 @@ impl ExecutorManager {
                     application_version: Some(fe.version.to_string()),
                 }),
                 secret_names: desired_state_fe.secret_names.clone(),
-                initialization_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
+                initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
                 application: Some(code_payload_pb),
                 allocation_timeout_ms: Some(
                     compute_graph_version

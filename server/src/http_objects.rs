@@ -332,6 +332,7 @@ pub struct ApplicationFunction {
     pub description: String,
     pub is_api: bool,
     pub secret_names: Vec<String>,
+    pub initialization_timeout_sec: TimeoutSeconds,
     pub timeout_sec: TimeoutSeconds,
     pub resources: NodeResources,
     pub retry_policy: NodeRetryPolicy,
@@ -357,6 +358,7 @@ impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
             input_encoder: "not-needed".to_string(),
             output_encoder: "".to_string(),
             secret_names: Some(val.secret_names),
+            initialization_timeout: val.initialization_timeout_sec.into(),
             timeout: val.timeout_sec.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
@@ -375,6 +377,7 @@ impl From<data_model::ComputeFn> for ApplicationFunction {
             is_api: true,
             description: c.description,
             secret_names: c.secret_names.unwrap_or_default(),
+            initialization_timeout_sec: c.initialization_timeout.into(),
             timeout_sec: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
@@ -412,6 +415,8 @@ pub struct ComputeFn {
     pub output_encoder: String,
     #[serde(default)]
     pub secret_names: Vec<String>,
+    #[serde(default, rename = "initialization_timeout_sec")]
+    pub initialization_timeout: TimeoutSeconds,
     #[serde(default, rename = "timeout_sec")]
     pub timeout: TimeoutSeconds,
     #[serde(default)]
@@ -443,6 +448,7 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             secret_names: Some(val.secret_names),
+            initialization_timeout: val.initialization_timeout.into(),
             timeout: val.timeout.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
@@ -464,6 +470,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             secret_names: c.secret_names.unwrap_or_default(),
+            initialization_timeout: c.initialization_timeout.into(),
             timeout: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),

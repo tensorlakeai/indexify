@@ -4,17 +4,19 @@ import unittest
 from typing import Dict
 
 import pydantic
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
     wait_executor_startup,
 )
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+
 
 class Response(pydantic.BaseModel):
     executor_pid: int
     environment: Dict[str, str]
+
 
 @tensorlake.api()
 @tensorlake.function()
@@ -47,10 +49,10 @@ class TestEnvironmentVariables(unittest.TestCase):
                     function_a,
                     1,
                 )
-                output = request.output()
+                output: Response = request.output()
                 if output.executor_pid == executor_a.pid:
                     print(
-                        "The invocation landed on executor_a, verifying environment variables."
+                        "The request landed on executor_a, verifying environment variables."
                     )
                     self.assertIn("INDEXIFY_TEST_ENV_VAR", output.environment)
                     self.assertEqual(

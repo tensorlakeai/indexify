@@ -101,7 +101,7 @@ pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
     pub resources: FunctionExecutorResources,
     pub secret_names: Vec<String>,
-    pub customer_code_timeout_ms: u32,
+    pub initialization_timeout_ms: u32,
     pub code_payload: DataPayload,
 }
 
@@ -1367,7 +1367,7 @@ impl InMemoryState {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
                 secret_names: cg_node.secret_names.clone().unwrap_or_default(),
-                customer_code_timeout_ms: cg_node.timeout.0,
+                initialization_timeout_ms: cg_node.initialization_timeout.0,
                 code_payload: DataPayload {
                     id: cg_version.code.id.clone(),
                     metadata_size: 0,

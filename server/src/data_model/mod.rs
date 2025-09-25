@@ -385,6 +385,8 @@ pub struct ComputeFn {
     pub output_encoder: String,
     pub secret_names: Option<Vec<String>>,
     #[serde(default)]
+    pub initialization_timeout: NodeTimeoutMS,
+    #[serde(default)]
     pub timeout: NodeTimeoutMS,
     #[serde(default)]
     pub resources: FunctionResources,

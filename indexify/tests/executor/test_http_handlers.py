@@ -2,6 +2,7 @@ import unittest
 from typing import Dict, List, Optional
 
 import httpx
+import tensorlake.workflows.interface as tensorlake
 
 # We're using internal APIs here, this might break when we update prometheus_client.
 from prometheus_client.metrics_core import Metric
@@ -10,10 +11,8 @@ from prometheus_client.samples import Sample
 from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.functions_sdk.remote_graph import RemoteGraph
-from testing import test_graph_name
-
-import tensorlake.workflows.interface as tensorlake
 from tensorlake.workflows.remote.deploy import deploy
+from testing import test_graph_name
 
 
 @tensorlake.api()
