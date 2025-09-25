@@ -2,7 +2,7 @@ import prometheus_client
 
 from ...monitoring.metrics import latency_metric_for_fast_operation
 
-# This file contains all metrics used by InvocationStateClient.
+# This file contains all metrics used by RequestStateClient.
 
 # General metrics.
 metric_request_read_errors: prometheus_client.Counter = prometheus_client.Counter(

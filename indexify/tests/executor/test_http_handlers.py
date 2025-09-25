@@ -1,5 +1,5 @@
 import unittest
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import httpx
 import tensorlake.workflows.interface as tensorlake
@@ -8,11 +8,7 @@ import tensorlake.workflows.interface as tensorlake
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake import Graph, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
 from tensorlake.workflows.remote.deploy import deploy
-from testing import test_graph_name
 
 
 @tensorlake.api()
@@ -55,8 +51,8 @@ def assert_sample_exists(
     test_case: unittest.TestCase,
     metrics: Dict[str, Metric],
     name: str,
-    labels: Optional[Dict[str, str]] = None,
-    value: Optional[float] = None,
+    labels: Dict[str, str] | None = None,
+    value: float | None = None,
 ) -> None:
     for metric in metrics.values():
         for sample in metric.samples:
@@ -84,19 +80,16 @@ class SampleSpec:
 
 
 class TestMetrics(unittest.TestCase):
-    def setUp(self):
-        deploy(__file__)
-
     def test_all_expected_metrics_are_present(self):
         # See how metrics are mapped to their samples at https://prometheus.io/docs/concepts/metric_types/.
         expected_sample_names = [
             "python_info",
-            # graph downloads
-            "graph_downloads_total",
-            "graph_download_errors_total",
-            "graph_downloads_from_cache_total",
-            "graph_download_latency_seconds_count",
-            "graph_download_latency_seconds_sum",
+            # application downloads
+            "application_downloads_total",
+            "application_download_errors_total",
+            "application_downloads_from_cache_total",
+            "application_download_latency_seconds_count",
+            "application_download_latency_seconds_sum",
             # task allocation preparation
             "task_allocation_preparations_total",
             "task_allocation_preparation_errors_total",
@@ -107,17 +100,18 @@ class TestMetrics(unittest.TestCase):
             "function_executor_failed_health_checks_total",
             "function_executor_health_check_latency_seconds_count",
             "function_executor_health_check_latency_seconds_sum",
-            "function_executor_invocation_state_client_request_read_errors_total",
-            # Server get invocation state API.
-            "server_get_invocation_state_requests_total",
-            "server_get_invocation_state_request_errors_total",
-            "server_get_invocation_state_request_latency_seconds_count",
-            "server_get_invocation_state_request_latency_seconds_sum",
-            # Server set invocation state API.
-            "server_set_invocation_state_requests_total",
-            "server_set_invocation_state_request_errors_total",
-            "server_set_invocation_state_request_latency_seconds_count",
-            "server_set_invocation_state_request_latency_seconds_sum",
+            # Request state client
+            "function_executor_request_state_client_request_read_errors_total",
+            # Server get request state API.
+            "server_get_request_state_requests_total",
+            "server_get_request_state_request_errors_total",
+            "server_get_request_state_request_latency_seconds_count",
+            "server_get_request_state_request_latency_seconds_sum",
+            # Server set request state API.
+            "server_set_request_state_requests_total",
+            "server_set_request_state_request_errors_total",
+            "server_set_request_state_request_latency_seconds_count",
+            "server_set_request_state_request_latency_seconds_sum",
             # Function executor create/destroy.
             "function_executors_count",
             #
@@ -155,13 +149,13 @@ class TestMetrics(unittest.TestCase):
             "function_executor_initialize_rpc_latency_seconds_sum",
             "function_executor_initialize_rpc_errors_total",
             #
-            "function_executor_create_invocation_state_client_latency_seconds_count",
-            "function_executor_create_invocation_state_client_latency_seconds_sum",
-            "function_executor_create_invocation_state_client_errors_total",
+            "function_executor_create_request_state_client_latency_seconds_count",
+            "function_executor_create_request_state_client_latency_seconds_sum",
+            "function_executor_create_request_state_client_errors_total",
             #
-            "function_executor_destroy_invocation_state_client_latency_seconds_count",
-            "function_executor_destroy_invocation_state_client_latency_seconds_sum",
-            "function_executor_destroy_invocation_state_client_errors_total",
+            "function_executor_destroy_request_state_client_latency_seconds_count",
+            "function_executor_destroy_request_state_client_latency_seconds_sum",
+            "function_executor_destroy_request_state_client_errors_total",
             #
             "function_executor_create_health_checker_latency_seconds_count",
             "function_executor_create_health_checker_latency_seconds_sum",
@@ -189,12 +183,12 @@ class TestMetrics(unittest.TestCase):
             "schedule_task_allocation_latency_seconds_count",
             "schedule_task_allocation_latency_seconds_sum",
             "runnable_task_allocations",
-            # Run task RPC
-            "function_executor_run_task_rpcs_in_progress",
-            "function_executor_run_task_rpcs_total",
-            "function_executor_run_task_rpc_errors_total",
-            "function_executor_run_task_rpc_latency_seconds_count",
-            "function_executor_run_task_rpc_latency_seconds_sum",
+            # Run allocation RPC
+            "function_executor_run_allocation_rpcs_in_progress",
+            "function_executor_run_allocation_rpcs_total",
+            "function_executor_run_allocation_rpc_errors_total",
+            "function_executor_run_allocation_rpc_latency_seconds_count",
+            "function_executor_run_allocation_rpc_latency_seconds_sum",
             # gRPC channel creation
             "grpc_server_channel_creations_total",
             "grpc_server_channel_creation_retries_total",
@@ -244,23 +238,28 @@ class TestMetrics(unittest.TestCase):
                 )
 
     def test_expected_metrics_diff_after_successful_task_run(self):
+        # Force unique application version to ensure cold start because we check cold start metrics too.
+        tensorlake.define_application(
+            name="TestMetrics.test_expected_metrics_diff_after_successful_task_run"
+        )
+        deploy(__file__)
+
         metrics_before: Dict[str, Metric] = fetch_metrics(self)
 
         request: tensorlake.Request = tensorlake.call_remote_api(
             successful_function,
             "ignored",
         )
-        output = request.output()
-        self.assertEqual(output, "success")
+        self.assertEqual(request.output(), "success")
 
         metrics_after: Dict[str, Metric] = fetch_metrics(self)
 
         expected_sample_diffs: List[SampleSpec] = [
-            # graph downloads
-            SampleSpec("graph_downloads_total", {}, 1.0),
-            SampleSpec("graph_download_errors_total", {}, 0.0),
-            SampleSpec("graph_downloads_from_cache_total", {}, 0.0),
-            SampleSpec("graph_download_latency_seconds_count", {}, 1.0),
+            # application downloads
+            SampleSpec("application_downloads_total", {}, 1.0),
+            SampleSpec("application_download_errors_total", {}, 0.0),
+            SampleSpec("application_downloads_from_cache_total", {}, 0.0),
+            SampleSpec("application_download_latency_seconds_count", {}, 1.0),
             # task allocation preparations
             SampleSpec("task_allocation_preparations_total", {}, 1.0),
             SampleSpec("task_allocation_preparation_errors_total", {}, 0.0),
@@ -268,29 +267,26 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("task_allocations_getting_prepared", {}, 0.0),
             # FE health checker
             SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
+            # Request state client
             SampleSpec(
-                "function_executor_invocation_state_client_request_read_errors_total",
+                "function_executor_request_state_client_request_read_errors_total",
                 {},
                 0.0,
             ),
-            # Server get invocation state API.
-            SampleSpec("server_get_invocation_state_requests_total", {}, 0.0),
-            SampleSpec("server_get_invocation_state_request_errors_total", {}, 0.0),
+            # Server get request state API.
+            SampleSpec("server_get_request_state_requests_total", {}, 0.0),
+            SampleSpec("server_get_request_state_request_errors_total", {}, 0.0),
             SampleSpec(
-                "server_get_invocation_state_request_latency_seconds_count", {}, 0.0
+                "server_get_request_state_request_latency_seconds_count", {}, 0.0
             ),
+            SampleSpec("server_get_request_state_request_latency_seconds_sum", {}, 0.0),
+            # Server set request state API.
+            SampleSpec("server_set_request_state_requests_total", {}, 0.0),
+            SampleSpec("server_set_request_state_request_errors_total", {}, 0.0),
             SampleSpec(
-                "server_get_invocation_state_request_latency_seconds_sum", {}, 0.0
+                "server_set_request_state_request_latency_seconds_count", {}, 0.0
             ),
-            # Server set invocation state API.
-            SampleSpec("server_set_invocation_state_requests_total", {}, 0.0),
-            SampleSpec("server_set_invocation_state_request_errors_total", {}, 0.0),
-            SampleSpec(
-                "server_set_invocation_state_request_latency_seconds_count", {}, 0.0
-            ),
-            SampleSpec(
-                "server_set_invocation_state_request_latency_seconds_sum", {}, 0.0
-            ),
+            SampleSpec("server_set_request_state_request_latency_seconds_sum", {}, 0.0),
             # Function executor create/destroy.
             SampleSpec("function_executor_creates_total", {}, 1.0),
             SampleSpec("function_executor_create_latency_seconds_count", {}, 1.0),
@@ -321,16 +317,16 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("function_executor_initialize_rpc_errors_total", {}, 0.0),
             #
             SampleSpec(
-                "function_executor_create_invocation_state_client_latency_seconds_count",
+                "function_executor_create_request_state_client_latency_seconds_count",
                 {},
                 1.0,
             ),
             SampleSpec(
-                "function_executor_create_invocation_state_client_errors_total", {}, 0.0
+                "function_executor_create_request_state_client_errors_total", {}, 0.0
             ),
             #
             SampleSpec(
-                "function_executor_destroy_invocation_state_client_errors_total",
+                "function_executor_destroy_request_state_client_errors_total",
                 {},
                 0.0,
             ),
@@ -385,11 +381,13 @@ class TestMetrics(unittest.TestCase):
             # Task allocation scheduling
             SampleSpec("schedule_task_allocation_latency_seconds_count", {}, 1.0),
             SampleSpec("runnable_task_allocations", {}, 0.0),
-            # Run task RPC
-            SampleSpec("function_executor_run_task_rpcs_in_progress", {}, 0.0),
-            SampleSpec("function_executor_run_task_rpcs_total", {}, 1.0),
-            SampleSpec("function_executor_run_task_rpc_errors_total", {}, 0.0),
-            SampleSpec("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
+            # Run allocation RPC
+            SampleSpec("function_executor_run_allocation_rpcs_in_progress", {}, 0.0),
+            SampleSpec("function_executor_run_allocation_rpcs_total", {}, 1.0),
+            SampleSpec("function_executor_run_allocation_rpc_errors_total", {}, 0.0),
+            SampleSpec(
+                "function_executor_run_allocation_rpc_latency_seconds_count", {}, 1.0
+            ),
             # Server gRPC channel creation
             SampleSpec("grpc_server_channel_creations_total", {}, 0.0),
             SampleSpec("grpc_server_channel_creation_retries_total", {}, 0.0),
@@ -414,12 +412,17 @@ class TestMetrics(unittest.TestCase):
             )
 
     def test_expected_metrics_after_successful_task_run(self):
+        # Force unique application version to ensure cold start because we check cold start metrics too.
+        tensorlake.define_application(
+            name="TestMetrics.test_expected_metrics_after_successful_task_run"
+        )
+        deploy(__file__)
+
         request: tensorlake.Request = tensorlake.call_remote_api(
             successful_function,
             "ignored",
         )
-        output = request.output()
-        self.assertEqual(output, "success")
+        self.assertEqual(request.output(), "success")
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         expected_metrics: List[SampleSpec] = [
