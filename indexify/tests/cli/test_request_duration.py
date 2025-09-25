@@ -28,7 +28,7 @@ class TestInvokeDurations(unittest.TestCase):
     def setUp(self):
         deploy(__file__)
 
-    def test_cold_start_duration_is_less_than_ten_sec(self):
+    def test_cold_start_duration_is_less_than_twenty_sec(self):
         request_start_time = time.time()
         request: tensorlake.Request = tensorlake.call_remote_api(
             ColdStartMeasurementFunction.run,
@@ -43,7 +43,10 @@ class TestInvokeDurations(unittest.TestCase):
         # We give a large headroom to prevent this test getting flaky
         # while still notifiying us if the cold start duration regresses
         # significantly.
-        self.assertLess(cold_start_duration, 10)
+        #
+        # FIXME: We give large 20 sec because when running this test under load
+        # Indexify has to shutdown some FEs which elongates the cold start time.
+        self.assertLess(cold_start_duration, 20)
 
     def test_warm_start_duration_is_less_than_hundred_ms(self):
         # Cold start first.

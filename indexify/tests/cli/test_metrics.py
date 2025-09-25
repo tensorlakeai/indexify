@@ -11,12 +11,9 @@ import tensorlake.workflows.interface as tensorlake
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake import Graph, RemoteGraph, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
 from tensorlake.workflows.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
-    test_graph_name,
     wait_executor_startup,
 )
 

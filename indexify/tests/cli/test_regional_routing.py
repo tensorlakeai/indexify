@@ -3,55 +3,62 @@ import time
 import unittest
 from typing import Dict, List
 
-from tensorlake import Graph, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
-    test_graph_name,
     wait_executor_startup,
-    wait_function_output,
 )
 
 
-@tensorlake_function()
-def get_dev_mode_executor_pid() -> int:
+@tensorlake.api()
+@tensorlake.function()
+def get_dev_mode_executor_pid(_: int) -> int:
     """Returns the PID of the executor running this function."""
     return executor_pid()
 
 
-@tensorlake_function(region="us-east-1")
-def regional_function_east() -> int:
+@tensorlake.api()
+@tensorlake.function(region="us-east-1")
+def regional_function_east(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@tensorlake_function(region="us-west-2")
+@tensorlake.api()
+@tensorlake.function(region="us-west-2")
 def regional_function_west(_: int) -> int:
     """Function that requires us-west-2 region."""
     return executor_pid()
 
 
-@tensorlake_function(region="eu-west-1")
+@tensorlake.api()
+@tensorlake.function(region="eu-west-1")
 def regional_function_eu(_: int) -> int:
     """Function that requires eu-west-1 region."""
     return executor_pid()
 
 
-@tensorlake_function(region="us-east-1")
+@tensorlake.api()
+@tensorlake.function(region="us-east-1")
 def regional_function_east_2(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@tensorlake_function(region="us-west-2")
+@tensorlake.api()
+@tensorlake.function(region="us-west-2")
 def regional_function_west_2(_: int) -> int:
     """Function that requires us-west-2 region."""
     return executor_pid()
 
 
 class TestRegionalRouting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        deploy(__file__)
+
     def test_regional_routing(self):
         """Test that functions are routed to executors in the correct regions."""
 
@@ -65,35 +72,22 @@ class TestRegionalRouting(unittest.TestCase):
         # correct regional executor; the test might pass if something's broken,
         # but it's unlikely.
 
-        total_invokes = 5
+        NUM_REQUESTS_PER_REGION = 5
 
-        executors_pid: Dict[str, int] = {
+        executor_to_pid: Dict[str, int] = {
             "dev_mode": -1,  # Existing dev mode executor (no label restrictions)
             "us_east_1": -1,  # Executor with sku=cpu-s, region=us-east-1
             "us_west_2": -1,  # Executor with sku=gpu-xl, region=us-west-2
             "eu_west_1": -1,  # Executor with sku=gpu-xxl, region=eu-west-1
         }
 
-        graph_name = test_graph_name(self)
-        version = str(time.time())
-
-        print("Getting dev mode executor PID...")
-        graph = Graph(
-            name=graph_name + "_dev",
-            description="Get dev mode executor PID",
-            start_node=get_dev_mode_executor_pid,
-            version=version,
+        get_dev_mode_executor_pid_request: tensorlake.Request = (
+            tensorlake.call_remote_api(get_dev_mode_executor_pid, 0)
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph.run(block_until_done=True)
-        output = graph.output(invocation_id, "get_dev_mode_executor_pid")
-        self.assertEqual(len(output), 1)
-        executors_pid["dev_mode"] = output[0]
-        print(f"Dev mode executor PID: {executors_pid['dev_mode']}")
+        executor_to_pid["dev_mode"] = get_dev_mode_executor_pid_request.output()
+        print(f"Dev mode executor PID: {executor_to_pid['dev_mode']}")
 
-        executor_configs = [
+        executor_configs: List[dict] = [
             {
                 "name": "us_east_1",
                 "labels": {"sku": "cpu-s", "region": "us-east-1"},
@@ -124,45 +118,52 @@ class TestRegionalRouting(unittest.TestCase):
         ]
 
         with contextlib.ExitStack() as stack:
-            executors_name = {executors_pid["dev_mode"]: "dev_mode"}
+            pid_to_executor_name: Dict[int, str] = {
+                executor_to_pid["dev_mode"]: "dev_mode"
+            }
             for i, (cm, config) in enumerate(zip(executor_cms, executor_configs)):
                 proc = stack.enter_context(cm)
-                executors_pid[config["name"]] = proc.pid
+                executor_to_pid[config["name"]] = proc.pid
                 print(
                     f"Started {config['name']} executor (PID: {proc.pid}) with labels: {config['labels']}"
                 )
-                executors_name[proc.pid] = config["name"]
+                pid_to_executor_name[proc.pid] = config["name"]
 
             for config in executor_configs:
                 wait_executor_startup(config["monitoring_port"])
                 print(f"Executor {config['name']} is ready")
 
-            graph = Graph(
-                name=graph_name,
-                description="Regional label filter routing test",
-                start_node=regional_function_east,
-                version=version,
+            # Run multiple requests to test label filtering
+            regional_function_requests: Dict[str, List[tensorlake.Request]] = {
+                "regional_function_east": [],
+                "regional_function_west": [],
+                "regional_function_eu": [],
+                "regional_function_east_2": [],
+                "regional_function_west_2": [],
+            }
+            for _ in range(NUM_REQUESTS_PER_REGION):
+                regional_function_requests["regional_function_east"].append(
+                    tensorlake.call_remote_api(regional_function_east, 0)
+                )
+                regional_function_requests["regional_function_west"].append(
+                    tensorlake.call_remote_api(regional_function_west, 0)
+                )
+                regional_function_requests["regional_function_eu"].append(
+                    tensorlake.call_remote_api(regional_function_eu, 0)
+                )
+                regional_function_requests["regional_function_east_2"].append(
+                    tensorlake.call_remote_api(regional_function_east_2, 0)
+                )
+                regional_function_requests["regional_function_west_2"].append(
+                    tensorlake.call_remote_api(regional_function_west_2, 0)
+                )
+
+            print(
+                f"Running {NUM_REQUESTS_PER_REGION * len(regional_function_requests)} requests..."
             )
-
-            # Chain functions to test different regional constraints
-            graph.add_edge(regional_function_east, regional_function_west)
-            graph.add_edge(regional_function_west, regional_function_eu)
-            graph.add_edge(regional_function_eu, regional_function_east_2)
-            graph.add_edge(regional_function_east_2, regional_function_west_2)
-
-            graph = RemoteGraph.deploy(
-                graph=graph, code_dir_path=graph_code_dir_path(__file__)
-            )
-
-            # Run multiple invocations to test label filtering
-            invocation_ids = []
-
-            print(f"Running {total_invokes} invocations...")
-            for _ in range(total_invokes):
-                invocation_ids.append(graph.run(block_until_done=True))
 
             # Track which executors ran each function
-            function_executor_usage: Dict[str, List[int]] = {
+            regional_function_to_executor_pids: Dict[str, List[int]] = {
                 "regional_function_east": [],
                 "regional_function_west": [],
                 "regional_function_eu": [],
@@ -170,91 +171,27 @@ class TestRegionalRouting(unittest.TestCase):
                 "regional_function_west_2": [],
             }
 
-            for invocation_id in invocation_ids:
-                # Test regional_function_east: should only run on us-east-1 executor
-                output = wait_function_output(
-                    graph, invocation_id, "regional_function_east"
-                )
-                self.assertEqual(len(output), 1)
-                func_executor_pid = output[0]
-                function_executor_usage["regional_function_east"].append(
-                    func_executor_pid
-                )
+            for func_name, requests in regional_function_requests.items():
+                for request in requests:
+                    pid = request.output()
+                    regional_function_to_executor_pids[func_name].append(pid)
 
-                allowed_pids = [executors_pid["us_east_1"]]
-                self.assertIn(
-                    func_executor_pid,
-                    allowed_pids,
-                    f"regional_function_east (PID {func_executor_pid}, {executors_name[func_executor_pid]}) should only run on us-east-1 executor ({executors_pid['us_east_1']})",
-                )
+            function_name_to_allowed_executor_pid: Dict[str, int] = {
+                "regional_function_east": executor_to_pid["us_east_1"],
+                "regional_function_west": executor_to_pid["us_west_2"],
+                "regional_function_eu": executor_to_pid["eu_west_1"],
+                "regional_function_east_2": executor_to_pid["us_east_1"],
+                "regional_function_west_2": executor_to_pid["us_west_2"],
+            }
 
-                # Test regional_function_west: should only run on us-west-2 executor
-                output = wait_function_output(
-                    graph, invocation_id, "regional_function_west"
-                )
-                self.assertEqual(len(output), 1)
-                func_executor_pid = output[0]
-                function_executor_usage["regional_function_west"].append(
-                    func_executor_pid
-                )
-
-                allowed_pids = [executors_pid["us_west_2"]]
-                self.assertIn(
-                    func_executor_pid,
-                    allowed_pids,
-                    f"regional_function_west (PID {func_executor_pid}, {executors_name[func_executor_pid]}) should only run on us-west-2 executor ({executors_pid['us_west_2']})",
-                )
-
-                # Test regional_function_eu: should only run on eu-west-1 executor
-                output = wait_function_output(
-                    graph, invocation_id, "regional_function_eu"
-                )
-                self.assertEqual(len(output), 1)
-                func_executor_pid = output[0]
-                function_executor_usage["regional_function_eu"].append(
-                    func_executor_pid
-                )
-
-                allowed_pids = [executors_pid["eu_west_1"]]
-                self.assertIn(
-                    func_executor_pid,
-                    allowed_pids,
-                    f"regional_function_eu (PID {func_executor_pid}, {executors_name[func_executor_pid]}) should only run on eu-west-1 executor ({executors_pid['eu_west_1']})",
-                )
-
-                # Test regional_function_east_2: should only run on us-east-1 executor
-                output = wait_function_output(
-                    graph, invocation_id, "regional_function_east_2"
-                )
-                self.assertEqual(len(output), 1)
-                func_executor_pid = output[0]
-                function_executor_usage["regional_function_east_2"].append(
-                    func_executor_pid
-                )
-
-                allowed_pids = [executors_pid["us_east_1"]]
-                self.assertIn(
-                    func_executor_pid,
-                    allowed_pids,
-                    f"regional_function_east_2 (PID {func_executor_pid}, {executors_name[func_executor_pid]}) should only run on us-east-1 executor ({executors_pid['us_east_1']})",
-                )
-
-                # Test regional_function_west_2: should only run on us-west-2 executor
-                output = wait_function_output(
-                    graph, invocation_id, "regional_function_west_2"
-                )
-                self.assertEqual(len(output), 1)
-                func_executor_pid = output[0]
-                function_executor_usage["regional_function_west_2"].append(
-                    func_executor_pid
-                )
-
-                allowed_pids = [executors_pid["us_west_2"]]
-                self.assertIn(
-                    func_executor_pid,
-                    allowed_pids,
-                    f"regional_function_west_2 (PID {func_executor_pid}, {executors_name[func_executor_pid]}) should only run on us-west-2 executor ({executors_pid['us_west_2']})",
-                )
+            for func_name, pids in regional_function_to_executor_pids.items():
+                func_allowed_pid: int = function_name_to_allowed_executor_pid[func_name]
+                for pid in pids:
+                    self.assertEqual(
+                        pid,
+                        func_allowed_pid,
+                        f"Function {func_name} ran on wrong executor (PID {pid}, expected {func_allowed_pid} ({pid_to_executor_name[func_allowed_pid]}))",
+                    )
 
 
 if __name__ == "__main__":

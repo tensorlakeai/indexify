@@ -3,12 +3,7 @@ import unittest
 from typing import List
 
 import tensorlake.workflows.interface as tensorlake
-from tensorlake import (
-    Graph,
-    tensorlake_function,
-)
 from tensorlake.workflows.remote.deploy import deploy
-from testing import remote_or_local_graph, test_graph_name, wait_function_output
 
 MAX_CONCURRENCY = 10
 concurrency_counter: int = 0
@@ -29,17 +24,16 @@ def concurrent_function(_i: int) -> int:
 class TestFunctionConcurrency(unittest.TestCase):
     def test_function_reaches_max_concurrency(self):
         deploy(__file__)
-        invocation_ids: List[tensorlake.Request] = []
+        requests: List[tensorlake.Request] = []
         for _ in range(MAX_CONCURRENCY):
             request: tensorlake.Request = tensorlake.call_remote_api(
                 concurrent_function, 0
             )
-            invocation_ids.append(request)
+            requests.append(request)
 
         observed_max_concurrencies: List[int] = []
-        for request in invocation_ids:
-            output = request.output()
-            observed_max_concurrencies.append(output)
+        for request in requests:
+            observed_max_concurrencies.append(request.output())
 
         self.assertEqual(
             set(observed_max_concurrencies), set(range(1, MAX_CONCURRENCY + 1))
