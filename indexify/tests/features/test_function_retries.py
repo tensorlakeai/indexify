@@ -10,7 +10,7 @@ call_number = 0
 
 
 @tensorlake.api()
-@tensorlake.function(retries=tensorlake.Retries(max_retries=3, max_delay=1.0))
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3))
 def function_succeeds_after_two_retries(x: int) -> str:
     global call_number
     call_number += 1
@@ -22,7 +22,7 @@ def function_succeeds_after_two_retries(x: int) -> str:
 
 
 @tensorlake.api()
-@tensorlake.function(retries=tensorlake.Retries(max_retries=3, max_delay=1.0))
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3))
 def function_always_fails(x: int) -> str:
     raise Exception("Function failed and will never succeed")
 
@@ -31,9 +31,7 @@ FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH = "/tmp/function_always_times_out_counter"
 
 
 @tensorlake.api()
-@tensorlake.function(
-    retries=tensorlake.Retries(max_retries=3, max_delay=1.0), timeout=1
-)
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3), timeout=1)
 def function_always_times_out(x: int) -> str:
     with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "a") as f:
         f.write("executed\n")
@@ -82,9 +80,7 @@ class FunctionWithFailingConstructor:
             raise Exception("Constructor failed")
 
     @tensorlake.api()
-    @tensorlake.function(
-        retries=tensorlake.Retries(max_retries=MAX_RETRIES, max_delay=1.0)
-    )
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
 
@@ -111,9 +107,7 @@ class FunctionWithTimingOutConstructor:
             time.sleep(1000)
 
     @tensorlake.api()
-    @tensorlake.function(
-        retries=tensorlake.Retries(max_retries=MAX_RETRIES, max_delay=1.0)
-    )
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
 
@@ -147,9 +141,7 @@ class FunctionWithRetryCountingConstructor:
             raise Exception(f"Constructor failed on attempt {constructor_run_count}")
 
     @tensorlake.api()
-    @tensorlake.function(
-        retries=tensorlake.Retries(max_retries=MAX_RETRIES, max_delay=1.0)
-    )
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after retries"
 
@@ -186,9 +178,7 @@ class FunctionWithRetryCountingTimeoutConstructor:
             time.sleep(1000)  # This will cause a timeout
 
     @tensorlake.api()
-    @tensorlake.function(
-        retries=tensorlake.Retries(max_retries=MAX_RETRIES, max_delay=1.0)
-    )
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after timeout retries"
 
