@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::Result;
-use bytes::Bytes;
 use tracing::{error, trace, warn};
 
 use crate::{
@@ -206,96 +205,47 @@ impl TaskCreator {
                         };
 
                         let second_arg = reducer_collection.pop_front();
-                        if let Some(second_arg) = second_arg {
-                            let mut last_function_call = create_function_call_from_reduce_op(
+                        let Some(second_arg) = second_arg else {
+                            error!(
+                                request_id = invocation_ctx.request_id,
+                                "reducer collection has < 2 items"
+                            );
+                            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
+                                GraphInvocationFailureReason::FunctionError,
+                            ));
+                            return Ok(scheduler_update);
+                        };
+
+                        let mut last_function_call =
+                            create_function_call_from_reduce_op(reduce_op, &first_arg, &second_arg);
+                        scheduler_update
+                            .add_function_call(last_function_call.clone(), &mut invocation_ctx);
+                        // Ordering of arguments is important. When we reduce "a, b, c, d"
+                        // we want to do reduce(reduce(reduce(a, b), c), d).
+                        // So the reduce calls are in order of collection.
+                        for arg in reducer_collection {
+                            let function_call = create_function_call_from_reduce_op(
                                 reduce_op,
-                                &first_arg,
-                                &second_arg,
+                                &FunctionArgs::FunctionRunOutput(
+                                    last_function_call.function_call_id.clone(),
+                                ),
+                                &arg,
                             );
                             scheduler_update
-                                .add_function_call(last_function_call.clone(), &mut invocation_ctx);
-                            // Ordering of arguments is important. When we reduce "a, b, c, d"
-                            // we want to do reduce(reduce(reduce(a, b), c), d).
-                            // So the reduce calls are in order of collection.
-                            for arg in reducer_collection {
-                                let function_call = create_function_call_from_reduce_op(
-                                    reduce_op,
-                                    &FunctionArgs::FunctionRunOutput(
-                                        last_function_call.function_call_id.clone(),
-                                    ),
-                                    &arg,
-                                );
-                                scheduler_update
-                                    .add_function_call(function_call.clone(), &mut invocation_ctx);
-                                last_function_call = function_call.clone();
-                            }
-                            // Change the function call ID of the last reducer function call to
-                            // be the reduce operation's function call ID.
-                            // Alternatively, we could create a new reducer function run that
-                            // consumes the output of the last function call using function_call_id
-                            // field.
-                            invocation_ctx
-                                .function_calls
-                                .remove(&last_function_call.function_call_id);
-                            last_function_call.function_call_id =
-                                reduce_op.function_call_id.clone();
-                            scheduler_update
-                                .add_function_call(last_function_call.clone(), &mut invocation_ctx);
-                        } else {
-                            // Reduced collection has only one item, we assign this item as the
-                            // source of output for the reduce operation.
-                            match &first_arg {
-                                FunctionArgs::DataPayload(data_payload) => {
-                                    let function_call = FunctionCall {
-                                        function_call_id: reduce_op.function_call_id.clone(),
-                                        inputs: vec![],
-                                        fn_name: "reducer".into(),
-                                        call_metadata: Bytes::new(),
-                                    };
-                                    invocation_ctx.function_calls.insert(
-                                        reduce_op.function_call_id.clone(),
-                                        function_call.clone(),
-                                    );
-                                    let mut function_run = cg_version
-                                        .create_function_run(
-                                            &function_call,
-                                            vec![],
-                                            &invocation_ctx.request_id,
-                                        )
-                                        .unwrap();
-                                    function_run.output = Some(data_payload.clone());
-                                    function_run.status = TaskStatus::Completed;
-                                    function_run.outcome = Some(TaskOutcome::Success);
-                                    scheduler_update.add_function_run(
-                                        function_run.clone(),
-                                        &mut invocation_ctx,
-                                    );
-                                    scheduler_update.extend(propagate_output_to_consumers(
-                                        &mut invocation_ctx,
-                                        &function_run,
-                                    )?);
-                                }
-                                FunctionArgs::FunctionRunOutput(function_call_id) => {
-                                    // Change the function call ID of the only function call in the
-                                    // collection to be the reduce operation's function call ID.
-                                    // Alternatively, we could create a new reducer function run
-                                    // that consumes the output of this function call using
-                                    // function_call_id field.
-                                    let mut function_call = invocation_ctx
-                                        .function_calls
-                                        .get(function_call_id)
-                                        .cloned()
-                                        .unwrap();
-                                    invocation_ctx.function_calls.remove(function_call_id);
-                                    function_call.function_call_id =
-                                        reduce_op.function_call_id.clone();
-                                    scheduler_update.add_function_call(
-                                        function_call.clone(),
-                                        &mut invocation_ctx,
-                                    );
-                                }
-                            }
+                                .add_function_call(function_call.clone(), &mut invocation_ctx);
+                            last_function_call = function_call.clone();
                         }
+                        // Change the function call ID of the last reducer function call to
+                        // be the reduce operation's function call ID.
+                        // Alternatively, we could create a new reducer function run that
+                        // consumes the output of the last function call using function_call_id
+                        // field.
+                        invocation_ctx
+                            .function_calls
+                            .remove(&last_function_call.function_call_id);
+                        last_function_call.function_call_id = reduce_op.function_call_id.clone();
+                        scheduler_update
+                            .add_function_call(last_function_call.clone(), &mut invocation_ctx);
                     }
                     _ => {}
                 }

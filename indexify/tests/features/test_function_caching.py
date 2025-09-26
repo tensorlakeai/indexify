@@ -13,8 +13,7 @@ class Payload(BaseModel):
     generate_numbers_runs_file_path: str
 
 
-# FIXME: Use default json serializer when dynamic function output serializer selection is supported.
-@tensorlake.api(output_serializer="pickle")
+@tensorlake.api()
 @tensorlake.function()
 def sum_numbers_api(payload: Payload) -> int:
     return sum_numbers(
