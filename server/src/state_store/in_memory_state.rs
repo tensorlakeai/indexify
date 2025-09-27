@@ -1,6 +1,6 @@
 use std::{
-    cmp::Ordering,
     collections::{HashMap, HashSet},
+    fmt::Display,
     sync::Arc,
 };
 
@@ -15,7 +15,6 @@ use tracing::{debug, error, warn};
 use crate::{
     data_model::{
         Allocation,
-        AllocationId,
         ComputeGraph,
         ComputeGraphState,
         ComputeGraphVersion,
@@ -28,16 +27,15 @@ use crate::{
         FunctionExecutorServerMetadata,
         FunctionExecutorState,
         FunctionResources,
-        FunctionRetryPolicy,
+        FunctionRun,
         FunctionURI,
         GraphInvocationCtx,
         GraphVersion,
         Namespace,
         NamespaceBuilder,
-        ReduceTask,
-        Task,
         TaskStatus,
     },
+    executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
         requests::RequestPayload,
@@ -98,19 +96,12 @@ impl Error {
         }
     }
 }
-#[derive(Debug, Clone)]
-pub struct DesiredStateTask {
-    pub task: Box<Task>,
-    pub allocation_id: AllocationId,
-    pub timeout_ms: u32,
-    pub retry_policy: FunctionRetryPolicy,
-}
 
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<FunctionExecutorServerMetadata>,
     pub resources: FunctionExecutorResources,
     pub secret_names: Vec<String>,
-    pub customer_code_timeout_ms: u32,
+    pub initialization_timeout_ms: u32,
     pub code_payload: DataPayload,
 }
 
@@ -118,51 +109,113 @@ pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
-    pub task_allocations: std::collections::HashMap<FunctionExecutorId, Box<Vec<DesiredStateTask>>>,
+    pub function_run_allocations: std::collections::HashMap<FunctionExecutorId, Vec<Allocation>>,
     pub clock: u64,
-}
-
-/// UnallocatedTaskId is a unique identifier for a task that has not been
-/// allocated to an executor. It is used to order tasks in the unallocated_tasks
-/// queue.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct UnallocatedTaskId {
-    pub task_creation_time_ns: u128,
-    pub task_key: String,
-}
-
-impl UnallocatedTaskId {
-    pub fn new(task: &Task) -> Self {
-        Self {
-            task_creation_time_ns: task.creation_time_ns,
-            task_key: task.key(),
-        }
-    }
-}
-
-impl PartialOrd for UnallocatedTaskId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for UnallocatedTaskId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // First, compare creation times
-        match self.task_creation_time_ns.cmp(&other.task_creation_time_ns) {
-            Ordering::Equal => {
-                // If creation times are equal, compare task keys
-                self.task_key.cmp(&other.task_key)
-            }
-            time_ordering => time_ordering,
-        }
-    }
 }
 
 pub struct CandidateFunctionExecutors {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
     pub num_pending_function_executors: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionRunKey(String);
+
+impl From<&FunctionRun> for FunctionRunKey {
+    fn from(function_run: &FunctionRun) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<FunctionRun> for FunctionRunKey {
+    fn from(function_run: FunctionRun) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<Box<FunctionRun>> for FunctionRunKey {
+    fn from(function_run: Box<FunctionRun>) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<&Box<FunctionRun>> for FunctionRunKey {
+    fn from(function_run: &Box<FunctionRun>) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<&Allocation> for FunctionRunKey {
+    fn from(allocation: &Allocation) -> Self {
+        FunctionRunKey(format!(
+            "{}|{}|{}",
+            allocation.namespace, allocation.compute_graph, allocation.function_call_id
+        ))
+    }
+}
+
+impl From<&Box<Allocation>> for FunctionRunKey {
+    fn from(allocation: &Box<Allocation>) -> Self {
+        FunctionRunKey(format!(
+            "{}|{}|{}",
+            allocation.namespace, allocation.compute_graph, allocation.function_call_id
+        ))
+    }
+}
+
+impl Display for FunctionRunKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestCtxKey(String);
+
+impl From<String> for RequestCtxKey {
+    fn from(key: String) -> Self {
+        RequestCtxKey(key)
+    }
+}
+
+impl From<&String> for RequestCtxKey {
+    fn from(key: &String) -> Self {
+        RequestCtxKey(key.clone())
+    }
+}
+
+impl From<&GraphInvocationCtx> for RequestCtxKey {
+    fn from(ctx: &GraphInvocationCtx) -> Self {
+        RequestCtxKey(ctx.key())
+    }
+}
+
+impl From<&FunctionRun> for RequestCtxKey {
+    fn from(function_run: &FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<FunctionRun> for RequestCtxKey {
+    fn from(function_run: FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<Box<FunctionRun>> for RequestCtxKey {
+    fn from(function_run: Box<FunctionRun>) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
 }
 
 pub struct InMemoryState {
@@ -196,22 +249,19 @@ pub struct InMemoryState {
         im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
     // TaskKey -> Task
-    pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
+    pub unallocated_function_runs: im::OrdSet<FunctionRunKey>,
 
-    // Task Key -> Task
-    pub tasks: im::OrdMap<String, Box<Task>>,
-
-    // Queued Reduction Tasks
-    pub queued_reduction_tasks: im::OrdMap<String, Box<ReduceTask>>,
+    // Function Run Key -> Function Run
+    pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<GraphInvocationCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
 
     // Histogram metrics for task latency measurements for direct recording
-    task_pending_latency: Histogram<f64>,
+    function_run_pending_latency: Histogram<f64>,
     allocation_running_latency: Histogram<f64>,
     allocation_completion_latency: Histogram<f64>,
 }
@@ -219,12 +269,12 @@ pub struct InMemoryState {
 /// InMemoryMetrics manages observable metrics for the InMemoryState
 #[allow(dead_code)]
 pub struct InMemoryMetrics {
-    pub unallocated_tasks_gauge: ObservableGauge<u64>,
-    pub active_tasks_gauge: ObservableGauge<u64>,
+    pub unallocated_function_runs: ObservableGauge<u64>,
+    pub active_function_runs_gauge: ObservableGauge<u64>,
     pub active_invocations_gauge: ObservableGauge<u64>,
     pub active_allocations_gauge: ObservableGauge<u64>,
     pub max_invocation_age_gauge: ObservableGauge<f64>,
-    pub max_task_age_gauge: ObservableGauge<f64>,
+    pub max_function_run_age_gauge: ObservableGauge<f64>,
 }
 
 impl InMemoryMetrics {
@@ -232,44 +282,48 @@ impl InMemoryMetrics {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create observable gauges with callbacks that clone needed data
-        let unallocated_tasks_gauge = {
+        let unallocated_function_runs_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("indexify.unallocated_tasks")
-                .with_description("Number of unallocated tasks, reported from in_memory_state")
+                .u64_observable_gauge("indexify.unallocated_function_runs")
+                .with_description(
+                    "Number of unallocated function runs, reported from in_memory_state",
+                )
                 .with_callback(move |observer| {
                     // Use a block scope to ensure the lock is dropped automatically
                     {
                         if let Ok(state) = state_clone.try_read() {
-                            let task_count = state.unallocated_tasks.len() as u64;
+                            let function_run_count = state.unallocated_function_runs.len() as u64;
                             // Lock is automatically dropped at the end of this block
-                            observer.observe(task_count, &[]);
+                            observer.observe(function_run_count, &[]);
                         } else {
-                            debug!("Failed to acquire read lock for unallocated_tasks metric");
+                            debug!(
+                                "Failed to acquire read lock for unallocated_function_runs metric"
+                            );
                         }
                     }
                 })
                 .build()
         };
 
-        let active_tasks_gauge = {
+        let active_function_runs_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("indexify.active_tasks")
-                .with_description("Number of active tasks, reported from in_memory_state")
+                .u64_observable_gauge("indexify.active_function_runs")
+                .with_description("Number of active function runs, reported from in_memory_state")
                 .with_callback(move |observer| {
                     if let Ok(state) = state_clone.try_read() {
-                        let task_count = state
-                            .tasks
+                        let function_run_count = state
+                            .function_runs
                             .iter()
-                            // Filter out terminal tasks since they stick around until their
+                            // Filter out terminal function runs since they stick around until their
                             // invocation is completed.
-                            .filter(|(_k, task)| !task.is_terminal())
+                            .filter(|(_k, function_run)| function_run.outcome.is_some())
                             .count() as u64;
                         // Lock is automatically dropped at the end of this block
-                        observer.observe(task_count, &[]);
+                        observer.observe(function_run_count, &[]);
                     } else {
-                        debug!("Failed to acquire read lock for active_tasks metric");
+                        debug!("Failed to acquire read lock for active_function_runs metric");
                     }
                 })
                 .build()
@@ -346,7 +400,7 @@ impl InMemoryMetrics {
                             // Find the oldest non-completed invocation
                             invocation_ctx
                                 .values()
-                                .filter(|inv| !inv.completed)
+                                .filter(|inv| inv.outcome.is_none())
                                 .map(|inv| {
                                     get_elapsed_time(inv.created_at.into(), TimeUnit::Milliseconds)
                                 })
@@ -366,19 +420,19 @@ impl InMemoryMetrics {
         };
 
         // Add max task age metric
-        let max_task_age_gauge = {
+        let max_function_run_age_gauge = {
             let state_clone = state.clone();
             meter
-                .f64_observable_gauge("indexify.max_task_age")
+                .f64_observable_gauge("indexify.max_function_run_age")
                 .with_unit("s")
-                .with_description("Maximum age of any non-terminal task in seconds")
+                .with_description("Maximum age of any non-terminal function run in seconds")
                 .with_callback(move |observer| {
                     // Clone data within a minimal scope to auto-drop the lock immediately
                     let tasks = {
                         if let Ok(state) = state_clone.try_read() {
-                            Some(state.tasks.clone())
+                            Some(state.function_runs.clone())
                         } else {
-                            debug!("Failed to acquire read lock for tasks metric");
+                            debug!("Failed to acquire read lock for function_runs metric");
                             None
                         }
                     };
@@ -388,9 +442,12 @@ impl InMemoryMetrics {
                             // Find the oldest non-terminal task
                             tasks
                                 .values()
-                                .filter(|task| !task.is_terminal())
-                                .map(|task| {
-                                    get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds)
+                                .filter(|function_run| function_run.outcome.is_some())
+                                .map(|function_run| {
+                                    get_elapsed_time(
+                                        function_run.creation_time_ns,
+                                        TimeUnit::Nanoseconds,
+                                    )
                                 })
                                 .max_by(|a, b| {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
@@ -408,12 +465,12 @@ impl InMemoryMetrics {
         };
 
         Self {
-            unallocated_tasks_gauge,
-            active_tasks_gauge,
+            unallocated_function_runs: unallocated_function_runs_gauge,
+            active_function_runs_gauge,
             active_invocations_gauge,
             active_allocations_gauge,
             max_invocation_age_gauge,
-            max_task_age_gauge,
+            max_function_run_age_gauge,
         }
     }
 }
@@ -424,17 +481,17 @@ impl InMemoryState {
 
         // Create histogram metrics for task latency measurements
         let task_pending_latency = meter
-            .f64_histogram("indexify.task_pending_latency")
+            .f64_histogram("indexify.function_run_pending_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from creation to running")
+            .with_description("Time function runs spend from creation to running")
             .build();
 
         let allocation_running_latency = meter
             .f64_histogram("indexify.allocation_running_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from running to completion")
+            .with_description("Time function runs spend from running to completion")
             .build();
 
         let allocation_completion_latency = meter
@@ -500,59 +557,24 @@ impl InMemoryState {
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
             for (_id, ctx) in all_graph_invocation_ctx {
                 // Do not cache completed invocations
-                if ctx.completed {
+                if ctx.outcome.is_some() {
                     continue;
                 }
-                invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                invocation_ctx.insert(ctx.key().into(), Box::new(ctx));
             }
         }
 
-        // Creating Tasks
-        let mut tasks = im::OrdMap::new();
-        let mut unallocated_tasks = im::OrdSet::new();
-        {
-            let all_tasks: Vec<(String, Task)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
-            for (_id, task) in all_tasks {
-                // Do not cache tasks for completed invocations
-                if invocation_ctx
-                    .get(&GraphInvocationCtx::key_from(
-                        &task.namespace,
-                        &task.compute_graph_name,
-                        &task.invocation_id,
-                    ))
-                    .is_none()
-                {
+        let mut function_runs = im::OrdMap::new();
+        let mut unallocated_function_runs = im::OrdSet::new();
+        for ctx in invocation_ctx.values() {
+            for function_run in ctx.function_runs.values() {
+                if function_run.outcome.is_some() {
                     continue;
                 }
-
-                if task.is_terminal() {
-                    continue;
+                if function_run.status == TaskStatus::Pending {
+                    unallocated_function_runs.insert(function_run.clone().into());
                 }
-                if task.status == TaskStatus::Pending {
-                    unallocated_tasks.insert(UnallocatedTaskId::new(&task));
-                }
-                tasks.insert(task.key(), Box::new(task));
-            }
-        }
-
-        let mut queued_reduction_tasks = im::OrdMap::new();
-        {
-            let all_reduction_tasks: Vec<(String, ReduceTask)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
-            for (_id, task) in all_reduction_tasks {
-                // Do not cache reduction tasks for completed invocations
-                if invocation_ctx
-                    .get(&GraphInvocationCtx::key_from(
-                        &task.namespace,
-                        &task.compute_graph_name,
-                        &task.invocation_id,
-                    ))
-                    .is_none()
-                {
-                    continue;
-                }
-                queued_reduction_tasks.insert(task.key(), Box::new(task));
+                function_runs.insert(function_run.clone().into(), Box::new(function_run.clone()));
             }
         }
 
@@ -562,17 +584,16 @@ impl InMemoryState {
             compute_graphs,
             compute_graph_versions,
             executors: im::HashMap::new(),
-            tasks,
-            unallocated_tasks,
+            function_runs,
+            unallocated_function_runs,
             invocation_ctx,
-            queued_reduction_tasks,
             allocations_by_executor,
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
             // metrics
-            task_pending_latency,
+            function_run_pending_latency: task_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
         };
@@ -595,7 +616,13 @@ impl InMemoryState {
         match state_machine_update_request {
             RequestPayload::InvokeComputeGraph(req) => {
                 self.invocation_ctx
-                    .insert(req.ctx.key(), Box::new(req.ctx.clone()));
+                    .insert(req.ctx.key().into(), Box::new(req.ctx.clone()));
+                for function_run in req.ctx.function_runs.values() {
+                    self.function_runs
+                        .insert(function_run.clone().into(), Box::new(function_run.clone()));
+                    self.unallocated_function_runs
+                        .insert(function_run.clone().into());
+                }
             }
             RequestPayload::CreateNameSpace(req) => {
                 // If the namespace already exists, get its created_at time
@@ -627,29 +654,8 @@ impl InMemoryState {
 
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
-                if req.upgrade_tasks_to_current_version {
-                    // Update tasks
-                    {
-                        let mut tasks_to_update = vec![];
-                        let tasks_key_prefix = Task::key_prefix_for_compute_graph(
-                            &req.namespace,
-                            &req.compute_graph.name,
-                        );
-                        self.tasks
-                            .range(tasks_key_prefix.clone()..)
-                            .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
-                            .for_each(|(_k, v)| {
-                                let mut task = v.clone();
-                                task.graph_version = version.clone();
-                                tasks_to_update.push(task);
-                            });
-
-                        for task in tasks_to_update {
-                            self.tasks.insert(task.key(), task);
-                        }
-                    }
-
-                    // Update invocation contexts
+                if req.upgrade_requests_to_current_version {
+                    // Update invocation ctxs and function runs
                     {
                         let mut invocation_ctx_to_update = vec![];
                         let invocation_ctx_key_prefix =
@@ -658,16 +664,35 @@ impl InMemoryState {
                                 &req.compute_graph.name,
                             );
                         self.invocation_ctx
-                            .range(invocation_ctx_key_prefix.clone()..)
-                            .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
+                            .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
+                                invocation_ctx_key_prefix.clone().into()..,
+                            )
+                            .take_while(|(k, _v)| k.0.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
                                 ctx.graph_version = version.clone();
                                 invocation_ctx_to_update.push(ctx);
                             });
 
+                        for ctx in invocation_ctx_to_update.iter_mut() {
+                            for (_function_call_id, function_run) in
+                                ctx.function_runs.clone().iter_mut()
+                            {
+                                if function_run.graph_version != version {
+                                    function_run.graph_version = version.clone();
+                                    ctx.function_runs
+                                        .insert(function_run.id.clone(), function_run.clone());
+                                }
+                                self.function_runs
+                                    .entry(function_run.clone().into())
+                                    .and_modify(|existing_function_run| {
+                                        *existing_function_run = Box::new(function_run.clone());
+                                    });
+                            }
+                        }
+
                         for ctx in invocation_ctx_to_update {
-                            self.invocation_ctx.insert(ctx.key(), ctx);
+                            self.invocation_ctx.insert(ctx.key().into(), ctx);
                         }
                     }
                 }
@@ -701,9 +726,11 @@ impl InMemoryState {
                         GraphInvocationCtx::key_prefix_for_compute_graph(&req.namespace, &req.name);
                     let invocations_to_remove = self
                         .invocation_ctx
-                        .range(invocation_key_prefix.clone()..)
-                        .take_while(|(k, _v)| k.starts_with(&invocation_key_prefix))
-                        .map(|(_k, v)| v.invocation_id.clone())
+                        .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
+                            invocation_key_prefix.clone().into()..,
+                        )
+                        .take_while(|(k, _v)| k.0.starts_with(&invocation_key_prefix))
+                        .map(|(_k, v)| v.request_id.clone())
                         .collect::<Vec<String>>();
                     for k in invocations_to_remove {
                         self.delete_invocation(&req.namespace, &req.name, &k);
@@ -711,32 +738,46 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
-                for task in req.updated_tasks.values() {
-                    if task.status == TaskStatus::Pending {
-                        self.unallocated_tasks.insert(UnallocatedTaskId::new(task));
-                    } else {
-                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
+                for (ctx_key, function_call_ids) in &req.updated_function_runs {
+                    for function_call_id in function_call_ids {
+                        let Some(ctx) = req.updated_invocations_states.get(ctx_key).cloned() else {
+                            error!(
+                                ctx_key = ctx_key.clone(),
+                                "invocation ctx not found for updated function runs"
+                            );
+                            continue;
+                        };
+                        let Some(function_run) = ctx.function_runs.get(function_call_id).cloned()
+                        else {
+                            error!(
+                                ctx_key = ctx_key.clone(),
+                                function_call_id = function_call_id.clone().to_string(),
+                                "function run not found for updated function runs"
+                            );
+                            continue;
+                        };
+                        if function_run.status == TaskStatus::Pending {
+                            self.unallocated_function_runs
+                                .insert(function_run.clone().into());
+                        } else {
+                            self.unallocated_function_runs
+                                .remove(&function_run.clone().into());
+                        }
+                        self.function_runs
+                            .insert(function_run.clone().into(), Box::new(function_run.clone()));
                     }
-                    self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
-                for task in &req.reduction_tasks.new_reduction_tasks {
-                    self.queued_reduction_tasks
-                        .insert(task.key(), Box::new(task.clone()));
-                }
-                for task in &req.reduction_tasks.processed_reduction_tasks {
-                    self.queued_reduction_tasks.remove(task);
-                }
-                for invocation_ctx in &req.updated_invocations_states {
+                for (key, invocation_ctx) in &req.updated_invocations_states {
                     // Remove tasks for invocation ctx if completed
-                    if invocation_ctx.completed {
+                    if invocation_ctx.outcome.is_some() {
                         self.delete_invocation(
                             &invocation_ctx.namespace,
                             &invocation_ctx.compute_graph_name,
-                            &invocation_ctx.invocation_id,
+                            &invocation_ctx.request_id,
                         );
                     } else {
                         self.invocation_ctx
-                            .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
+                            .insert(key.clone().into(), Box::new(invocation_ctx.clone()));
                     }
                 }
 
@@ -773,8 +814,9 @@ impl InMemoryState {
                 }
 
                 for allocation in &req.new_allocations {
-                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
-                        self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
+                    if let Some(function_run) = self.function_runs.get(&allocation.into()) {
+                        self.unallocated_function_runs
+                            .remove(&function_run.clone().into());
 
                         self.allocations_by_executor
                             .entry(allocation.target.executor_id.clone())
@@ -784,8 +826,8 @@ impl InMemoryState {
                             .push(Box::new(allocation.clone()));
 
                         // Record metrics
-                        self.task_pending_latency.record(
-                            get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                        self.function_run_pending_latency.record(
+                            get_elapsed_time(function_run.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
                         );
 
@@ -799,8 +841,8 @@ impl InMemoryState {
                             executor_id = allocation.target.executor_id.get(),
                             allocation_id = %allocation.id,
                             invocation_id = &allocation.invocation_id,
-                            task_id = allocation.task_id.get(),
-                            "task not found for new allocation"
+                            task_id = allocation.function_call_id.to_string(),
+                            "function run not found for new allocation"
                         );
                     }
                 }
@@ -875,7 +917,7 @@ impl InMemoryState {
                                 fe_allocations.iter_mut().for_each(|(_, allocations)| {
                                     if let Some(index) = allocations
                                         .iter()
-                                        .position(|a| a.key() == allocation_output.allocation_key)
+                                        .position(|a| a.id == allocation_output.allocation.id)
                                     {
                                         let allocation = &allocations[index];
                                         // Record metrics
@@ -928,39 +970,42 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
-    pub fn fe_resource_for_task(&self, task: &Task) -> Result<FunctionResources> {
+    pub fn fe_resource_for_function_run(
+        &self,
+        function_run: &FunctionRun,
+    ) -> Result<FunctionResources> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
+                &function_run.namespace,
+                &function_run.application,
+                &function_run.graph_version,
             ))
             .ok_or(anyhow!(
                 "compute graph version: {} not found",
-                task.graph_version
+                function_run.graph_version
             ))?;
         let compute_fn = compute_graph
             .nodes
-            .get(&task.compute_fn_name)
-            .ok_or(anyhow!(
-                "compute function: {} not found",
-                task.compute_fn_name
-            ))?;
+            .get(&function_run.name)
+            .ok_or(anyhow!("compute function: {} not found", function_run.name))?;
         Ok(compute_fn.resources.clone())
     }
 
-    pub fn candidate_executors(&self, task: &Task) -> Result<Vec<ExecutorServerMetadata>> {
+    pub fn candidate_executors(
+        &self,
+        function_run: &FunctionRun,
+    ) -> Result<Vec<ExecutorServerMetadata>> {
         let compute_graph = self
             .compute_graph_versions
             .get(&ComputeGraphVersion::key_from(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
+                &function_run.namespace,
+                &function_run.application,
+                &function_run.graph_version,
             ))
             .ok_or_else(|| Error::ComputeGraphVersionNotFound {
-                version: task.graph_version.0.clone(),
-                function_name: task.compute_fn_name.clone(),
+                version: function_run.graph_version.0.clone(),
+                function_name: function_run.name.clone(),
             })?;
 
         // Check to see whether the compute graph state is marked as
@@ -969,19 +1014,18 @@ impl InMemoryState {
         if let ComputeGraphState::Disabled { reason } = &compute_graph.state {
             return Err(Error::ConstraintUnsatisfiable {
                 version: compute_graph.version.to_string(),
-                function_name: task.compute_fn_name.clone(),
+                function_name: function_run.name.clone(),
                 reason: reason.to_owned(),
             }
             .into());
         }
 
-        let compute_fn = compute_graph
-            .nodes
-            .get(&task.compute_fn_name)
-            .ok_or_else(|| Error::ComputeFunctionNotFound {
-                version: task.graph_version.0.clone(),
-                function_name: task.compute_fn_name.clone(),
-            })?;
+        let compute_fn = compute_graph.nodes.get(&function_run.name).ok_or_else(|| {
+            Error::ComputeFunctionNotFound {
+                version: function_run.graph_version.0.clone(),
+                function_name: function_run.name.clone(),
+            }
+        })?;
 
         let mut candidates = Vec::new();
 
@@ -993,7 +1037,7 @@ impl InMemoryState {
                 );
                 continue;
             };
-            if executor.tombstoned || !executor.is_task_allowed(task) {
+            if executor.tombstoned || !executor.is_function_allowed(function_run) {
                 continue;
             }
 
@@ -1019,11 +1063,11 @@ impl InMemoryState {
 
     pub fn candidate_function_executors(
         &self,
-        task: &Task,
+        function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
         let mut candidates = Vec::new();
-        let fn_uri = FunctionURI::from(task);
+        let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
@@ -1063,30 +1107,20 @@ impl InMemoryState {
         })
     }
 
-    pub fn next_reduction_task(
-        &self,
-        ns: &str,
-        cg: &str,
-        inv: &str,
-        c_fn: &str,
-    ) -> Option<ReduceTask> {
-        let key_prefix = ReduceTask::key_prefix_from(ns, cg, inv, c_fn);
-        self.queued_reduction_tasks
-            .range(key_prefix.clone()..)
-            .take_while(|(k, _v)| k.starts_with(&key_prefix))
-            .next()
-            .map(|(_, v)| *v.clone())
-    }
-
-    pub fn delete_tasks(&mut self, tasks: Vec<Task>) {
-        for task in tasks.iter() {
-            self.tasks.remove(&task.key());
-            self.unallocated_tasks.remove(&UnallocatedTaskId::new(task));
+    pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
+        for function_run in function_runs.iter() {
+            self.function_runs.remove(&function_run.clone().into());
+            self.unallocated_function_runs
+                .remove(&function_run.clone().into());
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
             for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
-                allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
+                allocations.retain(|allocation| {
+                    !function_runs
+                        .iter()
+                        .any(|function_run| function_run.id == allocation.function_call_id)
+                });
             }
         }
     }
@@ -1127,50 +1161,40 @@ impl InMemoryState {
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
         // Remove invocation ctx
-        self.invocation_ctx.remove(&GraphInvocationCtx::key_from(
-            namespace,
-            compute_graph,
-            invocation_id,
-        ));
+        self.invocation_ctx
+            .remove(&GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id).into());
 
         // Remove tasks
-        let key_prefix = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
-        let mut tasks_to_remove = Vec::new();
-        self.tasks
-            .range(key_prefix.clone()..)
-            .take_while(|(k, _v)| k.starts_with(&key_prefix))
+        let key_prefix =
+            FunctionRun::key_prefix_for_request(namespace, compute_graph, invocation_id);
+        let mut function_runs_to_remove = Vec::new();
+        self.function_runs
+            .range(FunctionRunKey(key_prefix.clone())..)
+            .take_while(|(k, _v)| k.0.starts_with(&key_prefix))
             .for_each(|(_k, v)| {
-                tasks_to_remove.push(*v.clone());
+                function_runs_to_remove.push(*v.clone());
             });
-        self.delete_tasks(tasks_to_remove);
-
-        // Remove queued reduction tasks
-        let mut queued_reduction_tasks_to_remove = Vec::new();
-        for (k, _v) in self.queued_reduction_tasks.iter() {
-            if k.starts_with(&key_prefix) {
-                queued_reduction_tasks_to_remove.push(k.clone());
-            }
-        }
-        for k in queued_reduction_tasks_to_remove {
-            self.queued_reduction_tasks.remove(&k);
-        }
+        self.delete_function_runs(function_runs_to_remove);
     }
 
-    pub fn unallocated_tasks(&self) -> Vec<Task> {
-        let unallocated_task_ids = self
-            .unallocated_tasks
+    pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
+        let unallocated_function_run_keys = self
+            .unallocated_function_runs
             .iter()
-            .map(|task| task.task_key.clone())
+            .cloned()
             .collect::<Vec<_>>();
-        let mut tasks = Vec::new();
-        for task_id in unallocated_task_ids {
-            if let Some(task) = self.tasks.get(&task_id) {
-                tasks.push(*task.clone());
+        let mut function_runs = Vec::new();
+        for function_run_key in unallocated_function_run_keys {
+            if let Some(function_run) = self.function_runs.get(&function_run_key) {
+                function_runs.push(*function_run.clone());
             } else {
-                error!(task_key = task_id, "task not found for unallocated task");
+                error!(
+                    function_run_key = function_run_key.0,
+                    "function run not found for unallocated function run"
+                );
             }
         }
-        tasks
+        function_runs
     }
 
     #[tracing::instrument(skip(self))]
@@ -1296,14 +1320,14 @@ impl InMemoryState {
             "{}|{}|",
             fe_meta.function_executor.namespace, fe_meta.function_executor.compute_graph_name
         );
-        self.tasks
-            .range(task_prefixes_for_fe.clone()..)
-            .take_while(|(k, _v)| k.starts_with(&task_prefixes_for_fe))
+        self.function_runs
+            .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
+            .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.compute_fn_name == fe_meta.function_executor.compute_fn_name &&
+                v.name == fe_meta.function_executor.compute_fn_name &&
                     v.graph_version == fe_meta.function_executor.version
             })
-            .any(|(_k, v)| !v.outcome.is_terminal())
+            .any(|(_k, v)| v.outcome.is_none())
     }
 
     pub fn desired_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
@@ -1345,52 +1369,32 @@ impl InMemoryState {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
                 secret_names: cg_node.secret_names.clone().unwrap_or_default(),
-                customer_code_timeout_ms: cg_node.timeout.0,
+                initialization_timeout_ms: cg_node.initialization_timeout.0,
                 code_payload: DataPayload {
+                    id: cg_version.code.id.clone(),
+                    metadata_size: 0,
                     path: cg_version.code.path.clone(),
                     size: cg_version.code.size,
                     sha256_hash: cg_version.code.sha256_hash.clone(),
                     offset: 0, // Code always uses its full BLOB
+                    encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
                 },
             }));
 
             let allocations = self
                 .allocations_by_executor
                 .get(executor_id)
-                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
+                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
                 .unwrap_or(&Vec::new())
-                .clone();
-            let mut desired_state_tasks = Vec::new();
-            for allocation in allocations.iter() {
-                let Some(task) = self.tasks.get(&allocation.task_key()) else {
-                    error!(
-                        task_key = allocation.task_key(),
-                        task_id = allocation.task_id.get(),
-                        namespace = allocation.namespace,
-                        graph = allocation.compute_graph,
-                        "fn" = allocation.compute_fn,
-                        invocation_id = allocation.invocation_id,
-                        "task not found for allocation, shouldn't happen"
-                    );
-                    continue;
-                };
-                let desired_state_task = DesiredStateTask {
-                    task: task.clone(),
-                    allocation_id: allocation.id.clone(),
-                    timeout_ms: cg_node.timeout.0,
-                    retry_policy: cg_node.retry_policy.clone(),
-                };
-                desired_state_tasks.push(desired_state_task);
-            }
-            task_allocations.insert(
-                fe_meta.function_executor.id.clone(),
-                Box::new(desired_state_tasks),
-            );
+                .iter()
+                .map(|allocation| *allocation.clone())
+                .collect::<Vec<_>>();
+            task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
 
         DesiredExecutorState {
             function_executors,
-            task_allocations,
+            function_run_allocations: task_allocations,
             clock: self.clock,
         }
     }
@@ -1402,39 +1406,62 @@ impl InMemoryState {
             compute_graphs: self.compute_graphs.clone(),
             compute_graph_versions: self.compute_graph_versions.clone(),
             executors: self.executors.clone(),
-            tasks: self.tasks.clone(),
-            unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
-            queued_reduction_tasks: self.queued_reduction_tasks.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             // metrics
-            task_pending_latency: self.task_pending_latency.clone(),
+            function_run_pending_latency: self.function_run_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
             allocation_completion_latency: self.allocation_completion_latency.clone(),
+            function_runs: self.function_runs.clone(),
+            unallocated_function_runs: self.unallocated_function_runs.clone(),
         }))
+    }
+
+    #[allow(clippy::borrowed_box)]
+    pub fn compute_graph_version<'a>(
+        &'a self,
+        namespace: &str,
+        compute_graph_name: &str,
+        version: &GraphVersion,
+    ) -> Option<&'a Box<ComputeGraphVersion>> {
+        self.compute_graph_versions
+            .get(&ComputeGraphVersion::key_from(
+                namespace,
+                compute_graph_name,
+                version,
+            ))
+            .or_else(|| {
+                error!(
+                    namespace = namespace,
+                    compute_graph_name = compute_graph_name,
+                    version = version.0,
+                    "compute graph version not found",
+                );
+                None
+            })
     }
 
     #[allow(clippy::borrowed_box)]
     pub fn get_existing_compute_graph_version<'a>(
         &'a self,
-        task: &Task,
-    ) -> Result<&'a Box<ComputeGraphVersion>> {
+        function_run: &FunctionRun,
+    ) -> Option<&'a Box<ComputeGraphVersion>> {
         self.compute_graph_versions
-            .get(&task.key_compute_graph_version())
-            .ok_or_else(|| {
+            .get(&function_run.key_compute_graph_version(&function_run.application))
+            .or_else(|| {
                 error!(
-                    task_id = task.id.to_string(),
-                    invocation_id = task.invocation_id.to_string(),
-                    namespace = task.namespace,
-                    graph = task.compute_graph_name,
-                    "fn" = task.compute_fn_name,
-                    graph_version = task.graph_version.0,
+                    task_id = function_run.id.to_string(),
+                    invocation_id = function_run.request_id.to_string(),
+                    namespace = function_run.namespace,
+                    graph = function_run.application,
+                    "fn" = function_run.name,
+                    graph_version = function_run.graph_version.0,
                     "compute graph version not found",
                 );
-                anyhow!("compute graph version not found")
+                None
             })
     }
 }
@@ -1470,14 +1497,13 @@ mod test_helpers {
                 executor_states: im::HashMap::new(),
                 function_executors_by_fn_uri: im::HashMap::new(),
                 allocations_by_executor: im::HashMap::new(),
-                unallocated_tasks: im::OrdSet::new(),
-                tasks: im::OrdMap::new(),
-                queued_reduction_tasks: im::OrdMap::new(),
                 invocation_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
-                task_pending_latency: global::meter("test").f64_histogram("test").build(),
+                function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
+                function_runs: im::OrdMap::new(),
+                unallocated_function_runs: im::OrdSet::new(),
             }
         }
     }
@@ -1485,132 +1511,80 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use crate::{
         data_model::{
-            DataPayload,
+            ComputeOp,
             ExecutorId,
+            FunctionCall,
+            FunctionCallId,
             FunctionExecutorBuilder,
             FunctionExecutorId,
             FunctionExecutorResources,
             FunctionExecutorServerMetadata,
             FunctionExecutorState,
+            FunctionRun,
+            FunctionRunBuilder,
             GraphVersion,
-            Task,
-            TaskBuilder,
             TaskFailureReason,
             TaskOutcome,
             TaskStatus,
         },
         in_memory_state_bootstrap,
-        state_store::in_memory_state::UnallocatedTaskId,
+        state_store::in_memory_state::FunctionRunKey,
     };
 
     #[test]
-    fn test_unallocated_task_id_ordering() {
+    fn test_function_run_key_ordering() {
         {
-            let task1 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                task_creation_time_ns: 200,
-                task_key: "task1".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                task_creation_time_ns: 300,
-                task_key: "task1".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                task_creation_time_ns: 400,
-                task_key: "task1".to_string(),
-            };
-            let task5 = UnallocatedTaskId {
-                task_creation_time_ns: 1000,
-                task_key: "task1".to_string(),
-            };
+            let fn_run_key1 = FunctionRunKey("task1".to_string());
+            let fn_run_key2 = FunctionRunKey("task2".to_string());
+            let fn_run_key3 = FunctionRunKey("task3".to_string());
+            let fn_run_key4 = FunctionRunKey("task4".to_string());
+            let fn_run_key5 = FunctionRunKey("task5".to_string());
 
-            assert!(task1 < task2);
-            assert!(task2 < task3);
-            assert!(task3 < task4);
-            assert!(task3 < task5);
-        }
-
-        {
-            let task1 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task2".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task3".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task4".to_string(),
-            };
-
-            assert!(task1 < task2);
-            assert!(task2 < task3);
-            assert!(task3 < task4);
-        }
-
-        // test that task key is only used as a tie breaker.
-        {
-            let task1 = UnallocatedTaskId {
-                task_creation_time_ns: 400,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                task_creation_time_ns: 300,
-                task_key: "task2".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                task_creation_time_ns: 200,
-                task_key: "task3".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                task_creation_time_ns: 100,
-                task_key: "task4".to_string(),
-            };
-
-            assert!(task4 < task3);
-            assert!(task3 < task2);
-            assert!(task2 < task1);
+            assert!(fn_run_key1 < fn_run_key2);
+            assert!(fn_run_key2 < fn_run_key3);
+            assert!(fn_run_key3 < fn_run_key4);
+            assert!(fn_run_key4 < fn_run_key5);
         }
     }
 
     #[test]
-    fn test_has_pending_tasks() {
-        // Helper function to create a task
-        fn create_task(
+    fn test_has_pending_function_runs() {
+        // Helper function to create a function run
+        fn create_function_run(
             namespace: &str,
-            compute_graph: &str,
-            invocation_id: &str,
+            application: &str,
+            request_id: &str,
             compute_fn: &str,
-            outcome: TaskOutcome,
-        ) -> Task {
-            TaskBuilder::default()
+            outcome: Option<TaskOutcome>,
+        ) -> FunctionRun {
+            FunctionRunBuilder::default()
+                .id(FunctionCallId(format!(
+                    "{}-{}-{}-{}",
+                    namespace, application, request_id, compute_fn
+                )))
+                .request_id(request_id.to_string())
                 .namespace(namespace.to_string())
-                .compute_fn_name(compute_fn.to_string())
-                .compute_graph_name(compute_graph.to_string())
-                .invocation_id(invocation_id.to_string())
-                .cache_hit(false)
-                .input(DataPayload {
-                    path: "test-input".to_string(),
-                    size: 100,
-                    sha256_hash: "test-hash".to_string(),
-                    offset: 0,
-                })
-                .acc_input(None)
+                .application(application.to_string())
+                .name(compute_fn.to_string())
+                .graph_version(GraphVersion("1.0".to_string()))
+                .compute_op(ComputeOp::FunctionCall(FunctionCall {
+                    inputs: vec![],
+                    function_call_id: FunctionCallId(format!(
+                        "{}-{}-{}-{}",
+                        namespace, application, request_id, compute_fn
+                    )),
+                    fn_name: compute_fn.to_string(),
+                    call_metadata: Bytes::new(),
+                }))
                 .status(TaskStatus::Pending)
                 .outcome(outcome)
-                .graph_version(GraphVersion("1.0".to_string()))
-                .cache_key(None)
+                .input_args(vec![])
                 .attempt_number(0)
+                .call_metadata(Bytes::new())
                 .build()
                 .unwrap()
         }
@@ -1644,102 +1618,103 @@ mod tests {
         let mut state = in_memory_state_bootstrap! { clock: 1 };
         assert!(!state.has_pending_tasks(&fe_metadata));
 
-        // Test case 2: Add a terminal task (Success) - should return false
-        let terminal_task = create_task(
+        // Test case 2: Add a terminal function run (Success) - should return false
+        let terminal_run = create_function_run(
             "test-namespace",
             "test-graph",
             "inv-1",
             "test-function",
-            TaskOutcome::Success,
+            Some(TaskOutcome::Success),
         );
         state
-            .tasks
-            .insert(terminal_task.key(), Box::new(terminal_task));
+            .function_runs
+            .insert(terminal_run.clone().into(), Box::new(terminal_run));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
-        // Test case 3: Add a terminal task (Failure) - should return false
-        let terminal_task2 = create_task(
+        // Test case 3: Add a terminal function run (Failure) - should return false
+        let terminal_run2 = create_function_run(
             "test-namespace",
             "test-graph",
             "inv-2",
             "test-function",
-            TaskOutcome::Failure(TaskFailureReason::FunctionError),
+            Some(TaskOutcome::Failure(TaskFailureReason::FunctionError)),
         );
         state
-            .tasks
-            .insert(terminal_task2.key(), Box::new(terminal_task2));
+            .function_runs
+            .insert(terminal_run2.clone().into(), Box::new(terminal_run2));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
-        // Test case 4: Add a non-terminal task (Unknown outcome) - should return true
-        let pending_task = create_task(
+        // Test case 4: Add a non-terminal function run (None outcome) - should return
+        // true
+        let pending_run = create_function_run(
             "test-namespace",
             "test-graph",
             "inv-3",
             "test-function",
-            TaskOutcome::Unknown,
+            None,
         );
         state
-            .tasks
-            .insert(pending_task.key(), Box::new(pending_task));
+            .function_runs
+            .insert(pending_run.clone().into(), Box::new(pending_run));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 5: Add tasks for different namespace/graph - should not affect
         // result
-        let different_task = create_task(
+        let different_run = create_function_run(
             "different-namespace",
             "different-graph",
             "inv-4",
             "test-function",
-            TaskOutcome::Unknown,
+            None,
         );
         state
-            .tasks
-            .insert(different_task.key(), Box::new(different_task));
+            .function_runs
+            .insert(different_run.clone().into(), Box::new(different_run));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 6: Add tasks for same namespace/graph but different function -
         // should not affect result
-        let different_fn_task = create_task(
+        let different_fn_run = create_function_run(
             "test-namespace",
             "test-graph",
             "inv-5",
             "different-function",
-            TaskOutcome::Unknown,
+            None,
         );
         state
-            .tasks
-            .insert(different_fn_task.key(), Box::new(different_fn_task));
+            .function_runs
+            .insert(different_fn_run.clone().into(), Box::new(different_fn_run));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 7: Add multiple pending tasks - should still return true
-        let pending_task2 = create_task(
+        let pending_run2 = create_function_run(
             "test-namespace",
             "test-graph",
             "inv-6",
             "test-function",
-            TaskOutcome::Unknown,
+            None,
         );
         state
-            .tasks
-            .insert(pending_task2.key(), Box::new(pending_task2));
+            .function_runs
+            .insert(pending_run2.clone().into(), Box::new(pending_run2));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 8: Change all pending tasks to terminal - should return false
-        let keys_to_update: Vec<String> = state
-            .tasks
+        let keys_to_update: Vec<FunctionRunKey> = state
+            .function_runs
             .iter()
-            .filter(|(key, task)| {
-                key.starts_with("test-namespace|test-graph|") &&
-                    task.compute_fn_name == "test-function" &&
-                    task.outcome == TaskOutcome::Unknown
+            .filter(|(key, function_run)| {
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "test-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
 
         for key in keys_to_update {
-            if let Some(mut task) = state.tasks.get(&key).cloned() {
-                task.outcome = TaskOutcome::Success;
-                state.tasks.insert(key, task);
+            if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
+                function_run.outcome = Some(TaskOutcome::Success);
+                state.function_runs.insert(key, function_run);
             }
         }
         assert!(!state.has_pending_tasks(&fe_metadata));
@@ -1771,21 +1746,21 @@ mod tests {
 
         // Test case 10: Change the different function task to terminal - should return
         // false
-        let keys_to_update2: Vec<String> = state
-            .tasks
+        let keys_to_update2: Vec<FunctionRunKey> = state
+            .function_runs
             .iter()
-            .filter(|(key, task)| {
-                key.starts_with("test-namespace|test-graph|") &&
-                    task.compute_fn_name == "different-function" &&
-                    task.outcome == TaskOutcome::Unknown
+            .filter(|(key, function_run)| {
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "different-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
 
         for key in keys_to_update2 {
-            if let Some(mut task) = state.tasks.get(&key).cloned() {
-                task.outcome = TaskOutcome::Success;
-                state.tasks.insert(key, task);
+            if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
+                function_run.outcome = Some(TaskOutcome::Success);
+                state.function_runs.insert(key, function_run);
             }
         }
         assert!(!state.has_pending_tasks(&fe_metadata2));

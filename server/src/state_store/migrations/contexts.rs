@@ -30,7 +30,7 @@ impl PrepareContext {
     pub fn open_db(&self) -> Result<RocksDBDriver> {
         let cfs = match DB::list_cf(&self.db_opts, &self.path) {
             Ok(cfs) => cfs,
-            Err(e) => return Err(anyhow!("Failed to list column families: {}", e)),
+            Err(e) => return Err(anyhow!("Failed to list column families: {e}")),
         }
         .into_iter()
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -40,6 +40,7 @@ impl PrepareContext {
     }
 
     /// Helper to perform column family operations and reopen DB
+    #[allow(dead_code)]
     pub fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<RocksDBDriver>
     where
         F: FnOnce(&mut RocksDBDriver) -> Result<()>,
@@ -58,15 +59,16 @@ impl PrepareContext {
     }
 
     /// Get list of all column families
-    pub fn list_cfs(&self) -> Result<Vec<String>> {
+    pub fn _list_cfs(&self) -> Result<Vec<String>> {
         DB::list_cf(&self.db_opts, &self.path)
-            .map_err(|e| anyhow!("Failed to list column families: {}", e))
+            .map_err(|e| anyhow!("Failed to list column families: {e}"))
     }
 }
 
 /// Context for applying migration logic
 pub struct MigrationContext<'a> {
     pub db: &'a RocksDBDriver,
+    #[allow(dead_code)]
     pub txn: &'a Transaction<'a>,
 }
 
@@ -91,13 +93,13 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Parse JSON from bytes
-    pub fn parse_json(&self, bytes: &[u8]) -> Result<Value> {
-        serde_json::from_slice(bytes).map_err(|e| anyhow!("Error deserializing JSON: {}", e))
+    pub fn _parse_json(&self, bytes: &[u8]) -> Result<Value> {
+        serde_json::from_slice(bytes).map_err(|e| anyhow!("Error deserializing JSON: {e}"))
     }
 
     /// Encode JSON to bytes
-    pub fn encode_json(&self, json: &Value) -> Result<Vec<u8>> {
-        serde_json::to_vec(json).map_err(|e| anyhow!("Error serializing JSON: {}", e))
+    pub fn _encode_json(&self, json: &Value) -> Result<Vec<u8>> {
+        serde_json::to_vec(json).map_err(|e| anyhow!("Error serializing JSON: {e}"))
     }
 
     /// Helper for common field renames in JSON objects
@@ -135,7 +137,7 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Helper to update a JSON object and write it back
-    pub fn update_json<F>(
+    pub fn _update_json<F>(
         &self,
         column_family: &IndexifyObjectsColumns,
         key: &[u8],
@@ -145,10 +147,10 @@ impl<'a> MigrationContext<'a> {
         F: FnOnce(&mut Value) -> Result<bool>,
     {
         if let Some(value_bytes) = self.db.get(column_family.as_ref(), key)? {
-            let mut json = self.parse_json(&value_bytes)?;
+            let mut json = self._parse_json(&value_bytes)?;
 
             if updater(&mut json)? {
-                let updated_bytes = self.encode_json(&json)?;
+                let updated_bytes = self._encode_json(&json)?;
                 self.txn.put(column_family.as_ref(), key, &updated_bytes)?;
                 return Ok(true);
             }
@@ -158,15 +160,15 @@ impl<'a> MigrationContext<'a> {
     }
 
     /// Get a string value from a JSON object
-    pub fn get_string_val(&self, val: &Value, key: &str) -> Result<String> {
+    pub fn _get_string_val(&self, val: &Value, key: &str) -> Result<String> {
         val.get(key)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing {} in JSON value", key))
+            .ok_or_else(|| anyhow!("Missing {key} in JSON value"))
     }
 
     /// Truncate all entries in a column family
-    pub fn truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
+    pub fn _truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
         let mut count = 0;
 
         self.iterate(column_family, |key, _| {
@@ -214,7 +216,7 @@ mod tests {
         )?;
 
         // Test listing CFs
-        let cfs = ctx.list_cfs()?;
+        let cfs = ctx._list_cfs()?;
         assert!(cfs.contains(&"test_cf".to_string()));
         assert!(cfs.contains(&"default".to_string()));
 
@@ -239,7 +241,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
-        let cf_name = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf_name = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new("default", Options::default()),
             ColumnFamilyDescriptor::new(cf_name, Options::default()),
@@ -259,7 +261,7 @@ mod tests {
         let key = b"test_key";
         let value = serde_json::to_vec(&test_json)?;
 
-        let cf = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         db.put(cf, key, &value)?;
 
         // Create migration context
@@ -267,7 +269,7 @@ mod tests {
         let ctx = MigrationContext::new(&db, &txn);
 
         // Test JSON operations
-        ctx.update_json(&IndexifyObjectsColumns::Tasks, key, |json| {
+        ctx._update_json(&IndexifyObjectsColumns::GraphInvocationCtx, key, |json| {
             // Rename field
             ctx.rename_json_field(json, "old_field", "new_field")?;
 
@@ -280,7 +282,7 @@ mod tests {
         txn.commit()?;
 
         // Verify changes
-        let cf = IndexifyObjectsColumns::Tasks.as_ref();
+        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
         let updated_bytes = db.get(cf, key)?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 

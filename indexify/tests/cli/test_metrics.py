@@ -5,16 +5,15 @@ import unittest
 from typing import Dict
 
 import httpx
+import tensorlake.workflows.interface as tensorlake
 
 # We're using internal APIs here, this might break when we update prometheus_client.
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake import Graph, RemoteGraph, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
+from tensorlake.workflows.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
-    test_graph_name,
     wait_executor_startup,
 )
 
@@ -30,12 +29,16 @@ def fetch_metrics(
     return metrics
 
 
-@tensorlake_function()
+@tensorlake.api()
+@tensorlake.function()
 def successful_function(arg: str) -> str:
     return "success"
 
 
 class TestMetrics(unittest.TestCase):
+    def setUp(self):
+        deploy(__file__)
+
     def test_cli_package(self):
         metrics: Dict[str, Metric] = fetch_metrics(self)
 
@@ -65,20 +68,12 @@ class TestMetrics(unittest.TestCase):
             self.assertIn("id", info_sample.labels)
 
     def test_expected_function_executor_infos(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=successful_function,
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            successful_function,
+            "ignored",
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph.run(
-            block_until_done=True,
-            arg="ignored",
-        )
-        output = graph.output(invocation_id, "successful_function")
-        self.assertEqual(output, ["success"])
+        output = request.output()
+        self.assertEqual(output, "success")
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         fe_infos_metric: Metric = metrics.get("function_executor_infos")

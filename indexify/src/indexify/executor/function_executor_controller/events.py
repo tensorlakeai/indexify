@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
@@ -42,11 +42,11 @@ class FunctionExecutorCreated(BaseEvent):
 
     def __init__(
         self,
-        function_executor: Optional[FunctionExecutor],
+        function_executor: FunctionExecutor | None,
         fe_termination_reason: FunctionExecutorTerminationReason | None,
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_CREATED)
-        self.function_executor: Optional[FunctionExecutor] = function_executor
+        self.function_executor: FunctionExecutor | None = function_executor
         self.fe_termination_reason: FunctionExecutorTerminationReason | None = (
             fe_termination_reason
         )
@@ -130,7 +130,9 @@ class TaskAllocationExecutionFinished(BaseEvent):
     def __init__(
         self,
         alloc_info: TaskAllocationInfo,
-        function_executor_termination_reason: FunctionExecutorTerminationReason,  # type: Optional[FunctionExecutorTerminationReason]
+        function_executor_termination_reason: (
+            FunctionExecutorTerminationReason | None
+        ),  # type: Optional[FunctionExecutorTerminationReason]
     ):
         super().__init__(EventType.TASK_ALLOCATION_EXECUTION_FINISHED)
         self.alloc_info: TaskAllocationInfo = alloc_info

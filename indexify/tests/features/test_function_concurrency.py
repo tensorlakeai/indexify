@@ -2,18 +2,16 @@ import time
 import unittest
 from typing import List
 
-from tensorlake import (
-    Graph,
-    tensorlake_function,
-)
-from testing import remote_or_local_graph, test_graph_name, wait_function_output
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
 
 MAX_CONCURRENCY = 10
 concurrency_counter: int = 0
 
 
-@tensorlake_function(max_concurrency=MAX_CONCURRENCY)
-def concurrent_function() -> int:
+@tensorlake.api()
+@tensorlake.function(max_concurrency=MAX_CONCURRENCY)
+def concurrent_function(_i: int) -> int:
     global concurrency_counter
     concurrency_counter += 1
     observed_max_concurrency = concurrency_counter
@@ -25,24 +23,17 @@ def concurrent_function() -> int:
 
 class TestFunctionConcurrency(unittest.TestCase):
     def test_function_reaches_max_concurrency(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=concurrent_function,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
-        invocation_ids: List[str] = []
+        deploy(__file__)
+        requests: List[tensorlake.Request] = []
         for _ in range(MAX_CONCURRENCY):
-            invocation_id = graph.run(block_until_done=False)
-            invocation_ids.append(invocation_id)
+            request: tensorlake.Request = tensorlake.call_remote_api(
+                concurrent_function, 0
+            )
+            requests.append(request)
 
         observed_max_concurrencies: List[int] = []
-        for invocation_id in invocation_ids:
-            outputs = wait_function_output(
-                graph, invocation_id, concurrent_function.name
-            )
-            self.assertEqual(len(outputs), 1)
-            observed_max_concurrencies.append(outputs[0])
+        for request in requests:
+            observed_max_concurrencies.append(request.output())
 
         self.assertEqual(
             set(observed_max_concurrencies), set(range(1, MAX_CONCURRENCY + 1))

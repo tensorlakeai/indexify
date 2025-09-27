@@ -3,98 +3,84 @@ import threading
 import time
 import unittest
 
-from tensorlake import (
-    Graph,
-    TensorlakeCompute,
-    tensorlake_function,
-)
-from tensorlake.functions_sdk.retries import Retries
-from testing import remote_or_local_graph, test_graph_name
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.workflows.remote.deploy import deploy
+
+call_number = 0
 
 
-@tensorlake_function(retries=Retries(max_retries=3, max_delay=1.0))
+@tensorlake.api()
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3))
 def function_succeeds_after_two_retries(x: int) -> str:
-    function_succeeds_after_two_retries.call_number += 1
+    global call_number
+    call_number += 1
 
-    if function_succeeds_after_two_retries.call_number == 4:
+    if call_number == 4:
         return "success"
     else:
         raise Exception("Function failed, please retry")
 
 
-function_succeeds_after_two_retries.call_number = 0
-
-
-@tensorlake_function(retries=Retries(max_retries=3, max_delay=1.0))
-def function_aways_fails(x: int) -> str:
+@tensorlake.api()
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3))
+def function_always_fails(x: int) -> str:
     raise Exception("Function failed and will never succeed")
 
 
-@tensorlake_function(retries=Retries(max_retries=3, max_delay=1.0), timeout=1)
+FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH = "/tmp/function_always_times_out_counter"
+
+
+@tensorlake.api()
+@tensorlake.function(retries=tensorlake.Retries(max_retries=3), timeout=1)
 def function_always_times_out(x: int) -> str:
-    with open(function_always_times_out.FILE_PATH, "a") as f:
+    with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "a") as f:
         f.write("executed\n")
     time.sleep(1000)
 
 
-function_always_times_out.FILE_PATH = "/tmp/function_always_times_out_counter"
-
-
 class TestFunctionRetries(unittest.TestCase):
-    def test_function_succeeds_after_two_retries(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=function_succeeds_after_two_retries,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
-        invocation_id = graph.run(block_until_done=True, x=1)
+    @classmethod
+    def setUpClass(cls):
+        deploy(__file__)
 
-        outputs = graph.output(invocation_id, function_succeeds_after_two_retries.name)
-        self.assertEqual(outputs, ["success"])
+    def test_function_succeeds_after_two_retries(self):
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            function_succeeds_after_two_retries, 1
+        )
+        self.assertEqual(request.output(), "success")
 
     def test_function_fails_after_exhausting_failure_retries(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=function_aways_fails,
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            function_always_fails, 1
         )
-        graph = remote_or_local_graph(graph, remote=True)
-        invocation_id = graph.run(block_until_done=True, x=1)
-
-        outputs = graph.output(invocation_id, function_aways_fails.name)
-        self.assertEqual(len(outputs), 0)
+        self.assertRaises(tensorlake.RequestFailureException, request.output)
 
     def test_function_fails_after_exhausting_timeout_retries(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=function_always_times_out,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
-        if os.path.exists(function_always_times_out.FILE_PATH):
-            os.remove(function_always_times_out.FILE_PATH)
-        invocation_id = graph.run(block_until_done=True, x=1)
+        if os.path.exists(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH):
+            os.remove(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH)
 
-        outputs = graph.output(invocation_id, function_always_times_out.name)
-        self.assertEqual(len(outputs), 0)
-        with open(function_always_times_out.FILE_PATH, "r") as f:
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            function_always_times_out, 1
+        )
+        self.assertRaises(tensorlake.RequestFailureException, request.output)
+
+        with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "r") as f:
             lines = f.readlines()
             self.assertEqual(lines, ["executed\n"] * 4)  # 3 retries + initial call
 
 
-class FunctionWithFailingConstructor(TensorlakeCompute):
+@tensorlake.cls()
+class FunctionWithFailingConstructor:
     FILE_PATH = "/tmp/FunctionWithFailingConstructor_fail"
     MAX_RETRIES = 3
-
-    name = "FunctionWithFailingConstructor"
-    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
 
     def __init__(self):
         super().__init__()
         if os.path.exists(self.FILE_PATH):
             raise Exception("Constructor failed")
 
+    @tensorlake.api()
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
 
@@ -110,19 +96,18 @@ class FunctionWithFailingConstructor(TensorlakeCompute):
             )
 
 
-class FunctionWithTimingOutConstructor(TensorlakeCompute):
+@tensorlake.cls(init_timeout=1)
+class FunctionWithTimingOutConstructor:
     FILE_PATH = "/tmp/FunctionWithTimingOutConstructor_timeout"
     MAX_RETRIES = 3
-
-    name = "FunctionWithTimingOutConstructor"
-    timeout = 1
-    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
 
     def __init__(self):
         super().__init__()
         if os.path.exists(self.FILE_PATH):
             time.sleep(1000)
 
+    @tensorlake.api()
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
 
@@ -138,15 +123,12 @@ class FunctionWithTimingOutConstructor(TensorlakeCompute):
             )
 
 
-class FunctionWithRetryCountingConstructor(TensorlakeCompute):
+@tensorlake.cls()
+class FunctionWithRetryCountingConstructor:
     COUNTER_FILE_PATH = "/tmp/FunctionWithRetryCountingConstructor_counter"
     MAX_RETRIES = 3
 
-    name = "FunctionWithRetryCountingConstructor"
-    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
-
     def __init__(self):
-        super().__init__()
         # Read current constructor run count, increment it, and write back
         constructor_run_count = self.get_constructor_run_count()
         constructor_run_count += 1
@@ -158,6 +140,8 @@ class FunctionWithRetryCountingConstructor(TensorlakeCompute):
         if constructor_run_count <= self.MAX_RETRIES:
             raise Exception(f"Constructor failed on attempt {constructor_run_count}")
 
+    @tensorlake.api()
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after retries"
 
@@ -175,13 +159,10 @@ class FunctionWithRetryCountingConstructor(TensorlakeCompute):
             return 0
 
 
-class FunctionWithRetryCountingTimeoutConstructor(TensorlakeCompute):
+@tensorlake.cls(init_timeout=1)
+class FunctionWithRetryCountingTimeoutConstructor:
     COUNTER_FILE_PATH = "/tmp/FunctionWithRetryCountingTimeoutConstructor_counter"
     MAX_RETRIES = 3
-
-    name = "FunctionWithRetryCountingTimeoutConstructor"
-    timeout = 1
-    retries = Retries(max_retries=MAX_RETRIES, max_delay=1.0)
 
     def __init__(self):
         super().__init__()
@@ -196,6 +177,8 @@ class FunctionWithRetryCountingTimeoutConstructor(TensorlakeCompute):
         if constructor_run_count <= self.MAX_RETRIES:
             time.sleep(1000)  # This will cause a timeout
 
+    @tensorlake.api()
+    @tensorlake.function(retries=tensorlake.Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after timeout retries"
 
@@ -215,59 +198,48 @@ class FunctionWithRetryCountingTimeoutConstructor(TensorlakeCompute):
 
 @unittest.skip("Function Executor startup retries with delay is not implemented")
 class TestFunctionConstructorRetries(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        deploy(__file__)
+
     def test_function_constructor_succeeds_after_failing_for_5_secs(self):
         def unfail_constructor_with_delay():
             time.sleep(5)
             FunctionWithFailingConstructor.unfail_constructor()
 
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=FunctionWithFailingConstructor,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
         FunctionWithFailingConstructor.fail_constructor()
         threading.Thread(target=unfail_constructor_with_delay).start()
-        invocation_id = graph.run(block_until_done=True, x=1)
-        outputs = graph.output(invocation_id, FunctionWithFailingConstructor.name)
-        self.assertEqual(outputs, ["success"])
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            FunctionWithFailingConstructor.run, 1
+        )
+        self.assertEqual(request.output(), "success")
 
     def test_function_constructor_succeeds_after_timing_out_for_5_secs(self):
         def untimeout_constructor_with_delay():
             time.sleep(5)
             FunctionWithTimingOutConstructor.untimeout_constructor()
 
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=FunctionWithTimingOutConstructor,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
         FunctionWithTimingOutConstructor.timeout_constructor()
         threading.Thread(target=untimeout_constructor_with_delay).start()
-        invocation_id = graph.run(block_until_done=True, x=1)
-        outputs = graph.output(invocation_id, FunctionWithTimingOutConstructor.name)
-        self.assertEqual(outputs, ["success"])
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            FunctionWithTimingOutConstructor.run, 1
+        )
+        self.assertEqual(request.output(), "success")
 
 
 class TestFunctionConstructorRetriesWithCounter(unittest.TestCase):
-    def test_function_constructor_succeeds_after_specified_retries(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=FunctionWithRetryCountingConstructor,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
+    def setUp(self):
+        deploy(__file__)
 
+    def test_function_constructor_succeeds_after_specified_retries(self):
         # Reset counter before starting test
         FunctionWithRetryCountingConstructor.reset_counter()
 
-        # Run the graph - it should succeed after exactly MAX_RETRIES + 1 attempts
-        invocation_id = graph.run(block_until_done=True, x=1)
-
-        # Verify the output
-        outputs = graph.output(invocation_id, FunctionWithRetryCountingConstructor.name)
-        self.assertEqual(outputs, ["success after retries"])
+        # Run the app - it should succeed after exactly MAX_RETRIES + 1 attempts
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            FunctionWithRetryCountingConstructor.run, 1
+        )
+        self.assertEqual(request.output(), "success after retries")
 
         # Verify the retry count matches expected retries + initial attempt
         constructor_run_count = (
@@ -281,27 +253,19 @@ class TestFunctionConstructorRetriesWithCounter(unittest.TestCase):
         )
 
     def test_function_constructor_timeout_succeeds_after_specified_retries(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=FunctionWithRetryCountingTimeoutConstructor,
-        )
-        graph = remote_or_local_graph(graph, remote=True)
-
         # Reset counter before starting test
         FunctionWithRetryCountingTimeoutConstructor.reset_counter()
 
         # Run the graph - it should succeed after exactly MAX_RETRIES + 1 attempts
-        invocation_id = graph.run(block_until_done=True, x=1)
+        request: tensorlake.Request = tensorlake.call_remote_api(
+            FunctionWithRetryCountingTimeoutConstructor.run, 1
+        )
 
         # Verify the output
-        outputs = graph.output(
-            invocation_id, FunctionWithRetryCountingTimeoutConstructor.name
-        )
-        self.assertEqual(outputs, ["success after timeout retries"])
+        self.assertEqual(request.output(), "success after timeout retries")
 
         # Verify the retry count matches expected retries + initial attempt
-        constructor_run_count = (
+        constructor_run_count: int = (
             FunctionWithRetryCountingTimeoutConstructor.get_constructor_run_count()
         )
         expected_count = FunctionWithRetryCountingTimeoutConstructor.MAX_RETRIES + 1

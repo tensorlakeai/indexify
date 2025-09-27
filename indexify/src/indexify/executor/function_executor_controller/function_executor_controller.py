@@ -4,8 +4,26 @@ import time
 from collections.abc import Coroutine
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    ExecutionPlanUpdate as FEExecutionPlanUpdate,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    ExecutionPlanUpdates as FEExecutionPlanUpdates,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FunctionArg as FEFunctionArg,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FunctionCall as FEFunctionCall,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FunctionRef as FEFunctionRef,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    ReduceOp as FEReduceOp,
+)
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObjectEncoding,
     SerializedObjectInsideBLOB,
@@ -19,14 +37,20 @@ from indexify.executor.function_executor.server.function_executor_server_factory
 )
 from indexify.executor.state_reporter import ExecutorStateReporter
 from indexify.proto.executor_api_pb2 import (
+    AllocationResult,
     DataPayload,
     DataPayloadEncoding,
+    ExecutionPlanUpdate,
+    ExecutionPlanUpdates,
+    FunctionArg,
+    FunctionCall,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
+    FunctionRef,
+    ReduceOp,
     TaskAllocation,
-    TaskResult,
 )
 
 from .completed_task_allocation_metrics import emit_completed_task_allocation_metrics
@@ -116,7 +140,7 @@ class FunctionExecutorController:
         )
         self._destroy_lock: asyncio.Lock = asyncio.Lock()
         # Mutable state. No lock needed as it's modified by async tasks running in the same event loop.
-        self._fe: Optional[FunctionExecutor] = None
+        self._fe: FunctionExecutor | None = None
         self._internal_state = _FE_CONTROLLER_STATE.NOT_STARTED
         metric_function_executors_with_state.labels(
             state=_to_fe_state_metric_label(self._internal_state, self._logger)
@@ -130,7 +154,7 @@ class FunctionExecutorController:
         # Asyncio event used to notify the control loop that there are new events to process.
         self._event_added: asyncio.Event = asyncio.Event()
         # Control loop asyncio task.
-        self._control_loop_aio_task: Optional[asyncio.Task] = None
+        self._control_loop_aio_task: asyncio.Task | None = None
         # aio tasks spawned by the control loop.
         self._running_aio_tasks: List[asyncio.Task] = []
         # All task allocations assigned to FE, Allocation ID -> TaskAllocationInfo.
@@ -157,7 +181,9 @@ class FunctionExecutorController:
 
         metric_task_allocations_fetched.inc()
         alloc_info: TaskAllocationInfo = TaskAllocationInfo(
-            allocation=task_allocation, start_time=time.monotonic()
+            allocation=task_allocation,
+            allocation_timeout_ms=self._fe_description.allocation_timeout_ms,
+            start_time=time.monotonic(),
         )
         self._task_allocations[task_allocation.allocation_id] = alloc_info
         next_aio = prepare_task_allocation(
@@ -403,7 +429,7 @@ class FunctionExecutorController:
     def _spawn_aio(
         self,
         aio: Coroutine[Any, Any, BaseEvent],
-        alloc_info: Optional[TaskAllocationInfo],
+        alloc_info: TaskAllocationInfo | None,
         on_exception: BaseEvent,
         logger: Any,
     ) -> None:
@@ -584,7 +610,7 @@ class FunctionExecutorController:
         alloc_info.prepared_time = time.monotonic()
         metric_runnable_task_allocations.inc()
         metric_runnable_task_allocations_per_function_name.labels(
-            alloc_info.allocation.task.function_name
+            alloc_info.allocation.function.function_name
         ).inc()
         self._runnable_task_allocations.append(alloc_info)
         self._add_event(
@@ -665,7 +691,7 @@ class FunctionExecutorController:
         )
         metric_runnable_task_allocations.dec()
         metric_runnable_task_allocations_per_function_name.labels(
-            alloc_info.allocation.task.function_name
+            alloc_info.allocation.function.function_name
         ).dec()
         return alloc_info
 
@@ -749,8 +775,8 @@ class FunctionExecutorController:
             logger=logger,
         )
         # Reconciler will call .remove_task_allocation() once Server signals that it processed this update.
-        self._state_reporter.add_completed_task_result(
-            _to_task_result_proto(alloc_info, logger)
+        self._state_reporter.add_completed_allocation_result(
+            _to_alloc_result_proto(alloc_info, logger)
         )
         self._state_reporter.schedule_state_report()
 
@@ -874,14 +900,16 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_task_result_proto(alloc_info: TaskAllocationInfo, logger: Any) -> TaskResult:
+def _to_alloc_result_proto(
+    alloc_info: TaskAllocationInfo, logger: Any
+) -> AllocationResult:
     allocation: TaskAllocation = alloc_info.allocation
     # Might be None if the task wasn't prepared successfully.
-    input: Optional[TaskAllocationInput] = alloc_info.input
+    input: TaskAllocationInput | None = alloc_info.input
     # Never None here as we're completing the task here.
-    output: Optional[TaskAllocationOutput] = alloc_info.output
+    output: TaskAllocationOutput | None = alloc_info.output
 
-    execution_duration_ms: Optional[int] = None
+    execution_duration_ms: int | None = None
     if (
         output.execution_start_time is not None
         and output.execution_end_time is not None
@@ -891,61 +919,185 @@ def _to_task_result_proto(alloc_info: TaskAllocationInfo, logger: Any) -> TaskRe
             (output.execution_end_time - output.execution_start_time) * 1000
         )
 
-    invocation_error_output: Optional[DataPayload] = None
-    if output.invocation_error_output is not None:
-        # input can't be None if invocation_error_output is set because the task ran already.
-        invocation_error_output = _to_data_payload_proto(
-            so=output.invocation_error_output,
-            blob_uri=input.invocation_error_blob_uri,
+    request_error_output: DataPayload | None = None
+    if output.request_error_output is not None:
+        # input can't be None if request_error_output is set because the alloc ran already.
+        request_error_output = _so_to_data_payload_proto(
+            so=output.request_error_output,
+            blob_uri=input.request_error_blob_uri,
             logger=logger,
         )
 
-    function_outputs: List[DataPayload] = []
-    for function_output in output.function_outputs:
-        # input can't be None if invocation_function_outputs is set because the task ran already.
-        function_output: SerializedObjectInsideBLOB
-        function_outputs.append(
-            _to_data_payload_proto(
-                so=function_output,
-                blob_uri=input.function_outputs_blob_uri,
-                logger=logger,
-            )
+    output_value: DataPayload | None = None
+    if output.output_value is not None:
+        # input can't be None if output_value is set because the alloc ran already.
+        output_value = _so_to_data_payload_proto(
+            so=output.output_value,
+            blob_uri=input.function_outputs_blob_uri,
+            logger=logger,
         )
 
-    return TaskResult(
-        task_id=allocation.task.id,
+    output_updates: ExecutionPlanUpdates | None = None
+    if output.output_execution_plan_updates is not None:
+        output_updates = _to_execution_plan_updates_proto(
+            fe_updates=output.output_execution_plan_updates,
+            output_blob_uri=input.function_outputs_blob_uri,
+            logger=logger,
+        )
+
+    return AllocationResult(
+        function=FunctionRef(
+            namespace=allocation.function.namespace,
+            application_name=allocation.function.application_name,
+            function_name=allocation.function.function_name,
+            application_version=allocation.function.application_version,
+        ),
         allocation_id=allocation.allocation_id,
-        namespace=allocation.task.namespace,
-        graph_name=allocation.task.graph_name,
-        graph_version=allocation.task.graph_version,
-        function_name=allocation.task.function_name,
-        graph_invocation_id=allocation.task.graph_invocation_id,
+        task_id=allocation.task_id,
+        request_id=allocation.request_id,
         outcome_code=output.outcome_code,
         failure_reason=output.failure_reason,
-        next_functions=output.next_functions,
-        function_outputs=function_outputs,
-        invocation_error_output=invocation_error_output,
+        value=output_value,
+        updates=output_updates,
+        request_error=request_error_output,
         execution_duration_ms=execution_duration_ms,
     )
 
 
-def _to_data_payload_proto(
+def _to_execution_plan_updates_proto(
+    fe_updates: FEExecutionPlanUpdates, output_blob_uri: str, logger: Any
+) -> ExecutionPlanUpdates:
+    # TODO: Validate FEExecutionPlanUpdates object.
+    executor_updates: List[ExecutionPlanUpdate] = []
+    for fe_update in fe_updates.updates:
+        fe_update: FEExecutionPlanUpdate
+
+        if fe_update.HasField("function_call"):
+            executor_updates.append(
+                ExecutionPlanUpdate(
+                    function_call=_to_function_call_proto(
+                        fe_function_call=fe_update.function_call,
+                        output_blob_uri=output_blob_uri,
+                        logger=logger,
+                    )
+                )
+            )
+        elif fe_update.HasField("reduce"):
+            executor_updates.append(
+                ExecutionPlanUpdate(
+                    reduce=_to_reduce_op_proto(
+                        reduce=fe_update.reduce,
+                        output_blob_uri=output_blob_uri,
+                        logger=logger,
+                    )
+                )
+            )
+        else:
+            logger.error(
+                "unexpected FEExecutionPlanUpdate with no function_call or reduce set",
+            )
+
+    return ExecutionPlanUpdates(
+        updates=executor_updates,
+        root_function_call_id=fe_updates.root_function_call_id,
+    )
+
+
+def _to_function_call_proto(
+    fe_function_call: FEFunctionCall, output_blob_uri: str, logger: Any
+) -> FunctionCall:
+    args: List[FunctionArg] = []
+    for fe_arg in fe_function_call.args:
+        fe_arg: FEFunctionArg
+        args.append(
+            _to_function_arg_proto(
+                fe_function_arg=fe_arg,
+                output_blob_uri=output_blob_uri,
+                logger=logger,
+            )
+        )
+
+    return FunctionCall(
+        id=fe_function_call.id,
+        target=_to_function_ref_proto(fe_function_call.target),
+        args=args,
+        call_metadata=fe_function_call.call_metadata,
+    )
+
+
+def _to_reduce_op_proto(
+    reduce: FEReduceOp, output_blob_uri: str, logger: Any
+) -> ReduceOp:
+    collection: List[FunctionArg] = []
+    for fe_arg in reduce.collection:
+        fe_arg: FEFunctionArg
+        collection.append(
+            _to_function_arg_proto(
+                fe_function_arg=fe_arg,
+                output_blob_uri=output_blob_uri,
+                logger=logger,
+            )
+        )
+
+    return ReduceOp(
+        id=reduce.id,
+        collection=collection,
+        reducer=_to_function_ref_proto(reduce.reducer),
+        call_metadata=reduce.call_metadata,
+    )
+
+
+def _to_function_ref_proto(fe_function_ref: FEFunctionRef) -> FunctionRef:
+    return FunctionRef(
+        namespace=fe_function_ref.namespace,
+        application_name=fe_function_ref.application_name,
+        function_name=fe_function_ref.function_name,
+        application_version=fe_function_ref.application_version,
+    )
+
+
+def _to_function_arg_proto(
+    fe_function_arg: FEFunctionArg, output_blob_uri: str, logger: Any
+) -> FunctionArg:
+    if fe_function_arg.HasField("function_call_id"):
+        return FunctionArg(function_call_id=fe_function_arg.function_call_id)
+    elif fe_function_arg.HasField("value"):
+        return FunctionArg(
+            inline_data=_so_to_data_payload_proto(
+                so=fe_function_arg.value,
+                blob_uri=output_blob_uri,
+                logger=logger,
+            )
+        )
+    else:
+        logger.error(
+            "unexpected FEFunctionArg with no value or function_call_id set",
+        )
+        return FunctionArg()  # Empty arg as we can't raise here.
+
+
+def _so_to_data_payload_proto(
     so: SerializedObjectInsideBLOB,
     blob_uri: str,
     logger: Any,
 ) -> DataPayload:
     """Converts a serialized object inside BLOB to into a DataPayload."""
+    # TODO: Validate SerializedObjectInsideBLOB.
     return DataPayload(
+        uri=blob_uri,
+        encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
+        encoding_version=so.manifest.encoding_version,
+        content_type=so.manifest.content_type,
+        metadata_size=so.manifest.metadata_size,
+        offset=so.offset,
         size=so.manifest.size,
         sha256_hash=so.manifest.sha256_hash,
-        uri=blob_uri,
-        encoding=_to_data_payload_encoding(so.manifest.encoding, logger),
-        encoding_version=so.manifest.encoding_version,
-        offset=so.offset,
+        source_function_call_id=so.manifest.source_function_call_id,
+        # id is not used
     )
 
 
-def _to_data_payload_encoding(
+def _so_to_data_payload_encoding(
     encoding: SerializedObjectEncoding, logger: Any
 ) -> DataPayloadEncoding:
     if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
@@ -954,6 +1106,8 @@ def _to_data_payload_encoding(
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
     elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
         return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW
     else:
         logger.error(
             "unexpected encoding for SerializedObject",
