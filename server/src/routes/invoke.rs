@@ -295,9 +295,7 @@ async fn do_invoke_api_with_object_v1(
         .function_runs(fn_runs)
         .function_calls(fn_calls)
         .build()
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
-        })?;
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: application.name.clone(),
@@ -332,9 +330,7 @@ async fn return_request_id(
             payload: request_payload.clone(),
         })
         .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
-        })?;
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
 
     Ok(Json(RequestIdV1 {
         id: request_id.clone(),
@@ -357,9 +353,7 @@ async fn return_sse_response(
             payload: request_payload.clone(),
         })
         .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
-        })?;
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let invocation_event_stream =
         create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
