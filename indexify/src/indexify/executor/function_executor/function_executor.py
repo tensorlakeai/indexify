@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
@@ -18,14 +18,13 @@ from tensorlake.utils.http_client import get_httpx_client
 from indexify.executor.monitoring.metrics import IdempotentCounterChanger
 
 from .health_checker import HealthChecker
-from .invocation_state_client import InvocationStateClient
 from .metrics.function_executor import (
     metric_create_errors,
     metric_create_health_checker_errors,
     metric_create_health_checker_latency,
-    metric_create_invocation_state_client_errors,
-    metric_create_invocation_state_client_latency,
     metric_create_latency,
+    metric_create_request_state_client_errors,
+    metric_create_request_state_client_latency,
     metric_create_server_errors,
     metric_create_server_latency,
     metric_creations,
@@ -34,9 +33,9 @@ from .metrics.function_executor import (
     metric_destroy_errors,
     metric_destroy_health_checker_errors,
     metric_destroy_health_checker_latency,
-    metric_destroy_invocation_state_client_errors,
-    metric_destroy_invocation_state_client_latency,
     metric_destroy_latency,
+    metric_destroy_request_state_client_errors,
+    metric_destroy_request_state_client_latency,
     metric_destroy_server_errors,
     metric_destroy_server_latency,
     metric_destroys,
@@ -49,6 +48,7 @@ from .metrics.function_executor import (
     metric_initialize_rpc_errors,
     metric_initialize_rpc_latency,
 )
+from .request_state_client import RequestStateClient
 from .server.function_executor_server import (
     FUNCTION_EXECUTOR_SERVER_READY_TIMEOUT_SEC,
     FunctionExecutorServer,
@@ -66,7 +66,7 @@ class FunctionExecutorInitializationResult:
     # If True, timed out waiting for the Function Executor to initialize.
     is_timeout: bool
     # FE is unresponsive if response is None.
-    response: Optional[InitializeResponse]
+    response: InitializeResponse | None
 
 
 class FunctionExecutor:
@@ -84,10 +84,10 @@ class FunctionExecutor:
     def __init__(self, server_factory: FunctionExecutorServerFactory, logger: Any):
         self._server_factory: FunctionExecutorServerFactory = server_factory
         self._logger: Any = logger.bind(module=__name__)
-        self._server: Optional[FunctionExecutorServer] = None
-        self._channel: Optional[grpc.aio.Channel] = None
-        self._invocation_state_client: Optional[InvocationStateClient] = None
-        self._health_checker: Optional[HealthChecker] = None
+        self._server: FunctionExecutorServer | None = None
+        self._channel: grpc.aio.Channel | None = None
+        self._request_state_client: RequestStateClient | None = None
+        self._health_checker: HealthChecker | None = None
         self._function_executors_counter_changer: IdempotentCounterChanger = (
             IdempotentCounterChanger(
                 metric_function_executors_count,
@@ -100,7 +100,7 @@ class FunctionExecutor:
         config: FunctionExecutorServerConfiguration,
         initialize_request: InitializeRequest,
         base_url: str,
-        config_path: Optional[str],
+        config_path: str | None,
         customer_code_timeout_sec: float,
     ) -> FunctionExecutorInitializationResult:
         """Creates and initializes a FunctionExecutorServer and all resources associated with it.
@@ -116,7 +116,7 @@ class FunctionExecutor:
                 await self._establish_channel()
                 stub: FunctionExecutorStub = FunctionExecutorStub(self._channel)
                 await _collect_server_info(stub)
-                await self._create_invocation_state_client(
+                await self._create_request_state_client(
                     stub=stub,
                     base_url=base_url,
                     config_path=config_path,
@@ -134,8 +134,8 @@ class FunctionExecutor:
     def channel(self) -> grpc.aio.Channel:
         return self._channel
 
-    def invocation_state_client(self) -> InvocationStateClient:
-        return self._invocation_state_client
+    def request_state_client(self) -> RequestStateClient:
+        return self._request_state_client
 
     def health_checker(self) -> HealthChecker:
         return self._health_checker
@@ -154,7 +154,7 @@ class FunctionExecutor:
                 self._function_executors_counter_changer.dec()
                 metric_destroys.inc()
                 await self._destroy_health_checker()
-                await self._destroy_invocation_state_client()
+                await self._destroy_request_state_client()
                 await self._destroy_channel()
                 await self._destroy_server()
         except Exception as e:
@@ -215,43 +215,43 @@ class FunctionExecutor:
         finally:
             self._channel = None
 
-    async def _create_invocation_state_client(
+    async def _create_request_state_client(
         self,
         stub: FunctionExecutorStub,
         base_url: str,
-        config_path: Optional[str],
+        config_path: str | None,
         initialize_request: InitializeRequest,
     ) -> None:
         with (
-            metric_create_invocation_state_client_errors.count_exceptions(),
-            metric_create_invocation_state_client_latency.time(),
+            metric_create_request_state_client_errors.count_exceptions(),
+            metric_create_request_state_client_latency.time(),
         ):
-            self._invocation_state_client = InvocationStateClient(
+            self._request_state_client = RequestStateClient(
                 stub=stub,
                 base_url=base_url,
                 http_client=get_httpx_client(config_path=config_path, make_async=True),
-                graph=initialize_request.graph_name,
-                namespace=initialize_request.namespace,
+                application=initialize_request.function.application_name,
+                namespace=initialize_request.function.namespace,
                 logger=self._logger,
             )
-            await self._invocation_state_client.start()
+            await self._request_state_client.start()
 
-    async def _destroy_invocation_state_client(self) -> None:
-        if self._invocation_state_client is None:
+    async def _destroy_request_state_client(self) -> None:
+        if self._request_state_client is None:
             return
 
         try:
             with (
-                metric_destroy_invocation_state_client_errors.count_exceptions(),
-                metric_destroy_invocation_state_client_latency.time(),
+                metric_destroy_request_state_client_errors.count_exceptions(),
+                metric_destroy_request_state_client_latency.time(),
             ):
-                await self._invocation_state_client.destroy()
+                await self._request_state_client.destroy()
         except Exception as e:
             self._logger.error(
                 "failed to destroy FunctionExecutor invocation state client", exc_info=e
             )
         finally:
-            self._invocation_state_client = None
+            self._request_state_client = None
 
     async def _create_health_checker(
         self, channel: grpc.aio.Channel, stub: FunctionExecutorStub

@@ -1,20 +1,8 @@
 use anyhow::{anyhow, Result};
 
-use super::{
-    migration_trait::Migration,
-    v4_drop_executors::V4DropExecutorsMigration,
-    v5_allocation_keys::V5AllocationKeysMigration,
-    v6_clean_orphaned_tasks::V6CleanOrphanedTasksMigration,
-    v7_reset_allocated_tasks::V7ResetAllocatedTasksMigration,
-    v8_rebuild_invocation_ctx_secondary_index::V8RebuildInvocationCtxSecondaryIndexMigration,
-};
+use super::migration_trait::Migration;
+use crate::state_store::migrations::v1_fake_migration::V1FakeMigration;
 // Import all migration implementations
-use super::{
-    v1_task_status::V1TaskStatusMigration,
-    v2_invocation_ctx_timestamps::V2InvocationTimestampsMigration,
-    v3_invocation_ctx_secondary_index::V3SecondaryIndexesMigration,
-    // Add new migrations here
-};
 
 /// Registry for all available migrations
 pub struct MigrationRegistry {
@@ -29,15 +17,9 @@ impl MigrationRegistry {
         };
 
         // Register all migrations
-        registry.register(Box::new(V1TaskStatusMigration {}));
-        registry.register(Box::new(V2InvocationTimestampsMigration {}));
-        registry.register(Box::new(V3SecondaryIndexesMigration {}));
-        registry.register(Box::new(V4DropExecutorsMigration {}));
-        registry.register(Box::new(V5AllocationKeysMigration {}));
-        registry.register(Box::new(V6CleanOrphanedTasksMigration {}));
-        registry.register(Box::new(V7ResetAllocatedTasksMigration {}));
-        registry.register(Box::new(V8RebuildInvocationCtxSecondaryIndexMigration {}));
+        // Removing the migrations since we assume new state store is being used
         // Add new migrations here
+        registry.register(Box::new(V1FakeMigration {}));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

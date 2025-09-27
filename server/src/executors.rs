@@ -17,15 +17,16 @@ use tracing::{debug, error, trace};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
-    data_model::{self, ExecutorId, ExecutorMetadata},
+    data_model::{self, ComputeGraphVersion, ExecutorId, ExecutorMetadata},
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
+            self,
             DataPayload,
             DataPayloadEncoding,
             DesiredExecutorState,
             FunctionExecutorDescription,
-            Task,
+            FunctionRef,
             TaskAllocation,
         },
     },
@@ -44,14 +45,6 @@ pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
 /// Timeout duration before deregistering executors that haven't re-registered
 /// at service startup
 pub const STARTUP_EXECUTOR_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// A struct containing only the computed fields needed for desired state
-#[derive(Debug, Clone)]
-pub struct ComputedTask {
-    pub reducer_input_payload: Option<DataPayload>,
-    pub output_payload_uri_prefix: String,
-    pub input_payload: DataPayload,
-}
 
 /// Wrapper for `tokio::time::Instant` that reverses the ordering for deadline.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -403,6 +396,7 @@ impl ExecutorManager {
                 )
                 .get_url();
             let code_payload_pb = DataPayload {
+                id: Some(desired_state_fe.code_payload.id.clone()),
                 uri: Some(blob_store_path_to_url(
                     &desired_state_fe.code_payload.path,
                     &blob_store_url_schema,
@@ -411,20 +405,48 @@ impl ExecutorManager {
                 size: Some(desired_state_fe.code_payload.size),
                 sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
                 encoding: Some(DataPayloadEncoding::BinaryZip.into()),
-                encoding_version: None,
-                offset: Some(0), // One code per BLOB
+                encoding_version: Some(0),
+                offset: Some(desired_state_fe.code_payload.offset),
+                metadata_size: Some(desired_state_fe.code_payload.metadata_size),
+                source_function_call_id: None,
+                content_type: Some("application/zip".to_string()),
             };
             let fe = &desired_state_fe.function_executor.function_executor;
+            let Some(compute_graph_version) = self
+                .indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .compute_graph_versions
+                .get(&ComputeGraphVersion::key_from(
+                    &fe.namespace,
+                    &fe.compute_graph_name,
+                    &fe.version,
+                ))
+                .cloned()
+            else {
+                continue;
+            };
             let fe_output_payload_uri_prefix = format!("{blob_store_url}/function_executors",);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
-                namespace: Some(fe.namespace.clone()),
-                graph_name: Some(fe.compute_graph_name.clone()),
-                graph_version: Some(fe.version.to_string()),
-                function_name: Some(fe.compute_fn_name.clone()),
+                function: Some(FunctionRef {
+                    namespace: Some(fe.namespace.clone()),
+                    application_name: Some(fe.compute_graph_name.clone()),
+                    function_name: Some(fe.compute_fn_name.clone()),
+                    application_version: Some(fe.version.to_string()),
+                }),
                 secret_names: desired_state_fe.secret_names.clone(),
-                customer_code_timeout_ms: Some(desired_state_fe.customer_code_timeout_ms),
-                graph: Some(code_payload_pb),
+                initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
+                application: Some(code_payload_pb),
+                allocation_timeout_ms: Some(
+                    compute_graph_version
+                        .nodes
+                        .get(&fe.compute_fn_name)
+                        .unwrap()
+                        .timeout
+                        .0,
+                ),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
                 max_concurrency: Some(fe.max_concurrency),
@@ -432,42 +454,65 @@ impl ExecutorManager {
             function_executors_pb.push(fe_description_pb);
         }
 
-        for (fe_id, tasks) in desired_executor_state.task_allocations.iter() {
-            for task in tasks.iter() {
-                let computed_task = match self.extract_computed_fields(&task.task) {
-                    Ok(computed_task) => computed_task,
-                    Err(e) => {
-                        error!(
-                            executor_id = executor_id.get(),
-                            task_id = task.task.id.get(),
-                            "Failed to extract computed fields: {:?}",
-                            e
-                        );
-                        continue;
-                    }
-                };
+        for (fe_id, allocations) in desired_executor_state.function_run_allocations.iter() {
+            for allocation in allocations.iter() {
+                let mut args = vec![];
+                let blob_store_url_schema = self
+                    .blob_store_registry
+                    .get_blob_store(&allocation.namespace)
+                    .get_url_scheme();
+                let blob_store_url = self
+                    .blob_store_registry
+                    .get_blob_store(&allocation.namespace)
+                    .get_url();
+                for input_arg in &allocation.input_args {
+                    args.push(executor_api_pb::DataPayload {
+                        id: Some(input_arg.data_payload.id.clone()),
+                        uri: Some(blob_store_path_to_url(
+                            &input_arg.data_payload.path,
+                            &blob_store_url_schema,
+                            &blob_store_url,
+                        )),
+                        size: Some(input_arg.data_payload.size),
+                        sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
+                        encoding: Some(
+                            DataPayloadEncoding::try_from(input_arg.data_payload.encoding.clone())
+                                .unwrap_or(DataPayloadEncoding::Raw)
+                                .into(),
+                        ),
+                        encoding_version: Some(0),
+                        offset: Some(input_arg.data_payload.offset),
+                        metadata_size: Some(input_arg.data_payload.metadata_size),
+                        source_function_call_id: input_arg
+                            .function_call_id
+                            .as_ref()
+                            .map(|id| id.to_string()),
+                        content_type: Some(input_arg.data_payload.encoding.clone()),
+                    });
+                }
+                let output_payload_uri_prefix = format!(
+                    "{}/{}.{}.{}.{}",
+                    blob_store_url,
+                    allocation.namespace,
+                    allocation.compute_graph,
+                    allocation.compute_fn,
+                    allocation.invocation_id,
+                );
                 let task_allocation_pb = TaskAllocation {
-                    function_executor_id: Some(fe_id.get().to_string()),
-                    allocation_id: Some(task.allocation_id.to_string()),
-                    task: Some(Task {
-                        id: Some(task.task.id.get().to_string()),
-                        namespace: Some(task.task.namespace.clone()),
-                        graph_name: Some(task.task.compute_graph_name.clone()),
-                        graph_version: Some(task.task.graph_version.to_string()),
-                        function_name: Some(task.task.compute_fn_name.clone()),
-                        graph_invocation_id: Some(task.task.invocation_id.clone()),
-                        timeout_ms: Some(task.timeout_ms),
-                        input: Some(computed_task.input_payload),
-                        reducer_input: computed_task.reducer_input_payload,
-                        output_payload_uri_prefix: Some(
-                            computed_task.output_payload_uri_prefix.clone(),
-                        ),
-                        // TODO: https://github.com/tensorlakeai/indexify/issues/1645
-                        invocation_error_payload_uri_prefix: Some(
-                            computed_task.output_payload_uri_prefix.clone(),
-                        ),
-                        retry_policy: Some(task.retry_policy.clone().into()),
+                    function: Some(FunctionRef {
+                        namespace: Some(allocation.namespace.clone()),
+                        application_name: Some(allocation.compute_graph.clone()),
+                        function_name: Some(allocation.compute_fn.clone()),
+                        application_version: None,
                     }),
+                    function_executor_id: Some(fe_id.get().to_string()),
+                    allocation_id: Some(allocation.id.to_string()),
+                    task_id: Some(allocation.function_call_id.to_string()),
+                    request_id: Some(allocation.invocation_id.to_string()),
+                    args,
+                    output_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
+                    request_error_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
+                    function_call_metadata: Some(allocation.call_metadata.clone().into()),
                 };
                 task_allocations.push(task_allocation_pb);
             }
@@ -483,65 +528,6 @@ impl ExecutorManager {
             task_allocations,
             clock: Some(desired_executor_state.clock),
         }
-    }
-
-    /// Extracts only the computed fields from a data_model::Task
-    pub fn extract_computed_fields(&self, task: &data_model::Task) -> anyhow::Result<ComputedTask> {
-        let blob_store_url_schema = self
-            .blob_store_registry
-            .get_blob_store(&task.namespace)
-            .get_url_scheme();
-        let blob_store_url = self
-            .blob_store_registry
-            .get_blob_store(&task.namespace)
-            .get_url();
-        let input_payload = DataPayload {
-            uri: Some(blob_store_path_to_url(
-                &task.input.path,
-                &blob_store_url_schema,
-                &blob_store_url,
-            )),
-            size: Some(task.input.size),
-            sha256_hash: Some(task.input.sha256_hash.clone()),
-            encoding: Some(
-                DataPayloadEncoding::try_from("application/octet-stream".to_string())?.into(),
-            ),
-            encoding_version: None,
-            offset: Some(task.input.offset),
-        };
-
-        let reducer_input = task.acc_input.clone().map(|input| DataPayload {
-            uri: Some(blob_store_path_to_url(
-                &input.path,
-                &blob_store_url_schema,
-                &blob_store_url,
-            )),
-            size: Some(input.size),
-            sha256_hash: Some(input.sha256_hash.clone()),
-            encoding: Some(
-                DataPayloadEncoding::try_from("application/octet-stream".to_string())
-                    .unwrap()
-                    .into(),
-            ),
-            encoding_version: None,
-            offset: Some(input.offset),
-        });
-
-        // Create output payload URI prefix
-        let output_payload_uri_prefix = format!(
-            "{}/{}.{}.{}.{}",
-            blob_store_url,
-            task.namespace,
-            task.compute_graph_name,
-            task.compute_fn_name,
-            task.invocation_id,
-        );
-
-        Ok(ComputedTask {
-            reducer_input_payload: reducer_input.clone(),
-            output_payload_uri_prefix,
-            input_payload,
-        })
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -671,7 +657,6 @@ mod tests {
 
         let request = UpsertExecutorRequest::build(
             executor,
-            vec![],
             vec![],
             update_executor_state,
             test_srv.service.indexify_state.clone(),

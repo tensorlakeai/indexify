@@ -2,7 +2,7 @@ import asyncio
 import os
 import signal
 import socket
-from typing import Any, Optional
+from typing import Any
 
 from .function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -20,7 +20,7 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
         self, config: FunctionExecutorServerConfiguration, logger: Any
     ) -> SubprocessFunctionExecutorServer:
         logger = logger.bind(module=__name__)
-        port: Optional[int] = None
+        port: int | None = None
 
         if len(config.secret_names) > 0:
             logger.warning(

@@ -1,7 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import nanoid
 from tensorlake.function_executor.proto.function_executor_pb2 import (
@@ -18,14 +18,14 @@ from indexify.proto.executor_api_pb2 import (
 )
 
 from .metrics.downloads import (
-    metric_graph_download_errors,
-    metric_graph_download_latency,
-    metric_graph_downloads,
-    metric_graphs_from_cache,
+    metric_application_download_errors,
+    metric_application_download_latency,
+    metric_application_downloads,
+    metric_applications_from_cache,
 )
 
 
-async def download_graph(
+async def download_application_code(
     function_executor_description: FunctionExecutorDescription,
     cache_path: Path,
     blob_store: BLOBStore,
@@ -33,11 +33,11 @@ async def download_graph(
 ) -> SerializedObject:
     logger = logger.bind(module=__name__)
     with (
-        metric_graph_download_errors.count_exceptions(),
-        metric_graph_download_latency.time(),
+        metric_application_download_errors.count_exceptions(),
+        metric_application_download_latency.time(),
     ):
-        metric_graph_downloads.inc()
-        return await _download_graph(
+        metric_application_downloads.inc()
+        return await _download_application_code(
             function_executor_description=function_executor_description,
             cache_path=cache_path,
             blob_store=blob_store,
@@ -45,35 +45,35 @@ async def download_graph(
         )
 
 
-async def _download_graph(
+async def _download_application_code(
     function_executor_description: FunctionExecutorDescription,
     cache_path: Path,
     blob_store: BLOBStore,
     logger: Any,
 ) -> SerializedObject:
-    # Cache graph to reduce load on the server.
-    graph_path = os.path.join(
+    # Cache application to reduce load on the server.
+    application_path = os.path.join(
         str(cache_path),
-        "graph_cache",
-        function_executor_description.namespace,
-        function_executor_description.graph_name,
-        function_executor_description.graph_version,
+        "application_cache",
+        function_executor_description.function.namespace,
+        function_executor_description.function.application_name,
+        function_executor_description.function.application_version,
     )
     # Filesystem operations are synchronous.
     # Run in a separate thread to not block the main event loop.
-    graph: Optional[SerializedObject] = await asyncio.to_thread(
-        _read_cached_graph, path=graph_path
+    application: SerializedObject | None = await asyncio.to_thread(
+        _read_cached_application, path=application_path
     )
-    if graph is not None:
-        metric_graphs_from_cache.inc()
-        return graph
+    if application is not None:
+        metric_applications_from_cache.inc()
+        return application
 
     data: bytes = await blob_store.get(
-        uri=function_executor_description.graph.uri, logger=logger
+        uri=function_executor_description.application.uri, logger=logger
     )
-    graph: SerializedObject = SerializedObject(
+    application: SerializedObject = SerializedObject(
         manifest=serialized_object_manifest_from_data_payload_proto(
-            function_executor_description.graph
+            function_executor_description.application
         ),
         data=data,
     )
@@ -83,15 +83,18 @@ async def _download_graph(
     # We don't need to wait for the write completion so we use create_task.
     asyncio.create_task(
         asyncio.to_thread(
-            _write_cached_graph, path=graph_path, graph=graph, cache_path=cache_path
+            _write_cached_application,
+            path=application_path,
+            application=application,
+            cache_path=cache_path,
         ),
-        name="graph cache write",
+        name="application cache write",
     )
 
-    return graph
+    return application
 
 
-def _read_cached_graph(path: str) -> Optional[SerializedObject]:
+def _read_cached_application(path: str) -> SerializedObject | None:
     if not os.path.exists(path):
         return None
 
@@ -99,15 +102,19 @@ def _read_cached_graph(path: str) -> Optional[SerializedObject]:
         return SerializedObject.FromString(f.read())
 
 
-def _write_cached_graph(path: str, graph: SerializedObject, cache_path: Path) -> None:
+def _write_cached_application(
+    path: str, application: SerializedObject, cache_path: Path
+) -> None:
     if os.path.exists(path):
-        # Another task already cached the graph.
+        # Another allocation already cached the application.
         return None
 
-    tmp_path = os.path.join(str(cache_path), "task_graph_cache", nanoid.generate())
+    tmp_path = os.path.join(
+        str(cache_path), "task_application_cache", nanoid.generate()
+    )
     os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
     with open(tmp_path, "wb") as f:
-        f.write(graph.SerializeToString())
+        f.write(application.SerializeToString())
     os.makedirs(os.path.dirname(path), exist_ok=True)
     # Atomically rename the fully written file at tmp path.
     # This allows us to not use any locking because file link/unlink
@@ -132,7 +139,13 @@ def serialized_object_manifest_from_data_payload_proto(
         ),
         sha256_hash=data_payload.sha256_hash,
         size=data_payload.size,
+        metadata_size=data_payload.metadata_size,
     )
+    if data_payload.HasField("content_type"):
+        so_manifest.content_type = data_payload.content_type
+    if data_payload.HasField("source_function_call_id"):
+        so_manifest.source_function_call_id = data_payload.source_function_call_id
+    # data_payload.id is not used.
 
     if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:
         so_manifest.encoding = (
@@ -150,6 +163,8 @@ def serialized_object_manifest_from_data_payload_proto(
         so_manifest.encoding = (
             SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP
         )
+    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW:
+        so_manifest.encoding = SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW
     else:
         raise ValueError(
             f"Can't convert data payload {data_payload} into serialized object"

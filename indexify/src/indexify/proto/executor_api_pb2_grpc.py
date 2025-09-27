@@ -30,8 +30,8 @@ if _version_not_supported:
 
 
 class ExecutorAPIStub(object):
-    """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
-    Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
     might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
@@ -56,11 +56,17 @@ class ExecutorAPIStub(object):
             response_deserializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
         )
+        self.invoke_function = channel.unary_stream(
+            "/executor_api_pb.ExecutorAPI/invoke_function",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class ExecutorAPIServicer(object):
-    """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
-    Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
     might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
@@ -84,6 +90,14 @@ class ExecutorAPIServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def invoke_function(self, request, context):
+        """Called by the user code to invoke a blocking function call.
+        returns a stream until the function call is completed.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_ExecutorAPIServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -97,6 +111,11 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
             request_deserializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.FromString,
             response_serializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.SerializeToString,
         ),
+        "invoke_function": grpc.unary_stream_rpc_method_handler(
+            servicer.invoke_function,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.SerializeToString,
+        ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
         "executor_api_pb.ExecutorAPI", rpc_method_handlers
@@ -109,8 +128,8 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
 
 # This class is part of an EXPERIMENTAL API.
 class ExecutorAPI(object):
-    """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
-    Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
     might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
@@ -166,6 +185,36 @@ class ExecutorAPI(object):
             "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
             indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
             indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def invoke_function(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            "/executor_api_pb.ExecutorAPI/invoke_function",
+            indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,7 +1,7 @@
 import asyncio
 import os
 from collections.abc import Awaitable, Callable
-from typing import Any, Optional
+from typing import Any
 
 import grpc
 import grpc.aio
@@ -37,9 +37,9 @@ class HealthChecker:
         self._channel: grpc.aio.Channel = channel
         self._stub: FunctionExecutorStub = stub
         self._logger: Any = logger.bind(module=__name__)
-        self._health_check_loop_task: Optional[asyncio.Task] = None
-        self._health_check_failed_callback: Optional[
-            Callable[[HealthCheckResult], Awaitable[None]]
+        self._health_check_loop_task: asyncio.Task | None = None
+        self._health_check_failed_callback: Callable[
+            [HealthCheckResult], Awaitable[None] | None
         ] = None
 
     async def check(self) -> HealthCheckResult:

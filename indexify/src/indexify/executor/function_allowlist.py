@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 @dataclass
 class FunctionURI:
     namespace: str
-    compute_graph: str
+    application: str
     compute_fn: str
     version: Optional[str] = None
 
@@ -24,7 +24,7 @@ def function_allowlist_to_indexed_dict(
         indexed_dict[f"function_allowlist_{counter}"] = ":".join(
             [
                 function_uri.namespace,
-                function_uri.compute_graph,
+                function_uri.application,
                 function_uri.compute_fn,
                 str(function_uri.version),
             ]
@@ -40,8 +40,8 @@ def parse_function_uris(function_uri_strs: List[str]) -> List[FunctionURI]:
         tokens = uri_str.split(":")
         if len(tokens) < 3 or len(tokens) > 4:
             raise ValueError(
-                "Function should be specified as <namespace>:<workflow>:<function>:<version> or"
-                "<namespace>:<workflow>:<function>"
+                "Function should be specified as <namespace>:<application>:<function>:<version> or"
+                "<namespace>:<application>:<function>"
             )
         version: Optional[str] = None
         if len(tokens) == 4:
@@ -50,7 +50,7 @@ def parse_function_uris(function_uri_strs: List[str]) -> List[FunctionURI]:
         uris.append(
             FunctionURI(
                 namespace=tokens[0],
-                compute_graph=tokens[1],
+                application=tokens[1],
                 compute_fn=tokens[2],
                 version=version,
             )

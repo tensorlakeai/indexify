@@ -1,15 +1,16 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     BLOB,
+    ExecutionPlanUpdates,
     SerializedObjectInsideBLOB,
 )
 
 from indexify.proto.executor_api_pb2 import (
+    AllocationFailureReason,
+    AllocationOutcomeCode,
     FunctionExecutorTerminationReason,
     TaskAllocation,
-    TaskFailureReason,
-    TaskOutcomeCode,
 )
 
 
@@ -27,25 +28,25 @@ class TaskAllocationOutput:
     def __init__(
         self,
         allocation: TaskAllocation,
-        outcome_code: TaskOutcomeCode,
-        failure_reason: TaskFailureReason | None = None,
-        function_outputs: List[SerializedObjectInsideBLOB] = [],
-        uploaded_function_outputs_blob: Optional[BLOB] = None,
-        invocation_error_output: Optional[SerializedObjectInsideBLOB] = None,
-        uploaded_invocation_error_blob: Optional[BLOB] = None,
-        next_functions: List[str] = [],
-        metrics: Optional[TaskAllocationMetrics] = None,
-        execution_start_time: Optional[float] = None,
-        execution_end_time: Optional[float] = None,
+        outcome_code: AllocationOutcomeCode,
+        failure_reason: AllocationFailureReason | None = None,
+        output_value: SerializedObjectInsideBLOB | None = None,
+        output_execution_plan_updates: ExecutionPlanUpdates | None = None,
+        uploaded_function_outputs_blob: BLOB | None = None,
+        request_error_output: SerializedObjectInsideBLOB | None = None,
+        uploaded_request_error_blob: BLOB | None = None,
+        metrics: TaskAllocationMetrics | None = None,
+        execution_start_time: float | None = None,
+        execution_end_time: float | None = None,
     ):
         self.allocation = allocation
         self.outcome_code = outcome_code
         self.failure_reason = failure_reason
-        self.function_outputs = function_outputs
+        self.output_value = output_value
+        self.output_execution_plan_updates = output_execution_plan_updates
         self.uploaded_function_outputs_blob = uploaded_function_outputs_blob
-        self.invocation_error_output = invocation_error_output
-        self.uploaded_invocation_error_blob = uploaded_invocation_error_blob
-        self.next_functions = next_functions
+        self.request_error_output = request_error_output
+        self.uploaded_request_error_blob = uploaded_request_error_blob
         self.metrics = metrics
         self.execution_start_time = execution_start_time
         self.execution_end_time = execution_end_time
@@ -54,14 +55,14 @@ class TaskAllocationOutput:
     def internal_error(
         cls,
         allocation: TaskAllocation,
-        execution_start_time: Optional[float],
-        execution_end_time: Optional[float],
+        execution_start_time: float | None,
+        execution_end_time: float | None,
     ) -> "TaskAllocationOutput":
         """Creates a TaskAllocationOutput for an internal error."""
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
-            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -70,14 +71,14 @@ class TaskAllocationOutput:
     def function_timeout(
         cls,
         allocation: TaskAllocation,
-        execution_start_time: Optional[float],
-        execution_end_time: Optional[float],
+        execution_start_time: float | None,
+        execution_end_time: float | None,
     ) -> "TaskAllocationOutput":
         """Creates a TaskAllocationOutput for a function timeout error."""
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
-            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -86,17 +87,17 @@ class TaskAllocationOutput:
     def function_executor_unresponsive(
         cls,
         allocation: TaskAllocation,
-        execution_start_time: Optional[float],
-        execution_end_time: Optional[float],
+        execution_start_time: float | None,
+        execution_end_time: float | None,
     ) -> "TaskAllocationOutput":
         """Creates a TaskAllocationOutput for an unresponsive FE aka grey failure."""
         # When FE is unresponsive we don't know exact cause of the failure.
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             # Treat the grey failure as a function error and thus charge the customer.
             # This is to prevent service abuse by intentionally misbehaving functions.
-            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -105,14 +106,14 @@ class TaskAllocationOutput:
     def task_allocation_cancelled(
         cls,
         allocation: TaskAllocation,
-        execution_start_time: Optional[float],
-        execution_end_time: Optional[float],
+        execution_start_time: float | None,
+        execution_end_time: float | None,
     ) -> "TaskAllocationOutput":
         """Creates a TaskAllocationOutput for the case when task allocation didn't finish because its allocation was removed by Server."""
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
-            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_TASK_CANCELLED,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_TASK_CANCELLED,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -125,8 +126,8 @@ class TaskAllocationOutput:
         """Creates a TaskAllocationOutput for the case when task allocation didn't run because its FE terminated."""
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
-            failure_reason=TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
         )
 
     @classmethod
@@ -139,38 +140,40 @@ class TaskAllocationOutput:
         """Creates a TaskAllocationOutput for the case when we fail a task allocation that didn't run because its FE startup failed."""
         return TaskAllocationOutput(
             allocation=allocation,
-            outcome_code=TaskOutcomeCode.TASK_OUTCOME_CODE_FAILURE,
-            failure_reason=_fe_startup_failure_reason_to_task_failure_reason(
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=_fe_startup_failure_reason_to_alloc_failure_reason(
                 fe_termination_reason, logger
             ),
         )
 
 
-def _fe_startup_failure_reason_to_task_failure_reason(
+def _fe_startup_failure_reason_to_alloc_failure_reason(
     fe_termination_reason: FunctionExecutorTerminationReason, logger: Any
-) -> TaskFailureReason:
+) -> AllocationFailureReason:
     # Only need to check FE termination reasons happening on FE startup.
     if (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
     ):
-        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_ERROR
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
     ):
-        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_TIMEOUT
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
     ):
-        return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
     ):
         # This fe termination reason is used when FE gets deleted by Server from desired state while it's starting up.
-        return TaskFailureReason.TASK_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
+        return (
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
+        )
     else:
         logger.error(
             "unexpected function executor startup failure reason",
@@ -178,4 +181,4 @@ def _fe_startup_failure_reason_to_task_failure_reason(
                 fe_termination_reason
             ),
         )
-        return TaskFailureReason.TASK_FAILURE_REASON_INTERNAL_ERROR
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR

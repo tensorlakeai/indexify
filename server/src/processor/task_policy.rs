@@ -3,7 +3,7 @@ use if_chain::if_chain;
 use crate::data_model::{
     Allocation,
     ComputeGraphVersion,
-    Task,
+    FunctionRun,
     TaskFailureReason,
     TaskOutcome,
     TaskStatus,
@@ -17,7 +17,7 @@ impl TaskRetryPolicy {
     /// Determines if a task should be retried based on an allocation failure
     /// reason, updating the task accordingly.
     fn handle_allocation_failure(
-        task: &mut Task,
+        task: &mut FunctionRun,
         alloc_failure_reason: TaskFailureReason,
         compute_graph_version: &ComputeGraphVersion,
     ) {
@@ -37,7 +37,7 @@ impl TaskRetryPolicy {
             else {
                 // Task cannot be retried - either no max retries, not retriable, or exhausted attempts.
                 task.status = TaskStatus::Completed;
-                task.outcome = TaskOutcome::Failure(alloc_failure_reason);
+                task.outcome = Some(TaskOutcome::Failure(alloc_failure_reason));
             }
         }
     }
@@ -46,23 +46,20 @@ impl TaskRetryPolicy {
     /// outcome, leaving the task with the appropriate status.
     /// The task must be running the allocation to ensure idempotency.
     pub fn handle_allocation_outcome(
-        task: &mut Task,
+        task: &mut FunctionRun,
         allocation: &Allocation,
         compute_graph_version: &ComputeGraphVersion,
     ) {
         match allocation.outcome {
             TaskOutcome::Success => {
                 task.status = TaskStatus::Completed;
-                task.outcome = allocation.outcome;
+                task.outcome = Some(allocation.outcome);
             }
             TaskOutcome::Failure(failure_reason) => {
                 // Handle allocation failure
                 Self::handle_allocation_failure(task, failure_reason, compute_graph_version);
             }
-            TaskOutcome::Unknown => {
-                // For unknown outcomes, set to pending to allow retry
-                task.status = TaskStatus::Pending;
-            }
+            _ => {}
         }
     }
 }

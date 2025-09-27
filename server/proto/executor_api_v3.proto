@@ -293,6 +293,7 @@ message ReduceOp {
     // The DataPayload of the last function call in the reducer will have the function call id set
     // as the id of the ReduceOp.
   optional string id = 1;
+  // Contains at least two items.
   repeated FunctionArg  collection = 2; 
   optional FunctionRef reducer     = 3;
   // This required metadata allows SDK to restore original function call from the arguments.

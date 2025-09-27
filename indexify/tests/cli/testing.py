@@ -3,29 +3,13 @@ import shutil
 import subprocess
 import tempfile
 import time
-import unittest
-from typing import Any, List, Optional
+from typing import List
 
-from tensorlake.functions_sdk.exceptions import GraphStillProcessing
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
-
-
-def test_graph_name(test_case: unittest.TestCase) -> str:
-    """Converts a test case to a unique graph name.
-
-    Example:
-    >>> class TestGraphReduce(unittest.TestCase):
-    ...     def test_simple(self):
-    ...         g = Graph(name=graph_name(self), start_node=generate_seq)
-    ...         # ...
-    ...         print(g.name)
-    ...         # test_graph_reduce_test_simple
-    """
-    return unittest.TestCase.id(test_case).replace(".", "_")
+import httpx
 
 
 def function_uri(
-    namespace: str, graph: str, function: str, version: Optional[str] = None
+    namespace: str, graph: str, function: str, version: str | None = None
 ) -> str:
     if version is None:
         return ":".join([namespace, graph, function])
@@ -38,14 +22,14 @@ class ExecutorProcessContextManager:
         self,
         args: List[str],
         keep_std_outputs: bool = True,
-        extra_env: Optional[dict] = None,
-        labels: Optional[dict] = None,
+        extra_env: dict | None = None,
+        labels: dict | None = None,
     ):
         self._keep_std_outputs = keep_std_outputs
         self._extra_env = extra_env
         self._labels = labels or {}
         self._temp_dir = tempfile.mkdtemp(prefix="executor_cache_")
-        self._process: Optional[subprocess.Popen] = None
+        self._process: subprocess.Popen | None = None
         self._args = [
             "indexify-cli",
             "executor",
@@ -84,10 +68,6 @@ class ExecutorProcessContextManager:
 
 
 def wait_executor_startup(port: int):
-    import time
-
-    import httpx
-
     attempts_left: int = 5
     while attempts_left > 0:
         try:
@@ -114,14 +94,3 @@ def executor_pid() -> int:
 def function_executor_id() -> str:
     # PIDs are good for Subprocess Function Executors.
     return os.getpid()
-
-
-def wait_function_output(graph: RemoteGraph, invocation_id: str, func_name: str) -> Any:
-    while True:
-        try:
-            print(
-                f"Waiting for output of graph: {graph._name} function '{func_name}' with invocation ID '{invocation_id}'"
-            )
-            return graph.output(invocation_id, func_name)
-        except GraphStillProcessing:
-            time.sleep(1)

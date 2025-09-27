@@ -9,20 +9,19 @@ use crate::{
     data_model::{
         Allocation,
         ComputeGraph,
+        ComputeOp,
+        DataPayload,
         ExecutorId,
         ExecutorMetadata,
-        FunctionExecutorDiagnostics,
+        FunctionCall,
+        FunctionCallId,
         FunctionExecutorId,
         FunctionExecutorServerMetadata,
+        FunctionRun,
         GcUrl,
         GraphInvocationCtx,
         HostResources,
-        InvocationPayload,
-        NodeOutput,
-        ReduceTask,
         StateChange,
-        Task,
-        TaskId,
     },
     state_store::{state_changes, IndexifyState},
 };
@@ -76,10 +75,9 @@ pub enum RequestPayload {
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
-    pub updated_tasks: HashMap<TaskId, Task>,
-    pub cached_task_keys: HashSet<String>,
-    pub updated_invocations_states: Vec<GraphInvocationCtx>,
-    pub reduction_tasks: ReductionTasks,
+    pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
+    pub cached_task_keys: HashMap<String, DataPayload>,
+    pub updated_invocations_states: HashMap<String, GraphInvocationCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
@@ -91,18 +89,16 @@ impl SchedulerUpdateRequest {
     /// Extends this SchedulerUpdateRequest with contents from another one
     pub fn extend(&mut self, other: SchedulerUpdateRequest) {
         self.new_allocations.extend(other.new_allocations);
-        self.updated_tasks.extend(other.updated_tasks);
+        for (ctx_key, function_run_ids) in other.updated_function_runs {
+            self.updated_function_runs
+                .entry(ctx_key)
+                .or_default()
+                .extend(function_run_ids);
+        }
         self.cached_task_keys.extend(other.cached_task_keys);
         self.updated_invocations_states
             .extend(other.updated_invocations_states);
         self.state_changes.extend(other.state_changes);
-
-        self.reduction_tasks
-            .new_reduction_tasks
-            .extend(other.reduction_tasks.new_reduction_tasks);
-        self.reduction_tasks
-            .processed_reduction_tasks
-            .extend(other.reduction_tasks.processed_reduction_tasks);
 
         self.remove_executors.extend(other.remove_executors);
         self.new_function_executors
@@ -112,25 +108,64 @@ impl SchedulerUpdateRequest {
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
     }
+
+    pub fn add_function_run(
+        &mut self,
+        function_run: FunctionRun,
+        invocation_ctx: &mut GraphInvocationCtx,
+    ) {
+        invocation_ctx
+            .function_runs
+            .insert(function_run.id.clone(), function_run.clone());
+        self.updated_function_runs
+            .entry(invocation_ctx.key())
+            .or_default()
+            .insert(function_run.id.clone());
+        self.updated_invocations_states
+            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    }
+
+    pub fn add_invocation_state(&mut self, invocation_ctx: &GraphInvocationCtx) {
+        self.updated_invocations_states
+            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    }
+
+    pub fn add_function_call(
+        &mut self,
+        function_call: FunctionCall,
+        invocation_ctx: &mut GraphInvocationCtx,
+    ) {
+        invocation_ctx.function_calls.insert(
+            function_call.function_call_id.clone(),
+            function_call.clone(),
+        );
+        self.updated_invocations_states
+            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphUpdates {
+    pub graph_updates: Vec<ComputeOp>,
+    // The function call id which is the root of the call graph of the functions
+    // calls
+    pub output_function_call_id: FunctionCallId,
 }
 
 #[derive(Debug, Clone)]
 pub struct AllocationOutput {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
     pub invocation_id: String,
     pub allocation: Allocation,
-    pub node_output: NodeOutput,
+    pub data_payload: Option<DataPayload>,
     pub executor_id: ExecutorId,
-    pub allocation_key: String,
+    pub request_exception: Option<DataPayload>,
+    pub graph_updates: Option<GraphUpdates>,
 }
 
 #[derive(Debug, Clone)]
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
-    pub invocation_payload: InvocationPayload,
     pub ctx: GraphInvocationCtx,
 }
 
@@ -145,19 +180,13 @@ pub struct NamespaceRequest {
 pub struct CreateOrUpdateComputeGraphRequest {
     pub namespace: String,
     pub compute_graph: ComputeGraph,
-    pub upgrade_tasks_to_current_version: bool,
+    pub upgrade_requests_to_current_version: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct DeleteComputeGraphRequest {
     pub namespace: String,
     pub name: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ReductionTasks {
-    pub new_reduction_tasks: Vec<ReduceTask>,
-    pub processed_reduction_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,7 +202,6 @@ pub struct DeleteInvocationRequest {
 #[derive(Debug, Clone)]
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
-    pub function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
     state_changes: Vec<StateChange>,
@@ -189,7 +217,6 @@ impl UpsertExecutorRequest {
     /// for the allocation outputs.
     pub fn build(
         executor: ExecutorMetadata,
-        function_executor_diagnostics: Vec<FunctionExecutorDiagnostics>,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
         indexify_state: Arc<IndexifyState>,
@@ -212,7 +239,6 @@ impl UpsertExecutorRequest {
 
         Ok(Self {
             executor,
-            function_executor_diagnostics,
             allocation_outputs,
             state_changes,
             update_executor_state,

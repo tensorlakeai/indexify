@@ -2,9 +2,9 @@ import os
 import platform
 import unittest
 
-from tensorlake import Graph, RemoteGraph, tensorlake_function
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from testing import test_graph_name
+import tensorlake.workflows.interface as tensorlake
+from tensorlake.functions_sdk import graph
+from tensorlake.workflows.remote.deploy import deploy
 
 
 def function_executor_id() -> str:
@@ -13,120 +13,101 @@ def function_executor_id() -> str:
     return str(os.getpid()) + str(platform.node())
 
 
-@tensorlake_function()
-def get_function_executor_id_1() -> str:
+@tensorlake.api()
+@tensorlake.function()
+def get_function_executor_id_1(_: int) -> str:
     return function_executor_id()
 
 
-@tensorlake_function()
-def get_function_executor_id_2(id_from_1: str) -> str:
+@tensorlake.api()
+@tensorlake.function()
+def get_function_executor_id_2(_: int) -> str:
     return function_executor_id()
 
 
 class TestFunctionExecutorRouting(unittest.TestCase):
-    def test_functions_of_same_version_run_in_same_function_executor(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=get_function_executor_id_1,
+    def test_functions_of_same_app_version_run_in_same_function_executor(self):
+        tensorlake.define_application(
+            name="TestFunctionExecutorRouting.test_functions_of_same_app_version_run_in_same_function_executor"
         )
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
+        deploy(__file__)
 
-        invocation_id = graph.run(block_until_done=True)
-        output = graph.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_1 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_1: str = request.output()
 
-        invocation_id = graph.run(block_until_done=True)
-        output = graph.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_2 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 2)
+        function_executor_id_2: str = request.output()
 
         self.assertEqual(function_executor_id_1, function_executor_id_2)
 
-    def test_functions_of_different_versions_run_in_different_function_executors(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=get_function_executor_id_1,
-            version="1.0",
-        )
-        graph1 = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
+    def test_functions_of_different_app_versions_run_in_different_function_executors(
+        self,
+    ):
+        APPLICATION_NAME = "TestFunctionExecutorRouting.test_functions_of_different_app_versions_run_in_different_function_executors"
+        tensorlake.define_application(name=APPLICATION_NAME)
+        deploy(__file__)
 
-        invocation_id = graph1.run(block_until_done=True)
-        output = graph1.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_1 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_1: str = request.output()
 
-        graph.version = "2.0"
-        graph2 = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
-        invocation_id = graph2.run(block_until_done=True)
-        output = graph2.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_2 = output[0]
+        # Creates a new random version
+        tensorlake.define_application(name=APPLICATION_NAME)
+        deploy(__file__)
+
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_2: str = request.output()
 
         self.assertNotEqual(function_executor_id_1, function_executor_id_2)
 
-    def test_different_functions_of_same_graph_run_in_different_function_executors(
+    def test_different_functions_of_same_app_run_in_different_function_executors(
         self,
     ):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=get_function_executor_id_1,
-        )
-        graph.add_edge(get_function_executor_id_1, get_function_executor_id_2)
-        graph = RemoteGraph.deploy(
-            graph=graph, code_dir_path=graph_code_dir_path(__file__)
-        )
+        APPLICATION_NAME = "TestFunctionExecutorRouting.test_different_functions_of_same_app_run_in_different_function_executors"
+        tensorlake.define_application(name=APPLICATION_NAME)
+        deploy(__file__)
 
-        invocation_id = graph.run(block_until_done=True)
-        output = graph.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_1 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_1: str = request.output()
 
-        output = graph.output(invocation_id, "get_function_executor_id_2")
-        self.assertEqual(len(output), 1)
-        function_executor_id_2 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_2, 2)
+        function_executor_id_2: str = request.output()
 
         self.assertNotEqual(function_executor_id_1, function_executor_id_2)
 
-    def test_same_functions_of_different_graphs_run_in_different_function_executors(
+    def test_same_functions_of_different_apps_run_in_different_function_executors(
         self,
     ):
-        graph1 = Graph(
-            name=test_graph_name(self) + "_1",
-            description="test",
-            start_node=get_function_executor_id_1,
+        tensorlake.define_application(
+            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_1"
         )
-        graph1 = RemoteGraph.deploy(
-            graph=graph1, code_dir_path=graph_code_dir_path(__file__)
-        )
+        deploy(__file__)
 
-        graph2 = Graph(
-            name=test_graph_name(self) + "_2",
-            description="test",
-            start_node=get_function_executor_id_1,
-        )
-        graph2 = RemoteGraph.deploy(
-            graph=graph2, code_dir_path=graph_code_dir_path(__file__)
-        )
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_1: str = request.output()
 
-        invocation_id = graph1.run(block_until_done=True)
-        output = graph1.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_1 = output[0]
+        request = tensorlake.call_remote_api(get_function_executor_id_2, 2)
+        function_executor_id_2: str = request.output()
 
-        invocation_id = graph2.run(block_until_done=True)
-        output = graph2.output(invocation_id, "get_function_executor_id_1")
-        self.assertEqual(len(output), 1)
-        function_executor_id_2 = output[0]
+        self.assertNotEqual(function_executor_id_1, function_executor_id_2)
+
+    def test_same_functions_of_different_apps_run_in_different_function_executors(
+        self,
+    ):
+        tensorlake.define_application(
+            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_1"
+        )
+        deploy(__file__)
+
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_1: str = request.output()
+
+        tensorlake.define_application(
+            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_2"
+        )
+        deploy(__file__)
+
+        request = tensorlake.call_remote_api(get_function_executor_id_1, 1)
+        function_executor_id_2: str = request.output()
 
         self.assertNotEqual(function_executor_id_1, function_executor_id_2)
 

@@ -1,23 +1,23 @@
 import asyncio
-from typing import Any, AsyncGenerator, Optional, Union
+from typing import Any, AsyncGenerator, Union
 
 import grpc
 import httpx
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    GetInvocationStateResponse,
-    InvocationStateRequest,
-    InvocationStateResponse,
+    GetRequestStateResponse,
+    RequestStateRequest,
+    RequestStateResponse,
     SerializedObject,
     SerializedObjectEncoding,
     SerializedObjectManifest,
-    SetInvocationStateResponse,
+    SetRequestStateResponse,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
-from .metrics.invocation_state_client import (
+from .metrics.request_state_client import (
     metric_request_read_errors,
     metric_server_get_state_request_errors,
     metric_server_get_state_request_latency,
@@ -27,15 +27,15 @@ from .metrics.invocation_state_client import (
     metric_server_set_state_requests,
 )
 
-# We're currently only supporting CloudPickle for invocation state values.
+# We're currently only supporting Pickle for request state values.
 # FIXME: if Function Executor sends us something else then we fail the calls.
 _VALUE_CONTENT_TYPE = "application/octet-stream"
 
 
-class InvocationStateClient:
-    """InvocationStateClient is a client for the invocation state server of a Function Executor.
+class RequestStateClient:
+    """RequestStateClient is a client for the request state server of a Function Executor.
 
-    The client initializes the Function Executor's invocation state server and executes requests
+    The client initializes the Function Executor's request state server and executes requests
     it sends to the client.
     """
 
@@ -44,57 +44,59 @@ class InvocationStateClient:
         stub: FunctionExecutorStub,
         base_url: str,
         http_client: httpx.AsyncClient,
-        graph: str,
+        application: str,
         namespace: str,
         logger: Any,
     ):
         self._stub: FunctionExecutorStub = stub
         self._base_url: str = base_url
         self._http_client: httpx.AsyncClient = http_client
-        self._graph: str = graph
+        self._application_name: str = application
         self._namespace: str = namespace
         self._logger: Any = logger.bind(
-            module=__name__, graph=graph, namespace=namespace
+            module=__name__, application=application, namespace=namespace
         )
-        self._client_response_queue: asyncio.Queue[
-            Union[InvocationStateResponse, str]
-        ] = asyncio.Queue()
-        self._task_id_to_invocation_id: dict[str, str] = {}
-        self._request_loop_task: Optional[asyncio.Task] = None
+        self._client_response_queue: asyncio.Queue[Union[RequestStateResponse, str]] = (
+            asyncio.Queue()
+        )
+        self._allocation_id_to_request_id: dict[str, str] = {}
+        self._request_loop_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """Starts the invocation state client.
+        """Starts the request state client.
 
-        This method initializes the Function Executor's invocation state server first.
+        This method initializes the Function Executor's request state server first.
         This is why this method needs to be awaited before executing any tasks on the Function Executor
-        that might use invocation state feature."""
-        server_requests = self._stub.initialize_invocation_state_server(
+        that might use request state feature."""
+        server_requests = self._stub.initialize_request_state_server(
             self._response_generator()
         )
         self._request_loop_task = asyncio.create_task(
             self._request_loop(server_requests),
-            name="graph invocation state client request processing loop",
+            name="graph request state client request processing loop",
         )
 
-    def add_task_to_invocation_id_entry(self, task_id: str, invocation_id: str) -> None:
-        """Adds a task ID to invocation ID entry to the client's internal state.
+    def add_allocation_to_request_id_entry(
+        self, allocation_id: str, request_id: str
+    ) -> None:
+        """Adds a allocation ID to request ID entry to the client's internal state.
 
-        This allows to authorize requests to the invocation state server.
-        If a request is not comming from the task ID that was added here then it will
+        This allows to authorize requests to the request state server.
+        If a request is not comming from the allocation ID that was added here then it will
         be rejected. It's caller's responsibility to only add task IDs that are being
         executed by the Function Executor so the Function Executor can't get access to
-        invocation state of tasks it doesn't run.
+        request state of tasks it doesn't run.
 
         Doesn't raise any exceptions.
         """
-        self._task_id_to_invocation_id[task_id] = invocation_id
+        self._allocation_id_to_request_id[allocation_id] = request_id
 
-    def remove_task_to_invocation_id_entry(self, task_id: str) -> None:
-        """Removes a task ID to invocation ID entry from the client's internal state.
+    def remove_allocation_to_request_id_entry(self, allocation_id: str) -> None:
+        """Removes a allocation ID to request ID entry from the client's internal state.
 
         Doesn't raise any exceptions.
         """
-        self._task_id_to_invocation_id.pop(task_id, None)
+        self._allocation_id_to_request_id.pop(allocation_id, None)
 
     async def destroy(self) -> None:
         if self._request_loop_task is not None:
@@ -102,7 +104,7 @@ class InvocationStateClient:
         await self._client_response_queue.put("shutdown")
 
     async def _request_loop(
-        self, server_requests: AsyncGenerator[InvocationStateRequest, None]
+        self, server_requests: AsyncGenerator[RequestStateRequest, None]
     ) -> None:
         try:
             async for request in server_requests:
@@ -118,18 +120,18 @@ class InvocationStateClient:
         except Exception as e:
             metric_request_read_errors.inc()
             self._logger.error(
-                "failed to read request from server, shutting down invocation state client",
+                "failed to read request from server, shutting down request state client",
                 exc_info=e,
             )
 
-    async def _process_request_no_raise(self, request: InvocationStateRequest) -> None:
+    async def _process_request_no_raise(self, request: RequestStateRequest) -> None:
         try:
             await self._process_request(request)
         except Exception as e:
             try:
                 await self._client_response_queue.put(
-                    InvocationStateResponse(
-                        request_id=request.request_id,
+                    RequestStateResponse(
+                        state_request_id=request.state_request_id,
                         success=False,
                     )
                 )
@@ -139,31 +141,31 @@ class InvocationStateClient:
             self._logger.error(
                 "failed to process request",
                 exc_info=e,
-                request_id=request.request_id,
+                state_request_id=request.state_request_id,
             )
 
     async def _process_request(
-        self, request: InvocationStateRequest
-    ) -> InvocationStateResponse:
+        self, request: RequestStateRequest
+    ) -> RequestStateResponse:
         self._validate_request(request)
-        # This is a very important check. We don't trust invocation ID and task ID
-        # supplied by Function Executor. If a task ID entry doesn't exist then it's
+        # This is a very important check. We don't trust request ID and allocation ID
+        # supplied by Function Executor. If a allocation ID entry doesn't exist then it's
         # a privelege escalation attempt.
-        invocation_id: str = self._task_id_to_invocation_id[request.task_id]
+        request_id: str = self._allocation_id_to_request_id[request.allocation_id]
         if request.HasField("get"):
             with (
                 metric_server_get_state_request_errors.count_exceptions(),
                 metric_server_get_state_request_latency.time(),
             ):
                 metric_server_get_state_requests.inc()
-                value: Optional[SerializedObject] = await self._get_server_state(
-                    invocation_id, request.get.key
+                value: SerializedObject | None = await self._get_server_state(
+                    request_id, request.get.key
                 )
             await self._client_response_queue.put(
-                InvocationStateResponse(
-                    request_id=request.request_id,
+                RequestStateResponse(
+                    state_request_id=request.state_request_id,
                     success=True,
-                    get=GetInvocationStateResponse(
+                    get=GetRequestStateResponse(
                         key=request.get.key,
                         value=value,
                     ),
@@ -176,19 +178,19 @@ class InvocationStateClient:
             ):
                 metric_server_set_state_requests.inc()
                 await self._set_server_state(
-                    invocation_id, request.set.key, request.set.value
+                    request_id, request.set.key, request.set.value
                 )
             await self._client_response_queue.put(
-                InvocationStateResponse(
-                    request_id=request.request_id,
+                RequestStateResponse(
+                    state_request_id=request.state_request_id,
                     success=True,
-                    set=SetInvocationStateResponse(),
+                    set=SetRequestStateResponse(),
                 )
             )
 
     async def _response_generator(
         self,
-    ) -> AsyncGenerator[InvocationStateResponse, None]:
+    ) -> AsyncGenerator[RequestStateResponse, None]:
         while True:
             response = await self._client_response_queue.get()
             # Hacky cancellation of the generator.
@@ -197,10 +199,10 @@ class InvocationStateClient:
             yield response
 
     async def _set_server_state(
-        self, invocation_id: str, key: str, value: SerializedObject
+        self, request_id: str, key: str, value: SerializedObject
     ) -> None:
         url: str = (
-            f"{self._base_url}/internal/namespaces/{self._namespace}/compute_graphs/{self._graph}/invocations/{invocation_id}/ctx/{key}"
+            f"{self._base_url}/internal/namespaces/{self._namespace}/applications/{self._application_name}/requests/{request_id}/ctx/{key}"
         )
         if (
             value.manifest.encoding
@@ -208,7 +210,7 @@ class InvocationStateClient:
         ):
             raise ValueError(
                 f"Unsupported value encoding: {SerializedObjectEncoding.Name(value.encoding)}. "
-                "Only binary pickle is supported for invocation state values."
+                "Only binary pickle is supported for application request state values."
             )
 
         response = await self._http_client.post(
@@ -225,8 +227,8 @@ class InvocationStateClient:
             response.raise_for_status()
         except Exception as e:
             self._logger.error(
-                "failed to set graph invocation state",
-                invocation_id=invocation_id,
+                "failed to set application request state",
+                request_id=request_id,
                 key=key,
                 status_code=response.status_code,
                 error=response.text,
@@ -235,10 +237,10 @@ class InvocationStateClient:
             raise
 
     async def _get_server_state(
-        self, invocation_id: str, key: str
-    ) -> Optional[SerializedObject]:
+        self, request_id: str, key: str
+    ) -> SerializedObject | None:
         url: str = (
-            f"{self._base_url}/internal/namespaces/{self._namespace}/compute_graphs/{self._graph}/invocations/{invocation_id}/ctx/{key}"
+            f"{self._base_url}/internal/namespaces/{self._namespace}/applications/{self._application_name}/requests/{request_id}/ctx/{key}"
         )
 
         response: httpx.Response = await self._http_client.get(url)
@@ -249,8 +251,8 @@ class InvocationStateClient:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             self._logger.error(
-                f"failed to download graph invocation state value",
-                invocation_id=invocation_id,
+                f"failed to download application request state value",
+                request_id=request_id,
                 key=key,
                 status_code=response.status_code,
                 error=response.text,
@@ -260,11 +262,11 @@ class InvocationStateClient:
 
         return _serialized_object_from_http_response(response)
 
-    def _validate_request(self, request: InvocationStateRequest) -> None:
+    def _validate_request(self, request: RequestStateRequest) -> None:
         (
             MessageValidator(request)
-            .required_field("request_id")
-            .required_field("task_id")
+            .required_field("state_request_id")
+            .required_field("allocation_id")
         )
         if request.HasField("get"):
             (MessageValidator(request.get).required_field("key"))
@@ -290,6 +292,7 @@ def _serialized_object_from_http_response(response: httpx.Response) -> Serialize
             encoding=SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE,
             encoding_version=0,
             size=len(response.content),
+            metadata_size=0,
             # We don't store any hash on the server side right now and it's not safe
             # to compute it here as this is user manipulated data.
             sha256_hash="fake_hash",

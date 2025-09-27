@@ -1,8 +1,9 @@
 import asyncio
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    FunctionRef,
     InitializationFailureReason,
     InitializationOutcomeCode,
     InitializeRequest,
@@ -26,7 +27,7 @@ from indexify.proto.executor_api_pb2 import (
 )
 
 from .aio_utils import shielded_await
-from .downloads import download_graph
+from .downloads import download_application_code
 from .events import FunctionExecutorCreated
 
 
@@ -135,22 +136,22 @@ def _to_fe_created_event(
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
         )
 
-    # Print FE logs directly to Executor logs so operators can see them.
-    # Uncomment these lines once we stop printing FE logs to stdout/stderr.
-    # logger.info("Function Executor logs during initialization:")
-    # print(initialize_response.diagnostics.function_executor_log)
-
-    fe_termination_reason: Optional[FunctionExecutorTerminationReason] = None
     if (
         initialize_response.outcome_code
-        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE
+        == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_SUCCESS
     ):
+        return FunctionExecutorCreated(
+            function_executor=function_executor,
+            fe_termination_reason=None,
+        )
+    else:
         if (
             initialize_response.failure_reason
             == InitializationFailureReason.INITIALIZATION_FAILURE_REASON_FUNCTION_ERROR
         ):
-            fe_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            return FunctionExecutorCreated(
+                function_executor=None,
+                fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
             )
         else:
             # Treat all other failure reasons as grey failures. Report them as function errors to prevent service abuse.
@@ -161,14 +162,10 @@ def _to_fe_created_event(
                     initialize_response.failure_reason
                 ),
             )
-            fe_termination_reason = (
-                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
+            return FunctionExecutorCreated(
+                function_executor=None,
+                fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR,
             )
-
-    return FunctionExecutorCreated(
-        function_executor=function_executor,
-        fe_termination_reason=fe_termination_reason,
-    )
 
 
 async def _create_function_executor(
@@ -185,7 +182,7 @@ async def _create_function_executor(
 
     Raises Exception on internal Executor error.
     """
-    graph: SerializedObject = await download_graph(
+    application_code: SerializedObject = await download_application_code(
         function_executor_description=function_executor_description,
         cache_path=cache_path,
         blob_store=blob_store,
@@ -199,10 +196,10 @@ async def _create_function_executor(
     config: FunctionExecutorServerConfiguration = FunctionExecutorServerConfiguration(
         executor_id=executor_id,
         function_executor_id=function_executor_description.id,
-        namespace=function_executor_description.namespace,
-        graph_name=function_executor_description.graph_name,
-        graph_version=function_executor_description.graph_version,
-        function_name=function_executor_description.function_name,
+        namespace=function_executor_description.function.namespace,
+        application_name=function_executor_description.function.application_name,
+        application_version=function_executor_description.function.application_version,
+        function_name=function_executor_description.function.function_name,
         secret_names=list(function_executor_description.secret_names),
         cpu_ms_per_sec=function_executor_description.resources.cpu_ms_per_sec,
         memory_bytes=function_executor_description.resources.memory_bytes,
@@ -211,14 +208,16 @@ async def _create_function_executor(
     )
 
     initialize_request: InitializeRequest = InitializeRequest(
-        namespace=function_executor_description.namespace,
-        graph_name=function_executor_description.graph_name,
-        graph_version=function_executor_description.graph_version,
-        function_name=function_executor_description.function_name,
-        graph=graph,
+        function=FunctionRef(
+            namespace=function_executor_description.function.namespace,
+            application_name=function_executor_description.function.application_name,
+            application_version=function_executor_description.function.application_version,
+            function_name=function_executor_description.function.function_name,
+        ),
+        application_code=application_code,
     )
     customer_code_timeout_sec: float = (
-        function_executor_description.customer_code_timeout_ms / 1000.0
+        function_executor_description.initialization_timeout_ms / 1000.0
     )
 
     function_executor: FunctionExecutor = FunctionExecutor(
@@ -257,7 +256,7 @@ def _validate_initialize_response(
     Raises ValueError if the response is not valid.
     """
     validator: MessageValidator = MessageValidator(response)
-    (validator.required_field("outcome_code").required_field("diagnostics"))
+    (validator.required_field("outcome_code"))
     if (
         response.outcome_code
         == InitializationOutcomeCode.INITIALIZATION_OUTCOME_CODE_FAILURE

@@ -1,8 +1,11 @@
+from collections.abc import Iterable
+
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
     FunctionExecutorDescription,
+    FunctionRef,
     TaskAllocation,
 )
 
@@ -16,17 +19,17 @@ def validate_function_executor_description(
     """
     validator = MessageValidator(function_executor_description)
     validator.required_field("id")
-    validator.required_field("namespace")
-    validator.required_field("graph_name")
-    validator.required_field("graph_version")
-    validator.required_field("function_name")
+    validator.required_field("function")
+    _validate_function_ref(function_executor_description.function)
     # secret_names can be empty.
-    validator.required_field("customer_code_timeout_ms")
-    validator.required_field("graph")
+    validator.required_field("initialization_timeout_ms")
+    validator.required_field("application")
     validator.required_field("resources")
+    validator.required_field("output_payload_uri_prefix")
     validator.required_field("max_concurrency")
+    validator.required_field("allocation_timeout_ms")
 
-    _validate_data_payload(function_executor_description.graph)
+    _validate_data_payload(function_executor_description.application)
 
     validator = MessageValidator(function_executor_description.resources)
     validator.required_field("cpu_ms_per_sec")
@@ -39,32 +42,30 @@ def validate_function_executor_description(
         validator.required_field("model")
 
 
-def validate_task_allocation(task_allocation: TaskAllocation) -> None:
+def validate_task_allocation(alloc: TaskAllocation) -> None:
     """Validates the supplied TaskAllocation.
 
     Raises ValueError if the TaskAllocation is not valid.
     """
-    validator = MessageValidator(task_allocation)
-    validator.required_field("function_executor_id")
+    validator = MessageValidator(alloc)
+    validator.required_field("function")
+    _validate_function_ref(alloc.function)
     validator.required_field("allocation_id")
-    if not task_allocation.HasField("task"):
-        raise ValueError("TaskAllocation must have a 'task' field.")
-
-    validator = MessageValidator(task_allocation.task)
-    validator.required_field("id")
-    validator.required_field("namespace")
-    validator.required_field("graph_name")
-    validator.required_field("graph_version")
-    validator.required_field("function_name")
-    validator.required_field("graph_invocation_id")
-    validator.required_field("timeout_ms")
-    validator.required_field("input")
+    validator.required_field("task_id")
+    validator.required_field("request_id")
+    _validate_data_payloads(alloc.args, field_name="TaskAllocation.args")
     validator.required_field("output_payload_uri_prefix")
-    validator.required_field("retry_policy")
+    validator.required_field("request_error_payload_uri_prefix")
+    validator.required_field("function_executor_id")
+    validator.required_field("function_call_metadata")
 
-    _validate_data_payload(task_allocation.task.input)
-    if task_allocation.task.HasField("reducer_input"):
-        _validate_data_payload(task_allocation.task.reducer_input)
+
+def _validate_data_payloads(
+    data_payloads: Iterable[DataPayload], field_name: str
+) -> None:
+    """Validates the supplied iterable of DataPayloads."""
+    for data_payload in data_payloads:
+        _validate_data_payload(data_payload)
 
 
 def _validate_data_payload(data_payload: DataPayload) -> None:
@@ -74,11 +75,28 @@ def _validate_data_payload(data_payload: DataPayload) -> None:
     """
     (
         MessageValidator(data_payload)
-        .required_field("size")
-        .required_field("sha256_hash")
         .required_field("uri")
         .required_field("encoding")
-        # Ignored by Server right now and not set.
-        # .required_field("encoding_version")
+        .required_field("encoding_version")
+        # content_type is optional.
+        # metadata_size is optional.
         .required_field("offset")
+        .required_field("size")
+        .required_field("sha256_hash")
+        # source_function_call_id is not used
+        # id is not used
+    )
+
+
+def _validate_function_ref(function_ref: FunctionRef) -> None:
+    """Validates the supplied FunctionRef.
+
+    Raises ValueError if the FunctionRef is not valid.
+    """
+    (
+        MessageValidator(function_ref)
+        .required_field("namespace")
+        .required_field("application_name")
+        .required_field("function_name")
+        # application_version is not always set by Server.
     )

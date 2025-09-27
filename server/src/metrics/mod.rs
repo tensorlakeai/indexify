@@ -52,6 +52,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub struct CounterGuard<'a, F>
 where
     F: Fn(&str, i64),
@@ -131,13 +132,11 @@ pub fn init_provider(
 pub mod api_io_stats {
     use opentelemetry::metrics::Counter;
 
-    #[allow(dead_code)]
     #[derive(Debug)]
     pub struct Metrics {
         pub invocations: Counter<u64>,
         pub invocation_bytes: Counter<u64>,
         pub fn_outputs: Counter<u64>,
-        pub fn_output_bytes: Counter<u64>,
     }
 
     impl Default for Metrics {
@@ -161,15 +160,10 @@ pub mod api_io_stats {
                 .u64_counter("indexify.fn_outputs")
                 .with_description("number of fn outputs")
                 .build();
-            let fn_output_bytes = meter
-                .u64_counter("indexify.fn_output_bytes")
-                .with_description("number of bytes ingested for fn outputs")
-                .build();
             Metrics {
                 invocations,
                 invocation_bytes,
                 fn_outputs,
-                fn_output_bytes,
             }
         }
     }
