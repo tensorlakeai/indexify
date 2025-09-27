@@ -17,7 +17,7 @@ impl Operator {
         match operator {
             "==" => Ok(Self::Eq),
             "!=" => Ok(Self::Neq),
-            _ => Err(anyhow::anyhow!("Invalid filter operator: {}", operator)),
+            _ => Err(anyhow::anyhow!("Invalid filter operator: {operator}")),
         }
     }
 }
@@ -81,7 +81,7 @@ impl Expression {
                 operator,
             });
         }
-        Err(anyhow::anyhow!("Invalid label filter: {}", str))
+        Err(anyhow::anyhow!("Invalid label filter: {str}"))
     }
 }
 

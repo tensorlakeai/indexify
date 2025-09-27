@@ -8,8 +8,13 @@ mod tests {
     use crate::{
         assert_task_counts,
         data_model::{
-            test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
-            Task,
+            test_objects::tests::{
+                mock_data_payload,
+                mock_executor_metadata,
+                mock_updates,
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+            },
             TaskFailureReason,
             TaskOutcome,
         },
@@ -108,7 +113,7 @@ mod tests {
 
         // Add an executor...
         test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -129,7 +134,7 @@ mod tests {
 
         // register executor
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -141,8 +146,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Success),
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        Some(mock_updates()),
+                        None,
+                    )
+                    .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
 
@@ -151,7 +160,7 @@ mod tests {
             assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
-        // finalize the remaining tasks
+        // finalize tasks for fn_b and fn_c
         {
             let desired_state = executor.desired_state().await;
             assert_eq!(desired_state.task_allocations.len(), 2,);
@@ -160,28 +169,54 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(allocation_key_from_proto(&task_allocation))
-                            .task_outcome(TaskOutcome::Success),
+                        FinalizeTaskArgs::new(
+                            allocation_key_from_proto(&task_allocation),
+                            None,
+                            Some(mock_data_payload()),
+                        )
+                        .task_outcome(TaskOutcome::Success),
                     )
                     .await?;
             }
 
             test_srv.process_all_state_changes().await?;
         }
+        // finalize task for fn_d
+        {
+            let desired_state = executor.desired_state().await;
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+            executor
+                .finalize_task(
+                    task_allocation,
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        None,
+                        Some(mock_data_payload()),
+                    )
+                    .task_outcome(TaskOutcome::Success),
+                )
+                .await?;
+
+            test_srv.process_all_state_changes().await?;
+        }
 
         // check for completion
         {
-            let tasks = indexify_state
+            let function_runs = indexify_state
                 .reader()
-                .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
+                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)
                 .unwrap()
-                .0;
-            assert_eq!(tasks.len(), 3, "{tasks:#?}");
-            let successful_tasks: Vec<Task> = tasks
+                .unwrap()
+                .function_runs
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
+            let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == TaskOutcome::Success)
-                .collect();
-            assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
+                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .collect::<Vec<_>>();
+            assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -195,7 +230,7 @@ mod tests {
                 .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
                 .unwrap();
 
-            assert!(invocation.completed);
+            assert!(invocation.outcome.is_some());
         }
 
         Ok(())
@@ -211,11 +246,30 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register an executor
-        test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+        let executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
 
         test_srv.process_all_state_changes().await?;
+
+        {
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.task_allocations.len(), 1,);
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+            executor
+                .finalize_task(
+                    task_allocation,
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        None,
+                        Some(mock_data_payload()),
+                    )
+                    .task_outcome(TaskOutcome::Success),
+                )
+                .await?;
+
+            test_srv.process_all_state_changes().await?;
+        }
 
         // delete the graph...
         indexify_state
@@ -236,7 +290,7 @@ mod tests {
         assert_cf_counts(
             indexify_state.db.clone(),
             HashMap::from([
-                (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 1), // input
+                (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 3), // input
             ]),
         )?;
 
@@ -254,7 +308,7 @@ mod tests {
 
         // register executor
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -271,8 +325,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Success),
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        Some(mock_updates()),
+                        None,
+                    )
+                    .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
 
@@ -295,29 +353,52 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(allocation_key_from_proto(&task_allocation))
-                            .task_outcome(TaskOutcome::Success)
-                            .diagnostics(true, true),
+                        FinalizeTaskArgs::new(
+                            allocation_key_from_proto(&task_allocation),
+                            None,
+                            Some(mock_data_payload()),
+                        )
+                        .task_outcome(TaskOutcome::Success),
                     )
                     .await?;
             }
 
             test_srv.process_all_state_changes().await?;
         }
+        {
+            let desired_state = executor.desired_state().await;
+            let task_allocation = desired_state.task_allocations.first().unwrap();
+            executor
+                .finalize_task(
+                    task_allocation,
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        None,
+                        Some(mock_data_payload()),
+                    )
+                    .task_outcome(TaskOutcome::Success),
+                )
+                .await?;
+            test_srv.process_all_state_changes().await?;
+        }
 
         // check for completion
         {
-            let tasks = indexify_state
+            let function_runs = indexify_state
                 .reader()
-                .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
+                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)
                 .unwrap()
-                .0;
-            assert_eq!(tasks.len(), 3, "{tasks:#?}");
-            let successful_tasks: Vec<Task> = tasks
+                .unwrap()
+                .function_runs
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
+            let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == TaskOutcome::Success)
-                .collect();
-            assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
+                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .collect::<Vec<_>>();
+            assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -331,7 +412,7 @@ mod tests {
                 .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
                 .unwrap();
 
-            assert!(invocation.completed);
+            assert!(invocation.outcome.is_some());
         }
 
         // Delete graph and expect everything to be deleted
@@ -352,9 +433,8 @@ mod tests {
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([
-                    (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 8), /* 1x input, 3x
-                                                                               * output, 4x
-                                                                               * diagnostics */
+                    (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 7), /* 1x input, 3x
+                                                                               * output */
                 ]),
             )?;
         }
@@ -373,7 +453,7 @@ mod tests {
 
         // register executor
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -396,8 +476,13 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        None,
+                        None,
+                        //"fn_b".to_string(),
+                    )
+                    .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
                 )
                 .await?;
 
@@ -420,7 +505,7 @@ mod tests {
                 .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
                 .unwrap();
 
-            assert!(invocation.completed);
+            assert!(invocation.outcome.is_some());
         }
 
         Ok(())
@@ -442,7 +527,7 @@ mod tests {
 
         // register executor
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -451,7 +536,7 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.get_all_tasks().await?;
+            let tasks = test_srv.get_all_function_runs().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
@@ -466,8 +551,12 @@ mod tests {
                 executor
                     .finalize_task(
                         task_allocation,
-                        FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                            .task_outcome(TaskOutcome::Failure(reason)),
+                        FinalizeTaskArgs::new(
+                            allocation_key_from_proto(task_allocation),
+                            None,
+                            None,
+                        )
+                        .task_outcome(TaskOutcome::Failure(reason)),
                     )
                     .await?;
 
@@ -477,9 +566,13 @@ mod tests {
             // validate the task retry attempt number was incremented
             // if it was less than the retry max
             if attempt_number < max_retries {
-                let tasks = test_srv.get_all_tasks().await?;
-                assert_eq!(1, tasks.len());
-                assert_eq!(attempt_number + 1, tasks.first().unwrap().attempt_number);
+                let function_runs = test_srv.get_all_function_runs().await?;
+                assert_eq!(1, function_runs.len());
+                println!("function_runs: {:?}", function_runs);
+                assert_eq!(
+                    attempt_number + 1,
+                    function_runs.first().unwrap().attempt_number
+                );
             }
 
             attempt_number += 1;
@@ -501,7 +594,7 @@ mod tests {
                 .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
                 .unwrap();
 
-            assert!(invocation.completed);
+            assert!(invocation.outcome.is_some());
         }
 
         Ok(())
@@ -552,7 +645,7 @@ mod tests {
 
         // register executor
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -564,7 +657,7 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.get_all_tasks().await?;
+            let tasks = test_srv.get_all_function_runs().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
@@ -578,7 +671,7 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
+                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation), None, None)
                         .task_outcome(TaskOutcome::Failure(reason)),
                 )
                 .await?;
@@ -588,7 +681,7 @@ mod tests {
 
         // validate the task retry attempt number was not changed
         {
-            let tasks = test_srv.get_all_tasks().await?;
+            let tasks = test_srv.get_all_function_runs().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
@@ -641,7 +734,7 @@ mod tests {
         // register executor1, task assigned to it
         let executor1 = {
             let executor1 = test_srv
-                .create_executor(test_executor_metadata("executor_1".into()))
+                .create_executor(mock_executor_metadata("executor_1".into()))
                 .await?;
             test_srv.process_all_state_changes().await?;
 
@@ -659,7 +752,7 @@ mod tests {
         // register executor2, no tasks assigned to it
         let mut executor2 = {
             let executor2 = test_srv
-                .create_executor(test_executor_metadata("executor_2".into()))
+                .create_executor(mock_executor_metadata("executor_2".into()))
                 .await?;
             test_srv.process_all_state_changes().await?;
 

@@ -4,8 +4,9 @@ use tracing::{debug, info_span, warn};
 use crate::{
     data_model::{
         AllocationBuilder,
+        FunctionRun,
+        GraphInvocationCtx,
         RunningTaskStatus,
-        Task,
         TaskFailureReason,
         TaskOutcome,
         TaskStatus,
@@ -32,13 +33,21 @@ impl<'a> TaskAllocationProcessor<'a> {
     #[tracing::instrument(skip(self, in_memory_state))]
     pub fn allocate(&self, in_memory_state: &mut InMemoryState) -> Result<SchedulerUpdateRequest> {
         // Step 1: Fetch unallocated tasks
-        let tasks = in_memory_state.unallocated_tasks();
+        let function_runs = in_memory_state.unallocated_function_runs();
 
         // Step 2: Allocate tasks
         let mut update = SchedulerUpdateRequest::default();
 
-        for task in tasks {
-            match self.create_allocation(in_memory_state, &task) {
+        for function_run in function_runs {
+            let Some(mut ctx) = in_memory_state
+                .invocation_ctx
+                .get(&function_run.clone().into())
+                .cloned()
+            else {
+                continue;
+            };
+
+            match self.create_allocation(in_memory_state, &function_run, &mut ctx) {
                 Ok(allocation_update) => {
                     update.extend(allocation_update);
                 }
@@ -48,9 +57,9 @@ impl<'a> TaskAllocationProcessor<'a> {
                         err.downcast_ref::<state_store::in_memory_state::Error>()
                     {
                         warn!(
-                            task_id = task.id.get(),
-                            namespace = task.namespace,
-                            graph = task.compute_graph_name,
+                            function_call_id = function_run.id.to_string(),
+                            namespace = function_run.namespace,
+                            graph = function_run.application,
                             graph_version = state_store_error.version(),
                             "fn" = state_store_error.function_name(),
                             error = %state_store_error,
@@ -66,34 +75,19 @@ impl<'a> TaskAllocationProcessor<'a> {
                             state_store::in_memory_state::Error::ConstraintUnsatisfiable { .. }
                         ) {
                             // Fail the task
-                            let mut failed_task = task.clone();
-                            failed_task.status = TaskStatus::Completed;
-                            failed_task.outcome =
-                                TaskOutcome::Failure(TaskFailureReason::ConstraintUnsatisfiable);
+                            let mut failed_function_run = function_run.clone();
+                            failed_function_run.status = TaskStatus::Completed;
+                            failed_function_run.outcome = Some(TaskOutcome::Failure(
+                                TaskFailureReason::ConstraintUnsatisfiable,
+                            ));
 
-                            // Add the failed task to the update
-                            update
-                                .updated_tasks
-                                .insert(failed_task.id.clone(), failed_task);
-
-                            // Get the invocation context and fail it
-                            let invocation_key = crate::data_model::GraphInvocationCtx::key_from(
-                                &task.namespace,
-                                &task.compute_graph_name,
-                                &task.invocation_id,
+                            // Add the failed function run to the update
+                            ctx.outcome = Some(
+                                crate::data_model::GraphInvocationOutcome::Failure(
+                                    crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
+                                )
                             );
-                            if let Some(invocation_ctx_box) =
-                                in_memory_state.invocation_ctx.get(&invocation_key)
-                            {
-                                let mut invocation_ctx = (**invocation_ctx_box).clone();
-                                invocation_ctx.complete_invocation(
-                                    true, // force_complete
-                                    crate::data_model::GraphInvocationOutcome::Failure(
-                                        crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
-                                    )
-                                );
-                                update.updated_invocations_states.push(invocation_ctx);
-                            }
+                            update.add_function_run(failed_function_run.clone(), &mut ctx);
                         }
 
                         continue;
@@ -110,16 +104,17 @@ impl<'a> TaskAllocationProcessor<'a> {
     fn create_allocation(
         &self,
         in_memory_state: &mut InMemoryState,
-        task: &Task,
+        function_run: &FunctionRun,
+        ctx: &mut GraphInvocationCtx,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "create_allocation",
-            namespace = task.namespace,
-            task_id = task.id.get(),
-            invocation_id = task.invocation_id,
-            graph = task.compute_graph_name,
-            "fn" = task.compute_fn_name,
-            graph_version = task.graph_version.to_string(),
+            namespace = function_run.namespace,
+            function_call_id = function_run.id.to_string(),
+            request_id = function_run.request_id,
+            graph = function_run.application,
+            "fn" = function_run.name,
+            graph_version = function_run.graph_version.to_string(),
         );
         let _guard = span.enter();
 
@@ -128,33 +123,33 @@ impl<'a> TaskAllocationProcessor<'a> {
         // Use FunctionExecutorManager to handle function executor selection/creation
         let (selected_target, fe_update) = self
             .fe_manager
-            .select_or_create_function_executor(in_memory_state, task)?;
+            .select_or_create_function_executor(in_memory_state, function_run)?;
         update.extend(fe_update);
 
         let Some(target) = selected_target else {
             return Ok(update);
         };
         let allocation = AllocationBuilder::default()
-            .namespace(task.namespace.clone())
-            .compute_graph(task.compute_graph_name.clone())
-            .compute_fn(task.compute_fn_name.clone())
-            .invocation_id(task.invocation_id.clone())
-            .task_id(task.id.clone())
+            .namespace(function_run.namespace.clone())
+            .compute_graph(function_run.application.clone())
+            .compute_fn(function_run.name.clone())
+            .invocation_id(function_run.request_id.clone())
+            .function_call_id(function_run.id.clone())
+            .call_metadata(function_run.call_metadata.clone())
+            .input_args(function_run.input_args.clone())
             .target(target)
-            .attempt_number(task.attempt_number)
+            .attempt_number(function_run.attempt_number)
             .outcome(TaskOutcome::Unknown)
             .build()?;
 
         debug!(allocation_id = %allocation.id, "created allocation");
 
-        let mut updated_task = task.clone();
-        updated_task.status = TaskStatus::Running(RunningTaskStatus {
+        let mut updated_function_run = function_run.clone();
+        updated_function_run.status = TaskStatus::Running(RunningTaskStatus {
             allocation_id: allocation.id.clone(),
         });
 
-        update
-            .updated_tasks
-            .insert(updated_task.id.clone(), updated_task.clone());
+        update.add_function_run(updated_function_run.clone(), ctx);
         update.new_allocations.push(allocation);
         in_memory_state.update_state(
             self.clock,

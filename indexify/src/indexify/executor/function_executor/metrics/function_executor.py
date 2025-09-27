@@ -105,29 +105,29 @@ metric_initialize_rpc_errors: prometheus_client.Counter = prometheus_client.Coun
     "Number of Function Executor initialize RPC errors",
 )
 
-# FE invocation state client creation and destruction metrics.
-metric_create_invocation_state_client_latency: prometheus_client.Histogram = (
+# FE request state client creation and destruction metrics.
+metric_create_request_state_client_latency: prometheus_client.Histogram = (
     latency_metric_for_fast_operation(
-        "function_executor_create_invocation_state_client",
-        "Function Executor invocation state client creation",
+        "function_executor_create_request_state_client",
+        "Function Executor request state client creation",
     )
 )
-metric_create_invocation_state_client_errors: prometheus_client.Counter = (
+metric_create_request_state_client_errors: prometheus_client.Counter = (
     prometheus_client.Counter(
-        "function_executor_create_invocation_state_client_errors",
-        "Number of Function Executor invocation state client creation errors",
+        "function_executor_create_request_state_client_errors",
+        "Number of Function Executor request state client creation errors",
     )
 )
-metric_destroy_invocation_state_client_latency: prometheus_client.Histogram = (
+metric_destroy_request_state_client_latency: prometheus_client.Histogram = (
     latency_metric_for_fast_operation(
-        "function_executor_destroy_invocation_state_client",
-        "Function Executor invocation state client destruction",
+        "function_executor_destroy_request_state_client",
+        "Function Executor request state client destruction",
     )
 )
-metric_destroy_invocation_state_client_errors: prometheus_client.Counter = (
+metric_destroy_request_state_client_errors: prometheus_client.Counter = (
     prometheus_client.Counter(
-        "function_executor_destroy_invocation_state_client_errors",
-        "Number of Function Executor invocation state client destruction errors",
+        "function_executor_destroy_request_state_client_errors",
+        "Number of Function Executor request state client destruction errors",
     )
 )
 

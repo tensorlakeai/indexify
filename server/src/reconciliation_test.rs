@@ -6,7 +6,12 @@ mod tests {
         assert_executor_state,
         assert_task_counts,
         data_model::{
-            test_objects::tests::{test_executor_metadata, TEST_EXECUTOR_ID, TEST_NAMESPACE},
+            test_objects::tests::{
+                mock_executor_metadata,
+                mock_updates,
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+            },
             FunctionAllowlist,
             FunctionExecutorState,
             FunctionExecutorTerminationReason,
@@ -33,7 +38,7 @@ mod tests {
 
         // Register executor in dev mode - task should be allocated
         let executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -47,8 +52,12 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                    .task_outcome(TaskOutcome::Success),
+                FinalizeTaskArgs::new(
+                    allocation_key_from_proto(task_allocation),
+                    Some(mock_updates()),
+                    None,
+                )
+                .task_outcome(TaskOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -70,7 +79,7 @@ mod tests {
         assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Register executor with non-dev mode and specific allowlist
-        let mut executor_meta = test_executor_metadata(TEST_EXECUTOR_ID.into());
+        let mut executor_meta = mock_executor_metadata(TEST_EXECUTOR_ID.into());
         executor_meta.function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some(TEST_NAMESPACE.to_string()),
             compute_graph_name: Some("graph_A".to_string()),
@@ -91,8 +100,12 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                    .task_outcome(TaskOutcome::Success),
+                FinalizeTaskArgs::new(
+                    allocation_key_from_proto(task_allocation),
+                    Some(mock_updates()),
+                    None,
+                )
+                .task_outcome(TaskOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -116,7 +129,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Register first executor with no allowlist
-        let mut executor1_meta = test_executor_metadata("executor_1".into());
+        let mut executor1_meta = mock_executor_metadata("executor_1".into());
         executor1_meta.function_allowlist = None;
 
         let executor1 = test_srv.create_executor(executor1_meta).await?;
@@ -127,7 +140,7 @@ mod tests {
 
         // Register second executor
         let executor2 = test_srv
-            .create_executor(test_executor_metadata("executor_2".into()))
+            .create_executor(mock_executor_metadata("executor_2".into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -165,7 +178,7 @@ mod tests {
 
         // Register executor in dev mode
         let mut executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -181,8 +194,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation))
-                        .task_outcome(TaskOutcome::Success),
+                    FinalizeTaskArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        Some(mock_updates()),
+                        None,
+                    )
+                    .task_outcome(TaskOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;
@@ -244,7 +261,7 @@ mod tests {
 
         // register executor
         let mut executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -253,9 +270,12 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.get_all_tasks().await?;
-            assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
+            let function_runs = test_srv.get_all_function_runs().await?;
+            assert_eq!(1, function_runs.len());
+            assert_eq!(
+                attempt_number,
+                function_runs.first().unwrap().attempt_number
+            );
         }
 
         // loop over retries
@@ -279,9 +299,12 @@ mod tests {
             // validate the task retry attempt number was incremented
             // if it was less than the retry max
             if attempt_number < max_retries {
-                let tasks = test_srv.get_all_tasks().await?;
-                assert_eq!(1, tasks.len());
-                assert_eq!(attempt_number + 1, tasks.first().unwrap().attempt_number);
+                let function_runs = test_srv.get_all_function_runs().await?;
+                assert_eq!(1, function_runs.len());
+                assert_eq!(
+                    attempt_number + 1,
+                    function_runs.first().unwrap().attempt_number
+                );
             }
 
             attempt_number += 1;
@@ -303,7 +326,7 @@ mod tests {
                 .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
                 .unwrap();
 
-            assert!(invocation.completed);
+            assert!(invocation.outcome.is_some());
         }
 
         Ok(())
@@ -451,7 +474,7 @@ mod tests {
 
         // register executor
         let mut executor = test_srv
-            .create_executor(test_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -463,7 +486,7 @@ mod tests {
 
         // validate the initial task retry attempt number
         {
-            let tasks = test_srv.get_all_tasks().await?;
+            let tasks = test_srv.get_all_function_runs().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }
@@ -487,7 +510,7 @@ mod tests {
 
         // validate the task retry attempt number was not changed
         {
-            let tasks = test_srv.get_all_tasks().await?;
+            let tasks = test_srv.get_all_function_runs().await?;
             assert_eq!(1, tasks.len());
             assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
         }

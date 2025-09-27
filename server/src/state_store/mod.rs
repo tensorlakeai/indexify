@@ -122,7 +122,7 @@ where
 impl IndexifyState {
     pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
-            .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
+            .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
 
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
@@ -205,7 +205,7 @@ impl IndexifyState {
                     tracing::Level::INFO,
                     "invoke_compute_graph",
                     namespace = invoke_compute_graph_request.namespace.clone(),
-                    invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
+                    invocation_id = invoke_compute_graph_request.ctx.request_id.clone(),
                     graph = invoke_compute_graph_request.compute_graph_name.clone(),
                 );
                 state_machine::create_invocation(&txn, invoke_compute_graph_request)?;
@@ -221,7 +221,7 @@ impl IndexifyState {
                 state_machine::create_or_update_compute_graph(
                     &txn,
                     req.compute_graph.clone(),
-                    req.upgrade_tasks_to_current_version,
+                    req.upgrade_requests_to_current_version,
                 )?;
             }
             RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
@@ -233,14 +233,9 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::UpsertExecutor(request) => {
-                for fe_diagnostics in &request.function_executor_diagnostics {
-                    state_machine::upsert_function_executor_diagnostics(&txn, fe_diagnostics)?;
-                }
-
                 for allocation_output in &request.allocation_outputs {
-                    state_machine::ingest_task_outputs(&txn, allocation_output.clone())?;
+                    state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
                 }
-
                 if request.update_executor_state {
                     self.executor_states
                         .write()
@@ -287,7 +282,7 @@ impl IndexifyState {
             .write()
             .await
             .update_state(current_state_id, &request.payload, "state_store")
-            .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
+            .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
         // Notify the executors with state changes
         {
             let mut executor_states = self.executor_states.write().await;
@@ -300,10 +295,7 @@ impl IndexifyState {
 
         if !new_state_changes.is_empty() {
             if let Err(err) = self.change_events_tx.send(()) {
-                error!(
-                    "failed to notify of state change event, ignoring: {:?}",
-                    err
-                );
+                error!("failed to notify of state change event, ignoring: {err:?}",);
             }
         }
 
@@ -332,7 +324,7 @@ impl IndexifyState {
                     .task_event_tx
                     .send(InvocationStateChangeEvent::RequestStarted(
                         RequestStartedEvent {
-                            request_id: request.invocation_payload.id.clone(),
+                            request_id: request.ctx.request_id.clone(),
                         },
                     ));
             }
@@ -351,44 +343,42 @@ impl IndexifyState {
                             invocation_events::TaskAssigned {
                                 request_id: allocation.invocation_id.clone(),
                                 fn_name: allocation.compute_fn.clone(),
-                                task_id: allocation.task_id.get().to_string(),
+                                task_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
                             },
                         ));
                 }
 
-                for task in sched_update.updated_tasks.values() {
-                    if sched_update.cached_task_keys.contains(&task.key()) {
-                        let _ =
-                            self.task_event_tx
-                                .send(InvocationStateChangeEvent::TaskMatchedCache(
-                                    invocation_events::TaskMatchedCache {
-                                        request_id: task.invocation_id.clone(),
-                                        fn_name: task.compute_fn_name.clone(),
-                                        task_id: task.id.to_string(),
-                                    },
-                                ));
-                    } else {
-                        let _ = self
-                            .task_event_tx
-                            .send(InvocationStateChangeEvent::TaskCreated(
-                                invocation_events::TaskCreated {
-                                    request_id: task.invocation_id.clone(),
-                                    fn_name: task.compute_fn_name.clone(),
-                                    task_id: task.id.to_string(),
-                                },
-                            ));
+                for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
+                    for function_call_id in function_call_ids {
+                        let ctx = sched_update
+                            .updated_invocations_states
+                            .get(ctx_key)
+                            .cloned();
+                        let function_run =
+                            ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
+                        if let Some(function_run) = function_run {
+                            let _ =
+                                self.task_event_tx
+                                    .send(InvocationStateChangeEvent::TaskCreated(
+                                        invocation_events::TaskCreated {
+                                            request_id: function_run.request_id.clone(),
+                                            fn_name: function_run.name.clone(),
+                                            task_id: function_run.id.to_string(),
+                                        },
+                                    ));
+                        }
                     }
                 }
 
-                for invocation_ctx in &sched_update.updated_invocations_states {
-                    if invocation_ctx.completed {
+                for invocation_ctx in sched_update.updated_invocations_states.values() {
+                    if invocation_ctx.outcome.is_some() {
                         let _ =
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::RequestFinished(
                                     RequestFinishedEvent {
-                                        request_id: invocation_ctx.invocation_id.clone(),
+                                        request_id: invocation_ctx.request_id.clone(),
                                     },
                                 ));
                     }
@@ -419,14 +409,16 @@ mod tests {
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
-            test_graph_a,
-            test_invocation_payload_graph_a,
+            mock_data_payload,
+            mock_function_call,
+            mock_graph,
             TEST_EXECUTOR_ID,
             TEST_NAMESPACE,
         },
         ComputeGraph,
         GraphInvocationCtxBuilder,
         GraphVersion,
+        InputArgs,
         Namespace,
         StateChangeId,
     };
@@ -480,7 +472,7 @@ mod tests {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
         // Create a compute graph and write it
-        let compute_graph = test_graph_a();
+        let compute_graph = mock_graph();
         _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
@@ -491,7 +483,7 @@ mod tests {
 
         for i in 2..4 {
             // Update the graph
-            let mut compute_graph = test_graph_a();
+            let mut compute_graph = mock_graph();
             compute_graph.version = GraphVersion(i.to_string());
 
             _write_to_test_state_store(&indexify_state, compute_graph).await?;
@@ -512,19 +504,37 @@ mod tests {
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         let tx = indexify_state.db.transaction();
+        let function_run = tests::mock_graph()
+            .to_version()
+            .unwrap()
+            .create_function_run(
+                &mock_function_call(),
+                vec![InputArgs {
+                    function_call_id: None,
+                    data_payload: mock_data_payload(),
+                }],
+                "foo1",
+            )?;
+
         let ctx = GraphInvocationCtxBuilder::default()
             .namespace("namespace1".to_string())
             .compute_graph_name("cg1".to_string())
-            .invocation_id("foo1".to_string())
+            .request_id("foo1".to_string())
+            .function_calls(HashMap::from([(
+                function_run.id.clone(),
+                mock_function_call(),
+            )]))
+            .function_runs(HashMap::from([(
+                function_run.id.clone(),
+                function_run.clone(),
+            )]))
             .graph_version(GraphVersion("1".to_string()))
-            .fn_task_analytics(tests::test_graph_a().fn_task_analytics())
             .build()?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
-                invocation_payload: test_invocation_payload_graph_a(),
                 ctx: ctx.clone(),
             },
         )
@@ -547,7 +557,6 @@ mod tests {
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
-                invocation_payload: test_invocation_payload_graph_a(),
                 ctx: ctx.clone(),
             },
         )
@@ -591,17 +600,11 @@ mod tests {
             "Namespaces",
             "ComputeGraphs",
             "ComputeGraphVersions",
-            "Tasks",
             "GraphInvocationCtx",
             "GraphInvocationCtxSecondaryIndex",
-            "ReductionTasks",
-            "GraphInvocations",
-            "FnOutputs",
             "UnprocessedStateChanges",
             "Allocations",
-            "FunctionExecutorDiagnostics",
             "GcUrls",
-            "SystemTasks",
             "Stats",
         ];
 
@@ -660,7 +663,7 @@ mod tests {
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         compute_graph: compute_graph.clone(),
-                        upgrade_tasks_to_current_version: false,
+                        upgrade_requests_to_current_version: false,
                     },
                 )),
             })

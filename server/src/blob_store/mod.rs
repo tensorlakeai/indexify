@@ -174,15 +174,13 @@ impl BlobStorage {
         let get_result = client_clone
             .get_opts(&path.into(), options)
             .await
-            .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", path, e))?;
+            .map_err(|e| anyhow!("can't get s3 object {path:?}: {e:?}"))?;
         let path = path.to_string();
         tokio::spawn(async move {
             let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
                 let _ =
-                    tx.send(chunk.map_err(|e| {
-                        anyhow!("error reading s3 object {:?}: {:?}", path.clone(), e)
-                    }));
+                    tx.send(chunk.map_err(|e| anyhow!("error reading s3 object {path:?}: {e:?}")));
             }
         });
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))

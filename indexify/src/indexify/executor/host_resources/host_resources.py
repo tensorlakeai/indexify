@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, List
 
 import psutil
 
@@ -57,7 +57,7 @@ class HostResourcesProvider:
         # If users disable Hyper-Threading in OS then we'd only see physical cores here.
         # This allows users to control if logical or physical cores are used for resource
         # reporting and for running the functions.
-        cpu_count: Optional[int] = psutil.cpu_count(logical=True)
+        cpu_count: int | None = psutil.cpu_count(logical=True)
         if cpu_count is None:
             logger.warning(
                 "Unable to determine CPU count. Defaulting to 0.",

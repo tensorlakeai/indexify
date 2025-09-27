@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use strum::AsRefStr;
@@ -10,25 +13,19 @@ use crate::{
         Allocation,
         ComputeGraph,
         ComputeGraphVersion,
-        FunctionExecutorDiagnostics,
         GcUrl,
         GcUrlBuilder,
         GraphInvocationCtx,
-        InvocationPayload,
         NamespaceBuilder,
-        NodeOutput,
         StateChange,
-        Task,
-        TaskOutcome,
     },
     state_store::{
-        driver::{rocksdb::RocksDBDriver, IterOptions, Reader, Transaction, Writer},
+        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         requests::{
             AllocationOutput,
             DeleteInvocationRequest,
             InvokeComputeGraphRequest,
             NamespaceRequest,
-            ReductionTasks,
             SchedulerUpdateRequest,
         },
     },
@@ -45,27 +42,13 @@ pub enum IndexifyObjectsColumns {
     /// Keys:
     /// - `<Ns>_<ComputeGraphName>_<Version> -> ComputeGraphVersion`
     ComputeGraphVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
-    Tasks,                //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx,   //  Ns_CG_IngestedId -> GraphInvocationCtx
     GraphInvocationCtxSecondaryIndex, // NS_CG_InvocationId_CreatedAt -> empty
-    ReductionTasks,       //  Ns_CG_Fn_TaskId -> ReduceTask
 
-    GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
-    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
-
-    UnprocessedStateChanges,     //  StateChangeId -> StateChange
-    Allocations,                 // Allocation ID -> Allocation
-    FunctionExecutorDiagnostics, // Function Executor ID -> FunctionExecutorDiagnostics
+    UnprocessedStateChanges, //  StateChangeId -> StateChange
+    Allocations,             // Allocation ID -> Allocation
 
     GcUrls, // List of URLs pending deletion
-
-    // IMPORTANT! DO NOT DELETE THE FOLLOWING COLUMNS
-    // SystemTasks and Stats are still in the state store even
-    // though they are not referenced anywhere in the codebase.
-    //
-    // If you remove them, Indexify Server will fail to start
-    // because it won't be able to load the existing RocksDB column families.
-    SystemTasks, // Long running tasks involving multiple invocations
 
     Stats, // Stats
 }
@@ -92,7 +75,7 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
         "create_invocation",
         namespace = req.namespace,
         graph = req.compute_graph_name,
-        invocation_id = req.invocation_payload.id
+        invocation_id = req.ctx.request_id
     );
     let _guard = span.enter();
 
@@ -107,13 +90,6 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
     if cg.tombstoned {
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
-
-    let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
-    txn.put(
-        IndexifyObjectsColumns::GraphInvocations.as_ref(),
-        req.invocation_payload.key(),
-        &serialized_data_object,
-    )?;
     txn.put(
         IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         req.ctx.key(),
@@ -130,6 +106,16 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
         req.namespace, req.compute_graph_name
     );
 
+    Ok(())
+}
+
+pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> Result<()> {
+    let serialized_allocation = JsonEncoder::encode(&allocation)?;
+    txn.put(
+        IndexifyObjectsColumns::Allocations.as_ref(),
+        allocation.key().as_bytes(),
+        &serialized_allocation,
+    )?;
     Ok(())
 }
 
@@ -152,54 +138,38 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
             IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {:?}", e))?;
+        .map_err(|e| anyhow!("failed to get invocation: {e:?}"))?;
     let invocation_ctx = match invocation_ctx {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
             info!(
                 invocation_ctx_key = &invocation_ctx_key,
-                "Invocation to delete not found: {}", &req.invocation_id
+                invocation_id = &req.invocation_id,
+                "Invocation to delete not found"
             );
             return Ok(());
         }
     };
-
-    // Delete the invocation payload
-    {
-        let invocation_key =
-            InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
-
-        txn.delete(
-            IndexifyObjectsColumns::GraphInvocations.as_ref(),
-            &invocation_key,
+    let mut payload_urls: HashSet<String> = HashSet::new();
+    for (_, function_run) in invocation_ctx.function_runs.iter() {
+        for input_arg in function_run.input_args.iter() {
+            payload_urls.insert(input_arg.data_payload.path.clone());
+        }
+        for output in function_run.output.iter() {
+            payload_urls.insert(output.path.clone());
+        }
+    }
+    for payload_url in payload_urls {
+        let gc_url = GcUrlBuilder::default()
+            .url(payload_url)
+            .namespace(req.namespace.clone())
+            .build()?;
+        let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
+        txn.put(
+            IndexifyObjectsColumns::GcUrls.as_ref(),
+            gc_url.key().as_bytes(),
+            &serialized_gc_url,
         )?;
-    }
-
-    let mut tasks_deleted = Vec::new();
-    let task_prefix =
-        Task::key_prefix_for_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
-    // delete all tasks for this invocation
-    let cf = IndexifyObjectsColumns::Tasks.as_ref();
-
-    for iter in txn.iter(
-        IndexifyObjectsColumns::Tasks.as_ref(),
-        task_prefix.as_bytes(),
-        Default::default(),
-    ) {
-        let (key, value) = iter?;
-        let value = Box::new(JsonEncoder::decode::<Task>(&value)?);
-        tasks_deleted.push(value);
-        txn.delete(cf, &key)?;
-    }
-
-    // delete all task outputs for this invocation
-    // delete all tasks for this invocation
-    for task in tasks_deleted {
-        info!(
-            task_id = &task.id.get(),
-            "fn" = &task.compute_fn_name,
-            "deleting task",
-        );
     }
 
     let allocation_prefix = Allocation::key_prefix_from_invocation(
@@ -215,30 +185,11 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
         if value.invocation_id == req.invocation_id {
             info!(
                 allocation_id = %value.id,
-                task_id = value.task_id.get(),
+                function_call_id = value.function_call_id.to_string(),
                 "fn" = value.compute_fn,
                 "deleting allocation",
             );
-
-            txn.delete(cf, &key)?;
-            if let Some(diagnostic) = value.diagnostics {
-                [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
-                    .iter()
-                    .flatten()
-                    .try_for_each(|data| -> Result<()> {
-                        let gc_url = GcUrlBuilder::default()
-                            .url(data.path.clone())
-                            .namespace(req.namespace.clone())
-                            .build()?;
-                        let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-                        txn.put(
-                            IndexifyObjectsColumns::GcUrls.as_ref(),
-                            gc_url.key().as_bytes(),
-                            &serialized_gc_url,
-                        )?;
-                        Ok(())
-                    })?;
-            }
+            txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)?;
         }
     }
 
@@ -255,81 +206,6 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
         invocation_ctx.secondary_index_key(),
     )?;
 
-    let node_output_prefix =
-        NodeOutput::key_prefix_from(&req.namespace, &req.compute_graph, &req.invocation_id);
-
-    let fn_outputs_cf = IndexifyObjectsColumns::FnOutputs.as_ref();
-    let gc_urls_cf = IndexifyObjectsColumns::GcUrls.as_ref();
-    // mark all fn output urls for gc.
-    for iter in txn.iter(
-        fn_outputs_cf,
-        node_output_prefix.as_bytes(),
-        Default::default(),
-    ) {
-        let (key, value) = iter?;
-        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
-        for payload in value.payloads {
-            let gc_url = GcUrlBuilder::default()
-                .url(payload.path.clone())
-                .namespace(req.namespace.clone())
-                .build()?;
-            let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-            txn.put(gc_urls_cf, gc_url.key().as_bytes(), &serialized_gc_url)?;
-        }
-        txn.delete(fn_outputs_cf, &key)?;
-    }
-    Ok(())
-}
-
-fn update_task_versions_for_cg(txn: &Transaction, compute_graph: &ComputeGraph) -> Result<()> {
-    let span = info_span!(
-        "update_task_versions_for_cg",
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
-    );
-    let _guard = span.enter();
-
-    let tasks_prefix =
-        Task::key_prefix_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
-
-    let iter_options = IterOptions::default().with_block_size(IterOptions::LARGE_BLOCK_SIZE);
-
-    let iter = txn.iter(
-        IndexifyObjectsColumns::Tasks.as_ref(),
-        tasks_prefix.as_bytes(),
-        iter_options,
-    );
-
-    let mut tasks_to_update = HashMap::new();
-    for kv in iter {
-        let (key, val) = kv?;
-        let mut task: Task = JsonEncoder::decode(&val)?;
-        if task.graph_version != compute_graph.version && !task.outcome.is_terminal() {
-            info!(
-                invocation_id = task.invocation_id,
-                task_id = task.id.to_string(),
-                "updating task: {} from version: {} to version: {}",
-                task.id,
-                task.graph_version.0,
-                compute_graph.version.0
-            );
-            task.graph_version = compute_graph.version.clone();
-            tasks_to_update.insert(key, task);
-        }
-    }
-    info!(
-        "upgrading tasks to latest version: {}",
-        tasks_to_update.len()
-    );
-    for (task_id, task) in tasks_to_update {
-        let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put(
-            IndexifyObjectsColumns::Tasks.as_ref(),
-            &task_id,
-            &serialized_task,
-        )?;
-    }
     Ok(())
 }
 
@@ -356,21 +232,31 @@ fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGra
     let mut graph_invocation_ctx_to_update = HashMap::new();
     for kv in iter {
         let (key, val) = kv?;
-        let mut graph_invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
-        if graph_invocation_ctx.graph_version != compute_graph.version &&
-            !graph_invocation_ctx.completed
-        {
+        let mut request_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
+        if request_ctx.graph_version != compute_graph.version && request_ctx.outcome.is_none() {
             info!(
-                invocation_id =  graph_invocation_ctx.invocation_id,
-                "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
-                graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
+                invocation_id = request_ctx.request_id,
+                "updating request_ctx for invocation id: {} from version: {} to version: {}",
+                request_ctx.request_id,
+                request_ctx.graph_version.0,
+                compute_graph.version.0
             );
-            graph_invocation_ctx.graph_version = compute_graph.version.clone();
-            graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
+            request_ctx.graph_version = compute_graph.version.clone();
+            for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
+                if function_run.graph_version != compute_graph.version &&
+                    function_run.outcome.is_none()
+                {
+                    function_run.graph_version = compute_graph.version.clone();
+                    request_ctx
+                        .function_runs
+                        .insert(function_run.id.clone(), function_run.clone());
+                }
+            }
+            graph_invocation_ctx_to_update.insert(key, request_ctx);
         }
     }
     info!(
-        "upgrading graph invocation ctxs: {}",
+        "upgrading request ctxs: {}",
         graph_invocation_ctx_to_update.len()
     );
     for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
@@ -414,7 +300,7 @@ pub(crate) fn create_or_update_compute_graph(
             existing_compute_graph.to_version()
         }
         Some(Err(e)) => {
-            return Err(anyhow!("failed to decode existing compute graph: {}", e));
+            return Err(anyhow!("failed to decode existing compute graph: {e}"));
         }
         None => compute_graph.to_version(),
     }?;
@@ -437,7 +323,6 @@ pub(crate) fn create_or_update_compute_graph(
     )?;
 
     if upgrade_existing_tasks_to_current_version {
-        update_task_versions_for_cg(txn, &compute_graph)?;
         update_graph_invocations_for_cg(txn, &compute_graph)?;
     }
 
@@ -476,18 +361,20 @@ pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> R
     let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, name);
 
     for iter in txn.iter(
-        IndexifyObjectsColumns::GraphInvocations.as_ref(),
+        &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         graph_invocation_prefix.as_bytes(),
         Default::default(),
     ) {
         let (_key, value) = iter?;
-        let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
-        let req = DeleteInvocationRequest {
-            namespace: value.namespace,
-            compute_graph: value.compute_graph_name,
-            invocation_id: value.id,
-        };
-        delete_invocation(txn, &req)?;
+        let value = JsonEncoder::decode::<GraphInvocationCtx>(&value)?;
+        delete_invocation(
+            txn,
+            &DeleteInvocationRequest {
+                namespace: value.namespace,
+                compute_graph: value.compute_graph_name,
+                invocation_id: value.request_id,
+            },
+        )?;
     }
 
     for iter in txn.iter(
@@ -525,18 +412,6 @@ pub fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn processed_reduction_tasks(txn: &Transaction, task: &ReductionTasks) -> Result<()> {
-    let cf = IndexifyObjectsColumns::ReductionTasks.as_ref();
-    for task in &task.new_reduction_tasks {
-        let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put(cf, task.key(), &serialized_task)?;
-    }
-    for key in &task.processed_reduction_tasks {
-        txn.delete(cf, key)?;
-    }
-    Ok(())
-}
-
 pub(crate) fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
@@ -547,7 +422,7 @@ pub(crate) fn handle_scheduler_update(
             graph = alloc.compute_graph,
             invocation_id = alloc.invocation_id,
             "fn" = alloc.compute_fn,
-            task_id = alloc.task_id.to_string(),
+            task_id = alloc.function_call_id.to_string(),
             allocation_id = %alloc.id,
             fn_executor_id = alloc.target.function_executor_id.get(),
             executor_id = alloc.target.executor_id.get(),
@@ -561,49 +436,17 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    for task in request.updated_tasks.values() {
-        match task.outcome {
-            TaskOutcome::Success | TaskOutcome::Unknown => debug!(
-                namespace = task.namespace,
-                graph = task.compute_graph_name,
-                invocation_id = task.invocation_id,
-                "fn" = task.compute_fn_name,
-                task_id = task.id.to_string(),
-                status = task.status.to_string(),
-                outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
-                "updated task",
-            ),
-            TaskOutcome::Failure(_) => info!(
-                namespace = task.namespace,
-                graph = task.compute_graph_name,
-                invocation_id = task.invocation_id,
-                "fn" = task.compute_fn_name,
-                task_id = task.id.to_string(),
-                status = task.status.to_string(),
-                outcome = task.outcome.to_string(),
-                duration_sec = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
-                "updated task",
-            ),
-        }
-
-        let serialized_task = JsonEncoder::encode(&task)?;
-        txn.put(
-            IndexifyObjectsColumns::Tasks.as_ref(),
-            task.key(),
-            serialized_task,
-        )?;
-    }
-
-    processed_reduction_tasks(txn, &request.reduction_tasks)?;
-
-    for invocation_ctx in &request.updated_invocations_states {
-        if invocation_ctx.completed {
+    for invocation_ctx in request.updated_invocations_states.values() {
+        if invocation_ctx.outcome.is_some() {
             info!(
-                invocation_id = invocation_ctx.invocation_id.to_string(),
+                invocation_id = invocation_ctx.request_id.to_string(),
                 namespace = invocation_ctx.namespace,
                 graph = invocation_ctx.compute_graph_name,
-                outcome = invocation_ctx.outcome.to_string(),
+                outcome = invocation_ctx
+                    .outcome
+                    .as_ref()
+                    .map(|o| o.to_string())
+                    .unwrap_or_default(),
                 duration_sec =
                     get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"
@@ -638,34 +481,38 @@ pub fn can_allocation_output_be_updated(
 ) -> Result<bool> {
     let span = info_span!(
         "can_allocation_output_be_updated",
-        namespace = &req.namespace,
-        graph = &req.compute_graph,
+        namespace = &req.allocation.namespace,
+        graph = &req.allocation.compute_graph,
         invocation_id = &req.invocation_id,
-        "fn" = &req.compute_fn,
-        task_id = req.allocation.task_id.get(),
+        "fn" = &req.allocation.compute_fn,
+        task_id = req.allocation.function_call_id.to_string(),
     );
     let _guard = span.enter();
 
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
-    let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
+    let graph_key =
+        ComputeGraph::key_from(&req.allocation.namespace, &req.allocation.compute_graph);
     let graph = db
         .get(IndexifyObjectsColumns::ComputeGraphs.as_ref(), &graph_key)
-        .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
+        .map_err(|e| anyhow!("failed to get compute graph: {e}"))?;
     if graph.is_none() {
-        info!("Compute graph not found: {}", &req.compute_graph);
+        info!("Compute graph not found: {}", &req.allocation.compute_graph);
         return Ok(false);
     }
 
     // Check if the invocation was deleted before the task completes
-    let invocation_ctx_key =
-        GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+    let invocation_ctx_key = GraphInvocationCtx::key_from(
+        &req.allocation.namespace,
+        &req.allocation.compute_graph,
+        &req.invocation_id,
+    );
     let invocation = db
         .get(
             IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+        .map_err(|e| anyhow!("failed to get invocation: {e}"))?;
     let invocation = match invocation {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
@@ -674,14 +521,14 @@ pub fn can_allocation_output_be_updated(
         }
     };
     // Skip finalize task if it's invocation is already completed
-    if invocation.completed {
+    if invocation.outcome.is_some() {
         warn!("Invocation already completed, skipping setting outputs");
         return Ok(false);
     }
 
     let existing_allocation = db.get(
         IndexifyObjectsColumns::Allocations.as_ref(),
-        &req.allocation_key,
+        req.allocation.key(),
     )?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);
@@ -696,78 +543,6 @@ pub fn can_allocation_output_be_updated(
     }
 
     Ok(true)
-}
-
-// returns true if task the task finishing state should be emitted.
-pub fn ingest_task_outputs(txn: &Transaction, req: AllocationOutput) -> Result<()> {
-    let span = info_span!(
-        "ingest_task_outputs",
-        namespace = &req.namespace,
-        graph = &req.compute_graph,
-        invocation_id = &req.invocation_id,
-        "fn" = &req.compute_fn,
-        task_id = req.allocation.task_id.get(),
-    );
-    let _guard = span.enter();
-
-    let existing_allocation = txn.get(
-        IndexifyObjectsColumns::Allocations.as_ref(),
-        &req.allocation_key,
-    )?;
-    let Some(existing_allocation) = existing_allocation else {
-        info!("Allocation not found",);
-        return Ok(());
-    };
-    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
-    // idempotency check guaranteeing that we emit a finalizing state change only
-    // once.
-    if existing_allocation.is_terminal() {
-        warn!("allocation already terminal, skipping setting outputs");
-        return Ok(());
-    }
-
-    let serialized_allocation = JsonEncoder::encode(&req.allocation)?;
-    txn.put(
-        IndexifyObjectsColumns::Allocations.as_ref(),
-        &req.allocation_key,
-        &serialized_allocation,
-    )?;
-
-    let serialized_output = JsonEncoder::encode(&req.node_output)?;
-
-    if req.node_output.reducer_output {
-        let mut acc_value = req.node_output.clone();
-        acc_value.reducer_output = false;
-        let reducer_acc_value = JsonEncoder::encode(&acc_value)?;
-        let reducer_output_key = req.node_output.reducer_acc_value_key();
-        txn.put(
-            IndexifyObjectsColumns::FnOutputs.as_ref(),
-            &reducer_output_key,
-            reducer_acc_value,
-        )?;
-    }
-    // Create an output key
-    let output_key = req.node_output.key();
-    txn.put(
-        IndexifyObjectsColumns::FnOutputs.as_ref(),
-        &output_key,
-        serialized_output,
-    )?;
-
-    Ok(())
-}
-
-pub fn upsert_function_executor_diagnostics(
-    txn: &Transaction,
-    fe_diagnostics: &FunctionExecutorDiagnostics,
-) -> Result<()> {
-    let serialized_fe_diagnostics = JsonEncoder::encode(fe_diagnostics)?;
-    txn.put(
-        IndexifyObjectsColumns::FunctionExecutorDiagnostics.as_ref(),
-        fe_diagnostics.key(),
-        serialized_fe_diagnostics,
-    )?;
-    Ok(())
 }
 
 pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange]) -> Result<()> {

@@ -8,6 +8,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 use anyhow::Result;
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
+    AllocationResult,
     AllowedFunction,
     DataPayload as DataPayloadPb,
     DataPayloadEncoding,
@@ -21,56 +22,67 @@ use executor_api_pb::{
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
     TaskAllocation,
-    TaskResult,
 };
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::{
+    broadcast::error::RecvError,
+    watch::{self, Receiver, Sender},
+};
 use tokio_stream::{wrappers::WatchStream, Stream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    blob_store::{self, registry::BlobStorageRegistry},
+    blob_store::registry::BlobStorageRegistry,
     data_model::{
         self,
         Allocation,
         DataPayload,
+        DataPayloadBuilder,
         ExecutorId,
         ExecutorMetadata,
         ExecutorMetadataBuilder,
         FunctionAllowlist,
+        FunctionCall,
+        FunctionCallId,
         FunctionExecutorBuilder,
-        FunctionExecutorDiagnostics,
-        FunctionExecutorDiagnosticsBuilder,
         FunctionExecutorId,
         GPUResources,
+        GraphInvocationCtxBuilder,
         GraphVersion,
-        NodeOutputBuilder,
-        TaskDiagnostics,
         TaskFailureReason,
         TaskOutcome,
     },
-    executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
+    executor_api::executor_api_pb::{
+        FunctionCallRequest,
+        FunctionCallResponse,
+        FunctionExecutorState,
+        FunctionExecutorTerminationReason,
+    },
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
+        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{
             AllocationOutput,
+            GraphUpdates,
+            InvokeComputeGraphRequest,
             RequestPayload,
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
         IndexifyState,
     },
+    utils::get_epoch_time_in_ms,
 };
 
 impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let version = allowed_function.graph_version.map(GraphVersion);
+        let version = allowed_function.application_version.map(GraphVersion);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
-            compute_graph_name: allowed_function.graph_name,
+            compute_graph_name: allowed_function.application_name,
             compute_fn_name: allowed_function.function_name,
             version,
         })
@@ -121,9 +133,11 @@ impl TryFrom<String> for DataPayloadEncoding {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.as_str() {
             "application/json" => Ok(DataPayloadEncoding::Utf8Json),
-            "application/octet-stream" => Ok(DataPayloadEncoding::BinaryPickle),
+            "application/python-pickle" => Ok(DataPayloadEncoding::BinaryPickle),
+            "application/zip" => Ok(DataPayloadEncoding::BinaryZip),
             "text/plain" => Ok(DataPayloadEncoding::Utf8Text),
-            _ => Err(anyhow::anyhow!("unknown data payload encoding")),
+            // User supplied content type for tensorlake.File.
+            _ => Ok(DataPayloadEncoding::Raw),
         }
     }
 }
@@ -188,17 +202,6 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl From<data_model::FunctionRetryPolicy> for executor_api_pb::TaskRetryPolicy {
-    fn from(from: data_model::FunctionRetryPolicy) -> Self {
-        executor_api_pb::TaskRetryPolicy {
-            max_retries: Some(from.max_retries),
-            initial_delay_ms: Some(from.initial_delay_ms),
-            delay_multiplier: Some(from.delay_multiplier),
-            max_delay_ms: Some(from.max_delay_ms),
-        }
-    }
-}
-
 impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResources {
     type Error = anyhow::Error;
 
@@ -234,7 +237,7 @@ impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResource
                 .gpu
                 .map(|g| {
                     g.try_into()
-                        .map_err(|e| anyhow::anyhow!("failed to convert GPU resources: {}", e))
+                        .map_err(|e| anyhow::anyhow!("failed to convert GPU resources: {e}"))
                 })
                 .transpose()?,
         })
@@ -357,26 +360,27 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .as_ref()
             .and_then(|description| description.id.clone())
             .ok_or(anyhow::anyhow!("id is required"))?;
-        let namespace = function_executor_state
+        let function_ref = function_executor_state
             .description
             .as_ref()
-            .and_then(|description| description.namespace.clone())
+            .and_then(|description| description.function.clone())
+            .ok_or(anyhow::anyhow!("function ref is required"))?;
+        let namespace = function_ref
+            .namespace
+            .clone()
             .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.graph_name.clone())
-            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
-        let compute_fn_name = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.function_name.clone())
-            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
-        let version = function_executor_state
-            .description
-            .as_ref()
-            .and_then(|description| description.graph_version.clone())
-            .ok_or(anyhow::anyhow!("version is required"))?;
+        let compute_graph_name = function_ref
+            .application_name
+            .clone()
+            .ok_or(anyhow::anyhow!("application_name is required"))?;
+        let compute_fn_name = function_ref
+            .function_name
+            .clone()
+            .ok_or(anyhow::anyhow!("function_name is required"))?;
+        let version = function_ref
+            .application_version
+            .clone()
+            .ok_or(anyhow::anyhow!("application_version is required"))?;
         let resources = function_executor_state
             .description
             .as_ref()
@@ -415,78 +419,106 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
     }
 }
 
-fn to_function_executor_diagnostics(
-    function_executor_update: &executor_api_pb::FunctionExecutorUpdate,
-    blob_storage_registry: &BlobStorageRegistry,
-) -> Result<FunctionExecutorDiagnostics> {
-    let description = function_executor_update
-        .description
-        .as_ref()
-        .ok_or(anyhow::anyhow!("description is required"))?;
-    let id = description
-        .id
-        .clone()
-        .ok_or(anyhow::anyhow!("id is required"))?;
-    let namespace = description
-        .namespace
-        .clone()
-        .ok_or(anyhow::anyhow!("namespace is required"))?;
-    let graph_name = description
-        .graph_name
-        .clone()
-        .ok_or(anyhow::anyhow!("graph_name is required"))?;
-    let function_name = description
-        .function_name
-        .clone()
-        .ok_or(anyhow::anyhow!("function_name is required"))?;
-    let graph_version = description
-        .graph_version
-        .clone()
-        .ok_or(anyhow::anyhow!("graph_version is required"))?;
-    let blob_storage_url_schema = blob_storage_registry
-        .get_blob_store(&namespace)
-        .get_url_scheme();
-    let blob_storage_url = blob_storage_registry.get_blob_store(&namespace).get_url();
-    let startup_stdout = prepare_data_payload(
-        function_executor_update.startup_stdout.clone(),
-        &blob_storage_url_schema,
-        &blob_storage_url,
-    );
-    let startup_stderr = prepare_data_payload(
-        function_executor_update.startup_stderr.clone(),
-        &blob_storage_url_schema,
-        &blob_storage_url,
-    );
-
-    let diags = FunctionExecutorDiagnosticsBuilder::default()
-        .id(FunctionExecutorId::new(id.to_string()))
-        .namespace(namespace)
-        .graph_name(graph_name)
-        .function_name(function_name)
-        .graph_version(GraphVersion(graph_version))
-        .startup_stdout(startup_stdout)
-        .startup_stderr(startup_stderr)
-        .build()?;
-    Ok(diags)
+fn to_internal_function_arg(
+    function_arg: executor_api_pb::FunctionArg,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> Result<data_model::FunctionArgs, anyhow::Error> {
+    let source = function_arg
+        .source
+        .ok_or(anyhow::anyhow!("source is required"))?;
+    match source {
+        executor_api_pb::function_arg::Source::FunctionCallId(function_call_id) => Ok(
+            data_model::FunctionArgs::FunctionRunOutput(FunctionCallId(function_call_id)),
+        ),
+        executor_api_pb::function_arg::Source::InlineData(inline_data) => {
+            Ok(data_model::FunctionArgs::DataPayload(prepare_data_payload(
+                inline_data,
+                blob_store_url_scheme,
+                blob_store_url,
+            )?))
+        }
+    }
 }
 
-fn to_function_executor_diagnostics_vector(
-    function_executor_updates: &[executor_api_pb::FunctionExecutorUpdate],
-    blob_storage_registry: &BlobStorageRegistry,
-) -> Result<Vec<FunctionExecutorDiagnostics>> {
-    function_executor_updates
-        .iter()
-        .map(|function_executor_update| {
-            to_function_executor_diagnostics(function_executor_update, blob_storage_registry)
-        })
-        .collect()
+fn to_internal_function_call(
+    function_call: executor_api_pb::FunctionCall,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> Result<data_model::FunctionCall, anyhow::Error> {
+    Ok(data_model::FunctionCall {
+        function_call_id: FunctionCallId(
+            function_call.id.ok_or(anyhow::anyhow!("id is required"))?,
+        ),
+        fn_name: function_call
+            .target
+            .ok_or(anyhow::anyhow!("target is required"))?
+            .function_name
+            .ok_or(anyhow::anyhow!("function_name is required"))?,
+        inputs: function_call
+            .args
+            .into_iter()
+            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
+            .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
+        call_metadata: function_call.call_metadata.unwrap_or_default().into(),
+    })
+}
+
+fn to_internal_reduce_op(
+    reduce_op: executor_api_pb::ReduceOp,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> Result<data_model::ReduceOperation> {
+    Ok(data_model::ReduceOperation {
+        function_call_id: FunctionCallId(
+            reduce_op
+                .id
+                .ok_or(anyhow::anyhow!("reduce op id is required"))?,
+        ),
+        fn_name: reduce_op
+            .reducer
+            .ok_or(anyhow::anyhow!("reducer is required"))?
+            .function_name
+            .ok_or(anyhow::anyhow!("function_name is required"))?,
+        call_metadata: reduce_op
+            .call_metadata
+            .ok_or(anyhow::anyhow!("call_metadata is required"))?
+            .into(),
+        collection: reduce_op
+            .collection
+            .into_iter()
+            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
+            .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
+    })
+}
+
+fn to_internal_compute_op(
+    compute_op: executor_api_pb::ExecutionPlanUpdate,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> Result<data_model::ComputeOp, anyhow::Error> {
+    let op = compute_op.op.ok_or(anyhow::anyhow!("op is required"))?;
+    match op {
+        executor_api_pb::execution_plan_update::Op::FunctionCall(function_call) => {
+            Ok(data_model::ComputeOp::FunctionCall(
+                to_internal_function_call(function_call, blob_store_url_scheme, blob_store_url)?,
+            ))
+        }
+        executor_api_pb::execution_plan_update::Op::Reduce(reduce) => {
+            Ok(data_model::ComputeOp::Reduce(to_internal_reduce_op(
+                reduce,
+                blob_store_url_scheme,
+                blob_store_url,
+            )?))
+        }
+    }
 }
 
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
     api_metrics: Arc<api_io_stats::Metrics>,
-    blob_storage_registry: Arc<blob_store::registry::BlobStorageRegistry>,
+    blob_storage_registry: Arc<BlobStorageRegistry>,
 }
 
 impl ExecutorAPIService {
@@ -494,7 +526,7 @@ impl ExecutorAPIService {
         indexify_state: Arc<IndexifyState>,
         executor_manager: Arc<ExecutorManager>,
         api_metrics: Arc<api_io_stats::Metrics>,
-        blob_storage_registry: Arc<blob_store::registry::BlobStorageRegistry>,
+        blob_storage_registry: Arc<BlobStorageRegistry>,
     ) -> Self {
         Self {
             indexify_state,
@@ -507,171 +539,20 @@ impl ExecutorAPIService {
     pub async fn handle_task_outcomes(
         &self,
         executor_id: ExecutorId,
-        task_results: Vec<TaskResult>,
+        task_results: Vec<AllocationResult>,
     ) -> Result<Vec<AllocationOutput>> {
         let mut allocation_output_updates = Vec::new();
         for task_result in task_results {
-            self.api_metrics
-                .fn_outputs
-                .add(task_result.function_outputs.len() as u64, &[]);
-            let task_id = task_result
-                .task_id
-                .clone()
-                .ok_or(Status::invalid_argument("task_id is required"))?;
-            let outcome_code =
-                executor_api_pb::TaskOutcomeCode::try_from(task_result.outcome_code.unwrap_or(0))
-                    .map_err(|e| Status::invalid_argument(e.to_string()))?;
-            let failure_reason = task_result
-                .failure_reason
-                .map(|reason| {
-                    executor_api_pb::TaskFailureReason::try_from(reason)
-                        .map_err(|e| Status::invalid_argument(e.to_string()))
-                })
-                .transpose()?;
-            let namespace = task_result
-                .namespace
-                .clone()
-                .ok_or(Status::invalid_argument("namespace is required"))?;
-            let compute_graph = task_result
-                .graph_name
-                .clone()
-                .ok_or(Status::invalid_argument("compute_graph is required"))?;
-            let compute_fn = task_result
-                .function_name
-                .clone()
-                .ok_or(Status::invalid_argument("compute_fn is required"))?;
-            let invocation_id = task_result
-                .graph_invocation_id
-                .clone()
-                .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
-            let allocation_id = task_result
-                .allocation_id
-                .clone()
-                .ok_or(anyhow::anyhow!("allocation_id is required"))?;
-
-            let execution_duration_ms = task_result.execution_duration_ms.unwrap_or(0);
-
-            let Some(task) = self
-                .indexify_state
-                .reader()
-                .get_task(
-                    &namespace,
-                    &compute_graph,
-                    &invocation_id,
-                    &compute_fn,
-                    &task_id,
-                )
-                .map_err(|e| Status::internal(e.to_string()))?
-            else {
-                warn!("Task not found for task_id: {}", task_id);
-                continue;
-            };
-
-            let Some(compute_graph) = self.indexify_state.reader().get_compute_graph_version(
-                &namespace,
-                &compute_graph,
-                &task.graph_version,
-            )?
-            else {
-                warn!("Compute graph version not found for task_id: {}", task_id);
-                continue;
-            };
-
-            let Some(compute_fn_node) = compute_graph.nodes.get(&compute_fn) else {
-                warn!("Compute fn node not found for task_id: {}", task_id);
-                continue;
-            };
-
-            let mut payloads = Vec::new();
-            let mut encoding_str = String::new();
-            let blob_storage_url_schema = self
-                .blob_storage_registry
-                .get_blob_store(&namespace)
-                .get_url_scheme();
-            let blob_storage_url = self
-                .blob_storage_registry
-                .get_blob_store(&namespace)
-                .get_url();
-            for output in task_result.function_outputs.clone() {
-                let url = output
-                    .uri
-                    .ok_or(Status::invalid_argument("uri is required"))?;
-
-                let path =
-                    blob_store_url_to_path(&url, &blob_storage_url_schema, &blob_storage_url);
-                let size = output
-                    .size
-                    .ok_or(Status::invalid_argument("size is required"))?;
-                // Default to 0 if Executor is not yet storing multiple DataPayloads inside a
-                // single BLOB.
-                let offset = output.offset.unwrap_or(0);
-                let sha256_hash = output
-                    .sha256_hash
-                    .ok_or(Status::invalid_argument("sha256_hash is required"))?;
-                let data_payload = DataPayload {
-                    path,
-                    size,
-                    sha256_hash,
-                    offset,
-                };
-                encoding_str = match output.encoding {
-                    Some(value) => {
-                        let output_encoding = DataPayloadEncoding::try_from(value)
-                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-                        match output_encoding {
-                            DataPayloadEncoding::Utf8Json => Ok("application/json"),
-                            DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
-                            DataPayloadEncoding::Utf8Text => Ok("text/plain"),
-                            DataPayloadEncoding::BinaryZip => Ok("application/zip"),
-                            DataPayloadEncoding::Unknown => {
-                                Err(Status::invalid_argument("unknown data payload encoding"))
-                            }
-                        }
-                    }
-                    None => Err(Status::invalid_argument(
-                        "data payload encoding is required",
-                    )),
-                }?
-                .to_string();
-                payloads.push(data_payload);
-            }
-            let invocation_error_payload = prepare_data_payload(
-                task_result.invocation_error_output.clone(),
-                &blob_storage_url_schema,
-                &blob_storage_url,
-            );
-
-            let node_output = NodeOutputBuilder::default()
-                .namespace(namespace.to_string())
-                .compute_graph_name(compute_graph.compute_graph_name.clone())
-                .invocation_id(invocation_id.to_string())
-                .compute_fn_name(compute_fn.to_string())
-                .payloads(payloads)
-                .next_functions(task_result.next_functions.clone())
-                .encoding(encoding_str.to_string())
-                .allocation_id(allocation_id.clone())
-                .invocation_error_payload(invocation_error_payload)
-                .reducer_output(compute_fn_node.reducer)
-                .build()
-                .map_err(|e| Status::internal(e.to_string()))?;
-
-            let task_diagnostic = TaskDiagnostics {
-                stdout: prepare_data_payload(
-                    task_result.stdout.clone(),
-                    &blob_storage_url_schema,
-                    &blob_storage_url,
-                ),
-                stderr: prepare_data_payload(
-                    task_result.stderr.clone(),
-                    &blob_storage_url_schema,
-                    &blob_storage_url,
-                ),
-            };
+            self.api_metrics.fn_outputs.add(1, &[]);
+            let function_ref = task_result
+                .function
+                .as_ref()
+                .ok_or(anyhow::anyhow!("function ref is required"))?;
             let allocation_key = Allocation::key_from(
-                namespace.as_str(),
-                compute_graph.compute_graph_name.as_str(),
-                invocation_id.as_str(),
-                allocation_id.as_str(),
+                function_ref.namespace(),
+                function_ref.application_name(),
+                task_result.request_id(),
+                task_result.allocation_id(),
             );
             let mut allocation = self
                 .indexify_state
@@ -679,52 +560,114 @@ impl ExecutorAPIService {
                 .get_allocation(&allocation_key)
                 .map_err(|e| Status::internal(e.to_string()))?
                 .ok_or(anyhow::anyhow!("allocation not found"))?;
+            let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
+                task_result.outcome_code.unwrap_or(0),
+            )
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let failure_reason = task_result
+                .failure_reason
+                .map(|reason| {
+                    executor_api_pb::AllocationFailureReason::try_from(reason)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))
+                })
+                .transpose()?;
+            let execution_duration_ms = task_result.execution_duration_ms.unwrap_or(0);
+
+            let blob_storage_url_schema = self
+                .blob_storage_registry
+                .get_blob_store(&allocation.namespace)
+                .get_url_scheme();
+            let blob_storage_url = self
+                .blob_storage_registry
+                .get_blob_store(&allocation.namespace)
+                .get_url();
+            let mut fn_output: Option<DataPayload> = None;
+            let mut graph_updates: Option<GraphUpdates> = None;
+            if let Some(return_value) = task_result.return_value.clone() {
+                match return_value {
+                    executor_api_pb::allocation_result::ReturnValue::Value(value) => {
+                        fn_output = Some(prepare_data_payload(
+                            value,
+                            &blob_storage_url_schema,
+                            &blob_storage_url,
+                        )?);
+                    }
+                    executor_api_pb::allocation_result::ReturnValue::Updates(updates) => {
+                        let output_function_call_id = FunctionCallId(
+                            updates
+                                .root_function_call_id
+                                .ok_or(anyhow::anyhow!("root function call id is required"))?,
+                        );
+                        let mut function_calls = Vec::new();
+                        for update in updates.updates {
+                            function_calls.push(to_internal_compute_op(
+                                update,
+                                &blob_storage_url_schema,
+                                &blob_storage_url,
+                            )?);
+                        }
+                        graph_updates = Some(GraphUpdates {
+                            graph_updates: function_calls,
+                            output_function_call_id,
+                        });
+                    }
+                }
+            }
+
+            let request_error_payload = match task_result.request_error.clone() {
+                Some(exception) => Some(prepare_data_payload(
+                    exception,
+                    &blob_storage_url_schema,
+                    &blob_storage_url,
+                )?),
+                None => None,
+            };
+
             let allocation_failure_reason = match failure_reason {
                 Some(reason) => match reason {
-                    executor_api_pb::TaskFailureReason::Unknown => Some(TaskFailureReason::Unknown),
-                    executor_api_pb::TaskFailureReason::InternalError => {
+                    executor_api_pb::AllocationFailureReason::Unknown => {
+                        Some(TaskFailureReason::Unknown)
+                    }
+                    executor_api_pb::AllocationFailureReason::InternalError => {
                         Some(TaskFailureReason::InternalError)
                     }
-                    executor_api_pb::TaskFailureReason::FunctionError => {
+                    executor_api_pb::AllocationFailureReason::FunctionError => {
                         Some(TaskFailureReason::FunctionError)
                     }
-                    executor_api_pb::TaskFailureReason::FunctionTimeout => {
+                    executor_api_pb::AllocationFailureReason::FunctionTimeout => {
                         Some(TaskFailureReason::FunctionTimeout)
                     }
-                    executor_api_pb::TaskFailureReason::InvocationError => {
+                    executor_api_pb::AllocationFailureReason::RequestError => {
                         Some(TaskFailureReason::InvocationError)
                     }
-                    executor_api_pb::TaskFailureReason::TaskCancelled => {
+                    executor_api_pb::AllocationFailureReason::AllocationCancelled => {
                         Some(TaskFailureReason::TaskCancelled)
                     }
-                    executor_api_pb::TaskFailureReason::FunctionExecutorTerminated => {
+                    executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(TaskFailureReason::FunctionExecutorTerminated)
                     }
                 },
                 None => None,
             };
             let task_outcome = match outcome_code {
-                executor_api_pb::TaskOutcomeCode::Success => TaskOutcome::Success,
-                executor_api_pb::TaskOutcomeCode::Failure => {
+                executor_api_pb::AllocationOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::AllocationOutcomeCode::Failure => {
                     let failure_reason =
                         allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
                     TaskOutcome::Failure(failure_reason)
                 }
-                executor_api_pb::TaskOutcomeCode::Unknown => TaskOutcome::Unknown,
+                executor_api_pb::AllocationOutcomeCode::Unknown => TaskOutcome::Unknown,
             };
             allocation.outcome = task_outcome;
-            allocation.diagnostics = Some(task_diagnostic.clone());
             allocation.execution_duration_ms = Some(execution_duration_ms);
 
             let request = AllocationOutput {
-                namespace: namespace.to_string(),
-                compute_graph: compute_graph.compute_graph_name.clone(),
-                compute_fn: compute_fn.to_string(),
-                invocation_id: invocation_id.to_string(),
-                node_output,
+                request_exception: request_error_payload,
+                invocation_id: task_result.request_id().to_string(),
                 executor_id: executor_id.clone(),
                 allocation,
-                allocation_key,
+                data_payload: fn_output,
+                graph_updates,
             };
             allocation_output_updates.push(request);
         }
@@ -836,6 +779,9 @@ impl ExecutorApi for ExecutorAPIService {
     #[allow(non_camel_case_types)] // The autogenerated code in the trait uses snake_case types in some cases
     type get_desired_executor_statesStream =
         Pin<Box<dyn Stream<Item = Result<DesiredExecutorState, Status>> + Send>>;
+    #[allow(non_camel_case_types)] // The autogenerated code in the trait uses snake_case types in some cases
+    type invoke_functionStream =
+        Pin<Box<dyn Stream<Item = Result<FunctionCallResponse, Status>> + Send>>;
 
     async fn report_executor_state(
         &self,
@@ -863,12 +809,6 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request"
         );
 
-        let function_executor_diagnostics = to_function_executor_diagnostics_vector(
-            &executor_update.function_executor_updates,
-            &self.blob_storage_registry,
-        )
-        .map_err(|e| Status::invalid_argument(e.to_string()))?;
-
         let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let update_executor_state = self
@@ -877,7 +817,7 @@ impl ExecutorApi for ExecutorAPIService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let task_results = executor_update.task_results.clone();
+        let task_results = executor_update.allocation_results.clone();
         let allocation_outputs = self
             .handle_task_outcomes(executor_id.clone(), task_results)
             .await
@@ -885,7 +825,6 @@ impl ExecutorApi for ExecutorAPIService {
 
         let request = UpsertExecutorRequest::build(
             executor_metadata,
-            function_executor_diagnostics,
             allocation_outputs,
             update_executor_state,
             self.indexify_state.clone(),
@@ -898,7 +837,7 @@ impl ExecutorApi for ExecutorAPIService {
         if let Err(e) = self.indexify_state.write(sm_req).await {
             error!(
                 executor_id = executor_id.get(),
-                "failed to write state machine update request: {:?}", e
+                "failed to write state machine update request: {e:?}"
             );
             return Err(Status::internal(
                 "failed to write state machine update request",
@@ -962,31 +901,202 @@ impl ExecutorApi for ExecutorAPIService {
             Box::pin(grpc_stream) as Self::get_desired_executor_statesStream
         ))
     }
+
+    async fn invoke_function(
+        &self,
+        request: Request<FunctionCallRequest>,
+    ) -> Result<Response<Self::invoke_functionStream>, Status> {
+        let req = request.into_inner();
+        let function_ref = req
+            .function
+            .ok_or(Status::invalid_argument("function ref is required"))?;
+        let namespace = function_ref
+            .namespace
+            .ok_or(Status::invalid_argument("namespace is required"))?;
+        let application = function_ref
+            .application_name
+            .ok_or(Status::invalid_argument("application name is required"))?;
+        let fn_name = function_ref
+            .function_name
+            .ok_or(Status::invalid_argument("function name is required"))?;
+        let parent_request_id = req
+            .parent_request_id
+            .ok_or(Status::invalid_argument("parent request id is required"))?;
+
+        // Build the child function invocation context under the parent request
+        let mut parent_request_ctx = self
+            .indexify_state
+            .reader()
+            .invocation_ctx(&namespace, &application, &parent_request_id)
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or(Status::not_found("parent request context not found"))?;
+
+        let request_id = nanoid::nanoid!();
+        let function_call_id = FunctionCallId(request_id.clone());
+
+        // Convert inputs
+        let blob_store = self.blob_storage_registry.get_blob_store(&namespace);
+        let blob_store_url_scheme = blob_store.get_url_scheme();
+        let blob_store_url = blob_store.get_url();
+        let input_payloads = req
+            .inputs
+            .into_iter()
+            .map(|p| {
+                prepare_data_payload(p, &blob_store_url_scheme, &blob_store_url)
+                    .map_err(|e| Status::invalid_argument(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let function_call = FunctionCall {
+            function_call_id,
+            inputs: input_payloads
+                .into_iter()
+                .map(data_model::FunctionArgs::DataPayload)
+                .collect(),
+            fn_name: fn_name.clone(),
+            call_metadata: req.call_metadata.unwrap_or_default().into(),
+        };
+
+        let function_run = self
+            .indexify_state
+            .reader()
+            .get_compute_graph_version(&namespace, &application, &parent_request_ctx.graph_version)
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or(Status::not_found("compute graph version not found"))?
+            .create_function_run(
+                &function_call,
+                function_call
+                    .inputs
+                    .iter()
+                    .filter_map(|arg| match arg {
+                        data_model::FunctionArgs::DataPayload(dp) => Some(data_model::InputArgs {
+                            function_call_id: None,
+                            data_payload: dp.clone(),
+                        }),
+                        data_model::FunctionArgs::FunctionRunOutput(_) => None,
+                    })
+                    .collect(),
+                &request_id,
+            )
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+            .namespace(namespace.to_string())
+            .compute_graph_name(application.to_string())
+            .graph_version(parent_request_ctx.graph_version.clone())
+            .request_id(request_id.clone())
+            .created_at(get_epoch_time_in_ms())
+            .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
+            .function_calls(HashMap::from([(
+                function_call.function_call_id.clone(),
+                function_call,
+            )]))
+            .build()
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        parent_request_ctx
+            .child_function_calls
+            .insert(request_id.clone(), graph_invocation_ctx.clone());
+
+        let sm_request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+            namespace: namespace.clone(),
+            compute_graph_name: application.clone(),
+            ctx: parent_request_ctx.clone(),
+        });
+
+        // Open the broadcast stream before writing the request to avoid races
+        let mut rx = self.indexify_state.task_event_stream();
+        self.indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: sm_request,
+            })
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        // Build a gRPC stream of updates from the broadcast receiver
+        let id = request_id.clone();
+        let ns = namespace.clone();
+        let app = application.clone();
+        let reader = self.indexify_state.reader();
+        let stream = async_stream::try_stream! {
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        if ev.invocation_id() == id {
+                            let update = serde_json::to_string(&ev)
+                                .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
+                            yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
+                            if let InvocationStateChangeEvent::RequestFinished(_) = ev { return; }
+                        }
+                    }
+                    Err(RecvError::Lagged(_num)) => {
+                        // We lagged; check if the invocation already finished
+                        match reader.invocation_ctx(ns.as_str(), app.as_str(), &id) {
+                            Ok(Some(context)) => {
+                                if context.outcome.is_some() {
+                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
+                                        .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
+                                    yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
+                                    return;
+                                }
+                            }
+                            Ok(None) => { return; }
+                            Err(_) => { return; }
+                        }
+                    }
+                    Err(RecvError::Closed) => { return; }
+                }
+            }
+        };
+
+        Ok(Response::new(
+            Box::pin(stream) as Self::invoke_functionStream
+        ))
+    }
 }
 
 fn prepare_data_payload(
-    msg: Option<DataPayloadPb>,
+    msg: DataPayloadPb,
     blob_store_url_scheme: &str,
     blob_store_url: &str,
-) -> Option<DataPayload> {
-    let Some(DataPayloadPb {
-        uri: Some(uri),
-        size: Some(size),
-        sha256_hash: Some(sha256_hash),
-        offset,
-        ..
-    }) = &msg
-    else {
-        return None;
+) -> Result<DataPayload> {
+    let uri = msg.uri.ok_or(anyhow::anyhow!("uri is required"))?;
+    let size = msg.size.ok_or(anyhow::anyhow!("size is required"))?;
+    let sha256_hash = msg
+        .sha256_hash
+        .ok_or(anyhow::anyhow!("sha256_hash is required"))?;
+    let output_encoding = msg
+        .encoding
+        .ok_or(anyhow::anyhow!("encoding is required"))?;
+    let output_encoding = DataPayloadEncoding::try_from(output_encoding)?;
+    let mut encoding = match output_encoding {
+        DataPayloadEncoding::Utf8Json => "application/json",
+        DataPayloadEncoding::BinaryPickle => "application/python-pickle",
+        DataPayloadEncoding::Utf8Text => "text/plain",
+        DataPayloadEncoding::BinaryZip => "application/zip",
+        DataPayloadEncoding::Raw => "application/octet-stream",
+        DataPayloadEncoding::Unknown => "application/octet-stream",
     };
-
-    Some(DataPayload {
-        path: blob_store_url_to_path(uri, blob_store_url_scheme, blob_store_url),
-        size: *size,
-        sha256_hash: sha256_hash.clone(),
-        // Default to 0 if Executor is not yet storing multiple DataPayloads inside a single BLOB.
-        offset: offset.unwrap_or(0),
-    })
+    if let Some(content_type) = msg.content_type.as_ref() {
+        // User supplied content type when a function returns tensorlake.File.
+        encoding = content_type.as_str();
+    }
+    let metadata_size = msg.metadata_size.unwrap_or(0);
+    let offset = msg.offset.unwrap_or(0);
+    DataPayloadBuilder::default()
+        .id(msg.id.unwrap_or(nanoid::nanoid!()))
+        .path(blob_store_url_to_path(
+            &uri,
+            blob_store_url_scheme,
+            blob_store_url,
+        ))
+        .encoding(encoding.to_string())
+        .size(size)
+        .sha256_hash(sha256_hash)
+        .metadata_size(metadata_size)
+        .offset(offset)
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build data payload: {e}"))
 }
 
 pub fn blob_store_path_to_url(
@@ -1001,14 +1111,14 @@ pub fn blob_store_path_to_url(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        return format!(
+        format!(
             "{}://{}/{}",
             blob_store_url_scheme,
             bucket_name_from_s3_blob_store_url(blob_store_url),
             path
-        );
+        )
     } else {
-        return format!("not supported blob store scheme: {blob_store_url_scheme}");
+        format!("not supported blob store scheme: {blob_store_url_scheme}")
     }
 }
 
@@ -1028,21 +1138,20 @@ pub fn blob_store_url_to_path(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        return url
-            .strip_prefix(
-                &format!(
-                    "{}://{}/",
-                    blob_store_url_scheme,
-                    bucket_name_from_s3_blob_store_url(blob_store_url)
-                )
-                .to_string(),
+        url.strip_prefix(
+            &format!(
+                "{}://{}/",
+                blob_store_url_scheme,
+                bucket_name_from_s3_blob_store_url(blob_store_url)
             )
-            // The url doesn't include blob_store_url if this payload was uploaded to server instead
-            // of directly to blob storage.
-            .unwrap_or(url)
-            .to_string();
+            .to_string(),
+        )
+        // The url doesn't include blob_store_url if this payload was uploaded to server instead
+        // of directly to blob storage.
+        .unwrap_or(url)
+        .to_string()
     } else {
-        return format!("not supported blob store scheme: {blob_store_url_scheme}");
+        format!("not supported blob store scheme: {blob_store_url_scheme}")
     }
 }
 

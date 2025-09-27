@@ -12,6 +12,7 @@ use crate::{
         ExecutorId,
         ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
+        GraphUpdates,
         InvokeComputeGraphEvent,
         StateChange,
         StateChangeBuilder,
@@ -37,14 +38,14 @@ pub fn invoke_compute_graph(
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.namespace.clone()))
         .compute_graph(Some(request.compute_graph_name.clone()))
-        .invocation(Some(request.invocation_payload.id.clone()))
+        .invocation(Some(request.ctx.request_id.clone()))
         .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
             namespace: request.namespace.clone(),
-            invocation_id: request.invocation_payload.id.clone(),
+            invocation_id: request.ctx.request_id.clone(),
             compute_graph: request.compute_graph_name.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.invocation_payload.id.clone())
+        .object_id(request.ctx.request_id.clone())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;
@@ -102,22 +103,30 @@ pub fn task_outputs_ingested(
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
-        .namespace(Some(request.namespace.clone()))
-        .compute_graph(Some(request.compute_graph.clone()))
+        .namespace(Some(request.allocation.namespace.clone()))
+        .compute_graph(Some(request.allocation.compute_graph.clone()))
         .invocation(Some(request.invocation_id.clone()))
-        .change_type(ChangeType::AllocationOutputsIngested(
+        .change_type(ChangeType::AllocationOutputsIngested(Box::new(
             AllocationOutputIngestedEvent {
-                namespace: request.namespace.clone(),
-                compute_graph: request.compute_graph.clone(),
-                compute_fn: request.compute_fn.clone(),
+                namespace: request.allocation.namespace.clone(),
+                compute_graph: request.allocation.compute_graph.clone(),
+                compute_fn: request.allocation.compute_fn.clone(),
                 invocation_id: request.invocation_id.clone(),
-                task_id: request.allocation.task_id.clone(),
-                node_output_key: request.node_output.key(),
-                allocation_key: Some(request.allocation_key.clone()),
+                function_call_id: request.allocation.function_call_id.clone(),
+                data_payload: request.data_payload.clone(),
+                graph_updates: request
+                    .graph_updates
+                    .as_ref()
+                    .map(|graph_updates| GraphUpdates {
+                        graph_updates: graph_updates.graph_updates.clone(),
+                        output_function_call_id: graph_updates.output_function_call_id.clone(),
+                    }),
+                allocation_key: request.allocation.key(),
+                request_exception: request.request_exception.clone(),
             },
-        ))
+        )))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.allocation.task_id.get().to_string())
+        .object_id(request.allocation.function_call_id.to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

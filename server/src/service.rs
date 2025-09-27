@@ -20,7 +20,7 @@ use crate::{
     executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
     executors::ExecutorManager,
     metrics::{self, init_provider},
-    processor::{gc::Gc, graph_processor::GraphProcessor, task_cache},
+    processor::{gc::Gc, graph_processor::GraphProcessor},
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
@@ -29,7 +29,7 @@ use crate::{
 
 pub mod executor_api_descriptor {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("executor_api_descriptor");
+        tonic::include_file_descriptor_set!("executor_api_v3_descriptor");
 }
 
 #[derive(Clone)]
@@ -43,7 +43,6 @@ pub struct Service {
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
-    pub task_cache: Arc<task_cache::TaskCache>,
     pub graph_processor: Arc<GraphProcessor>,
 }
 
@@ -101,10 +100,8 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let task_cache = Arc::new(task_cache::TaskCache::new(indexify_state.clone()));
         let graph_processor = Arc::new(GraphProcessor::new(
             indexify_state.clone(),
-            task_cache.clone(),
             config.queue_size,
         ));
         graph_processor.validate_graph_constraints().await?;
@@ -117,7 +114,6 @@ impl Service {
             executor_manager,
             kvs,
             gc_executor,
-            task_cache,
             graph_processor,
         })
     }

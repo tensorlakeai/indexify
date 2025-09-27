@@ -40,7 +40,7 @@ pub fn run(path: &Path) -> Result<StateMachineMetadata> {
                 last_change_idx: 0,
             });
         }
-        Err(e) => return Err(anyhow::anyhow!("Error opening database: {:?}", e)),
+        Err(e) => return Err(anyhow::anyhow!("Error opening database: {e:?}")),
     };
 
     // Read current metadata

@@ -9,17 +9,8 @@ use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    data_model::{
-        self,
-        ComputeGraphCode,
-        FunctionExecutorId,
-        FunctionExecutorServerMetadata,
-        FunctionExecutorState,
-        GraphInvocationCtx,
-        GraphInvocationFailureReason,
-        GraphInvocationOutcome,
-    },
-    utils::get_epoch_time_in_ms,
+    data_model::{self, FunctionExecutorId, FunctionExecutorServerMetadata, FunctionExecutorState},
+    http_objects_v1::FunctionRun,
 };
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
@@ -289,7 +280,7 @@ impl TryFrom<PlacementConstraints> for data_model::filter::LabelsFilter {
         let mut expressions = Vec::new();
         for expr_str in value.filter_expressions {
             let expression = data_model::filter::Expression::from_str(&expr_str)
-                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {e}"))?;
             expressions.push(expression);
         }
         Ok(data_model::filter::LabelsFilter(expressions))
@@ -336,17 +327,97 @@ impl From<data_model::CacheKey> for CacheKey {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ApplicationFunction {
+    pub name: String,
+    pub description: String,
+    pub is_api: bool,
+    pub secret_names: Vec<String>,
+    #[serde(default)]
+    pub initialization_timeout_sec: TimeoutSeconds,
+    pub timeout_sec: TimeoutSeconds,
+    pub resources: NodeResources,
+    pub retry_policy: NodeRetryPolicy,
+    pub cache_key: Option<CacheKey>,
+    #[serde(default)]
+    pub parameters: Vec<ParameterMetadata>,
+    #[serde(default)]
+    pub return_type: Option<serde_json::Value>,
+    pub placement_constraints: PlacementConstraints,
+    pub max_concurrency: u32,
+}
+
+impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
+    type Error = anyhow::Error;
+
+    fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
+        Ok(data_model::ComputeFn {
+            name: val.name.clone(),
+            fn_name: val.name.clone(),
+            description: val.description.clone(),
+            placement_constraints: val.placement_constraints.try_into()?,
+            is_api: val.is_api,
+            input_encoder: "not-needed".to_string(),
+            output_encoder: "".to_string(),
+            secret_names: Some(val.secret_names),
+            initialization_timeout: val.initialization_timeout_sec.into(),
+            timeout: val.timeout_sec.into(),
+            resources: val.resources.into(),
+            retry_policy: val.retry_policy.into(),
+            cache_key: val.cache_key.map(|v| v.into()),
+            parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: val.return_type,
+            max_concurrency: val.max_concurrency,
+        })
+    }
+}
+
+impl From<data_model::ComputeFn> for ApplicationFunction {
+    fn from(c: data_model::ComputeFn) -> Self {
+        Self {
+            name: c.name,
+            is_api: true,
+            description: c.description,
+            secret_names: c.secret_names.unwrap_or_default(),
+            initialization_timeout_sec: c.initialization_timeout.into(),
+            timeout_sec: c.timeout.into(),
+            resources: c.resources.into(),
+            retry_policy: c.retry_policy.into(),
+            cache_key: c.cache_key.map(|v| v.into()),
+            parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: c.return_type,
+            placement_constraints: c.placement_constraints.into(),
+            max_concurrency: c.max_concurrency,
+        }
+    }
+}
+
+impl ApplicationFunction {
+    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
+        if self.name.is_empty() {
+            return Err(IndexifyAPIError::bad_request(
+                "ComputeFn name cannot be empty",
+            ));
+        }
+        self.timeout_sec.validate()?;
+        self.retry_policy.validate()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
-    pub reducer: bool,
+    pub is_api: bool,
     #[serde(default = "default_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
     #[serde(default)]
     pub secret_names: Vec<String>,
+    #[serde(default, rename = "initialization_timeout_sec")]
+    pub initialization_timeout: TimeoutSeconds,
     #[serde(default, rename = "timeout_sec")]
     pub timeout: TimeoutSeconds,
     #[serde(default)]
@@ -374,10 +445,11 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
-            reducer: val.reducer,
+            is_api: val.is_api,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             secret_names: Some(val.secret_names),
+            initialization_timeout: val.initialization_timeout.into(),
             timeout: val.timeout.into(),
             resources: val.resources.into(),
             retry_policy: val.retry_policy.into(),
@@ -395,10 +467,11 @@ impl From<data_model::ComputeFn> for ComputeFn {
             name: c.name,
             fn_name: c.fn_name,
             description: c.description,
-            reducer: c.reducer,
+            is_api: c.is_api,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             secret_names: c.secret_names.unwrap_or_default(),
+            initialization_timeout: c.initialization_timeout.into(),
             timeout: c.timeout.into(),
             resources: c.resources.into(),
             retry_policy: c.retry_policy.into(),
@@ -407,52 +480,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
-        }
-    }
-}
-
-impl ComputeFn {
-    pub fn validate(&self) -> Result<(), IndexifyAPIError> {
-        if self.name.is_empty() {
-            return Err(IndexifyAPIError::bad_request(
-                "ComputeFn name cannot be empty",
-            ));
-        }
-        if self.fn_name.is_empty() {
-            return Err(IndexifyAPIError::bad_request(
-                "ComputeFn fn_name cannot be empty",
-            ));
-        }
-        self.timeout.validate()?;
-        self.retry_policy.validate()?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RuntimeInformation {
-    pub major_version: u8,
-    pub minor_version: u8,
-    #[serde(default)]
-    pub sdk_version: String,
-}
-
-impl From<RuntimeInformation> for data_model::RuntimeInformation {
-    fn from(value: RuntimeInformation) -> Self {
-        data_model::RuntimeInformation {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-            sdk_version: value.sdk_version,
-        }
-    }
-}
-
-impl From<data_model::RuntimeInformation> for RuntimeInformation {
-    fn from(value: data_model::RuntimeInformation) -> Self {
-        Self {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-            sdk_version: value.sdk_version,
         }
     }
 }
@@ -487,106 +514,10 @@ impl From<ParameterMetadata> for data_model::ParameterMetadata {
     }
 }
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ComputeGraph {
-    pub name: String,
-    pub namespace: String,
-    pub description: String,
-    #[serde(default)]
-    pub tombstoned: bool,
-    pub start_node: ComputeFn,
-    pub version: GraphVersion,
-    #[serde(default)]
-    pub tags: Option<HashMap<String, String>>,
-    pub nodes: HashMap<String, ComputeFn>,
-    pub edges: HashMap<String, Vec<String>>,
-    #[serde(default = "get_epoch_time_in_ms")]
-    pub created_at: u64,
-    pub runtime_information: RuntimeInformation,
-}
-
-impl ComputeGraph {
-    pub fn into_data_model(
-        self,
-        code_path: &str,
-        sha256_hash: &str,
-        size: u64,
-    ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
-        let mut nodes = HashMap::new();
-        for (name, node) in self.nodes {
-            node.validate()?;
-            let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
-                IndexifyAPIError::bad_request(&format!(
-                    "Invalid placement constraints in node '{name}': {e}"
-                ))
-            })?;
-            nodes.insert(name, converted_node);
-        }
-        let start_fn: data_model::ComputeFn = self.start_node.try_into().map_err(|e| {
-            IndexifyAPIError::bad_request(&format!(
-                "Invalid placement constraints in start node: {e}"
-            ))
-        })?;
-
-        let compute_graph = data_model::ComputeGraphBuilder::default()
-            .name(self.name)
-            .namespace(self.namespace)
-            .description(self.description)
-            .start_fn(start_fn)
-            .tags(self.tags.unwrap_or_default())
-            .version(self.version.into())
-            .code(ComputeGraphCode {
-                sha256_hash: sha256_hash.to_string(),
-                size,
-                path: code_path.to_string(),
-            })
-            .nodes(nodes)
-            .edges(self.edges.clone())
-            .created_at(0)
-            .runtime_information(self.runtime_information.into())
-            .tombstoned(self.tombstoned)
-            .state(data_model::ComputeGraphState::Active)
-            .build()
-            .map_err(|e| {
-                IndexifyAPIError::bad_request(&format!("Failed to build ComputeGraph: {e}"))
-            })?;
-        Ok(compute_graph)
-    }
-}
-
-impl From<data_model::ComputeGraph> for ComputeGraph {
-    fn from(compute_graph: data_model::ComputeGraph) -> Self {
-        let start_fn = compute_graph.start_fn.into();
-        let mut nodes = HashMap::new();
-        for (k, v) in compute_graph.nodes.into_iter() {
-            nodes.insert(k, v.into());
-        }
-        Self {
-            name: compute_graph.name,
-            namespace: compute_graph.namespace,
-            description: compute_graph.description,
-            start_node: start_fn,
-            tags: Some(compute_graph.tags),
-            version: compute_graph.version.into(),
-            nodes,
-            edges: compute_graph.edges,
-            created_at: compute_graph.created_at,
-            runtime_information: compute_graph.runtime_information.into(),
-            tombstoned: compute_graph.tombstoned,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ComputeGraphsList {
-    pub compute_graphs: Vec<ComputeGraph>,
-    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -605,28 +536,6 @@ pub struct GraphOutputNotification {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespaceResponse {
     pub name: Namespace,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GraphInvocations {
-    pub invocations: Vec<Invocation>,
-    pub prev_cursor: Option<String>,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GraphInputJson {
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
-pub struct GraphInputFile {
-    // file:///s3://bucket/key
-    // file:///data/path/to/file
-    pub url: String,
-    pub metadata: serde_json::Value,
-    pub sha_256: String,
-    pub size: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -680,6 +589,7 @@ impl From<data_model::TaskStatus> for TaskStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct DataPayload {
+    pub id: String,
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
@@ -687,129 +597,13 @@ pub struct DataPayload {
 
 impl From<data_model::DataPayload> for DataPayload {
     fn from(payload: data_model::DataPayload) -> Self {
+        let size = payload.size;
+        let sha256_hash = payload.sha256_hash;
         Self {
+            id: payload.id,
             path: payload.path,
-            size: payload.size,
-            sha256_hash: payload.sha256_hash,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct Task {
-    pub id: String,
-    pub namespace: String,
-    pub compute_fn: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub input: DataPayload,
-    pub acc_input: Option<DataPayload>,
-    pub status: TaskStatus,
-    pub outcome: TaskOutcome,
-    pub graph_version: GraphVersion,
-    pub image_uri: Option<String>,
-    pub secret_names: Vec<String>,
-    pub graph_payload: Option<DataPayload>,
-    pub input_payload: Option<DataPayload>,
-    pub reducer_input_payload: Option<DataPayload>,
-    pub output_payload_uri_prefix: Option<String>,
-    pub timeout: TimeoutSeconds,
-    pub resources: NodeResources,
-    pub retry_policy: NodeRetryPolicy,
-    pub allocations: Vec<Allocation>,
-    pub creation_time_ns: u128,
-}
-
-impl Task {
-    pub fn from_data_model_task(task: data_model::Task, allocations: Vec<Allocation>) -> Self {
-        Self {
-            id: task.id.to_string(),
-            namespace: task.namespace,
-            compute_fn: task.compute_fn_name,
-            compute_graph: task.compute_graph_name,
-            invocation_id: task.invocation_id,
-            input: task.input.into(),
-            acc_input: task.acc_input.map(|input| input.into()),
-            outcome: task.outcome.into(),
-            status: task.status.into(),
-            graph_version: task.graph_version.into(),
-            image_uri: None,
-            secret_names: Default::default(),
-            timeout: Default::default(),
-            resources: Default::default(),
-            retry_policy: Default::default(),
-            graph_payload: None,
-            input_payload: None,
-            reducer_input_payload: None,
-            output_payload_uri_prefix: None,
-            allocations,
-            creation_time_ns: task.creation_time_ns,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct Tasks {
-    pub tasks: Vec<Task>,
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct FnOutput {
-    pub id: String,
-    pub compute_fn: String,
-    pub created_at: u128,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum InvocationStatus {
-    Pending,
-    Running,
-    Finalized,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum InvocationOutcome {
-    Undefined,
-    Success,
-    Failure,
-}
-
-impl From<GraphInvocationOutcome> for InvocationOutcome {
-    fn from(outcome: GraphInvocationOutcome) -> Self {
-        match outcome {
-            GraphInvocationOutcome::Unknown => InvocationOutcome::Undefined,
-            GraphInvocationOutcome::Success => InvocationOutcome::Success,
-            GraphInvocationOutcome::Failure(_) => InvocationOutcome::Failure,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum InvocationFailureReason {
-    Unknown,
-    InternalError,
-    FunctionError,
-    InvocationError,
-    NextFunctionNotFound,
-    ConstraintUnsatisfiable,
-}
-
-impl From<GraphInvocationFailureReason> for InvocationFailureReason {
-    fn from(failure_reason: GraphInvocationFailureReason) -> Self {
-        match failure_reason {
-            GraphInvocationFailureReason::Unknown => InvocationFailureReason::Unknown,
-            GraphInvocationFailureReason::InternalError => InvocationFailureReason::InternalError,
-            GraphInvocationFailureReason::FunctionError => InvocationFailureReason::FunctionError,
-            GraphInvocationFailureReason::InvocationError => {
-                InvocationFailureReason::InvocationError
-            }
-            GraphInvocationFailureReason::NextFunctionNotFound => {
-                InvocationFailureReason::NextFunctionNotFound
-            }
-            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
-                InvocationFailureReason::ConstraintUnsatisfiable
-            }
+            size,
+            sha256_hash,
         }
     }
 }
@@ -820,79 +614,9 @@ pub struct RequestError {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct FnOutputs {
-    pub invocation: Invocation,
-    // Deprecated, duplicates Invocation.status
-    pub status: InvocationStatus,
-    // Deprecated, duplicates Invocation.outcome
-    pub outcome: InvocationOutcome,
-    pub outputs: Vec<FnOutput>,
-    pub cursor: Option<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RequestId {
     pub id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct Invocation {
-    pub id: String,
-    pub completed: bool,
-    pub status: InvocationStatus,
-    pub outcome: InvocationOutcome,
-    pub failure_reason: InvocationFailureReason,
-    pub outstanding_tasks: u64,
-    pub task_analytics: HashMap<String, TaskAnalytics>,
-    pub graph_version: String,
-    pub created_at: u128,
-    pub invocation_error: Option<RequestError>,
-}
-
-impl From<GraphInvocationCtx> for Invocation {
-    fn from(value: GraphInvocationCtx) -> Self {
-        let mut task_analytics = HashMap::new();
-        for (k, v) in value.fn_task_analytics {
-            task_analytics.insert(
-                k,
-                TaskAnalytics {
-                    pending_tasks: v.pending_tasks,
-                    successful_tasks: v.successful_tasks,
-                    failed_tasks: v.failed_tasks,
-                },
-            );
-        }
-        let status = if value.completed {
-            InvocationStatus::Finalized
-        } else if value.outstanding_tasks > 0 {
-            InvocationStatus::Running
-        } else {
-            InvocationStatus::Pending
-        };
-        Self {
-            id: value.invocation_id.to_string(),
-            completed: value.completed,
-            outcome: value.outcome.clone().into(),
-            failure_reason: match &value.outcome {
-                GraphInvocationOutcome::Failure(reason) => reason.clone().into(),
-                _ => GraphInvocationFailureReason::Unknown.into(),
-            },
-            status,
-            outstanding_tasks: value.outstanding_tasks,
-            task_analytics,
-            graph_version: value.graph_version.0,
-            created_at: value.created_at.into(),
-            invocation_error: None, // Set by API handlers if needed
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct TaskAnalytics {
-    pub pending_tasks: u64,
-    pub successful_tasks: u64,
-    pub failed_tasks: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1106,7 +830,7 @@ impl From<data_model::Allocation> for Allocation {
             compute_fn: allocation.compute_fn,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
-            task_id: allocation.task_id.to_string(),
+            task_id: allocation.function_call_id.to_string(),
             invocation_id: allocation.invocation_id.to_string(),
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
@@ -1147,9 +871,9 @@ pub struct StateChangesResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UnallocatedTasks {
+pub struct UnallocatedFunctionRuns {
     pub count: usize,
-    pub tasks: Vec<Task>,
+    pub function_runs: Vec<FunctionRun>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1177,24 +901,6 @@ pub struct ExecutorsAllocationsResponse {
 #[cfg(test)]
 mod tests {
     use crate::http_objects::{ComputeFn, PlacementConstraints};
-
-    #[test]
-    fn test_compute_graph_deserialization() {
-        // Don't delete this. It makes it easier
-        // to test the deserialization of the ComputeGraph struct
-        // from the python side
-        let json = r#"{"name":"test","description":"test","start_node":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"},"nodes":{"extractor_a":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle","image_name": "default_image"},"extractor_b":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"},"extractor_c":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false,  "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder":"cloudpickle", "output_encoder":"cloudpickle", "image_name": "default_image"}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]},"runtime_information": {"major_version": 3, "minor_version": 10, "sdk_version": "1.2.3"}, "version": "1.2.3"}"#;
-        let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
-        json_value["namespace"] = serde_json::Value::String("test".to_string());
-        let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
-    }
-
-    #[test]
-    fn test_compute_fn_deserialization() {
-        let json = r#"{"name": "one", "fn_name": "two", "description": "desc", "reducer": true, "image_name": "im1", "image_information": {"image_name": "name1", "tag": "tag1", "base_image": "base1", "run_strs": ["tuff", "life", "running", "docker"], "sdk_version":"1.2.3"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle"}"#;
-        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
-        println!("{compute_fn:?}");
-    }
 
     #[test]
     fn test_labels_filter_conversion() {
@@ -1236,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_compute_fn_with_placement_constraints() {
-        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
 
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
@@ -1248,7 +954,7 @@ mod tests {
 
     #[test]
     fn test_compute_fn_with_unparseable_placement_constraints() {
-        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "reducer": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
 
         let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
