@@ -30,7 +30,7 @@ impl PrepareContext {
     pub fn open_db(&self) -> Result<RocksDBDriver> {
         let cfs = match DB::list_cf(&self.db_opts, &self.path) {
             Ok(cfs) => cfs,
-            Err(e) => return Err(anyhow!("Failed to list column families: {}", e)),
+            Err(e) => return Err(anyhow!("Failed to list column families: {e}")),
         }
         .into_iter()
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -164,7 +164,7 @@ impl<'a> MigrationContext<'a> {
         val.get(key)
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Missing {} in JSON value", key))
+            .ok_or_else(|| anyhow!("Missing {key} in JSON value"))
     }
 
     /// Truncate all entries in a column family

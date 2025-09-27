@@ -237,7 +237,7 @@ impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResource
                 .gpu
                 .map(|g| {
                     g.try_into()
-                        .map_err(|e| anyhow::anyhow!("failed to convert GPU resources: {}", e))
+                        .map_err(|e| anyhow::anyhow!("failed to convert GPU resources: {e}"))
                 })
                 .transpose()?,
         })

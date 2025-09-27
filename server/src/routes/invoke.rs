@@ -215,7 +215,7 @@ async fn do_invoke_api_with_object_v1(
         .await
         .map_err(|e| {
             error!("failed to write to blob store: {:?}", e);
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
     let data_payload = data_model::DataPayload {
         id: nanoid::nanoid!(),
@@ -296,7 +296,7 @@ async fn do_invoke_api_with_object_v1(
         .function_calls(fn_calls)
         .build()
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
@@ -333,7 +333,7 @@ async fn return_request_id(
         })
         .await
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
 
     Ok(Json(RequestIdV1 {
@@ -358,7 +358,7 @@ async fn return_sse_response(
         })
         .await
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
     let invocation_event_stream =
         create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;

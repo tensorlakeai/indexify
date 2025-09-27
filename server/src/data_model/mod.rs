@@ -1133,8 +1133,7 @@ impl HostResources {
                     }
                 }
                 None => Err(anyhow!(
-                    "No GPU is available but a GPU is requested: {:?}",
-                    requested_gpu
+                    "No GPU is available but a GPU is requested: {requested_gpu:?}",
                 )),
             },
             None => Ok(()),
