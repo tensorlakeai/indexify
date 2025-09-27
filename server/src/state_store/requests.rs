@@ -119,7 +119,7 @@ impl SchedulerUpdateRequest {
             .insert(function_run.id.clone(), function_run.clone());
         self.updated_function_runs
             .entry(invocation_ctx.key())
-            .or_insert(HashSet::new())
+            .or_default()
             .insert(function_run.id.clone());
         self.updated_invocations_states
             .insert(invocation_ctx.key(), invocation_ctx.clone());

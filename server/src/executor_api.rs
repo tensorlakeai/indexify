@@ -434,8 +434,8 @@ fn to_internal_function_arg(
         executor_api_pb::function_arg::Source::InlineData(inline_data) => {
             Ok(data_model::FunctionArgs::DataPayload(prepare_data_payload(
                 inline_data,
-                &blob_store_url_scheme,
-                &blob_store_url,
+                blob_store_url_scheme,
+                blob_store_url,
             )?))
         }
     }
@@ -458,7 +458,7 @@ fn to_internal_function_call(
         inputs: function_call
             .args
             .into_iter()
-            .map(|arg| to_internal_function_arg(arg, &blob_store_url_scheme, &blob_store_url))
+            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
         call_metadata: function_call.call_metadata.unwrap_or_default().into(),
     })
@@ -487,7 +487,7 @@ fn to_internal_reduce_op(
         collection: reduce_op
             .collection
             .into_iter()
-            .map(|arg| to_internal_function_arg(arg, &blob_store_url_scheme, &blob_store_url))
+            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
     })
 }
@@ -501,14 +501,14 @@ fn to_internal_compute_op(
     match op {
         executor_api_pb::execution_plan_update::Op::FunctionCall(function_call) => {
             Ok(data_model::ComputeOp::FunctionCall(
-                to_internal_function_call(function_call, &blob_store_url_scheme, &blob_store_url)?,
+                to_internal_function_call(function_call, blob_store_url_scheme, blob_store_url)?,
             ))
         }
         executor_api_pb::execution_plan_update::Op::Reduce(reduce) => {
             Ok(data_model::ComputeOp::Reduce(to_internal_reduce_op(
                 reduce,
-                &blob_store_url_scheme,
-                &blob_store_url,
+                blob_store_url_scheme,
+                blob_store_url,
             )?))
         }
     }
@@ -549,10 +549,10 @@ impl ExecutorAPIService {
                 .as_ref()
                 .ok_or(anyhow::anyhow!("function ref is required"))?;
             let allocation_key = Allocation::key_from(
-                &function_ref.namespace(),
-                &function_ref.application_name(),
-                &task_result.request_id(),
-                &task_result.allocation_id(),
+                function_ref.namespace(),
+                function_ref.application_name(),
+                task_result.request_id(),
+                task_result.allocation_id(),
             );
             let mut allocation = self
                 .indexify_state
@@ -951,7 +951,7 @@ impl ExecutorApi for ExecutorAPIService {
             function_call_id,
             inputs: input_payloads
                 .into_iter()
-                .map(|dp| data_model::FunctionArgs::DataPayload(dp))
+                .map(data_model::FunctionArgs::DataPayload)
                 .collect(),
             fn_name: fn_name.clone(),
             call_metadata: req.call_metadata.unwrap_or_default().into(),
@@ -1111,14 +1111,14 @@ pub fn blob_store_path_to_url(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        return format!(
+        format!(
             "{}://{}/{}",
             blob_store_url_scheme,
             bucket_name_from_s3_blob_store_url(blob_store_url),
             path
-        );
+        )
     } else {
-        return format!("not supported blob store scheme: {blob_store_url_scheme}");
+        format!("not supported blob store scheme: {blob_store_url_scheme}")
     }
 }
 
@@ -1138,7 +1138,7 @@ pub fn blob_store_url_to_path(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        return url
+        url
             .strip_prefix(
                 &format!(
                     "{}://{}/",
@@ -1150,9 +1150,9 @@ pub fn blob_store_url_to_path(
             // The url doesn't include blob_store_url if this payload was uploaded to server instead
             // of directly to blob storage.
             .unwrap_or(url)
-            .to_string();
+            .to_string()
     } else {
-        return format!("not supported blob store scheme: {blob_store_url_scheme}");
+        format!("not supported blob store scheme: {blob_store_url_scheme}")
     }
 }
 

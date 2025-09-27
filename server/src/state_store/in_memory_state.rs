@@ -401,7 +401,7 @@ impl InMemoryMetrics {
                             // Find the oldest non-completed invocation
                             invocation_ctx
                                 .values()
-                                .filter(|inv| !inv.outcome.is_some())
+                                .filter(|inv| inv.outcome.is_none())
                                 .map(|inv| {
                                     get_elapsed_time(inv.created_at.into(), TimeUnit::Milliseconds)
                                 })
@@ -1181,8 +1181,7 @@ impl InMemoryState {
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
         let unallocated_function_run_keys = self
             .unallocated_function_runs
-            .iter()
-            .map(|function_run_key| function_run_key.clone())
+            .iter().cloned()
             .collect::<Vec<_>>();
         let mut function_runs = Vec::new();
         for function_run_key in unallocated_function_run_keys {
@@ -1328,7 +1327,7 @@ impl InMemoryState {
                 v.name == fe_meta.function_executor.compute_fn_name &&
                     v.graph_version == fe_meta.function_executor.version
             })
-            .any(|(_k, v)| !v.outcome.is_some())
+            .any(|(_k, v)| v.outcome.is_none())
     }
 
     pub fn desired_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {

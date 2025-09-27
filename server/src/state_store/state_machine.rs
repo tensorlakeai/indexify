@@ -91,7 +91,7 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
     txn.put(
-        &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
+        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
     )?;
@@ -112,7 +112,7 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
 pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> Result<()> {
     let serialized_allocation = JsonEncoder::encode(&allocation)?;
     txn.put(
-        &IndexifyObjectsColumns::Allocations.as_ref(),
+        IndexifyObjectsColumns::Allocations.as_ref(),
         allocation.key().as_bytes(),
         &serialized_allocation,
     )?;
@@ -165,7 +165,7 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
             .build()?;
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put(
-            &IndexifyObjectsColumns::GcUrls.as_ref(),
+            IndexifyObjectsColumns::GcUrls.as_ref(),
             gc_url.key().as_bytes(),
             &serialized_gc_url,
         )?;
@@ -435,7 +435,7 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    for (_, invocation_ctx) in &request.updated_invocations_states {
+    for invocation_ctx in request.updated_invocations_states.values() {
         if invocation_ctx.outcome.is_some() {
             info!(
                 invocation_id = invocation_ctx.request_id.to_string(),
@@ -527,7 +527,7 @@ pub fn can_allocation_output_be_updated(
 
     let existing_allocation = db.get(
         IndexifyObjectsColumns::Allocations.as_ref(),
-        &req.allocation.key(),
+        req.allocation.key(),
     )?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);

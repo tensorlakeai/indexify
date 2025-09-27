@@ -375,7 +375,7 @@ impl IndexifyState {
                     }
                 }
 
-                for (_, invocation_ctx) in &sched_update.updated_invocations_states {
+                for invocation_ctx in sched_update.updated_invocations_states.values() {
                     if invocation_ctx.outcome.is_some() {
                         let _ =
                             self.task_event_tx
