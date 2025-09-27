@@ -241,11 +241,14 @@ fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGra
                 compute_graph.version.0
             );
             request_ctx.graph_version = compute_graph.version.clone();
-            for (_function_call_id, function_run) in request_ctx.function_runs.iter_mut() {
+            for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
                 if function_run.graph_version != compute_graph.version &&
                     function_run.outcome.is_none()
                 {
                     function_run.graph_version = compute_graph.version.clone();
+                    request_ctx
+                        .function_runs
+                        .insert(function_run.id.clone(), function_run.clone());
                 }
             }
             graph_invocation_ctx_to_update.insert(key, request_ctx);

@@ -656,21 +656,7 @@ impl InMemoryState {
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
                 if req.upgrade_requests_to_current_version {
-                    // Update function runs
-                    {
-                        let mut function_runs_to_update = vec![];
-                        for function_run in self.function_runs.values() {
-                            if function_run.graph_version != version {
-                                function_runs_to_update.push(function_run.clone());
-                            }
-                        }
-                        for function_run in function_runs_to_update {
-                            self.function_runs
-                                .insert(function_run.clone().into(), function_run);
-                        }
-                    }
-
-                    // Update invocation contexts
+                    // Update invocation ctxs and function runs
                     {
                         let mut invocation_ctx_to_update = vec![];
                         let invocation_ctx_key_prefix =
@@ -688,6 +674,23 @@ impl InMemoryState {
                                 ctx.graph_version = version.clone();
                                 invocation_ctx_to_update.push(ctx);
                             });
+
+                        for ctx in invocation_ctx_to_update.iter_mut() {
+                            for (_function_call_id, function_run) in
+                                ctx.function_runs.clone().iter_mut()
+                            {
+                                if function_run.graph_version != version {
+                                    function_run.graph_version = version.clone();
+                                    ctx.function_runs
+                                        .insert(function_run.id.clone(), function_run.clone());
+                                }
+                                self.function_runs
+                                    .entry(function_run.clone().into())
+                                    .and_modify(|existing_function_run| {
+                                        *existing_function_run = Box::new(function_run.clone());
+                                    });
+                            }
+                        }
 
                         for ctx in invocation_ctx_to_update {
                             self.invocation_ctx.insert(ctx.key().into(), ctx);

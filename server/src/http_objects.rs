@@ -332,6 +332,7 @@ pub struct ApplicationFunction {
     pub description: String,
     pub is_api: bool,
     pub secret_names: Vec<String>,
+    #[serde(default)]
     pub initialization_timeout_sec: TimeoutSeconds,
     pub timeout_sec: TimeoutSeconds,
     pub resources: NodeResources,
