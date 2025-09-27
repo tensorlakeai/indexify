@@ -75,9 +75,9 @@ pub async fn v1_download_fn_output_payload(
         .reader()
         .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to get graph invocation context: {e}",
-            ))
+            IndexifyAPIError::internal_error(
+                anyhow!("failed to get graph invocation context: {e}",),
+            )
         })?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
     let fn_run = ctx
@@ -114,9 +114,9 @@ pub async fn v1_download_fn_output_payload_simple(
         .reader()
         .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to get graph invocation context: {e}",
-            ))
+            IndexifyAPIError::internal_error(
+                anyhow!("failed to get graph invocation context: {e}",),
+            )
         })?
         .ok_or(IndexifyAPIError::not_found("request context not found"))?;
 

@@ -295,9 +295,7 @@ impl IndexifyState {
 
         if !new_state_changes.is_empty() {
             if let Err(err) = self.change_events_tx.send(()) {
-                error!(
-                    "failed to notify of state change event, ignoring: {err:?}",
-                );
+                error!("failed to notify of state change event, ignoring: {err:?}",);
             }
         }
 

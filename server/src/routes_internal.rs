@@ -367,9 +367,7 @@ async fn get_versioned_code(
             .get(&compute_graph_version.code.path, None)
             .await
             .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!(
-                    "unable to read from blob storage {e:?}",
-                ))
+                IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e:?}",))
             })?;
 
         return Ok(Response::builder()

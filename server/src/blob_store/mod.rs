@@ -180,9 +180,7 @@ impl BlobStorage {
             let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
                 let _ =
-                    tx.send(chunk.map_err(|e| {
-                        anyhow!("error reading s3 object {path:?}: {e:?}")
-                    }));
+                    tx.send(chunk.map_err(|e| anyhow!("error reading s3 object {path:?}: {e:?}")));
             }
         });
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))

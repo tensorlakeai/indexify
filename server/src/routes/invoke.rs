@@ -233,9 +233,7 @@ async fn do_invoke_api_with_object_v1(
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &application)
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}"))
-        })?
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
 
     if let ComputeGraphState::Disabled { reason } = &application.state {
