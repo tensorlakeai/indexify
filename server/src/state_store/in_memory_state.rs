@@ -1181,7 +1181,8 @@ impl InMemoryState {
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
         let unallocated_function_run_keys = self
             .unallocated_function_runs
-            .iter().cloned()
+            .iter()
+            .cloned()
             .collect::<Vec<_>>();
         let mut function_runs = Vec::new();
         for function_run_key in unallocated_function_run_keys {

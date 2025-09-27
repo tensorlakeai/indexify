@@ -1138,19 +1138,18 @@ pub fn blob_store_url_to_path(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        url
-            .strip_prefix(
-                &format!(
-                    "{}://{}/",
-                    blob_store_url_scheme,
-                    bucket_name_from_s3_blob_store_url(blob_store_url)
-                )
-                .to_string(),
+        url.strip_prefix(
+            &format!(
+                "{}://{}/",
+                blob_store_url_scheme,
+                bucket_name_from_s3_blob_store_url(blob_store_url)
             )
-            // The url doesn't include blob_store_url if this payload was uploaded to server instead
-            // of directly to blob storage.
-            .unwrap_or(url)
-            .to_string()
+            .to_string(),
+        )
+        // The url doesn't include blob_store_url if this payload was uploaded to server instead
+        // of directly to blob storage.
+        .unwrap_or(url)
+        .to_string()
     } else {
         format!("not supported blob store scheme: {blob_store_url_scheme}")
     }

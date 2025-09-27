@@ -119,8 +119,7 @@ impl TaskCreator {
         let mut scheduler_update = SchedulerUpdateRequest::default();
         function_run.output = alloc_finished_event.data_payload.clone();
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
-            function_run.child_function_call =
-                Some(graph_updates.output_function_call_id.clone());
+            function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
         }
         scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
         scheduler_update.extend(propagate_output_to_consumers(

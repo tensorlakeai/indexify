@@ -410,10 +410,7 @@ impl ComputeFn {
     ) -> FunctionCall {
         FunctionCall {
             function_call_id,
-            inputs: inputs
-                .into_iter()
-                .map(FunctionArgs::DataPayload)
-                .collect(),
+            inputs: inputs.into_iter().map(FunctionArgs::DataPayload).collect(),
             fn_name: self.name.clone(),
             call_metadata,
         }
