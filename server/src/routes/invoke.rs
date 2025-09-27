@@ -234,7 +234,7 @@ async fn do_invoke_api_with_object_v1(
         .reader()
         .get_compute_graph(&namespace, &application)
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}"))
         })?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
 
@@ -249,8 +249,7 @@ async fn do_invoke_api_with_object_v1(
             .nodes
             .get(&api_function)
             .ok_or(IndexifyAPIError::not_found(&format!(
-                "api function {} not found",
-                api_function
+                "api function {api_function} not found",
             )))?
     } else {
         &application.start_fn
@@ -284,7 +283,7 @@ async fn do_invoke_api_with_object_v1(
             &request_id,
         )
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to create function run: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to create function run: {e}"))
         })?;
     let fn_runs = HashMap::from([(fn_run.id.clone(), fn_run)]);
     let fn_calls = HashMap::from([(fn_call.function_call_id.clone(), fn_call)]);

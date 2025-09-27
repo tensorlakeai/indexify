@@ -132,7 +132,7 @@ impl StateReader {
             None => return Ok(None),
         };
         let result = JsonEncoder::decode::<T>(&result_bytes)
-            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {e}"))?;
 
         Ok(Some(result))
     }
@@ -428,7 +428,7 @@ impl StateReader {
             return Ok(None);
         }
         let invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&value.unwrap())
-            .map_err(|e| anyhow!("unable to decode invocation ctx: {}", e))?;
+            .map_err(|e| anyhow!("unable to decode invocation ctx: {e}"))?;
         Ok(Some(invocation_ctx))
     }
 }

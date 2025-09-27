@@ -138,13 +138,14 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
             IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {:?}", e))?;
+        .map_err(|e| anyhow!("failed to get invocation: {e:?}"))?;
     let invocation_ctx = match invocation_ctx {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {
             info!(
                 invocation_ctx_key = &invocation_ctx_key,
-                "Invocation to delete not found: {}", &req.invocation_id
+                invocation_id = &req.invocation_id,
+                "Invocation to delete not found"
             );
             return Ok(());
         }
@@ -299,7 +300,7 @@ pub(crate) fn create_or_update_compute_graph(
             existing_compute_graph.to_version()
         }
         Some(Err(e)) => {
-            return Err(anyhow!("failed to decode existing compute graph: {}", e));
+            return Err(anyhow!("failed to decode existing compute graph: {e}"));
         }
         None => compute_graph.to_version(),
     }?;
@@ -494,7 +495,7 @@ pub fn can_allocation_output_be_updated(
         ComputeGraph::key_from(&req.allocation.namespace, &req.allocation.compute_graph);
     let graph = db
         .get(IndexifyObjectsColumns::ComputeGraphs.as_ref(), &graph_key)
-        .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
+        .map_err(|e| anyhow!("failed to get compute graph: {e}"))?;
     if graph.is_none() {
         info!("Compute graph not found: {}", &req.allocation.compute_graph);
         return Ok(false);
@@ -511,7 +512,7 @@ pub fn can_allocation_output_be_updated(
             IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
             &invocation_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+        .map_err(|e| anyhow!("failed to get invocation: {e}"))?;
     let invocation = match invocation {
         Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
         None => {

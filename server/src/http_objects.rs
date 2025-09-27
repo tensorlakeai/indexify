@@ -280,7 +280,7 @@ impl TryFrom<PlacementConstraints> for data_model::filter::LabelsFilter {
         let mut expressions = Vec::new();
         for expr_str in value.filter_expressions {
             let expression = data_model::filter::Expression::from_str(&expr_str)
-                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {e}"))?;
             expressions.push(expression);
         }
         Ok(data_model::filter::LabelsFilter(expressions))

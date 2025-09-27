@@ -676,7 +676,7 @@ impl ComputeGraphVersion {
             .creation_time_ns(get_epoch_time_in_ns())
             .vector_clock(VectorClock::default())
             .build()
-            .map_err(|e| anyhow!("failed to create function run: {}", e))
+            .map_err(|e| anyhow!("failed to create function run: {e}"))
     }
 
     pub fn key(&self) -> String {
@@ -1128,9 +1128,7 @@ impl HostResources {
                         Ok(())
                     } else {
                         Err(anyhow!(
-                            "Not enough GPU resources, available: {:?}, requested: {:?}",
-                            available_gpu,
-                            requested_gpu
+                            "Not enough GPU resources, available: {available_gpu:?}, requested: {requested_gpu:?}",
                         ))
                     }
                 }

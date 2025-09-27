@@ -837,7 +837,7 @@ impl ExecutorApi for ExecutorAPIService {
         if let Err(e) = self.indexify_state.write(sm_req).await {
             error!(
                 executor_id = executor_id.get(),
-                "failed to write state machine update request: {:?}", e
+                "failed to write state machine update request: {e:?}"
             );
             return Err(Status::internal(
                 "failed to write state machine update request",
@@ -1096,7 +1096,7 @@ fn prepare_data_payload(
         .metadata_size(metadata_size)
         .offset(offset)
         .build()
-        .map_err(|e| anyhow::anyhow!("failed to build data payload: {}", e))
+        .map_err(|e| anyhow::anyhow!("failed to build data payload: {e}"))
 }
 
 pub fn blob_store_path_to_url(

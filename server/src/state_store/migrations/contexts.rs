@@ -61,7 +61,7 @@ impl PrepareContext {
     /// Get list of all column families
     pub fn _list_cfs(&self) -> Result<Vec<String>> {
         DB::list_cf(&self.db_opts, &self.path)
-            .map_err(|e| anyhow!("Failed to list column families: {}", e))
+            .map_err(|e| anyhow!("Failed to list column families: {e}"))
     }
 }
 
@@ -94,12 +94,12 @@ impl<'a> MigrationContext<'a> {
 
     /// Parse JSON from bytes
     pub fn _parse_json(&self, bytes: &[u8]) -> Result<Value> {
-        serde_json::from_slice(bytes).map_err(|e| anyhow!("Error deserializing JSON: {}", e))
+        serde_json::from_slice(bytes).map_err(|e| anyhow!("Error deserializing JSON: {e}"))
     }
 
     /// Encode JSON to bytes
     pub fn _encode_json(&self, json: &Value) -> Result<Vec<u8>> {
-        serde_json::to_vec(json).map_err(|e| anyhow!("Error serializing JSON: {}", e))
+        serde_json::to_vec(json).map_err(|e| anyhow!("Error serializing JSON: {e}"))
     }
 
     /// Helper for common field renames in JSON objects

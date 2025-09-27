@@ -19,8 +19,7 @@ impl Migration for V1FakeMigration {
         _ctx.iterate(
             &crate::state_store::state_machine::IndexifyObjectsColumns::Namespaces,
             |_key, value| {
-                let namespace: serde_json::Value = serde_json::from_slice(value)?;
-                println!("Namespace: {:?}", namespace);
+                let _namespace: serde_json::Value = serde_json::from_slice(value)?;
                 Ok(())
             },
         )?;

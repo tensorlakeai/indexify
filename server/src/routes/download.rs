@@ -39,15 +39,13 @@ pub async fn download_invocation_error(
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "Failed to read invocation error payload: {}",
-                e
+                "Failed to read invocation error payload: {e}",
             ))
         })?;
 
     let message = String::from_utf8(bytes).map_err(|e| {
         IndexifyAPIError::internal_error(anyhow!(
-            "Invocation error payload is not valid UTF-8: {}",
-            e
+            "Invocation error payload is not valid UTF-8: {e}",
         ))
     })?;
 
@@ -78,8 +76,7 @@ pub async fn v1_download_fn_output_payload(
         .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "failed to get graph invocation context: {}",
-                e
+                "failed to get graph invocation context: {e}",
             ))
         })?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
@@ -118,8 +115,7 @@ pub async fn v1_download_fn_output_payload_simple(
         .invocation_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "failed to get graph invocation context: {}",
-                e
+                "failed to get graph invocation context: {e}",
             ))
         })?
         .ok_or(IndexifyAPIError::not_found("request context not found"))?;
@@ -155,7 +151,7 @@ async fn stream_data_payload(
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
+            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {e}")))?;
 
         return Response::builder()
             .header("Content-Type", encoding)

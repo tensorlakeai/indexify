@@ -122,7 +122,7 @@ where
 impl IndexifyState {
     pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
-            .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
+            .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
 
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
@@ -282,7 +282,7 @@ impl IndexifyState {
             .write()
             .await
             .update_state(current_state_id, &request.payload, "state_store")
-            .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
+            .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
         // Notify the executors with state changes
         {
             let mut executor_states = self.executor_states.write().await;
@@ -296,8 +296,7 @@ impl IndexifyState {
         if !new_state_changes.is_empty() {
             if let Err(err) = self.change_events_tx.send(()) {
                 error!(
-                    "failed to notify of state change event, ignoring: {:?}",
-                    err
+                    "failed to notify of state change event, ignoring: {err:?}",
                 );
             }
         }

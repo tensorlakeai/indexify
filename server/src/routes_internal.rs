@@ -368,8 +368,7 @@ async fn get_versioned_code(
             .await
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!(
-                    "unable to read from blob storage {:?}",
-                    e
+                    "unable to read from blob storage {e:?}",
                 ))
             })?;
 
@@ -382,8 +381,7 @@ async fn get_versioned_code(
             .body(Body::from_stream(storage_reader))
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!(
-                    "unable to stream from blob storage {:?}",
-                    e
+                    "unable to stream from blob storage {e:?}",
                 ))
             }));
     }
@@ -404,7 +402,7 @@ async fn get_versioned_code(
         .get(&compute_graph.code.path, None)
         .await
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {}", e))
+            IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e}"))
         })?;
 
     Ok(Response::builder()
@@ -447,7 +445,7 @@ async fn set_ctx_state_key(
                     .bytes()
                     .await
                     .map_err(|e| {
-                        IndexifyAPIError::internal_error(anyhow!("failed reading the value: {}", e))
+                        IndexifyAPIError::internal_error(anyhow!("failed reading the value: {e}"))
                     })?
                     .to_vec();
             } else {
@@ -486,7 +484,7 @@ async fn get_ctx_state_key(
             .header("Content-Length", value.len().to_string())
             .body(Body::from(value))
             .map_err(|e| {
-                tracing::error!("failed streaming get ctx response: {:?}", e);
+                tracing::error!("failed streaming get ctx response: {e:?}");
                 IndexifyAPIError::internal_error_str("failed streaming the response")
             }),
         None => Ok(Response::builder()
