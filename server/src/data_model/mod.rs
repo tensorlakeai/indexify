@@ -1686,7 +1686,7 @@ pub struct ExecutorUpsertedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    AllocationOutputsIngested(AllocationOutputIngestedEvent),
+    AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),

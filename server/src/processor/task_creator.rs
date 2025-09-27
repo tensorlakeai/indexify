@@ -209,7 +209,7 @@ impl TaskCreator {
                     };
 
                     let mut last_function_call =
-                        create_function_call_from_reduce_op(reduce_op, &first_arg, &second_arg);
+                        create_function_call_from_reduce_op(reduce_op, first_arg, second_arg);
                     scheduler_update
                         .add_function_call(last_function_call.clone(), &mut invocation_ctx);
                     // Ordering of arguments is important. When we reduce "a, b, c, d"
@@ -218,10 +218,10 @@ impl TaskCreator {
                     for arg in reducer_collection {
                         let function_call = create_function_call_from_reduce_op(
                             reduce_op,
-                            &FunctionArgs::FunctionRunOutput(
+                            FunctionArgs::FunctionRunOutput(
                                 last_function_call.function_call_id.clone(),
                             ),
-                            &arg,
+                            arg,
                         );
                         scheduler_update
                             .add_function_call(function_call.clone(), &mut invocation_ctx);
@@ -332,12 +332,10 @@ impl TaskCreator {
 
 fn create_function_call_from_reduce_op(
     reduce_op: &ReduceOperation,
-    first_arg: &FunctionArgs,
-    second_arg: &FunctionArgs,
+    first_arg: FunctionArgs,
+    second_arg: FunctionArgs,
 ) -> FunctionCall {
-    let mut inputs = vec![];
-    inputs.push(first_arg.clone());
-    inputs.push(second_arg.clone());
+    let inputs = vec![first_arg, second_arg];
     FunctionCall {
         function_call_id: FunctionCallId(nanoid::nanoid!()),
         inputs,

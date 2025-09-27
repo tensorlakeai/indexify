@@ -106,7 +106,7 @@ pub fn task_outputs_ingested(
         .namespace(Some(request.allocation.namespace.clone()))
         .compute_graph(Some(request.allocation.compute_graph.clone()))
         .invocation(Some(request.invocation_id.clone()))
-        .change_type(ChangeType::AllocationOutputsIngested(
+        .change_type(ChangeType::AllocationOutputsIngested(Box::new(
             AllocationOutputIngestedEvent {
                 namespace: request.allocation.namespace.clone(),
                 compute_graph: request.allocation.compute_graph.clone(),
@@ -124,7 +124,7 @@ pub fn task_outputs_ingested(
                 allocation_key: request.allocation.key(),
                 request_exception: request.request_exception.clone(),
             },
-        ))
+        )))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.allocation.function_call_id.to_string())
         .id(StateChangeId::new(last_change_id))

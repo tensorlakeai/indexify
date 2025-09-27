@@ -109,8 +109,7 @@ pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
-    pub function_run_allocations:
-        std::collections::HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
+    pub function_run_allocations: std::collections::HashMap<FunctionExecutorId, Vec<Allocation>>,
     pub clock: u64,
 }
 
@@ -1385,9 +1384,11 @@ impl InMemoryState {
             let allocations = self
                 .allocations_by_executor
                 .get(executor_id)
-                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id))
+                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
                 .unwrap_or(&Vec::new())
-                .clone();
+                .iter()
+                .map(|allocation| *allocation.clone())
+                .collect::<Vec<_>>();
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
 
