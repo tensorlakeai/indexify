@@ -2,11 +2,12 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::{Ok, Result};
-use clap::Parser;
-use config::ServerConfig;
+use clap::{Parser, Subcommand};
+use config::AgentConfig;
 use opentelemetry::global;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
@@ -21,6 +22,9 @@ use tracing_subscriber::{
     Layer,
 };
 
+use crate::{agent::fe_driver::SubprocessFactory, config::TelemetryConfig};
+
+mod agent;
 mod blob_store;
 mod config;
 mod data_model;
@@ -50,6 +54,22 @@ mod testing;
 struct Cli {
     #[arg(short, long, value_name = "config file", help = "Path to config file")]
     config: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the agent (data-plane) that connects to the Indexify server
+    Agent {
+        #[arg(
+            short,
+            long,
+            value_name = "agent config file",
+            help = "Path to agent config file"
+        )]
+        config: Option<PathBuf>,
+    },
 }
 
 fn get_env_filter() -> tracing_subscriber::EnvFilter {
@@ -89,19 +109,19 @@ where
 /// log collector). So we allow the user to configure a target->level map for
 /// local logs; to keep these from growing too crazily large, we make sure to
 /// rotate them on a daily basis.
-fn get_local_log_layer<S>(config: &ServerConfig) -> Box<dyn Layer<S> + Send + Sync>
+fn get_local_log_layer<S>(config: &TelemetryConfig) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: for<'a> tracing_subscriber::registry::LookupSpan<'a>,
     S: tracing::Subscriber,
 {
-    let Some(log_file_path) = &config.telemetry.local_log_file else {
+    let Some(log_file_path) = &config.local_log_file else {
         // Return Identity layer if no local log file is configured
         return Box::new(tracing_subscriber::layer::Identity::new());
     };
 
     // Build Targets filter from config
     let mut targets = tracing_subscriber::filter::Targets::new();
-    for (target, level_str) in &config.telemetry.local_log_targets {
+    for (target, level_str) in &config.local_log_targets {
         let level = tracing::Level::from_str(level_str).unwrap_or_else(|_| {
             error!(
                 "Invalid log level '{}' for target '{}', defaulting to DEBUG",
@@ -130,8 +150,8 @@ where
     Box::new(file_layer)
 }
 
-fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
-    let structured_logging = !config.dev;
+fn setup_tracing(config: TelemetryConfig, dev: bool) -> Result<Option<SdkTracerProvider>> {
+    let structured_logging = !dev;
     let env_filter_layer = get_env_filter();
     let log_layer = get_log_layer(structured_logging);
     let local_log_layer = get_local_log_layer(&config);
@@ -139,7 +159,7 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
         .with(log_layer.with_filter(env_filter_layer))
         .with(local_log_layer);
 
-    if !config.telemetry.enable_tracing {
+    if !config.enable_tracing {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
             error!("logger was already initiated, continuing: {:?}", e);
         }
@@ -147,7 +167,7 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
     }
 
     let mut span_exporter = SpanExporter::builder().with_tonic();
-    if let Some(endpoint) = &config.telemetry.endpoint {
+    if let Some(endpoint) = &config.endpoint {
         span_exporter = span_exporter.with_endpoint(endpoint.clone());
     }
     let span_exporter = span_exporter.build()?;
@@ -163,12 +183,34 @@ fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    // If subcommand is Agent, run the agent instead of the server
+    if let Some(Command::Agent {
+        config: agent_cfg_path,
+    }) = cli.command
+    {
+        let agent_config = match agent_cfg_path {
+            Some(path) => AgentConfig::from_path(path.to_str().unwrap()).unwrap_or_default(),
+            None => AgentConfig::default(),
+        };
+        let _tracing_provider = setup_tracing(agent_config.telemetry.clone(), agent_config.dev)
+            .inspect_err(|e| {
+                error!("Error setting up tracing: {:?}", e);
+            })
+            .unwrap();
+        let factory = Arc::new(SubprocessFactory);
+        let agent = crate::agent::Agent::new(agent_config, factory);
+        if let Err(err) = agent.run().await {
+            error!("Error running agent: {err:?}");
+        }
+        return;
+    }
+
     let config = match cli.config {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
     };
 
-    let tracing_provider = setup_tracing(config.clone())
+    let tracing_provider = setup_tracing(config.telemetry.clone(), config.dev)
         .inspect_err(|e| {
             error!("Error setting up tracing: {:?}", e);
         })

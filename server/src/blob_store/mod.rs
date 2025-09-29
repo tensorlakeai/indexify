@@ -78,6 +78,12 @@ impl BlobStorage {
         })
     }
 
+    pub async fn read_uri(uri: &str) -> Result<Bytes> {
+        let (obj_store, path) = Self::build_object_store(uri, None)?;
+        let result = obj_store.get(&path).await?;
+        result.bytes().await.map_err(|e| anyhow!("error reading bytes from uri {uri}: {e:?}"))
+    }
+
     pub fn build_object_store(
         url_str: &str,
         region: Option<String>,

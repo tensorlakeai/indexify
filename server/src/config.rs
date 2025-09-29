@@ -12,7 +12,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::blob_store::BlobStorageConfig;
+use crate::{blob_store::BlobStorageConfig, executor_api::executor_api_pb};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
@@ -147,5 +147,86 @@ mod duration_serde {
     {
         let seconds = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(seconds))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TLSConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub ca_bundle_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    pub dev: bool,
+    pub hostname: String,
+    pub server_address: String,
+    pub grpc_server_address: String,
+    pub function_uris: Vec<String>,
+    pub executor_cache_path: String,
+    pub monitoring_server_host: String,
+    pub monitoring_server_port: u16,
+    pub labels: Vec<String>,
+    pub tls_config: Option<TLSConfig>,
+    pub executor_version: String,
+    pub telemetry: TelemetryConfig,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            dev: true,
+            hostname: "localhost".to_string(),
+            server_address: "127.0.0.1:8900".to_string(),
+            grpc_server_address: "127.0.0.1:8901".to_string(),
+            function_uris: Vec::new(),
+            executor_cache_path: "~/.indexify/executor_cache".to_string(),
+            monitoring_server_host: "127.0.0.1".to_string(),
+            monitoring_server_port: 7000,
+            labels: Vec::new(),
+            tls_config: None,
+            executor_version: env!("CARGO_PKG_VERSION").to_string(),
+            telemetry: TelemetryConfig::default(),
+        }
+    }
+}
+
+impl AgentConfig {
+    pub fn from_path(path: &str) -> Result<AgentConfig> {
+        let config_str = std::fs::read_to_string(path)?;
+        let figment = Figment::from(Serialized::defaults(AgentConfig::default()));
+        let config: AgentConfig = figment.merge(Yaml::string(&config_str)).extract()?;
+        Ok(config)
+    }
+
+    pub fn labels_map(&self) -> std::collections::HashMap<String, String> {
+        let mut labels = std::collections::HashMap::new();
+        for kv in &self.labels {
+            if let Some((k, v)) = kv.split_once('=') {
+                labels.insert(k.to_string(), v.to_string());
+            }
+        }
+        labels
+    }
+
+    pub fn allowed_functions(&self) -> Vec<executor_api_pb::AllowedFunction> {
+        let mut out = Vec::new();
+        for uri in &self.function_uris {
+            // Expect <namespace>:<application>:<function>[:<version>]
+            let parts: Vec<&str> = uri.split(':').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let mut af = executor_api_pb::AllowedFunction::default();
+            af.namespace = Some(parts[0].to_string());
+            af.application_name = Some(parts[1].to_string());
+            af.function_name = Some(parts[2].to_string());
+            if parts.len() >= 4 {
+                af.application_version = Some(parts[3].to_string());
+            }
+            out.push(af);
+        }
+        out
     }
 }
