@@ -196,7 +196,7 @@ pub async fn applications(
         .map_err(IndexifyAPIError::internal_error)?;
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(http_objects_v1::ApplicationsList {
-        compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
+        applications: compute_graphs.into_iter().map(|c| c.into()).collect(),
         cursor,
     }))
 }

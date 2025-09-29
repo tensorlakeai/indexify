@@ -60,7 +60,6 @@ sqlite*
 *.log
 
 # Miscellaneous
-/executor-py/~
 openapi.yaml
 
 # Developer Cargo configs
