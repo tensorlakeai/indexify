@@ -5,11 +5,11 @@ from tensorlake.applications.remote.deploy import deploy as tl_deploy
 
 
 @click.command(
-    short_help="Deploys application defined in <application-path> directory or file to Indexify"
+    short_help="Deploys application defined in <application-dir-path> directory to Indexify"
 )
 @click.argument(
-    "application-path",
-    type=click.Path(exists=True, file_okay=True, dir_okay=True),
+    "application-dir-path",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
 )
 @click.option(
     "-u",
@@ -19,14 +19,14 @@ from tensorlake.applications.remote.deploy import deploy as tl_deploy
     help="Upgrade requests that are already queued or running to use the new deployed version of the application",
 )
 def deploy(
-    application_path: str,
+    application_dir_path: str,
     upgrade_running_requests: bool,
 ):
-    click.echo(f"Preparing deployment for application from {application_path}")
+    click.echo(f"Preparing deployment for application from {application_dir_path}")
 
     try:
         tl_deploy(
-            application_source_dir_or_file_path=application_path,
+            application_source_dir_or_file_path=application_dir_path,
             upgrade_running_requests=upgrade_running_requests,
             load_application_modules=True,
         )

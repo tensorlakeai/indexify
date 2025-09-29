@@ -114,7 +114,7 @@ impl From<data_model::ComputeGraph> for Application {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationsList {
-    pub compute_graphs: Vec<Application>,
+    pub applications: Vec<Application>,
     pub cursor: Option<String>,
 }
 
@@ -145,9 +145,10 @@ pub struct GraphRequests {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FunctionRun {
     pub id: String,
+    pub function_name: String,
     pub status: TaskStatus,
     pub outcome: Option<TaskOutcome>,
-    pub graph_version: GraphVersion,
+    pub application_version: GraphVersion,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
 }
@@ -159,9 +160,10 @@ impl FunctionRun {
     ) -> Self {
         Self {
             id: function_run.id.to_string(),
+            function_name: function_run.name,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             status: function_run.status.into(),
-            graph_version: function_run.graph_version.into(),
+            application_version: function_run.graph_version.into(),
             allocations,
             created_at: function_run.creation_time_ns,
         }
@@ -206,7 +208,7 @@ pub enum RequestFailureReason {
     Unknown,
     InternalError,
     FunctionError,
-    InvocationError,
+    RequestError,
     NextFunctionNotFound,
     ConstraintUnsatisfiable,
 }
@@ -217,7 +219,7 @@ impl From<GraphInvocationFailureReason> for RequestFailureReason {
             GraphInvocationFailureReason::Unknown => RequestFailureReason::Unknown,
             GraphInvocationFailureReason::InternalError => RequestFailureReason::InternalError,
             GraphInvocationFailureReason::FunctionError => RequestFailureReason::FunctionError,
-            GraphInvocationFailureReason::InvocationError => RequestFailureReason::InvocationError,
+            GraphInvocationFailureReason::InvocationError => RequestFailureReason::RequestError,
             GraphInvocationFailureReason::NextFunctionNotFound => {
                 RequestFailureReason::NextFunctionNotFound
             }
@@ -258,6 +260,7 @@ impl Request {
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct Allocation {
     pub id: String,
+    pub function_name: String,
     pub executor_id: String,
     pub function_executor_id: String,
     pub created_at: u128,
@@ -270,6 +273,7 @@ impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
         Self {
             id: allocation.id.to_string(),
+            function_name: allocation.compute_fn.to_string(),
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             created_at: allocation.created_at,

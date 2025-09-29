@@ -1,5 +1,6 @@
 import importlib
 import os
+import traceback
 from typing import Any, Generator, Set
 
 import click
@@ -20,26 +21,23 @@ from tensorlake.applications.remote.application.loader import load_application
 
 
 @click.command(
-    short_help="Builds images for application defined in <application-source-path> directory or file"
+    short_help="Builds images for application defined in <application-dir-path> directory"
 )
 @click.argument(
-    "application-path",
-    type=click.Path(exists=True, file_okay=True, dir_okay=True),
+    "application-dir-path",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
 )
-def build_images(application_path: str):
+def build_images(application_dir_path: str):
     try:
-        application_source_dir_or_file_path: str = os.path.abspath(application_path)
-
-        ignored_absolute_paths: Set[str] = ignored_code_paths(
-            os.path.dirname(application_source_dir_or_file_path)
-        )
-
-        load_application(application_source_dir_or_file_path, ignored_absolute_paths)
+        application_dir_path: str = os.path.abspath(application_dir_path)
+        ignored_absolute_paths: Set[str] = ignored_code_paths(application_dir_path)
+        load_application(application_dir_path, ignored_absolute_paths)
     except Exception as e:
         click.secho(
             f"Failed to load the application modules, please check the error message: {e}",
             fg="red",
         )
+        traceback.print_exception(e)
         raise click.Abort
 
     docker_client: docker.DockerClient = docker.from_env()
@@ -60,7 +58,8 @@ def build_images(application_path: str):
             _print_build_log(logs_generator)
             click.secho(f"Built image: {built_image.tags[0]}", fg="green")
         except BuildError as e:
-            raise click.Abort() from e
+            traceback.print_exception(e)
+            raise click.Abort
 
 
 def _build(
