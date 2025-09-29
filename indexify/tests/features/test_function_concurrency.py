@@ -2,15 +2,21 @@ import time
 import unittest
 from typing import List
 
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    api,
+    call_remote_api,
+    define_application,
+    function,
+)
+from tensorlake.applications.remote.deploy import deploy
 
 MAX_CONCURRENCY = 10
 concurrency_counter: int = 0
 
 
-@tensorlake.api()
-@tensorlake.function(max_concurrency=MAX_CONCURRENCY)
+@api()
+@function(max_concurrency=MAX_CONCURRENCY)
 def concurrent_function(_i: int) -> int:
     global concurrency_counter
     concurrency_counter += 1
@@ -24,11 +30,9 @@ def concurrent_function(_i: int) -> int:
 class TestFunctionConcurrency(unittest.TestCase):
     def test_function_reaches_max_concurrency(self):
         deploy(__file__)
-        requests: List[tensorlake.Request] = []
+        requests: List[Request] = []
         for _ in range(MAX_CONCURRENCY):
-            request: tensorlake.Request = tensorlake.call_remote_api(
-                concurrent_function, 0
-            )
+            request: Request = call_remote_api(concurrent_function, 0)
             requests.append(request)
 
         observed_max_concurrencies: List[int] = []

@@ -1,10 +1,9 @@
 import contextlib
-import time
 import unittest
 from typing import Dict, List
 
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import Request, api, call_remote_api, function
+from tensorlake.applications.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
@@ -12,43 +11,43 @@ from testing import (
 )
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def get_dev_mode_executor_pid(_: int) -> int:
     """Returns the PID of the executor running this function."""
     return executor_pid()
 
 
-@tensorlake.api()
-@tensorlake.function(region="us-east-1")
+@api()
+@function(region="us-east-1")
 def regional_function_east(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@tensorlake.api()
-@tensorlake.function(region="us-west-2")
+@api()
+@function(region="us-west-2")
 def regional_function_west(_: int) -> int:
     """Function that requires us-west-2 region."""
     return executor_pid()
 
 
-@tensorlake.api()
-@tensorlake.function(region="eu-west-1")
+@api()
+@function(region="eu-west-1")
 def regional_function_eu(_: int) -> int:
     """Function that requires eu-west-1 region."""
     return executor_pid()
 
 
-@tensorlake.api()
-@tensorlake.function(region="us-east-1")
+@api()
+@function(region="us-east-1")
 def regional_function_east_2(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@tensorlake.api()
-@tensorlake.function(region="us-west-2")
+@api()
+@function(region="us-west-2")
 def regional_function_west_2(_: int) -> int:
     """Function that requires us-west-2 region."""
     return executor_pid()
@@ -81,8 +80,8 @@ class TestRegionalRouting(unittest.TestCase):
             "eu_west_1": -1,  # Executor with sku=gpu-xxl, region=eu-west-1
         }
 
-        get_dev_mode_executor_pid_request: tensorlake.Request = (
-            tensorlake.call_remote_api(get_dev_mode_executor_pid, 0)
+        get_dev_mode_executor_pid_request: Request = call_remote_api(
+            get_dev_mode_executor_pid, 0
         )
         executor_to_pid["dev_mode"] = get_dev_mode_executor_pid_request.output()
         print(f"Dev mode executor PID: {executor_to_pid['dev_mode']}")
@@ -134,7 +133,7 @@ class TestRegionalRouting(unittest.TestCase):
                 print(f"Executor {config['name']} is ready")
 
             # Run multiple requests to test label filtering
-            regional_function_requests: Dict[str, List[tensorlake.Request]] = {
+            regional_function_requests: Dict[str, List[Request]] = {
                 "regional_function_east": [],
                 "regional_function_west": [],
                 "regional_function_eu": [],
@@ -143,19 +142,19 @@ class TestRegionalRouting(unittest.TestCase):
             }
             for _ in range(NUM_REQUESTS_PER_REGION):
                 regional_function_requests["regional_function_east"].append(
-                    tensorlake.call_remote_api(regional_function_east, 0)
+                    call_remote_api(regional_function_east, 0)
                 )
                 regional_function_requests["regional_function_west"].append(
-                    tensorlake.call_remote_api(regional_function_west, 0)
+                    call_remote_api(regional_function_west, 0)
                 )
                 regional_function_requests["regional_function_eu"].append(
-                    tensorlake.call_remote_api(regional_function_eu, 0)
+                    call_remote_api(regional_function_eu, 0)
                 )
                 regional_function_requests["regional_function_east_2"].append(
-                    tensorlake.call_remote_api(regional_function_east_2, 0)
+                    call_remote_api(regional_function_east_2, 0)
                 )
                 regional_function_requests["regional_function_west_2"].append(
-                    tensorlake.call_remote_api(regional_function_west_2, 0)
+                    call_remote_api(regional_function_west_2, 0)
                 )
 
             print(

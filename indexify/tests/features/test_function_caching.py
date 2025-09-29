@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from typing import List
 
-import tensorlake.workflows.interface as tensorlake
 from pydantic import BaseModel
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import Request, api, call_remote_api, function
+from tensorlake.applications.remote.deploy import deploy
 
 
 class Payload(BaseModel):
@@ -13,20 +13,20 @@ class Payload(BaseModel):
     generate_numbers_runs_file_path: str
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def sum_numbers_api(payload: Payload) -> int:
     return sum_numbers(
         generate_numbers(payload.count, payload.generate_numbers_runs_file_path)
     )
 
 
-@tensorlake.function()
+@function()
 def sum_numbers(numbers: List[int]) -> int:
     return sum(numbers)
 
 
-@tensorlake.function(cacheable=True)
+@function(cacheable=True)
 def generate_numbers(count: int, cache_file_path: str) -> List[int]:
     with open(cache_file_path, "a") as cache_file:
         cache_file.write("generate_numbers run\n")
@@ -45,9 +45,7 @@ class TestFunctionCaching(unittest.TestCase):
         payload = Payload(count=5, generate_numbers_runs_file_path=temp_file.name)
 
         # First request should run the function and add a line to the file
-        request_1: tensorlake.Request = tensorlake.call_remote_api(
-            sum_numbers_api, payload
-        )
+        request_1: Request = call_remote_api(sum_numbers_api, payload)
         self.assertEqual(request_1.output(), sum([2, 3, 4, 5, 6]))
 
         with open(temp_file.name, "r") as f:
@@ -56,9 +54,7 @@ class TestFunctionCaching(unittest.TestCase):
         self.assertEqual(runs[0], "generate_numbers run\n")
 
         # Second request should use the cache and not run the function again
-        request_2: tensorlake.Request = tensorlake.call_remote_api(
-            sum_numbers_api, payload
-        )
+        request_2: Request = call_remote_api(sum_numbers_api, payload)
         self.assertEqual(request_2.output(), sum([2, 3, 4, 5, 6]))
 
         with open(temp_file.name, "r") as f:
