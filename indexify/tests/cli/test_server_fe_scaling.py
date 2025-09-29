@@ -2,13 +2,19 @@ import time
 import unittest
 from typing import List, Set
 
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    api,
+    call_remote_api,
+    define_application,
+    function,
+)
+from tensorlake.applications.remote.deploy import deploy
 from testing import function_executor_id
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def test_function(sleep_secs: float) -> str:
     time.sleep(sleep_secs)
     return function_executor_id()
@@ -22,7 +28,7 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
     def test_server_scales_up_function_executors_for_slow_function(self):
         # Use a different application in every test case to make sure that their FEs are independent
         # from each other.
-        tensorlake.define_application(
+        define_application(
             name="TestServerFunctionExecutorScaling.test_server_scales_up_function_executors_for_slow_function"
         )
         deploy(__file__)
@@ -32,9 +38,9 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
         # for them are fast.
         # This requires at least 4 CPU cores and 4 GB of RAM on the testing machine.
         _EXPECTED_FE_COUNT = 4
-        requests: List[tensorlake.Request] = []
+        requests: List[Request] = []
         for _ in range(_EXPECTED_FE_COUNT * _FE_ALLOCATIONS_QUEUE_SIZE):
-            request: tensorlake.Request = tensorlake.call_remote_api(
+            request: Request = call_remote_api(
                 test_function,
                 5,
             )
@@ -42,7 +48,7 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
 
         fe_ids: Set[str] = set()
         for request in requests:
-            request: tensorlake.Request
+            request: Request
             fe_ids.add(request.output())
 
         self.assertEqual(len(fe_ids), _EXPECTED_FE_COUNT)
@@ -52,16 +58,16 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
     ):
         # Use a different application in every test case to make sure that their FEs are independent
         # from each other.
-        tensorlake.define_application(
+        define_application(
             name="TestServerFunctionExecutorScaling.test_server_uses_the_same_function_executor_if_fe_task_queue_doesnt_overflow"
         )
         deploy(__file__)
 
         # The test runs a fixed number of fast functions and checks that Server reused
         # FEs because they never had their task queues full.
-        requests: List[tensorlake.Request] = []
+        requests: List[Request] = []
         for _ in range(_FE_ALLOCATIONS_QUEUE_SIZE):
-            request: tensorlake.Request = tensorlake.call_remote_api(
+            request: Request = call_remote_api(
                 test_function,
                 0.01,
             )

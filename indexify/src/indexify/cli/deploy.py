@@ -1,57 +1,41 @@
+import traceback
+
 import click
-from tensorlake import Graph
-from tensorlake.functions_sdk.graph_serialization import graph_code_dir_path
-from tensorlake.functions_sdk.remote_graph import RemoteGraph
-from tensorlake.functions_sdk.workflow_module import (
-    WorkflowModuleInfo,
-    load_workflow_module_info,
-)
+from tensorlake.applications.remote.deploy import deploy as tl_deploy
 
 
 @click.command(
-    short_help="Deploy all graphs/workflows defined in the workflow file to Indexify"
+    short_help="Deploys application defined in <application-path> directory or file to Indexify"
 )
-# Path to the file where the graphs/workflows are defined as global variables
 @click.argument(
-    "workflow-file-path",
-    type=click.Path(exists=True, file_okay=True, dir_okay=False),
+    "application-path",
+    type=click.Path(exists=True, file_okay=True, dir_okay=True),
 )
 @click.option(
     "-u",
-    "--upgrade-queued-invocations",
+    "--upgrade-running-requests",
     is_flag=True,
     default=False,
-    help="Upgrade invocations that are already queued or running to use the deployed version of the graphs/workflows",
+    help="Upgrade requests that are already queued or running to use the new deployed version of the application",
 )
 def deploy(
-    workflow_file_path: str,
-    upgrade_queued_invocations: bool,
+    application_path: str,
+    upgrade_running_requests: bool,
 ):
-    click.echo(f"Preparing deployment for {workflow_file_path}")
+    click.echo(f"Preparing deployment for application from {application_path}")
+
     try:
-        workflow_module_info: WorkflowModuleInfo = load_workflow_module_info(
-            workflow_file_path
+        tl_deploy(
+            application_source_dir_or_file_path=application_path,
+            upgrade_running_requests=upgrade_running_requests,
+            load_application_modules=True,
         )
     except Exception as e:
         click.secho(
-            f"Failed loading workflow file, please check the error message: {e}",
+            f"Application could not be deployed, please check the error message:",
             fg="red",
         )
+        traceback.print_exception(e)
         raise click.Abort
 
-    for graph in workflow_module_info.graphs:
-        graph: Graph
-        try:
-            RemoteGraph.deploy(
-                graph,
-                code_dir_path=graph_code_dir_path(workflow_file_path),
-                upgrade_tasks_to_latest_version=upgrade_queued_invocations,
-            )
-        except Exception as e:
-            click.secho(
-                f"Graph {graph.name} could not be deployed, please check the error message: {e}",
-                fg="red",
-            )
-            raise click.Abort
-
-        click.secho(f"Deployed {graph.name}", fg="green")
+    click.secho(f"Successfully deployed the application", fg="green")

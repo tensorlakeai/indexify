@@ -2,17 +2,23 @@ import unittest
 from typing import Dict, List
 
 import httpx
-import tensorlake.workflows.interface as tensorlake
 
 # We're using internal APIs here, this might break when we update prometheus_client.
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    api,
+    call_remote_api,
+    define_application,
+    function,
+)
+from tensorlake.applications.remote.deploy import deploy
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def successful_function(arg: str) -> str:
     return "success"
 
@@ -239,14 +245,14 @@ class TestMetrics(unittest.TestCase):
 
     def test_expected_metrics_diff_after_successful_task_run(self):
         # Force unique application version to ensure cold start because we check cold start metrics too.
-        tensorlake.define_application(
+        define_application(
             name="TestMetrics.test_expected_metrics_diff_after_successful_task_run"
         )
         deploy(__file__)
 
         metrics_before: Dict[str, Metric] = fetch_metrics(self)
 
-        request: tensorlake.Request = tensorlake.call_remote_api(
+        request: Request = call_remote_api(
             successful_function,
             "ignored",
         )
@@ -413,12 +419,12 @@ class TestMetrics(unittest.TestCase):
 
     def test_expected_metrics_after_successful_task_run(self):
         # Force unique application version to ensure cold start because we check cold start metrics too.
-        tensorlake.define_application(
+        define_application(
             name="TestMetrics.test_expected_metrics_after_successful_task_run"
         )
         deploy(__file__)
 
-        request: tensorlake.Request = tensorlake.call_remote_api(
+        request: Request = call_remote_api(
             successful_function,
             "ignored",
         )

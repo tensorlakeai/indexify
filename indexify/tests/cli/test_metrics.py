@@ -5,13 +5,13 @@ import unittest
 from typing import Dict
 
 import httpx
-import tensorlake.workflows.interface as tensorlake
 
 # We're using internal APIs here, this might break when we update prometheus_client.
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import Request, api, call_remote_api, function
+from tensorlake.applications.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
     wait_executor_startup,
@@ -29,8 +29,8 @@ def fetch_metrics(
     return metrics
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def successful_function(arg: str) -> str:
     return "success"
 
@@ -68,7 +68,7 @@ class TestMetrics(unittest.TestCase):
             self.assertIn("id", info_sample.labels)
 
     def test_expected_function_executor_infos(self):
-        request: tensorlake.Request = tensorlake.call_remote_api(
+        request: Request = call_remote_api(
             successful_function,
             "ignored",
         )

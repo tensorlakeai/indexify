@@ -3,8 +3,8 @@ import time
 import unittest
 from typing import List
 
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import Request, api, call_remote_api, function
+from tensorlake.applications.remote.deploy import deploy
 from testing import (
     ExecutorProcessContextManager,
     function_uri,
@@ -12,8 +12,8 @@ from testing import (
 )
 
 
-@tensorlake.api()
-@tensorlake.function()
+@api()
+@function()
 def success_func(sleep_secs: float) -> str:
     time.sleep(sleep_secs)
     return "success"
@@ -39,10 +39,10 @@ class TestExecutorExit(unittest.TestCase):
             print(f"Started Executor A with PID: {executor_a.pid}")
             wait_executor_startup(7001)
 
-            requests: List[tensorlake.Request] = []
+            requests: List[Request] = []
             for i in range(10):
                 print(f"Running request {i}")
-                request: tensorlake.Request = tensorlake.call_remote_api(
+                request: Request = call_remote_api(
                     success_func,
                     0.1,
                 )

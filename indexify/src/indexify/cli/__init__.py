@@ -1,6 +1,6 @@
 import click
 
-from . import build_image, deploy, executor
+from . import build_images, deploy, executor
 
 
 @click.group()
@@ -8,11 +8,11 @@ from . import build_image, deploy, executor
 @click.pass_context
 def cli(ctx: click.Context):
     """
-    Indexify CLI to manage and deploy workflows to Indexify Server and run Indexify Executors.
+    Indexify CLI to manage and deploy applications to Indexify Server and run Indexify Executors.
     """
     pass
 
 
-cli.add_command(build_image.build_image)
+cli.add_command(build_images.build_images)
 cli.add_command(deploy.deploy)
 cli.add_command(executor.executor)

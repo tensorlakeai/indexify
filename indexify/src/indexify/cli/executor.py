@@ -10,7 +10,7 @@ import shutil
 from importlib.metadata import version
 from pathlib import Path
 from socket import gethostname
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import click
 import nanoid
@@ -110,7 +110,7 @@ def executor(
     verbose: bool,
     very_verbose: bool,
     function_uris: List[str],
-    config_path: Optional[str],
+    config_path: str | None,
     executor_cache_path: str,
     monitoring_server_host: str,
     monitoring_server_port: int,

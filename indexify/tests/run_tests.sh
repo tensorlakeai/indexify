@@ -42,7 +42,7 @@ run_test_suite "$indexify_test_files" "Indexify"
 # you can set TENSORLAKE_SDK_SKIP_TESTS=true in your environment.
 if [[ -z "${TENSORLAKE_SDK_SKIP_TESTS}" ]]; then
   # Tensorlake SDK tests verify user visible functionality end-to-end.
-  tensorlake_sdk_test_files=$(find ../../tensorlake/tests/workflows -name 'test_*.py')
+  tensorlake_sdk_test_files=$(find ../../tensorlake/tests/applications -name 'test_*.py')
   run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"
 fi
 

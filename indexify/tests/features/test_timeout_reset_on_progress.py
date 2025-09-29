@@ -1,13 +1,20 @@
 import time
 import unittest
 
-import tensorlake.workflows.interface as tensorlake
-from tensorlake.workflows.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    RequestContext,
+    RequestFailureException,
+    api,
+    call_remote_api,
+    function,
+)
+from tensorlake.applications.remote.deploy import deploy
 
 
-@tensorlake.api()
-@tensorlake.function(timeout=5)
-def function_with_progress_updates(ctx: tensorlake.RequestContext, x: int) -> str:
+@api()
+@function(timeout=5)
+def function_with_progress_updates(ctx: RequestContext, x: int) -> str:
     """Function that calls update_progress multiple times during execution.
 
     This function takes longer than the timeout (5 seconds) but should succeed
@@ -32,9 +39,9 @@ def function_with_progress_updates(ctx: tensorlake.RequestContext, x: int) -> st
     return "completed_with_progress_updates"
 
 
-@tensorlake.api()
-@tensorlake.function(timeout=5)
-def function_without_progress_updates(ctx: tensorlake.RequestContext, x: int) -> str:
+@api()
+@function(timeout=5)
+def function_without_progress_updates(ctx: RequestContext, x: int) -> str:
     """Function that sleeps longer than timeout without reporting progress.
 
     This function should timeout because it doesn't call update_progress().
@@ -55,9 +62,7 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         """Test that functions with progress updates don't timeout even if they exceed the original timeout."""
 
         start_time = time.monotonic()
-        request: tensorlake.Request = tensorlake.call_remote_api(
-            function_with_progress_updates, 1
-        )
+        request: Request = call_remote_api(function_with_progress_updates, 1)
         output = request.output()
         duration = time.monotonic() - start_time
 
@@ -72,10 +77,8 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         """Test that functions without progress updates timeout as expected."""
 
         start_time = time.monotonic()
-        request: tensorlake.Request = tensorlake.call_remote_api(
-            function_without_progress_updates, 1
-        )
-        self.assertRaises(tensorlake.RequestFailureException, request.output)
+        request: Request = call_remote_api(function_without_progress_updates, 1)
+        self.assertRaises(RequestFailureException, request.output)
         duration = time.monotonic() - start_time
 
         # Should timeout after about 5 seconds, but CI can be slow,
