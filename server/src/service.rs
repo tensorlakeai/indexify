@@ -29,7 +29,7 @@ use crate::{
 
 pub mod executor_api_descriptor {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("executor_api_v3_descriptor");
+        tonic::include_file_descriptor_set!("executor_api_descriptor");
 }
 
 #[derive(Clone)]
