@@ -14,12 +14,14 @@ from tensorlake.applications.remote.deploy import deploy
 
 @api()
 @function(timeout=5)
-def function_with_progress_updates(ctx: RequestContext, x: int) -> str:
+def function_with_progress_updates(x: int) -> str:
     """Function that calls update_progress multiple times during execution.
 
     This function takes longer than the timeout (5 seconds) but should succeed
     because update_progress() calls reset the timeout.
     """
+    ctx: RequestContext = RequestContext.get()
+
     # Sleep for 2 seconds, then report progress
     time.sleep(2)
     ctx.progress.update(current=1, total=4)
@@ -41,7 +43,7 @@ def function_with_progress_updates(ctx: RequestContext, x: int) -> str:
 
 @api()
 @function(timeout=5)
-def function_without_progress_updates(ctx: RequestContext, x: int) -> str:
+def function_without_progress_updates(x: int) -> str:
     """Function that sleeps longer than timeout without reporting progress.
 
     This function should timeout because it doesn't call update_progress().
