@@ -378,7 +378,6 @@ pub struct ComputeFn {
     pub description: String,
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
-    pub is_api: bool,
     #[serde(default = "default_data_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
@@ -464,6 +463,14 @@ pub enum ComputeGraphState {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EntryPointManifest {
+    pub function_name: String,
+    pub input_serializer: String,
+    pub output_serializer: String,
+    pub output_type_hints_base64: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct ComputeGraph {
     pub namespace: String,
@@ -485,6 +492,7 @@ pub struct ComputeGraph {
     pub state: ComputeGraphState,
     #[builder(default)]
     vector_clock: VectorClock,
+    pub entrypoint: EntryPointManifest,
 }
 
 impl ComputeGraphBuilder {

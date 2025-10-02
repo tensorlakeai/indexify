@@ -252,12 +252,6 @@ async fn do_invoke_api_with_object_v1(
     } else {
         &application.start_fn
     };
-    if !api_fn.is_api {
-        return Result::Err(IndexifyAPIError::bad_request(&format!(
-            "function {} is not an api function",
-            api_fn.name
-        )));
-    }
 
     let fn_call =
         api_fn.create_function_call(function_call_id, vec![data_payload.clone()], Bytes::new());

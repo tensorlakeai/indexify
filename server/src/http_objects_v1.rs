@@ -25,6 +25,24 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntryPointManifest {
+    pub function_name: String,
+    pub input_serializer: String,
+    pub output_serializer: String,
+    pub output_type_hints_base64: String,
+}
+
+impl From<data_model::EntryPointManifest> for EntryPointManifest {
+    fn from(entrypoint: data_model::EntryPointManifest) -> Self {
+        Self {
+            function_name: entrypoint.function_name,
+            input_serializer: entrypoint.input_serializer,
+            output_serializer: entrypoint.output_serializer,
+            output_type_hints_base64: entrypoint.output_type_hints_base64.clone(),
+        }
+    }
+}
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Application {
     pub name: String,
     pub namespace: String,
@@ -34,10 +52,10 @@ pub struct Application {
     pub tombstoned: bool,
     pub version: GraphVersion,
     pub tags: HashMap<String, String>,
-    pub default_api: String,
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
+    pub entrypoint: EntryPointManifest,
 }
 
 impl Application {
@@ -57,10 +75,10 @@ impl Application {
             })?;
             nodes.insert(name, converted_node);
         }
-        let Some(start_fn) = nodes.get(&self.default_api) else {
+        let Some(start_fn) = nodes.get(&self.entrypoint.function_name) else {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Entry point function '{}' not found",
-                self.default_api
+                self.entrypoint.function_name
             )));
         };
 
@@ -103,7 +121,7 @@ impl From<data_model::ComputeGraph> for Application {
             namespace: compute_graph.namespace,
             description: compute_graph.description,
             tags: compute_graph.tags,
-            default_api: compute_graph.start_fn.name,
+            entrypoint: compute_graph.entrypoint.into(),
             version: compute_graph.version.into(),
             functions: nodes,
             created_at: compute_graph.created_at,
