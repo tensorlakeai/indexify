@@ -10,8 +10,13 @@ import httpx
 from prometheus_client.metrics_core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
-from tensorlake.applications import Request, api, call_remote_api, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 from testing import (
     ExecutorProcessContextManager,
     wait_executor_startup,
@@ -29,7 +34,7 @@ def fetch_metrics(
     return metrics
 
 
-@api()
+@application()
 @function()
 def successful_function(arg: str) -> str:
     return "success"
@@ -37,7 +42,7 @@ def successful_function(arg: str) -> str:
 
 class TestMetrics(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_cli_package(self):
         metrics: Dict[str, Metric] = fetch_metrics(self)
@@ -68,7 +73,7 @@ class TestMetrics(unittest.TestCase):
             self.assertIn("id", info_sample.labels)
 
     def test_expected_function_executor_infos(self):
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             successful_function,
             "ignored",
         )

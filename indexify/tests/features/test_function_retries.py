@@ -7,17 +7,17 @@ from tensorlake.applications import (
     Request,
     RequestFailureException,
     Retries,
-    api,
-    call_remote_api,
+    application,
     cls,
     function,
+    run_remote_application,
 )
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 call_number = 0
 
 
-@api()
+@application()
 @function(retries=Retries(max_retries=3))
 def function_succeeds_after_two_retries(x: int) -> str:
     global call_number
@@ -29,7 +29,7 @@ def function_succeeds_after_two_retries(x: int) -> str:
         raise Exception("Function failed, please retry")
 
 
-@api()
+@application()
 @function(retries=Retries(max_retries=3))
 def function_always_fails(x: int) -> str:
     raise Exception("Function failed and will never succeed")
@@ -38,7 +38,7 @@ def function_always_fails(x: int) -> str:
 FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH = "/tmp/function_always_times_out_counter"
 
 
-@api()
+@application()
 @function(retries=Retries(max_retries=3), timeout=1)
 def function_always_times_out(x: int) -> str:
     with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "a") as f:
@@ -49,21 +49,23 @@ def function_always_times_out(x: int) -> str:
 class TestFunctionRetries(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_function_succeeds_after_two_retries(self):
-        request: Request = call_remote_api(function_succeeds_after_two_retries, 1)
+        request: Request = run_remote_application(
+            function_succeeds_after_two_retries, 1
+        )
         self.assertEqual(request.output(), "success")
 
     def test_function_fails_after_exhausting_failure_retries(self):
-        request: Request = call_remote_api(function_always_fails, 1)
+        request: Request = run_remote_application(function_always_fails, 1)
         self.assertRaises(RequestFailureException, request.output)
 
     def test_function_fails_after_exhausting_timeout_retries(self):
         if os.path.exists(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH):
             os.remove(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH)
 
-        request: Request = call_remote_api(function_always_times_out, 1)
+        request: Request = run_remote_application(function_always_times_out, 1)
         self.assertRaises(RequestFailureException, request.output)
 
         with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "r") as f:
@@ -81,7 +83,7 @@ class FunctionWithFailingConstructor:
         if os.path.exists(self.FILE_PATH):
             raise Exception("Constructor failed")
 
-    @api()
+    @application()
     @function(retries=Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
@@ -108,7 +110,7 @@ class FunctionWithTimingOutConstructor:
         if os.path.exists(self.FILE_PATH):
             time.sleep(1000)
 
-    @api()
+    @application()
     @function(retries=Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success"
@@ -142,7 +144,7 @@ class FunctionWithRetryCountingConstructor:
         if constructor_run_count <= self.MAX_RETRIES:
             raise Exception(f"Constructor failed on attempt {constructor_run_count}")
 
-    @api()
+    @application()
     @function(retries=Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after retries"
@@ -179,7 +181,7 @@ class FunctionWithRetryCountingTimeoutConstructor:
         if constructor_run_count <= self.MAX_RETRIES:
             time.sleep(1000)  # This will cause a timeout
 
-    @api()
+    @application()
     @function(retries=Retries(max_retries=MAX_RETRIES))
     def run(self, x: int) -> str:
         return "success after timeout retries"
@@ -202,7 +204,7 @@ class FunctionWithRetryCountingTimeoutConstructor:
 class TestFunctionConstructorRetries(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_function_constructor_succeeds_after_failing_for_5_secs(self):
         def unfail_constructor_with_delay():
@@ -211,7 +213,7 @@ class TestFunctionConstructorRetries(unittest.TestCase):
 
         FunctionWithFailingConstructor.fail_constructor()
         threading.Thread(target=unfail_constructor_with_delay).start()
-        request: Request = call_remote_api(FunctionWithFailingConstructor.run, 1)
+        request: Request = run_remote_application(FunctionWithFailingConstructor.run, 1)
         self.assertEqual(request.output(), "success")
 
     def test_function_constructor_succeeds_after_timing_out_for_5_secs(self):
@@ -221,20 +223,24 @@ class TestFunctionConstructorRetries(unittest.TestCase):
 
         FunctionWithTimingOutConstructor.timeout_constructor()
         threading.Thread(target=untimeout_constructor_with_delay).start()
-        request: Request = call_remote_api(FunctionWithTimingOutConstructor.run, 1)
+        request: Request = run_remote_application(
+            FunctionWithTimingOutConstructor.run, 1
+        )
         self.assertEqual(request.output(), "success")
 
 
 class TestFunctionConstructorRetriesWithCounter(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_function_constructor_succeeds_after_specified_retries(self):
         # Reset counter before starting test
         FunctionWithRetryCountingConstructor.reset_counter()
 
         # Run the app - it should succeed after exactly MAX_RETRIES + 1 attempts
-        request: Request = call_remote_api(FunctionWithRetryCountingConstructor.run, 1)
+        request: Request = run_remote_application(
+            FunctionWithRetryCountingConstructor.run, 1
+        )
         self.assertEqual(request.output(), "success after retries")
 
         # Verify the retry count matches expected retries + initial attempt
@@ -253,7 +259,7 @@ class TestFunctionConstructorRetriesWithCounter(unittest.TestCase):
         FunctionWithRetryCountingTimeoutConstructor.reset_counter()
 
         # Run the graph - it should succeed after exactly MAX_RETRIES + 1 attempts
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             FunctionWithRetryCountingTimeoutConstructor.run, 1
         )
 

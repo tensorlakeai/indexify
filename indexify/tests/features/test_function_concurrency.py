@@ -4,18 +4,17 @@ from typing import List
 
 from tensorlake.applications import (
     Request,
-    api,
-    call_remote_api,
-    define_application,
+    application,
     function,
+    run_remote_application,
 )
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 MAX_CONCURRENCY = 10
 concurrency_counter: int = 0
 
 
-@api()
+@application()
 @function(max_concurrency=MAX_CONCURRENCY)
 def concurrent_function(_i: int) -> int:
     global concurrency_counter
@@ -29,10 +28,10 @@ def concurrent_function(_i: int) -> int:
 
 class TestFunctionConcurrency(unittest.TestCase):
     def test_function_reaches_max_concurrency(self):
-        deploy(__file__)
+        deploy_applications(__file__)
         requests: List[Request] = []
         for _ in range(MAX_CONCURRENCY):
-            request: Request = call_remote_api(concurrent_function, 0)
+            request: Request = run_remote_application(concurrent_function, 0)
             requests.append(request)
 
         observed_max_concurrencies: List[int] = []

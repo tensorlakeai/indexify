@@ -2,8 +2,13 @@ import contextlib
 import unittest
 from typing import Dict, List
 
-from tensorlake.applications import Request, api, call_remote_api, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
@@ -11,42 +16,42 @@ from testing import (
 )
 
 
-@api()
+@application()
 @function()
 def get_dev_mode_executor_pid(_: int) -> int:
     """Returns the PID of the executor running this function."""
     return executor_pid()
 
 
-@api()
+@application()
 @function(region="us-east-1")
 def regional_function_east(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@api()
+@application()
 @function(region="us-west-2")
 def regional_function_west(_: int) -> int:
     """Function that requires us-west-2 region."""
     return executor_pid()
 
 
-@api()
+@application()
 @function(region="eu-west-1")
 def regional_function_eu(_: int) -> int:
     """Function that requires eu-west-1 region."""
     return executor_pid()
 
 
-@api()
+@application()
 @function(region="us-east-1")
 def regional_function_east_2(_: int) -> int:
     """Function that requires us-east-1 region."""
     return executor_pid()
 
 
-@api()
+@application()
 @function(region="us-west-2")
 def regional_function_west_2(_: int) -> int:
     """Function that requires us-west-2 region."""
@@ -56,7 +61,7 @@ def regional_function_west_2(_: int) -> int:
 class TestRegionalRouting(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_regional_routing(self):
         """Test that functions are routed to executors in the correct regions."""
@@ -80,7 +85,7 @@ class TestRegionalRouting(unittest.TestCase):
             "eu_west_1": -1,  # Executor with sku=gpu-xxl, region=eu-west-1
         }
 
-        get_dev_mode_executor_pid_request: Request = call_remote_api(
+        get_dev_mode_executor_pid_request: Request = run_remote_application(
             get_dev_mode_executor_pid, 0
         )
         executor_to_pid["dev_mode"] = get_dev_mode_executor_pid_request.output()
@@ -142,19 +147,19 @@ class TestRegionalRouting(unittest.TestCase):
             }
             for _ in range(NUM_REQUESTS_PER_REGION):
                 regional_function_requests["regional_function_east"].append(
-                    call_remote_api(regional_function_east, 0)
+                    run_remote_application(regional_function_east, 0)
                 )
                 regional_function_requests["regional_function_west"].append(
-                    call_remote_api(regional_function_west, 0)
+                    run_remote_application(regional_function_west, 0)
                 )
                 regional_function_requests["regional_function_eu"].append(
-                    call_remote_api(regional_function_eu, 0)
+                    run_remote_application(regional_function_eu, 0)
                 )
                 regional_function_requests["regional_function_east_2"].append(
-                    call_remote_api(regional_function_east_2, 0)
+                    run_remote_application(regional_function_east_2, 0)
                 )
                 regional_function_requests["regional_function_west_2"].append(
-                    call_remote_api(regional_function_west_2, 0)
+                    run_remote_application(regional_function_west_2, 0)
                 )
 
             print(

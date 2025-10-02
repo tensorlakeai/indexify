@@ -1,41 +1,42 @@
+import os
 import traceback
 
 import click
-from tensorlake.applications.remote.deploy import deploy as tl_deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
 @click.command(
-    short_help="Deploys application defined in <application-dir-path> directory to Indexify"
+    short_help="Deploys applications defined in <application-file-path> .py file to Indexify"
 )
 @click.argument(
-    "application-dir-path",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    "application-file-path",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
 )
 @click.option(
     "-u",
     "--upgrade-running-requests",
     is_flag=True,
     default=False,
-    help="Upgrade requests that are already queued or running to use the new deployed version of the application",
+    help="Upgrade requests that are already queued or running to use the new deployed version of the applications",
 )
 def deploy(
-    application_dir_path: str,
+    application_file_path: str,
     upgrade_running_requests: bool,
 ):
-    click.echo(f"Preparing deployment for application from {application_dir_path}")
+    click.echo(f"Preparing deployment for applications from {application_file_path}")
 
     try:
-        tl_deploy(
-            application_source_dir_or_file_path=application_dir_path,
+        deploy_applications(
+            applications_file_path=application_file_path,
             upgrade_running_requests=upgrade_running_requests,
-            load_application_modules=True,
+            load_source_dir_modules=True,
         )
     except Exception as e:
         click.secho(
-            f"Application could not be deployed, please check the error message:",
+            f"Applications could not be deployed, please check the error message:",
             fg="red",
         )
         traceback.print_exception(e)
         raise click.Abort
 
-    click.secho(f"Successfully deployed the application", fg="green")
+    click.secho(f"Successfully deployed the applications", fg="green")

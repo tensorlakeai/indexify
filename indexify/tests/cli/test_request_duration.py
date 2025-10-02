@@ -1,8 +1,14 @@
 import time
 import unittest
 
-from tensorlake.applications import Request, api, call_remote_api, cls, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    cls,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
 @cls()
@@ -12,13 +18,13 @@ class ColdStartMeasurementFunction:
         # This allows to not measure the latency of Server learning that Function Executor was created.
         self._init_time: float = time.time()
 
-    @api()
+    @application()
     @function()
     def run(self, x: int) -> float:
         return self._init_time
 
 
-@api()
+@application()
 @function()
 def get_start_time(x: int) -> float:
     return time.time()
@@ -26,11 +32,11 @@ def get_start_time(x: int) -> float:
 
 class TestInvokeDurations(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_cold_start_duration_is_less_than_twenty_sec(self):
         request_start_time = time.time()
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             ColdStartMeasurementFunction.run,
             1,
         )
@@ -50,7 +56,7 @@ class TestInvokeDurations(unittest.TestCase):
 
     def test_warm_start_duration_is_less_than_hundred_ms(self):
         # Cold start first.
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             get_start_time,
             1,
         )
@@ -61,7 +67,7 @@ class TestInvokeDurations(unittest.TestCase):
 
         # Measure warm start duration.
         request_start_time = time.time()
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             get_start_time,
             2,
         )

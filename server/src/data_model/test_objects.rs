@@ -12,6 +12,7 @@ pub mod tests {
             ComputeGraphState,
             ComputeOp,
             DataPayload,
+            EntryPointManifest,
             ExecutorId,
             ExecutorMetadata,
             ExecutorMetadataBuilder,
@@ -141,6 +142,12 @@ pub mod tests {
             })
             .created_at(5)
             .start_fn(fn_a)
+            .entrypoint(EntryPointManifest {
+                function_name: "fn_a".to_string(),
+                input_serializer: "json".to_string(),
+                output_serializer: "json".to_string(),
+                output_type_hints_base64: "".to_string(),
+            })
             .build()
             .unwrap()
     }
