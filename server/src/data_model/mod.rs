@@ -862,6 +862,8 @@ pub struct GraphInvocationCtx {
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
 
     #[builder(default)]
+    pub source_function_call_id: Option<FunctionCallId>,
+    #[builder(default)]
     pub child_function_calls: HashMap<String, GraphInvocationCtx>, /* Child Request ID -> Child
                                                                     * GraphInvocationCtx */
 }
@@ -1618,6 +1620,18 @@ impl ExecutorMetadata {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct InvokeFunctionEvent {
+    pub request_id: String,
+    pub namespace: String,
+    pub application: String,
+    pub function_name: String,
+    pub parent_request_id: String,
+    pub source_function_call_id: FunctionCallId,
+    pub data_payloads: Vec<DataPayload>,
+    pub call_metadata: bytes::Bytes,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct InvokeComputeGraphEvent {
     pub invocation_id: String,
@@ -1691,6 +1705,7 @@ pub struct ExecutorUpsertedEvent {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
+    InvokeFunction(InvokeFunctionEvent),
     InvokeComputeGraph(InvokeComputeGraphEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
@@ -1707,6 +1722,13 @@ impl fmt::Display for ChangeType {
                     f,
                     "InvokeComputeGraph ns: {}, invocation: {}, compute_graph: {}",
                     ev.namespace, ev.invocation_id, ev.compute_graph
+                )
+            }
+            ChangeType::InvokeFunction(ev) => {
+                write!(
+                    f,
+                    "InvokeFunction ns: {}, function_name: {}, parent_request_id: {}",
+                    ev.namespace, ev.function_name, ev.parent_request_id
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(

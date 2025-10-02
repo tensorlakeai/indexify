@@ -253,6 +253,17 @@ impl GraphProcessor {
                     )),
                 }
             }
+            ChangeType::InvokeFunction(ev) => {
+                let mut scheduler_update = task_creator.handle_invoke_function(&mut indexes_guard, ev.clone()).await?;
+                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
+
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
+                }
+            }
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)

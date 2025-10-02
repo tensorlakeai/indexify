@@ -1,7 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
-    sync::Arc,
-    vec,
+    collections::{HashMap, HashSet, VecDeque}, hash::{DefaultHasher, Hasher}, sync::Arc, vec
 };
 
 use anyhow::Result;
@@ -9,28 +7,14 @@ use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent,
-        ComputeOp,
-        FunctionArgs,
-        FunctionCall,
-        FunctionCallId,
-        FunctionRun,
-        GraphInvocationCtx,
-        GraphInvocationError,
-        GraphInvocationFailureReason,
-        GraphInvocationOutcome,
-        InputArgs,
-        ReduceOperation,
-        RunningTaskStatus,
-        TaskOutcome,
-        TaskStatus,
+        AllocationOutputIngestedEvent, ComputeOp, FunctionArgs, FunctionCall, FunctionCallId, FunctionRun, GraphInvocationCtx, GraphInvocationCtxBuilder, GraphInvocationError, GraphInvocationFailureReason, GraphInvocationOutcome, InputArgs, InvokeFunctionEvent, ReduceOperation, RunningTaskStatus, TaskOutcome, TaskStatus
     },
     processor::task_policy::TaskRetryPolicy,
     state_store::{
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
         IndexifyState,
-    },
+    }, utils::get_epoch_time_in_ms,
 };
 
 pub struct TaskCreator {
@@ -48,6 +32,82 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
+
+    #[tracing::instrument(skip(self, in_memory_state, invoke_function_event))]
+    pub async fn handle_invoke_function(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        invoke_function_event: InvokeFunctionEvent,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        let cg_key = GraphInvocationCtx::key_from(&invoke_function_event.namespace, &invoke_function_event.application, &invoke_function_event.parent_request_id);
+
+        let Some(mut parent_request_ctx) = in_memory_state.invocation_ctx.get(&cg_key.into()).cloned() else {
+            return Err(anyhow::anyhow!("parent request context not found"));
+        };
+        // If the parent request is over we don't need to create a new function run
+        if parent_request_ctx.outcome.is_some() {
+            return Ok(scheduler_update);
+        }
+        let function_call_id = FunctionCallId(invoke_function_event.request_id.clone());
+
+        // if the request id is already present, then we don't need to create a new function run
+        if parent_request_ctx.function_calls.contains_key(&function_call_id) {
+            return Ok(scheduler_update);
+        }
+
+        let function_call = FunctionCall {
+            function_call_id,
+            inputs: invoke_function_event.data_payloads.iter().map(|dp| FunctionArgs::DataPayload(dp.clone())).collect(),
+            fn_name: invoke_function_event.function_name.clone(),
+            call_metadata: invoke_function_event.call_metadata.clone(),
+        };
+
+        let function_run = self
+            .indexify_state
+            .reader()
+            .get_compute_graph_version(&invoke_function_event.namespace, &invoke_function_event.application, &parent_request_ctx.graph_version)
+            .map_err(|e| anyhow::anyhow!("failed to get compute graph version: {e}"))?
+            .ok_or(anyhow::anyhow!("compute graph version not found"))?
+            .create_function_run(
+                &function_call,
+                invoke_function_event.data_payloads.iter().map(|arg| InputArgs {
+                    function_call_id: None,
+                    data_payload: arg.clone(),
+                }).collect::<Vec<_>>(),
+                &invoke_function_event.request_id,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to create function run: {e}"))?;
+
+        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+            .namespace(invoke_function_event.namespace.to_string())
+            .compute_graph_name(invoke_function_event.application.to_string())
+            .graph_version(parent_request_ctx.graph_version.clone())
+            .request_id(invoke_function_event.request_id.clone())
+            .created_at(get_epoch_time_in_ms())
+            .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
+            .function_calls(HashMap::from([(
+                function_call.function_call_id.clone(),
+                function_call,
+            )]))
+            .source_function_call_id(Some(invoke_function_event.source_function_call_id.0.as_str().into()))
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to create graph invocation ctx: {e}"))?;
+
+        parent_request_ctx
+            .child_function_calls
+            .insert(invoke_function_event.request_id.clone(), graph_invocation_ctx.clone());
+
+        scheduler_update.add_invocation_state(&parent_request_ctx);
+
+        in_memory_state.update_state(
+            self.clock,
+            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            "task_creator",
+        )?;
+        return Ok(scheduler_update);
+    }
+
     #[tracing::instrument(skip(self, in_memory_state, alloc_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,

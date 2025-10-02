@@ -3,7 +3,7 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
+use std::{collections::HashMap, hash::{DefaultHasher, Hasher}, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
@@ -23,6 +23,7 @@ use executor_api_pb::{
     ReportExecutorStateResponse,
     TaskAllocation,
 };
+use sha2::Sha256;
 use tokio::sync::{
     broadcast::error::RecvError,
     watch::{self, Receiver, Sender},
@@ -34,23 +35,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
-        self,
-        Allocation,
-        DataPayload,
-        DataPayloadBuilder,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorMetadataBuilder,
-        FunctionAllowlist,
-        FunctionCall,
-        FunctionCallId,
-        FunctionExecutorBuilder,
-        FunctionExecutorId,
-        GPUResources,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        TaskFailureReason,
-        TaskOutcome,
+        self, Allocation, DataPayload, DataPayloadBuilder, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionAllowlist, FunctionCall, FunctionCallId, FunctionExecutorBuilder, FunctionExecutorId, GPUResources, GraphInvocationCtxBuilder, GraphVersion, StateChange, TaskFailureReason, TaskOutcome
     },
     executor_api::executor_api_pb::{
         FunctionCallRequest,
@@ -63,12 +48,7 @@ use crate::{
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{
-            AllocationOutput,
-            GraphUpdates,
-            InvokeComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-            UpsertExecutorRequest,
+            AllocationOutput, GraphUpdates, InvokeComputeGraphRequest, InvokeFunctionRequest, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest
         },
         IndexifyState,
     },
@@ -922,17 +902,15 @@ impl ExecutorApi for ExecutorAPIService {
         let parent_request_id = req
             .parent_request_id
             .ok_or(Status::invalid_argument("parent request id is required"))?;
+        let source_function_call_id = req
+            .source_function_call_id
+            .ok_or(Status::invalid_argument("source function call id is required"))?;
 
-        // Build the child function invocation context under the parent request
-        let mut parent_request_ctx = self
-            .indexify_state
-            .reader()
-            .invocation_ctx(&namespace, &application, &parent_request_id)
-            .map_err(|e| Status::internal(e.to_string()))?
-            .ok_or(Status::not_found("parent request context not found"))?;
-
-        let request_id = nanoid::nanoid!();
-        let function_call_id = FunctionCallId(request_id.clone());
+        let mut hasher = DefaultHasher::new();
+        hasher.write(parent_request_id.as_bytes());
+        hasher.write(application.as_bytes());
+        hasher.write(namespace.as_bytes());
+        let request_id = format!("{:x}", hasher.finish());
 
         // Convert inputs
         let blob_store = self.blob_storage_registry.get_blob_store(&namespace);
@@ -947,61 +925,15 @@ impl ExecutorApi for ExecutorAPIService {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let function_call = FunctionCall {
-            function_call_id,
-            inputs: input_payloads
-                .into_iter()
-                .map(data_model::FunctionArgs::DataPayload)
-                .collect(),
-            fn_name: fn_name.clone(),
-            call_metadata: req.call_metadata.unwrap_or_default().into(),
-        };
-
-        let function_run = self
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(&namespace, &application, &parent_request_ctx.graph_version)
-            .map_err(|e| Status::internal(e.to_string()))?
-            .ok_or(Status::not_found("compute graph version not found"))?
-            .create_function_run(
-                &function_call,
-                function_call
-                    .inputs
-                    .iter()
-                    .filter_map(|arg| match arg {
-                        data_model::FunctionArgs::DataPayload(dp) => Some(data_model::InputArgs {
-                            function_call_id: None,
-                            data_payload: dp.clone(),
-                        }),
-                        data_model::FunctionArgs::FunctionRunOutput(_) => None,
-                    })
-                    .collect(),
-                &request_id,
-            )
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-            .namespace(namespace.to_string())
-            .compute_graph_name(application.to_string())
-            .graph_version(parent_request_ctx.graph_version.clone())
-            .request_id(request_id.clone())
-            .created_at(get_epoch_time_in_ms())
-            .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
-            .function_calls(HashMap::from([(
-                function_call.function_call_id.clone(),
-                function_call,
-            )]))
-            .build()
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        parent_request_ctx
-            .child_function_calls
-            .insert(request_id.clone(), graph_invocation_ctx.clone());
-
-        let sm_request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        let sm_request = RequestPayload::InvokeFunction(InvokeFunctionRequest {
+            request_id: request_id.clone(),
             namespace: namespace.clone(),
-            compute_graph_name: application.clone(),
-            ctx: parent_request_ctx.clone(),
+            application: application.clone(),
+            function_name: fn_name.clone(),
+            parent_request_id: parent_request_id.clone(),
+            data_payloads: input_payloads,
+            call_metadata: req.call_metadata.unwrap_or_default().into(),
+            source_function_call_id: source_function_call_id.as_str().into(),
         });
 
         // Open the broadcast stream before writing the request to avoid races
@@ -1014,7 +946,6 @@ impl ExecutorApi for ExecutorAPIService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         // Build a gRPC stream of updates from the broadcast receiver
-        let id = request_id.clone();
         let ns = namespace.clone();
         let app = application.clone();
         let reader = self.indexify_state.reader();
@@ -1022,7 +953,7 @@ impl ExecutorApi for ExecutorAPIService {
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
-                        if ev.invocation_id() == id {
+                        if ev.invocation_id() == request_id {
                             let update = serde_json::to_string(&ev)
                                 .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
                             yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
@@ -1031,10 +962,10 @@ impl ExecutorApi for ExecutorAPIService {
                     }
                     Err(RecvError::Lagged(_num)) => {
                         // We lagged; check if the invocation already finished
-                        match reader.invocation_ctx(ns.as_str(), app.as_str(), &id) {
+                        match reader.invocation_ctx(ns.as_str(), app.as_str(), &request_id) {
                             Ok(Some(context)) => {
                                 if context.outcome.is_some() {
-                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
+                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: request_id.clone() }))
                                         .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
                                     yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
                                     return;

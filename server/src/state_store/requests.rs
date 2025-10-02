@@ -58,6 +58,7 @@ impl StateMachineUpdateRequest {
 
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
+    InvokeFunction(InvokeFunctionRequest),
     InvokeComputeGraph(InvokeComputeGraphRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(Box<CreateOrUpdateComputeGraphRequest>),
@@ -167,6 +168,18 @@ pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub ctx: GraphInvocationCtx,
+}
+
+#[derive(Debug, Clone)]
+pub struct InvokeFunctionRequest {
+    pub request_id: String,
+    pub namespace: String,
+    pub application: String,
+    pub function_name: String,
+    pub parent_request_id: String,
+    pub source_function_call_id: FunctionCallId,
+    pub data_payloads: Vec<DataPayload>,
+    pub call_metadata: bytes::Bytes,
 }
 
 #[derive(Debug, Clone)]

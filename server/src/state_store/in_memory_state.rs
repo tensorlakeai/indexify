@@ -778,6 +778,10 @@ impl InMemoryState {
                     } else {
                         self.invocation_ctx
                             .insert(key.clone().into(), Box::new(invocation_ctx.clone()));
+                        for child_ctx in invocation_ctx.child_function_calls.values() {
+                            self.invocation_ctx
+                                .insert(child_ctx.key().into(), Box::new(child_ctx.clone()));
+                        }
                     }
                 }
 
@@ -1161,8 +1165,15 @@ impl InMemoryState {
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
         // Remove invocation ctx
-        self.invocation_ctx
+        let invocation_ctx = self.invocation_ctx
             .remove(&GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id).into());
+
+        if let Some(invocation_ctx) = invocation_ctx {
+            for child_ctx in invocation_ctx.child_function_calls.values() {
+                self.invocation_ctx
+                    .remove(&child_ctx.key().into());
+            }
+        }
 
         // Remove tasks
         let key_prefix =

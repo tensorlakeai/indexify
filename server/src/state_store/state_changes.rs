@@ -7,25 +7,14 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent,
-        ChangeType,
-        ExecutorId,
-        ExecutorRemovedEvent,
-        ExecutorUpsertedEvent,
-        GraphUpdates,
-        InvokeComputeGraphEvent,
-        StateChange,
-        StateChangeBuilder,
-        StateChangeId,
-        TombstoneComputeGraphEvent,
-        TombstoneInvocationEvent,
+        AllocationOutputIngestedEvent, ChangeType, ExecutorId, ExecutorRemovedEvent, ExecutorUpsertedEvent, GraphUpdates, InvokeComputeGraphEvent, InvokeFunctionEvent, StateChange, StateChangeBuilder, StateChangeId, TombstoneComputeGraphEvent, TombstoneInvocationEvent
     },
     state_store::requests::{
         AllocationOutput,
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
         DeregisterExecutorRequest,
-        InvokeComputeGraphRequest,
+        InvokeComputeGraphRequest, InvokeFunctionRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -48,6 +37,27 @@ pub fn invoke_compute_graph(
         .object_id(request.ctx.request_id.clone())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn invoke_function(
+    last_change_id: &AtomicU64,
+    request: &InvokeFunctionRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .id(StateChangeId::new(last_change_id))
+        .change_type(ChangeType::InvokeFunction(InvokeFunctionEvent {
+            request_id: request.request_id.clone(),
+            namespace: request.namespace.clone(),
+            application: request.application.clone(),
+            function_name: request.function_name.clone(),
+            parent_request_id: request.parent_request_id.clone(),
+            source_function_call_id: request.source_function_call_id.clone(),
+            data_payloads: request.data_payloads.clone(),
+            call_metadata: request.call_metadata.clone(),
+        }))
         .build()?;
     Ok(vec![state_change])
 }
