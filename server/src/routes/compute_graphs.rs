@@ -14,9 +14,7 @@ use crate::{
     http_objects_v1,
     routes::routes_state::RouteState,
     state_store::requests::{
-        CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
-        RequestPayload,
+        CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, RequestPayload,
         StateMachineUpdateRequest,
     },
 };
@@ -32,7 +30,7 @@ struct ApplicationCreateType {
 /// Create or update an application
 #[utoipa::path(
     post,
-    path = "v1/namespaces/{namespace}/applications",
+    path = "/v1/namespaces/{namespace}/applications",
     tag = "operations",
     request_body(content_type = "multipart/form-data", content = inline(ApplicationCreateType)),
     responses(
@@ -143,7 +141,7 @@ pub async fn create_or_update_application(
 /// Delete compute graph
 #[utoipa::path(
     delete,
-    path = "v1/namespaces/{namespace}/applications/{application}",
+    path = "/v1/namespaces/{namespace}/applications/{application}",
     tag = "operations",
     responses(
         (status = 200, description = "application deleted successfully"),
@@ -171,7 +169,7 @@ pub async fn delete_application(
 /// List compute graphs
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/applications",
+    path = "/v1/namespaces/{namespace}/applications",
     tag = "operations",
     params(
         ListParams
