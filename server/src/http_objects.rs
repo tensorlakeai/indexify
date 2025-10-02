@@ -330,7 +330,6 @@ impl From<data_model::CacheKey> for CacheKey {
 pub struct ApplicationFunction {
     pub name: String,
     pub description: String,
-    pub is_api: bool,
     pub secret_names: Vec<String>,
     #[serde(default)]
     pub initialization_timeout_sec: TimeoutSeconds,
@@ -355,7 +354,6 @@ impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
             fn_name: val.name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
-            is_api: val.is_api,
             input_encoder: "not-needed".to_string(),
             output_encoder: "".to_string(),
             secret_names: Some(val.secret_names),
@@ -375,7 +373,6 @@ impl From<data_model::ComputeFn> for ApplicationFunction {
     fn from(c: data_model::ComputeFn) -> Self {
         Self {
             name: c.name,
-            is_api: true,
             description: c.description,
             secret_names: c.secret_names.unwrap_or_default(),
             initialization_timeout_sec: c.initialization_timeout.into(),
@@ -409,7 +406,6 @@ pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
-    pub is_api: bool,
     #[serde(default = "default_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
@@ -445,7 +441,6 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
-            is_api: val.is_api,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             secret_names: Some(val.secret_names),
@@ -467,7 +462,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
             name: c.name,
             fn_name: c.fn_name,
             description: c.description,
-            is_api: c.is_api,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             secret_names: c.secret_names.unwrap_or_default(),
