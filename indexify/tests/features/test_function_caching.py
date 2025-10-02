@@ -4,8 +4,13 @@ import unittest
 from typing import List
 
 from pydantic import BaseModel
-from tensorlake.applications import Request, api, call_remote_api, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
 class Payload(BaseModel):
@@ -13,7 +18,7 @@ class Payload(BaseModel):
     generate_numbers_runs_file_path: str
 
 
-@api()
+@application()
 @function()
 def sum_numbers_api(payload: Payload) -> int:
     return sum_numbers(
@@ -35,7 +40,7 @@ def generate_numbers(count: int, cache_file_path: str) -> List[int]:
 
 class TestFunctionCaching(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     # Function output caching functionality is not currently implemented.
     @unittest.expectedFailure
@@ -45,7 +50,7 @@ class TestFunctionCaching(unittest.TestCase):
         payload = Payload(count=5, generate_numbers_runs_file_path=temp_file.name)
 
         # First request should run the function and add a line to the file
-        request_1: Request = call_remote_api(sum_numbers_api, payload)
+        request_1: Request = run_remote_application(sum_numbers_api, payload)
         self.assertEqual(request_1.output(), sum([2, 3, 4, 5, 6]))
 
         with open(temp_file.name, "r") as f:
@@ -54,7 +59,7 @@ class TestFunctionCaching(unittest.TestCase):
         self.assertEqual(runs[0], "generate_numbers run\n")
 
         # Second request should use the cache and not run the function again
-        request_2: Request = call_remote_api(sum_numbers_api, payload)
+        request_2: Request = run_remote_application(sum_numbers_api, payload)
         self.assertEqual(request_2.output(), sum([2, 3, 4, 5, 6]))
 
         with open(temp_file.name, "r") as f:

@@ -9,17 +9,22 @@ from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.samples import Sample
 from tensorlake.applications import (
     Request,
-    api,
-    call_remote_api,
-    define_application,
+    application,
     function,
+    run_remote_application,
 )
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
-@api()
+@application()
 @function()
-def successful_function(arg: str) -> str:
+def successful_function_cold_start_1(arg: str) -> str:
+    return "success"
+
+
+@application()
+@function()
+def successful_function_cold_start_2(arg: str) -> str:
     return "success"
 
 
@@ -244,16 +249,13 @@ class TestMetrics(unittest.TestCase):
                 )
 
     def test_expected_metrics_diff_after_successful_task_run(self):
-        # Force unique application version to ensure cold start because we check cold start metrics too.
-        define_application(
-            name="TestMetrics.test_expected_metrics_diff_after_successful_task_run"
-        )
-        deploy(__file__)
+        # Force unique functions with random versions to ensure cold start because we check cold start metrics too.
+        deploy_applications(__file__)
 
         metrics_before: Dict[str, Metric] = fetch_metrics(self)
 
-        request: Request = call_remote_api(
-            successful_function,
+        request: Request = run_remote_application(
+            successful_function_cold_start_1,
             "ignored",
         )
         self.assertEqual(request.output(), "success")
@@ -418,14 +420,11 @@ class TestMetrics(unittest.TestCase):
             )
 
     def test_expected_metrics_after_successful_task_run(self):
-        # Force unique application version to ensure cold start because we check cold start metrics too.
-        define_application(
-            name="TestMetrics.test_expected_metrics_after_successful_task_run"
-        )
-        deploy(__file__)
+        # Force unique functions with random versions to ensure cold start because we check cold start metrics too.
+        deploy_applications(__file__)
 
-        request: Request = call_remote_api(
-            successful_function,
+        request: Request = run_remote_application(
+            successful_function_cold_start_2,
             "ignored",
         )
         self.assertEqual(request.output(), "success")
@@ -435,7 +434,7 @@ class TestMetrics(unittest.TestCase):
             # Running a task allocation
             SampleSpec(
                 "runnable_task_allocations_per_function_name",
-                {"function_name": "successful_function"},
+                {"function_name": "successful_function_cold_start_2"},
                 0.0,
             ),
         ]

@@ -2,8 +2,14 @@ import os
 import platform
 import unittest
 
-from tensorlake.applications import api, call_remote_api, define_application, function
-from tensorlake.applications.remote.deploy import deploy
+from nanoid import generate as nanoid_generate
+from tensorlake.applications import (
+    Function,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
 def function_executor_id() -> str:
@@ -12,100 +18,62 @@ def function_executor_id() -> str:
     return str(os.getpid()) + str(platform.node())
 
 
-@api()
+@application()
 @function()
 def get_function_executor_id_1(_: int) -> str:
     return function_executor_id()
 
 
-@api()
+@application()
 @function()
 def get_function_executor_id_2(_: int) -> str:
     return function_executor_id()
 
 
-class TestFunctionExecutorRouting(unittest.TestCase):
-    def test_functions_of_same_app_version_run_in_same_function_executor(self):
-        define_application(
-            name="TestFunctionExecutorRouting.test_functions_of_same_app_version_run_in_same_function_executor"
-        )
-        deploy(__file__)
+def update_random_version(func: Function) -> None:
+    # Hacky way to update application version.
+    func.application_config.version = nanoid_generate()
 
-        request = call_remote_api(get_function_executor_id_1, 1)
+
+class TestFunctionExecutorRouting(unittest.TestCase):
+    def test_same_functions_of_same_app_version_run_in_same_function_executor(self):
+        update_random_version(get_function_executor_id_1)
+        deploy_applications(__file__)
+
+        request = run_remote_application(get_function_executor_id_1, 1)
         function_executor_id_1: str = request.output()
 
-        request = call_remote_api(get_function_executor_id_1, 2)
+        request = run_remote_application(get_function_executor_id_1, 2)
         function_executor_id_2: str = request.output()
 
         self.assertEqual(function_executor_id_1, function_executor_id_2)
 
-    def test_functions_of_different_app_versions_run_in_different_function_executors(
+    def test_same_functions_of_different_app_versions_run_in_different_function_executors(
         self,
     ):
-        APPLICATION_NAME = "TestFunctionExecutorRouting.test_functions_of_different_app_versions_run_in_different_function_executors"
-        define_application(name=APPLICATION_NAME)
-        deploy(__file__)
+        update_random_version(get_function_executor_id_1)
+        deploy_applications(__file__)
 
-        request = call_remote_api(get_function_executor_id_1, 1)
+        request = run_remote_application(get_function_executor_id_1, 1)
         function_executor_id_1: str = request.output()
 
-        # Creates a new random version
-        define_application(name=APPLICATION_NAME)
-        deploy(__file__)
+        update_random_version(get_function_executor_id_1)
+        deploy_applications(__file__)
 
-        request = call_remote_api(get_function_executor_id_1, 1)
+        request = run_remote_application(get_function_executor_id_1, 1)
         function_executor_id_2: str = request.output()
 
         self.assertNotEqual(function_executor_id_1, function_executor_id_2)
 
-    def test_different_functions_of_same_app_run_in_different_function_executors(
+    def test_different_functions_of_different_apps_run_in_different_function_executors(
         self,
     ):
-        APPLICATION_NAME = "TestFunctionExecutorRouting.test_different_functions_of_same_app_run_in_different_function_executors"
-        define_application(name=APPLICATION_NAME)
-        deploy(__file__)
+        deploy_applications(__file__)
 
-        request = call_remote_api(get_function_executor_id_1, 1)
+        request = run_remote_application(get_function_executor_id_1, 1)
         function_executor_id_1: str = request.output()
 
-        request = call_remote_api(get_function_executor_id_2, 2)
-        function_executor_id_2: str = request.output()
-
-        self.assertNotEqual(function_executor_id_1, function_executor_id_2)
-
-    def test_same_functions_of_different_apps_run_in_different_function_executors(
-        self,
-    ):
-        define_application(
-            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_1"
-        )
-        deploy(__file__)
-
-        request = call_remote_api(get_function_executor_id_1, 1)
-        function_executor_id_1: str = request.output()
-
-        request = call_remote_api(get_function_executor_id_2, 2)
-        function_executor_id_2: str = request.output()
-
-        self.assertNotEqual(function_executor_id_1, function_executor_id_2)
-
-    def test_same_functions_of_different_apps_run_in_different_function_executors(
-        self,
-    ):
-        define_application(
-            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_1"
-        )
-        deploy(__file__)
-
-        request = call_remote_api(get_function_executor_id_1, 1)
-        function_executor_id_1: str = request.output()
-
-        define_application(
-            name="TestFunctionExecutorRouting.test_same_functions_of_different_apps_run_in_different_function_executors_app_2"
-        )
-        deploy(__file__)
-
-        request = call_remote_api(get_function_executor_id_1, 1)
+        request = run_remote_application(get_function_executor_id_2, 2)
         function_executor_id_2: str = request.output()
 
         self.assertNotEqual(function_executor_id_1, function_executor_id_2)

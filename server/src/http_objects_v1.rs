@@ -102,6 +102,12 @@ impl Application {
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
             .state(data_model::ComputeGraphState::Active)
+            .entrypoint(data_model::EntryPointManifest {
+                function_name: self.entrypoint.function_name,
+                input_serializer: self.entrypoint.input_serializer,
+                output_serializer: self.entrypoint.output_serializer,
+                output_type_hints_base64: self.entrypoint.output_type_hints_base64,
+            })
             .build()
             .map_err(|e| {
                 IndexifyAPIError::bad_request(&format!("Failed to create ComputeGraph: {e}"))

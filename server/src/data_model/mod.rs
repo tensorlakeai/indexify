@@ -532,6 +532,7 @@ impl ComputeGraph {
         self.nodes = update.nodes.clone();
         self.description = update.description;
         self.tags = update.tags;
+        self.entrypoint = update.entrypoint;
     }
 
     pub fn to_version(&self) -> Result<ComputeGraphVersion> {
@@ -1869,6 +1870,12 @@ mod tests {
             })
             .created_at(5)
             .start_fn(fn_a.clone())
+            .entrypoint(EntryPointManifest {
+                function_name: "fn_a".to_string(),
+                input_serializer: "json".to_string(),
+                output_serializer: "json".to_string(),
+                output_type_hints_base64: "".to_string(),
+            })
             .build()
             .unwrap();
 
@@ -2206,6 +2213,12 @@ mod tests {
             })
             .created_at(123)
             .start_fn(fn_a.clone())
+            .entrypoint(EntryPointManifest {
+                function_name: "fn_a".to_string(),
+                input_serializer: "json".to_string(),
+                output_serializer: "json".to_string(),
+                output_type_hints_base64: "".to_string(),
+            })
             .build()
             .unwrap();
 

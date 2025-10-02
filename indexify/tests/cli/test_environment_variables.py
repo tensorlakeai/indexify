@@ -4,8 +4,13 @@ import unittest
 from typing import Dict
 
 import pydantic
-from tensorlake.applications import Request, api, call_remote_api, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
@@ -18,7 +23,7 @@ class Response(pydantic.BaseModel):
     environment: Dict[str, str]
 
 
-@api()
+@application()
 @function()
 def function_a(_a: int) -> Response:
     return Response(executor_pid=executor_pid(), environment=os.environ.copy())
@@ -26,7 +31,7 @@ def function_a(_a: int) -> Response:
 
 class TestEnvironmentVariables(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_executor_env_variables_are_passed_to_functions(self):
         with ExecutorProcessContextManager(
@@ -45,7 +50,7 @@ class TestEnvironmentVariables(unittest.TestCase):
             wait_executor_startup(7001)
 
             for _ in range(10):
-                request: Request = call_remote_api(
+                request: Request = run_remote_application(
                     function_a,
                     1,
                 )

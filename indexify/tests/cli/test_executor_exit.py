@@ -3,8 +3,13 @@ import time
 import unittest
 from typing import List
 
-from tensorlake.applications import Request, api, call_remote_api, function
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications import (
+    Request,
+    application,
+    function,
+    run_remote_application,
+)
+from tensorlake.applications.remote.deploy import deploy_applications
 from testing import (
     ExecutorProcessContextManager,
     function_uri,
@@ -12,7 +17,7 @@ from testing import (
 )
 
 
-@api()
+@application()
 @function()
 def success_func(sleep_secs: float) -> str:
     time.sleep(sleep_secs)
@@ -21,7 +26,7 @@ def success_func(sleep_secs: float) -> str:
 
 class TestExecutorExit(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_all_tasks_succeed_when_executor_exits(self):
         version = str(time.time())
@@ -42,7 +47,7 @@ class TestExecutorExit(unittest.TestCase):
             requests: List[Request] = []
             for i in range(10):
                 print(f"Running request {i}")
-                request: Request = call_remote_api(
+                request: Request = run_remote_application(
                     success_func,
                     0.1,
                 )

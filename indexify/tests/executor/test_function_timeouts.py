@@ -4,12 +4,12 @@ import unittest
 from tensorlake.applications import (
     Request,
     RequestFailureException,
-    api,
-    call_remote_api,
+    application,
     cls,
     function,
+    run_remote_application,
 )
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
 @cls(init_timeout=2)
@@ -17,13 +17,13 @@ class FunctionThatSleepsForeverOnInitialization:
     def __init__(self):
         time.sleep(1000000)
 
-    @api()
+    @application()
     @function()
     def run(self, _: str) -> str:
         raise Exception("This function can never run because it fails to initialize.")
 
 
-@api()
+@application()
 @function(timeout=3)
 def function_that_sleeps_forever_when_running(_: str) -> str:
     time.sleep(1000000)
@@ -32,10 +32,10 @@ def function_that_sleeps_forever_when_running(_: str) -> str:
 
 class TestFunctionTimeouts(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_initilization(self):
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             FunctionThatSleepsForeverOnInitialization.run,
             "",
         )
@@ -50,7 +50,7 @@ class TestFunctionTimeouts(unittest.TestCase):
         )
 
     def test_run(self):
-        request: Request = call_remote_api(
+        request: Request = run_remote_application(
             function_that_sleeps_forever_when_running,
             "",
         )

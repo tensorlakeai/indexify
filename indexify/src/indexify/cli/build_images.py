@@ -1,7 +1,7 @@
 import importlib
 import os
 import traceback
-from typing import Any, Generator, Set
+from typing import Any, Generator
 
 import click
 import docker
@@ -14,27 +14,23 @@ from tensorlake.applications.image import (
     dockerfile_content,
     image_infos,
 )
-from tensorlake.applications.remote.application.ignored_code_paths import (
-    ignored_code_paths,
-)
-from tensorlake.applications.remote.application.loader import load_application
+from tensorlake.applications.remote.code.loader import load_code
 
 
 @click.command(
-    short_help="Builds images for application defined in <application-dir-path> directory"
+    short_help="Builds images for applications defined in <application-file-path> .py file"
 )
 @click.argument(
-    "application-dir-path",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    "application-file-path",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
 )
-def build_images(application_dir_path: str):
+def build_images(application_file_path: str):
     try:
-        application_dir_path: str = os.path.abspath(application_dir_path)
-        ignored_absolute_paths: Set[str] = ignored_code_paths(application_dir_path)
-        load_application(application_dir_path, ignored_absolute_paths)
+        application_file_path: str = os.path.abspath(application_file_path)
+        load_code(application_file_path)
     except Exception as e:
         click.secho(
-            f"Failed to load the application modules, please check the error message: {e}",
+            f"Failed to load the code directory modules, please check the error message: {e}",
             fg="red",
         )
         traceback.print_exception(e)

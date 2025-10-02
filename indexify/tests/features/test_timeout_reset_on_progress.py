@@ -5,14 +5,14 @@ from tensorlake.applications import (
     Request,
     RequestContext,
     RequestFailureException,
-    api,
-    call_remote_api,
+    application,
     function,
+    run_remote_application,
 )
-from tensorlake.applications.remote.deploy import deploy
+from tensorlake.applications.remote.deploy import deploy_applications
 
 
-@api()
+@application()
 @function(timeout=5)
 def function_with_progress_updates(x: int) -> str:
     """Function that calls update_progress multiple times during execution.
@@ -41,7 +41,7 @@ def function_with_progress_updates(x: int) -> str:
     return "completed_with_progress_updates"
 
 
-@api()
+@application()
 @function(timeout=5)
 def function_without_progress_updates(x: int) -> str:
     """Function that sleeps longer than timeout without reporting progress.
@@ -58,13 +58,13 @@ def function_without_progress_updates(x: int) -> str:
 
 class TestTimeoutResetOnProgress(unittest.TestCase):
     def setUp(self):
-        deploy(__file__)
+        deploy_applications(__file__)
 
     def test_function_succeeds_with_progress_updates(self):
         """Test that functions with progress updates don't timeout even if they exceed the original timeout."""
 
         start_time = time.monotonic()
-        request: Request = call_remote_api(function_with_progress_updates, 1)
+        request: Request = run_remote_application(function_with_progress_updates, 1)
         output = request.output()
         duration = time.monotonic() - start_time
 
@@ -79,7 +79,7 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
         """Test that functions without progress updates timeout as expected."""
 
         start_time = time.monotonic()
-        request: Request = call_remote_api(function_without_progress_updates, 1)
+        request: Request = run_remote_application(function_without_progress_updates, 1)
         self.assertRaises(RequestFailureException, request.output)
         duration = time.monotonic() - start_time
 
