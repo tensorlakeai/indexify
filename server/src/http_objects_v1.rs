@@ -170,6 +170,8 @@ pub struct GraphRequests {
 pub struct FunctionRun {
     pub id: String,
     pub function_name: String,
+    pub application: String,
+    pub namespace: String,
     pub status: TaskStatus,
     pub outcome: Option<TaskOutcome>,
     pub application_version: GraphVersion,
@@ -185,6 +187,8 @@ impl FunctionRun {
         Self {
             id: function_run.id.to_string(),
             function_name: function_run.name,
+            application: function_run.application,
+            namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             status: function_run.status.into(),
             application_version: function_run.graph_version.into(),
