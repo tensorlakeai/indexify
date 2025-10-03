@@ -200,15 +200,15 @@ impl IndexifyState {
         let txn = self.db.transaction();
 
         match &request.payload {
-            RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
+            RequestPayload::InvokeComputeGraph(invoke_application_request) => {
                 let _enter = span!(
                     tracing::Level::INFO,
-                    "invoke_compute_graph",
-                    namespace = invoke_compute_graph_request.namespace.clone(),
-                    invocation_id = invoke_compute_graph_request.ctx.request_id.clone(),
-                    graph = invoke_compute_graph_request.compute_graph_name.clone(),
+                    "invoke_application",
+                    namespace = invoke_application_request.namespace.clone(),
+                    invocation_id = invoke_application_request.ctx.request_id.clone(),
+                    application = invoke_application_request.application_name.clone(),
                 );
-                state_machine::create_invocation(&txn, invoke_compute_graph_request)?;
+                state_machine::create_invocation(&txn, invoke_application_request)?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
                 state_machine::handle_scheduler_update(&txn, request)?;
@@ -218,14 +218,14 @@ impl IndexifyState {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
-                state_machine::create_or_update_compute_graph(
+                state_machine::create_or_update_application(
                     &txn,
-                    req.compute_graph.clone(),
+                    req.application.clone(),
                     req.upgrade_requests_to_current_version,
                 )?;
             }
             RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
-                state_machine::delete_compute_graph(&txn, &request.namespace, &request.name)?;
+                state_machine::delete_application(&txn, &request.namespace, &request.name)?;
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
@@ -305,8 +305,8 @@ impl IndexifyState {
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteComputeGraphRequest(_) |
-            RequestPayload::DeleteInvocationRequest(_) => {
+            RequestPayload::DeleteComputeGraphRequest(_)
+            | RequestPayload::DeleteInvocationRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -342,7 +342,7 @@ impl IndexifyState {
                         .send(InvocationStateChangeEvent::TaskAssigned(
                             invocation_events::TaskAssigned {
                                 request_id: allocation.invocation_id.clone(),
-                                fn_name: allocation.compute_fn.clone(),
+                                fn_name: allocation.function.clone(),
                                 task_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
@@ -400,27 +400,17 @@ impl IndexifyState {
 #[cfg(test)]
 mod tests {
     use requests::{
-        CreateOrUpdateComputeGraphRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
+        CreateOrUpdateComputeGraphRequest, InvokeComputeGraphRequest, NamespaceRequest,
     };
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
-            mock_data_payload,
-            mock_function_call,
-            mock_graph,
-            TEST_EXECUTOR_ID,
+            mock_application, mock_data_payload, mock_function_call, TEST_EXECUTOR_ID,
             TEST_NAMESPACE,
         },
-        ComputeGraph,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        InputArgs,
-        Namespace,
-        StateChangeId,
+        Application, GraphInvocationCtxBuilder, GraphVersion, InputArgs, Namespace, StateChangeId,
     };
 
     #[tokio::test]
@@ -472,29 +462,29 @@ mod tests {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
         // Create a compute graph and write it
-        let compute_graph = mock_graph();
-        _write_to_test_state_store(&indexify_state, compute_graph).await?;
+        let application = mock_application();
+        _write_to_test_state_store(&indexify_state, application).await?;
 
         // Read the compute graph
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+        let applications = _read_cgs_from_state_store(&indexify_state);
 
         // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        assert!(applications.iter().any(|cg| cg.name == "graph_A"));
 
         for i in 2..4 {
             // Update the graph
-            let mut compute_graph = mock_graph();
-            compute_graph.version = GraphVersion(i.to_string());
+            let mut application = mock_application();
+            application.version = GraphVersion(i.to_string());
 
-            _write_to_test_state_store(&indexify_state, compute_graph).await?;
+            _write_to_test_state_store(&indexify_state, application).await?;
 
             // Read it again
-            let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+            let application = _read_cgs_from_state_store(&indexify_state);
 
             // Verify the name is the same. Verify the version is different.
-            assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+            assert!(application.iter().any(|cg| cg.name == "graph_A"));
             // println!("compute graph {:?}", compute_graphs[0]);
-            assert_eq!(compute_graphs[0].version, GraphVersion(i.to_string()));
+            assert_eq!(application[0].version, GraphVersion(i.to_string()));
         }
 
         Ok(())
@@ -504,7 +494,7 @@ mod tests {
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         let tx = indexify_state.db.transaction();
-        let function_run = tests::mock_graph()
+        let function_run = tests::mock_application()
             .to_version()
             .unwrap()
             .create_function_run(
@@ -518,7 +508,7 @@ mod tests {
 
         let ctx = GraphInvocationCtxBuilder::default()
             .namespace("namespace1".to_string())
-            .compute_graph_name("cg1".to_string())
+            .application_name("cg1".to_string())
             .request_id("foo1".to_string())
             .function_calls(HashMap::from([(
                 function_run.id.clone(),
@@ -528,13 +518,13 @@ mod tests {
                 function_run.id.clone(),
                 function_run.clone(),
             )]))
-            .graph_version(GraphVersion("1".to_string()))
+            .application_version(GraphVersion("1".to_string()))
             .build()?;
-        let state_change_1 = state_changes::invoke_compute_graph(
+        let state_change_1 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
-                compute_graph_name: "graph_A".to_string(),
+                application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
             },
         )
@@ -552,11 +542,11 @@ mod tests {
         tx.commit().unwrap();
 
         let tx = indexify_state.db.transaction();
-        let state_change_3 = state_changes::invoke_compute_graph(
+        let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
-                compute_graph_name: "graph_A".to_string(),
+                application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
             },
         )
@@ -640,29 +630,29 @@ mod tests {
         Ok(())
     }
 
-    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<ComputeGraph> {
+    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<Application> {
         let reader = indexify_state.reader();
         let result = reader
-            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
+            .get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications)
             .unwrap();
-        let compute_graphs = result
+        let applications = result
             .iter()
             .map(|(_, cg)| cg.clone())
-            .collect::<Vec<ComputeGraph>>();
+            .collect::<Vec<Application>>();
 
-        compute_graphs
+        applications
     }
 
     async fn _write_to_test_state_store(
         indexify_state: &Arc<IndexifyState>,
-        compute_graph: ComputeGraph,
+        application: Application,
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph: compute_graph.clone(),
+                        application: application.clone(),
                         upgrade_requests_to_current_version: false,
                     },
                 )),

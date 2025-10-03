@@ -9,12 +9,10 @@ mod tests {
         data_model::{
             filter::{Expression, LabelsFilter, Operator},
             test_objects::tests::{self as test_objects, TEST_NAMESPACE},
-            ComputeGraphState,
+            ApplicationState,
         },
         state_store::requests::{
-            CreateOrUpdateComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest, RequestPayload, StateMachineUpdateRequest,
         },
         testing::TestService,
     };
@@ -40,9 +38,9 @@ mod tests {
 
         // Step 2: Build a compute graph whose functions require foo==baz
         // (unsatisfiable)
-        let mut compute_graph = test_objects::mock_graph();
+        let mut compute_graph = test_objects::mock_application();
         compute_graph.name = "graph_unsatisfiable".to_string();
-        compute_graph.state = ComputeGraphState::Active;
+        compute_graph.state = ApplicationState::Active;
 
         let unsat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
@@ -59,7 +57,7 @@ mod tests {
         // Step 3: Persist the compute graph
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
-            compute_graph: compute_graph.clone(),
+            application: compute_graph.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
@@ -78,16 +76,16 @@ mod tests {
 
         // Step 5: Verify that the compute graph has been disabled
         let in_memory = indexify_state.in_memory_state.read().await;
-        let key = crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_unsatisfiable");
+        let key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_unsatisfiable");
         let stored_graph = in_memory
-            .compute_graphs
+            .applications
             .get(&key)
             .expect("compute graph not found in state");
 
         println!("stored_graph: {stored_graph:?}");
 
         match &stored_graph.state {
-            ComputeGraphState::Disabled { .. } => {}
+            ApplicationState::Disabled { .. } => {}
             _ => panic!("Compute graph should be disabled due to unsatisfiable constraints"),
         }
 
@@ -95,9 +93,9 @@ mod tests {
         drop(in_memory);
 
         // Step 6: Build a compute graph whose functions require foo==bar (satisfiable)
-        let mut sat_compute_graph = test_objects::mock_graph();
+        let mut sat_compute_graph = test_objects::mock_application();
         sat_compute_graph.name = "graph_satisfiable".to_string();
-        sat_compute_graph.state = ComputeGraphState::Active;
+        sat_compute_graph.state = ApplicationState::Active;
 
         let sat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
@@ -114,7 +112,7 @@ mod tests {
         // Step 7: Persist the satisfiable compute graph
         let sat_cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
-            compute_graph: sat_compute_graph.clone(),
+            application: sat_compute_graph.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
@@ -133,15 +131,14 @@ mod tests {
 
         // Step 9: Verify that the compute graph remains active
         let in_memory = indexify_state.in_memory_state.read().await;
-        let sat_key =
-            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_satisfiable");
+        let sat_key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_satisfiable");
         let sat_stored_graph = in_memory
-            .compute_graphs
+            .applications
             .get(&sat_key)
             .expect("satisfiable compute graph not found in state");
 
         match &sat_stored_graph.state {
-            ComputeGraphState::Active => {}
+            ApplicationState::Active => {}
             _ => panic!("Compute graph should remain active due to satisfiable constraints"),
         }
 
@@ -168,14 +165,14 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Build graph with no placement constraints (should remain active)
-        let mut graph_valid_no = test_objects::mock_graph();
+        let mut graph_valid_no = test_objects::mock_application();
         graph_valid_no.name = "graph_valid_no_constraints".to_string();
-        graph_valid_no.state = ComputeGraphState::Active;
+        graph_valid_no.state = ApplicationState::Active;
 
         // Build graph with satisfiable constraints (foo==bar)
-        let mut graph_valid_constraints = test_objects::mock_graph();
+        let mut graph_valid_constraints = test_objects::mock_application();
         graph_valid_constraints.name = "graph_valid_constraints".to_string();
-        graph_valid_constraints.state = ComputeGraphState::Active;
+        graph_valid_constraints.state = ApplicationState::Active;
         let sat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "bar".to_string(),
@@ -187,9 +184,9 @@ mod tests {
         graph_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
 
         // Build graph with unsatisfiable constraints (foo==baz)
-        let mut graph_invalid_baz = test_objects::mock_graph();
+        let mut graph_invalid_baz = test_objects::mock_application();
         graph_invalid_baz.name = "graph_invalid_baz".to_string();
-        graph_invalid_baz.state = ComputeGraphState::Active;
+        graph_invalid_baz.state = ApplicationState::Active;
         let bad_constraint_baz = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "baz".to_string(),
@@ -201,9 +198,9 @@ mod tests {
         graph_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
 
         // Build graph with another unsatisfiable constraint (foo==qux)
-        let mut graph_invalid_qux = test_objects::mock_graph();
+        let mut graph_invalid_qux = test_objects::mock_application();
         graph_invalid_qux.name = "graph_invalid_qux".to_string();
-        graph_invalid_qux.state = ComputeGraphState::Active;
+        graph_invalid_qux.state = ApplicationState::Active;
         let bad_constraint_qux = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "qux".to_string(),
@@ -215,7 +212,7 @@ mod tests {
         graph_invalid_qux.start_fn.placement_constraints = bad_constraint_qux.clone();
 
         // Persist all graphs
-        for compute_graph in [
+        for application in [
             graph_valid_no.clone(),
             graph_valid_constraints.clone(),
             graph_invalid_baz.clone(),
@@ -226,7 +223,7 @@ mod tests {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph,
+                            application,
                             upgrade_requests_to_current_version: true,
                         },
                     )),
@@ -247,51 +244,51 @@ mod tests {
 
         // Active graphs
         let key_valid_no =
-            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_valid_no_constraints");
+            crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_valid_no_constraints");
         match &in_memory
-            .compute_graphs
+            .applications
             .get(&key_valid_no)
             .expect("graph not found")
             .state
         {
-            ComputeGraphState::Active => {}
+            ApplicationState::Active => {}
             _ => panic!("graph_valid_no_constraints should be active"),
         }
 
         let key_valid_constraints =
-            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_valid_constraints");
+            crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_valid_constraints");
         match &in_memory
-            .compute_graphs
+            .applications
             .get(&key_valid_constraints)
             .expect("graph not found")
             .state
         {
-            ComputeGraphState::Active => {}
+            ApplicationState::Active => {}
             _ => panic!("graph_valid_constraints should be active"),
         }
 
         // Disabled graphs
         let key_invalid_baz =
-            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_invalid_baz");
+            crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_invalid_baz");
         match &in_memory
-            .compute_graphs
+            .applications
             .get(&key_invalid_baz)
             .expect("graph not found")
             .state
         {
-            ComputeGraphState::Disabled { .. } => {}
+            ApplicationState::Disabled { .. } => {}
             _ => panic!("graph_invalid_baz should be disabled"),
         }
 
         let key_invalid_qux =
-            crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, "graph_invalid_qux");
+            crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_invalid_qux");
         match &in_memory
-            .compute_graphs
+            .applications
             .get(&key_invalid_qux)
             .expect("graph not found")
             .state
         {
-            ComputeGraphState::Disabled { .. } => {}
+            ApplicationState::Disabled { .. } => {}
             _ => panic!("graph_invalid_qux should be disabled"),
         }
 
@@ -301,10 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
-            FunctionResources,
-            GPUResources,
-            GPU_MODEL_NVIDIA_A10,
-            GPU_MODEL_NVIDIA_H100_80GB,
+            FunctionResources, GPUResources, GPU_MODEL_NVIDIA_A10, GPU_MODEL_NVIDIA_H100_80GB,
         };
 
         // Single catalog entry with specific capacities
@@ -322,9 +316,9 @@ mod tests {
 
         // Helper to build a graph with given resources applied to all nodes
         let build_graph = |name: &str, resources: FunctionResources| {
-            let mut g = test_objects::mock_graph();
+            let mut g = test_objects::mock_application();
             g.name = name.to_string();
-            g.state = ComputeGraphState::Active;
+            g.state = ApplicationState::Active;
             for node in g.nodes.values_mut() {
                 node.resources = resources.clone();
             }
@@ -402,7 +396,7 @@ mod tests {
         );
 
         // Persist graphs
-        for compute_graph in [
+        for application in [
             graph_cpu_unsat.clone(),
             graph_cpu_sat.clone(),
             graph_mem_unsat.clone(),
@@ -415,7 +409,7 @@ mod tests {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph,
+                            application,
                             upgrade_requests_to_current_version: true,
                         },
                     )),
@@ -435,14 +429,14 @@ mod tests {
         let in_memory = indexify_state.in_memory_state.read().await;
 
         let assert_state = |name: &str, expect_active: bool| {
-            let key = crate::data_model::ComputeGraph::key_from(TEST_NAMESPACE, name);
+            let key = crate::data_model::Application::key_from(TEST_NAMESPACE, name);
             let graph = in_memory
-                .compute_graphs
+                .applications
                 .get(&key)
                 .expect("compute graph not found");
             match (&graph.state, expect_active) {
-                (ComputeGraphState::Active, true) => {}
-                (ComputeGraphState::Disabled { .. }, false) => {}
+                (ApplicationState::Active, true) => {}
+                (ApplicationState::Disabled { .. }, false) => {}
                 _ => panic!(
                     "compute graph '{}' unexpected state: {:?}",
                     name, graph.state

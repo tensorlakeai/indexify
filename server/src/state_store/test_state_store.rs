@@ -35,7 +35,7 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
     let cg = tests::mock_graph_with_retries(max_retries);
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph: cg.clone(),
+        application: cg.clone(),
         upgrade_requests_to_current_version: true,
     };
     indexify_state
@@ -49,7 +49,7 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
 
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
-        compute_graph_name: cg.name.clone(),
+        application_name: cg.name.clone(),
         ctx,
     };
     indexify_state

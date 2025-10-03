@@ -8,7 +8,7 @@ mod tests {
 
     use crate::{
         data_model::{
-            test_objects::tests::{mock_function_call, mock_graph, TEST_NAMESPACE},
+            test_objects::tests::{mock_function_call, mock_application, TEST_NAMESPACE},
             DataPayload,
             GraphInvocationCtxBuilder,
             InputArgs,
@@ -41,7 +41,7 @@ mod tests {
 
         // Create a compute graph
         let compute_graph = {
-            let mut compute_graph = mock_graph().clone();
+            let mut compute_graph = mock_application().clone();
             let data = "code";
             let path = compute_graph.code.path.to_string();
 
@@ -57,7 +57,7 @@ mod tests {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
-                            compute_graph: compute_graph.clone(),
+                            application: compute_graph.clone(),
                             upgrade_requests_to_current_version: false,
                         },
                     )),
@@ -77,7 +77,7 @@ mod tests {
                 .await?;
 
             let mock_function_call = mock_function_call();
-            let mock_compute_graph = mock_graph();
+            let mock_compute_graph = mock_application();
             let input_payload = DataPayload {
                 id: "test".to_string(),
                 path: res.url.clone(),
@@ -101,9 +101,9 @@ mod tests {
                 )?;
             let graph_ctx = GraphInvocationCtxBuilder::default()
                 .request_id(request_id)
-                .compute_graph_name(compute_graph.name.clone())
+                .application_name(compute_graph.name.clone())
                 .namespace(TEST_NAMESPACE.to_string())
-                .graph_version(compute_graph.version.clone())
+                .application_version(compute_graph.version.clone())
                 .outcome(Some(crate::data_model::GraphInvocationOutcome::Failure(
                     crate::data_model::GraphInvocationFailureReason::InternalError,
                 )))

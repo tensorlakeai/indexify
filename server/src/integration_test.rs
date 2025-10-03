@@ -15,8 +15,8 @@ mod tests {
                 TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
-            TaskFailureReason,
-            TaskOutcome,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
@@ -151,7 +151,7 @@ mod tests {
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -174,7 +174,7 @@ mod tests {
                             None,
                             Some(mock_data_payload()),
                         )
-                        .task_outcome(TaskOutcome::Success),
+                        .task_outcome(FunctionRunOutcome::Success),
                     )
                     .await?;
             }
@@ -193,7 +193,7 @@ mod tests {
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -214,7 +214,7 @@ mod tests {
             assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
             let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .filter(|t| t.outcome == Some(FunctionRunOutcome::Success))
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
@@ -264,7 +264,7 @@ mod tests {
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -330,7 +330,7 @@ mod tests {
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -358,7 +358,7 @@ mod tests {
                             None,
                             Some(mock_data_payload()),
                         )
-                        .task_outcome(TaskOutcome::Success),
+                        .task_outcome(FunctionRunOutcome::Success),
                     )
                     .await?;
             }
@@ -376,7 +376,7 @@ mod tests {
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;
@@ -396,7 +396,7 @@ mod tests {
             assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
             let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .filter(|t| t.outcome == Some(FunctionRunOutcome::Success))
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
@@ -482,7 +482,9 @@ mod tests {
                         None,
                         //"fn_b".to_string(),
                     )
-                    .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
+                    .task_outcome(FunctionRunOutcome::Failure(
+                        FunctionRunFailureReason::InvocationError,
+                    )),
                 )
                 .await?;
 
@@ -512,7 +514,7 @@ mod tests {
     }
 
     async fn test_task_retry_attempt_used(
-        reason: TaskFailureReason,
+        reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
         assert!(reason.should_count_against_task_retry_attempts());
@@ -556,7 +558,7 @@ mod tests {
                             None,
                             None,
                         )
-                        .task_outcome(TaskOutcome::Failure(reason)),
+                        .task_outcome(FunctionRunOutcome::Failure(reason)),
                     )
                     .await?;
 
@@ -602,36 +604,42 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::InternalError, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, TEST_FN_MAX_RETRIES)
+            .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::InternalError, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionError, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, TEST_FN_MAX_RETRIES)
+            .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionError, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(
+            FunctionRunFailureReason::FunctionTimeout,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionTimeout, 0).await
     }
 
     async fn test_task_retry_attempt_not_used(
-        reason: TaskFailureReason,
+        reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
         assert!(!reason.should_count_against_task_retry_attempts());
@@ -672,7 +680,7 @@ mod tests {
                 .finalize_task(
                     task_allocation,
                     FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation), None, None)
-                        .task_outcome(TaskOutcome::Failure(reason)),
+                        .task_outcome(FunctionRunOutcome::Failure(reason)),
                 )
                 .await?;
 
@@ -698,19 +706,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, TEST_FN_MAX_RETRIES)
-            .await
+        test_task_retry_attempt_not_used(
+            FunctionRunFailureReason::TaskCancelled,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, 0).await
+        test_task_retry_attempt_not_used(FunctionRunFailureReason::TaskCancelled, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
         test_task_retry_attempt_not_used(
-            TaskFailureReason::FunctionExecutorTerminated,
+            FunctionRunFailureReason::FunctionExecutorTerminated,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -719,7 +730,8 @@ mod tests {
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_function_executor_terminated_no_retries(
     ) -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated, 0).await
+        test_task_retry_attempt_not_used(FunctionRunFailureReason::FunctionExecutorTerminated, 0)
+            .await
     }
 
     #[tokio::test]
@@ -836,7 +848,7 @@ mod tests {
             .service
             .indexify_state
             .reader()
-            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
         // Check if the compute graph was created
@@ -858,7 +870,7 @@ mod tests {
             .service
             .indexify_state
             .reader()
-            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
         // Check if the compute graph was deleted

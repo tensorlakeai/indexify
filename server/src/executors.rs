@@ -17,17 +17,12 @@ use tracing::{debug, error, trace};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
-    data_model::{self, ComputeGraphVersion, ExecutorId, ExecutorMetadata},
+    data_model::{self, ApplicationVersion, ExecutorId, ExecutorMetadata},
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
-            self,
-            DataPayload,
-            DataPayloadEncoding,
-            DesiredExecutorState,
-            FunctionExecutorDescription,
-            FunctionRef,
-            TaskAllocation,
+            self, DataPayload, DataPayloadEncoding, DesiredExecutorState,
+            FunctionExecutorDescription, FunctionRef, TaskAllocation,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -417,10 +412,10 @@ impl ExecutorManager {
                 .in_memory_state
                 .read()
                 .await
-                .compute_graph_versions
-                .get(&ComputeGraphVersion::key_from(
+                .application_versions
+                .get(&ApplicationVersion::key_from(
                     &fe.namespace,
-                    &fe.compute_graph_name,
+                    &fe.application_name,
                     &fe.version,
                 ))
                 .cloned()
@@ -432,8 +427,8 @@ impl ExecutorManager {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
                     namespace: Some(fe.namespace.clone()),
-                    application_name: Some(fe.compute_graph_name.clone()),
-                    function_name: Some(fe.compute_fn_name.clone()),
+                    application_name: Some(fe.application_name.clone()),
+                    function_name: Some(fe.function_name.clone()),
                     application_version: Some(fe.version.to_string()),
                 }),
                 secret_names: desired_state_fe.secret_names.clone(),
@@ -442,7 +437,7 @@ impl ExecutorManager {
                 allocation_timeout_ms: Some(
                     compute_graph_version
                         .nodes
-                        .get(&fe.compute_fn_name)
+                        .get(&fe.function_name)
                         .unwrap()
                         .timeout
                         .0,
@@ -494,15 +489,15 @@ impl ExecutorManager {
                     "{}/{}.{}.{}.{}",
                     blob_store_url,
                     allocation.namespace,
-                    allocation.compute_graph,
-                    allocation.compute_fn,
+                    allocation.application,
+                    allocation.function,
                     allocation.invocation_id,
                 );
                 let task_allocation_pb = TaskAllocation {
                     function: Some(FunctionRef {
                         namespace: Some(allocation.namespace.clone()),
-                        application_name: Some(allocation.compute_graph.clone()),
-                        function_name: Some(allocation.compute_fn.clone()),
+                        application_name: Some(allocation.application.clone()),
+                        function_name: Some(allocation.function.clone()),
                         application_version: None,
                     }),
                     function_executor_id: Some(fe_id.get().to_string()),

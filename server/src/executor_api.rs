@@ -7,21 +7,11 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
-    AllocationResult,
-    AllowedFunction,
-    DataPayload as DataPayloadPb,
-    DataPayloadEncoding,
-    DesiredExecutorState,
-    ExecutorState,
-    ExecutorStatus,
-    FunctionExecutorResources,
-    FunctionExecutorStatus,
-    GetDesiredExecutorStatesRequest,
-    HostResources,
-    ReportExecutorStateRequest,
-    ReportExecutorStateResponse,
-    TaskAllocation,
+    executor_api_server::ExecutorApi, AllocationResult, AllowedFunction,
+    DataPayload as DataPayloadPb, DataPayloadEncoding, DesiredExecutorState, ExecutorState,
+    ExecutorStatus, FunctionExecutorResources, FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest, HostResources, ReportExecutorStateRequest,
+    ReportExecutorStateResponse, TaskAllocation,
 };
 use tokio::sync::{
     broadcast::error::RecvError,
@@ -34,28 +24,13 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
-        self,
-        Allocation,
-        DataPayload,
-        DataPayloadBuilder,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorMetadataBuilder,
-        FunctionAllowlist,
-        FunctionCall,
-        FunctionCallId,
-        FunctionExecutorBuilder,
-        FunctionExecutorId,
-        GPUResources,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        TaskFailureReason,
-        TaskOutcome,
+        self, Allocation, DataPayload, DataPayloadBuilder, ExecutorId, ExecutorMetadata,
+        ExecutorMetadataBuilder, FunctionAllowlist, FunctionCall, FunctionCallId,
+        FunctionExecutorBuilder, FunctionExecutorId, FunctionRunFailureReason, FunctionRunOutcome,
+        GPUResources, GraphInvocationCtxBuilder, GraphVersion,
     },
     executor_api::executor_api_pb::{
-        FunctionCallRequest,
-        FunctionCallResponse,
-        FunctionExecutorState,
+        FunctionCallRequest, FunctionCallResponse, FunctionExecutorState,
         FunctionExecutorTerminationReason,
     },
     executors::ExecutorManager,
@@ -63,12 +38,8 @@ use crate::{
     state_store::{
         invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
         requests::{
-            AllocationOutput,
-            GraphUpdates,
-            InvokeComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-            UpsertExecutorRequest,
+            AllocationOutput, GraphUpdates, InvokeComputeGraphRequest, RequestPayload,
+            StateMachineUpdateRequest, UpsertExecutorRequest,
         },
         IndexifyState,
     },
@@ -82,8 +53,8 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
         let version = allowed_function.application_version.map(GraphVersion);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
-            compute_graph_name: allowed_function.application_name,
-            compute_fn_name: allowed_function.function_name,
+            application_name: allowed_function.application_name,
+            function: allowed_function.function_name,
             version,
         })
     }
@@ -408,8 +379,8 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new(id.clone()))
             .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
+            .application_name(compute_graph_name.clone())
+            .function_name(compute_fn_name.clone())
             .version(GraphVersion(version.clone()))
             .state(state)
             .resources(resources)
@@ -626,37 +597,37 @@ impl ExecutorAPIService {
             let allocation_failure_reason = match failure_reason {
                 Some(reason) => match reason {
                     executor_api_pb::AllocationFailureReason::Unknown => {
-                        Some(TaskFailureReason::Unknown)
+                        Some(FunctionRunFailureReason::Unknown)
                     }
                     executor_api_pb::AllocationFailureReason::InternalError => {
-                        Some(TaskFailureReason::InternalError)
+                        Some(FunctionRunFailureReason::InternalError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionError => {
-                        Some(TaskFailureReason::FunctionError)
+                        Some(FunctionRunFailureReason::FunctionError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionTimeout => {
-                        Some(TaskFailureReason::FunctionTimeout)
+                        Some(FunctionRunFailureReason::FunctionTimeout)
                     }
                     executor_api_pb::AllocationFailureReason::RequestError => {
-                        Some(TaskFailureReason::InvocationError)
+                        Some(FunctionRunFailureReason::InvocationError)
                     }
                     executor_api_pb::AllocationFailureReason::AllocationCancelled => {
-                        Some(TaskFailureReason::TaskCancelled)
+                        Some(FunctionRunFailureReason::TaskCancelled)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
-                        Some(TaskFailureReason::FunctionExecutorTerminated)
+                        Some(FunctionRunFailureReason::FunctionExecutorTerminated)
                     }
                 },
                 None => None,
             };
             let task_outcome = match outcome_code {
-                executor_api_pb::AllocationOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::AllocationOutcomeCode::Success => FunctionRunOutcome::Success,
                 executor_api_pb::AllocationOutcomeCode::Failure => {
                     let failure_reason =
-                        allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
-                    TaskOutcome::Failure(failure_reason)
+                        allocation_failure_reason.unwrap_or(FunctionRunFailureReason::Unknown);
+                    FunctionRunOutcome::Failure(failure_reason)
                 }
-                executor_api_pb::AllocationOutcomeCode::Unknown => TaskOutcome::Unknown,
+                executor_api_pb::AllocationOutcomeCode::Unknown => FunctionRunOutcome::Unknown,
             };
             allocation.outcome = task_outcome;
             allocation.execution_duration_ms = Some(execution_duration_ms);
@@ -960,7 +931,11 @@ impl ExecutorApi for ExecutorAPIService {
         let function_run = self
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &application, &parent_request_ctx.graph_version)
+            .get_application_version(
+                &namespace,
+                &application,
+                &parent_request_ctx.application_version,
+            )
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or(Status::not_found("compute graph version not found"))?
             .create_function_run(
@@ -982,8 +957,8 @@ impl ExecutorApi for ExecutorAPIService {
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(namespace.to_string())
-            .compute_graph_name(application.to_string())
-            .graph_version(parent_request_ctx.graph_version.clone())
+            .application_name(application.to_string())
+            .application_version(parent_request_ctx.application_version.clone())
             .request_id(request_id.clone())
             .created_at(get_epoch_time_in_ms())
             .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
@@ -1000,7 +975,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let sm_request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
             namespace: namespace.clone(),
-            compute_graph_name: application.clone(),
+            application_name: application.clone(),
             ctx: parent_request_ctx.clone(),
         });
 

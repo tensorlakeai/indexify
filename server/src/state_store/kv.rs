@@ -12,7 +12,7 @@ use crate::{
 
 pub struct WriteContextData {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
     pub invocation_id: String,
     pub key: String,
     pub value: Vec<u8>,
@@ -20,7 +20,7 @@ pub struct WriteContextData {
 
 pub struct ReadContextData {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
     pub invocation_id: String,
     pub key: String,
 }
@@ -58,7 +58,7 @@ impl KVS {
 
         let key = format!(
             "{}|{}|{}|{}",
-            req.namespace, req.compute_graph, req.invocation_id, req.key
+            req.namespace, req.application, req.invocation_id, req.key
         );
         self.kv_store.put(key.as_bytes(), &req.value).await?;
         Ok(())
@@ -70,7 +70,7 @@ impl KVS {
 
         let key = format!(
             "{}|{}|{}|{}",
-            req.namespace, req.compute_graph, req.invocation_id, req.key
+            req.namespace, req.application, req.invocation_id, req.key
         );
         let value = self.kv_store.get(key.as_bytes()).await?;
         Ok(value)
@@ -106,7 +106,7 @@ mod tests {
         kv_store
             .put_ctx_state(WriteContextData {
                 namespace: "test_namespace".to_string(),
-                compute_graph: "test_compute_graph".to_string(),
+                application: "test_application".to_string(),
                 invocation_id: "test_invocation_id".to_string(),
                 key: key.to_string(),
                 value: value.to_vec(),
@@ -117,7 +117,7 @@ mod tests {
         let result = kv_store
             .get_ctx_state_key(ReadContextData {
                 namespace: "test_namespace".to_string(),
-                compute_graph: "test_compute_graph".to_string(),
+                application: "test_application".to_string(),
                 invocation_id: "test_invocation_id".to_string(),
                 key: key.to_string(),
             })

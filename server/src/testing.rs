@@ -16,9 +16,9 @@ use crate::{
         FunctionExecutor,
         FunctionExecutorState,
         FunctionRun,
+        FunctionRunOutcome,
+        FunctionRunStatus,
         GraphInvocationCtx,
-        TaskOutcome,
-        TaskStatus,
     },
     executor_api::executor_api_pb::TaskAllocation,
     service::Service,
@@ -146,7 +146,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let allocated_tasks = tasks
             .into_iter()
-            .filter(|t| matches!(t.status, TaskStatus::Running(_)))
+            .filter(|t| matches!(t.status, FunctionRunStatus::Running(_)))
             .collect::<Vec<_>>();
         Ok(allocated_tasks)
     }
@@ -155,7 +155,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let pending_tasks = tasks
             .into_iter()
-            .filter(|t| t.status == TaskStatus::Pending)
+            .filter(|t| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         let pending_count = pending_tasks.len();
@@ -171,7 +171,7 @@ impl TestService {
 
         let pending_tasks_memory = pending_tasks_memory
             .iter()
-            .filter(|(_k, t)| t.status == TaskStatus::Pending)
+            .filter(|(_k, t)| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -203,7 +203,8 @@ impl TestService {
         let completed_success_tasks = function_runs
             .into_iter()
             .filter(|t| {
-                t.status == TaskStatus::Completed && t.outcome == Some(TaskOutcome::Success)
+                t.status == FunctionRunStatus::Completed &&
+                    t.outcome == Some(FunctionRunOutcome::Success)
             })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)
@@ -276,7 +277,7 @@ macro_rules! assert_executor_state {
 }
 
 pub struct FinalizeTaskArgs {
-    pub task_outcome: TaskOutcome,
+    pub task_outcome: FunctionRunOutcome,
     pub allocation_key: String,
     pub graph_updates: Option<GraphUpdates>,
     pub data_payload: Option<DataPayload>,
@@ -310,14 +311,14 @@ impl FinalizeTaskArgs {
         data_payload: Option<DataPayload>,
     ) -> FinalizeTaskArgs {
         FinalizeTaskArgs {
-            task_outcome: TaskOutcome::Success,
+            task_outcome: FunctionRunOutcome::Success,
             allocation_key,
             graph_updates,
             data_payload,
         }
     }
 
-    pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
+    pub fn task_outcome(mut self, task_outcome: FunctionRunOutcome) -> FinalizeTaskArgs {
         self.task_outcome = task_outcome;
         self
     }

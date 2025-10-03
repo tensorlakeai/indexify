@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{data_model::TaskOutcome, state_store::requests::AllocationOutput};
+use crate::{data_model::FunctionRunOutcome, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
@@ -17,7 +17,7 @@ impl InvocationStateChangeEvent {
     pub fn from_task_finished(event: AllocationOutput) -> Self {
         Self::TaskCompleted(TaskCompleted {
             request_id: event.invocation_id,
-            fn_name: event.allocation.compute_fn,
+            fn_name: event.allocation.function,
             task_id: event.allocation.function_call_id.to_string(),
             outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
@@ -95,12 +95,12 @@ pub enum TaskOutcomeSummary {
     Failure,
 }
 
-impl From<&TaskOutcome> for TaskOutcomeSummary {
-    fn from(outcome: &TaskOutcome) -> Self {
+impl From<&FunctionRunOutcome> for TaskOutcomeSummary {
+    fn from(outcome: &FunctionRunOutcome) -> Self {
         match outcome {
-            TaskOutcome::Unknown => TaskOutcomeSummary::Unknown,
-            TaskOutcome::Success => TaskOutcomeSummary::Success,
-            TaskOutcome::Failure(_) => TaskOutcomeSummary::Failure,
+            FunctionRunOutcome::Unknown => TaskOutcomeSummary::Unknown,
+            FunctionRunOutcome::Success => TaskOutcomeSummary::Success,
+            FunctionRunOutcome::Failure(_) => TaskOutcomeSummary::Failure,
         }
     }
 }

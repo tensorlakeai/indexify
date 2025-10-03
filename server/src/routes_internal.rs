@@ -5,8 +5,7 @@ use axum::{
     http::Response,
     response::{Html, IntoResponse},
     routing::{get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use hyper::StatusCode;
 use tracing::{error, info};
@@ -15,20 +14,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        from_data_model_executor_metadata,
-        Allocation,
-        CacheKey,
-        ComputeFn,
-        CreateNamespace,
-        ExecutorCatalog,
-        ExecutorMetadata,
-        ExecutorsAllocationsResponse,
-        GraphVersion,
-        IndexifyAPIError,
-        Namespace,
-        NamespaceList,
-        StateChangesResponse,
-        TaskOutcome,
+        from_data_model_executor_metadata, Allocation, CacheKey, ComputeFn, CreateNamespace,
+        ExecutorCatalog, ExecutorMetadata, ExecutorsAllocationsResponse, GraphVersion,
+        IndexifyAPIError, Namespace, NamespaceList, StateChangesResponse, TaskOutcome,
         UnallocatedFunctionRuns,
     },
     http_objects_v1,
@@ -343,28 +331,27 @@ async fn get_unversioned_code(
 }
 
 async fn get_versioned_code(
-    Path((namespace, compute_graph, version)): Path<(String, String, Option<GraphVersion>)>,
+    Path((namespace, application, version)): Path<(String, String, Option<GraphVersion>)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     if let Some(version) = version {
         info!(
-            "getting code for compute graph {} version {}",
-            compute_graph, version.0
+            "getting code for application {} version {}",
+            application, version.0
         );
-        let compute_graph_version = state
+        let application_version = state
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &compute_graph, &version.into())
+            .get_application_version(&namespace, &application, &version.into())
             .map_err(IndexifyAPIError::internal_error)?;
 
-        let compute_graph_version = compute_graph_version.ok_or(IndexifyAPIError::not_found(
-            "compute graph version not found",
-        ))?;
+        let application_version = application_version
+            .ok_or(IndexifyAPIError::not_found("application version not found"))?;
 
         let storage_reader = state
             .blob_storage
             .get_blob_store(&namespace)
-            .get(&compute_graph_version.code.path, None)
+            .get(&application_version.code.path, None)
             .await
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e:?}",))
@@ -372,10 +359,7 @@ async fn get_versioned_code(
 
         return Ok(Response::builder()
             .header("Content-Type", "application/octet-stream")
-            .header(
-                "Content-Length",
-                compute_graph_version.code.size.to_string(),
-            )
+            .header("Content-Length", application_version.code.size.to_string())
             .body(Body::from_stream(storage_reader))
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!(
@@ -390,7 +374,7 @@ async fn get_versioned_code(
     let compute_graph = state
         .indexify_state
         .reader()
-        .get_compute_graph(&namespace, &compute_graph)
+        .get_application(&namespace, &application)
         .map_err(IndexifyAPIError::internal_error)?;
     let compute_graph =
         compute_graph.ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
@@ -420,7 +404,7 @@ async fn set_ctx_state_key(
 ) -> Result<(), IndexifyAPIError> {
     let mut request: WriteContextData = WriteContextData {
         namespace,
-        compute_graph,
+        application: compute_graph,
         invocation_id,
         key,
         value: vec![],
@@ -470,7 +454,7 @@ async fn get_ctx_state_key(
         .kvs
         .get_ctx_state_key(ReadContextData {
             namespace,
-            compute_graph,
+            application: compute_graph,
             invocation_id,
             key,
         })

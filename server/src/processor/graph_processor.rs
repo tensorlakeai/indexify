@@ -6,16 +6,13 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
 use crate::{
-    data_model::{ChangeType, ComputeGraph, ComputeGraphState, StateChange},
+    data_model::{Application, ApplicationState, ChangeType, StateChange},
     metrics::{low_latency_boundaries, Timer},
     processor::{function_executor_manager, task_allocator::TaskAllocationProcessor, task_creator},
     state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            DeleteInvocationRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, DeleteInvocationRequest,
+            RequestPayload, StateMachineUpdateRequest,
         },
         IndexifyState,
     },
@@ -59,11 +56,11 @@ impl GraphProcessor {
         let updated_compute_graphs = {
             let in_memory_state = self.indexify_state.in_memory_state.read().await;
             let executor_catalog = &in_memory_state.executor_catalog;
-            in_memory_state.compute_graphs.values().filter_map(|compute_graph| {
+            in_memory_state.applications.values().filter_map(|compute_graph| {
                 let target_state = if compute_graph.can_be_scheduled(executor_catalog).is_ok() {
-                        ComputeGraphState::Active
+                        ApplicationState::Active
                 } else {
-                        ComputeGraphState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}
+                        ApplicationState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}
                 };
 
                 if target_state != compute_graph.state {
@@ -74,7 +71,7 @@ impl GraphProcessor {
                     None
                 }
             })
-                .collect::<Vec<ComputeGraph>>()
+                .collect::<Vec<Application>>()
         };
 
         for compute_graph in updated_compute_graphs {
@@ -83,7 +80,7 @@ impl GraphProcessor {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: compute_graph.namespace.clone(),
-                            compute_graph,
+                            application: compute_graph,
                             upgrade_requests_to_current_version: true,
                         },
                     )),
@@ -295,7 +292,7 @@ impl GraphProcessor {
                 payload: RequestPayload::DeleteComputeGraphRequest((
                     DeleteComputeGraphRequest {
                         namespace: request.namespace.clone(),
-                        name: request.compute_graph.clone(),
+                        name: request.application.clone(),
                     },
                     vec![state_change.clone()],
                 )),
@@ -304,7 +301,7 @@ impl GraphProcessor {
                 payload: RequestPayload::DeleteInvocationRequest((
                     DeleteInvocationRequest {
                         namespace: request.namespace.clone(),
-                        compute_graph: request.compute_graph.clone(),
+                        application: request.application.clone(),
                         invocation_id: request.invocation_id.clone(),
                     },
                     vec![state_change.clone()],

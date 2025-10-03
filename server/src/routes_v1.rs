@@ -210,7 +210,7 @@ async fn namespace_middleware(
     ),
 )]
 async fn list_requests(
-    Path((namespace, compute_graph)): Path<(String, String)>,
+    Path((namespace, application)): Path<(String, String)>,
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<GraphRequests>, IndexifyAPIError> {
@@ -227,7 +227,7 @@ async fn list_requests(
         .reader()
         .list_invocations(
             &namespace,
-            &compute_graph,
+            &application,
             cursor.as_deref(),
             params.limit.unwrap_or(100),
             direction,
@@ -260,13 +260,13 @@ async fn list_requests(
     ),
 )]
 async fn find_request(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<http_objects_v1::Request>, IndexifyAPIError> {
     let invocation_ctx = state
         .indexify_state
         .reader()
-        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .invocation_ctx(&namespace, &application, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
 
@@ -279,7 +279,7 @@ async fn find_request(
     let allocations = state
         .indexify_state
         .reader()
-        .get_allocations_by_invocation(&namespace, &compute_graph, &invocation_id)
+        .get_allocations_by_invocation(&namespace, &application, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?;
 
     let output = function_run.output.clone().map(|output| output.into());
@@ -308,12 +308,12 @@ async fn find_request(
 )]
 #[axum::debug_handler]
 async fn delete_request(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
     let request = RequestPayload::TombstoneInvocation(DeleteInvocationRequest {
         namespace,
-        compute_graph,
+        application,
         invocation_id,
     });
     let req = StateMachineUpdateRequest { payload: request };

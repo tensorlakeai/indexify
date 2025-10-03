@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ComputeGraphState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
+    data_model::{self, ApplicationState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
@@ -232,11 +232,11 @@ async fn do_invoke_api_with_object_v1(
     let application = state
         .indexify_state
         .reader()
-        .get_compute_graph(&namespace, &application)
+        .get_application(&namespace, &application)
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
 
-    if let ComputeGraphState::Disabled { reason } = &application.state {
+    if let ApplicationState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
@@ -260,7 +260,7 @@ async fn do_invoke_api_with_object_v1(
         .in_memory_state
         .read()
         .await
-        .compute_graph_version(&namespace, &application.name, &application.version)
+        .application_graph_version(&namespace, &application.name, &application.version)
         .cloned()
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
@@ -282,8 +282,8 @@ async fn do_invoke_api_with_object_v1(
 
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
-        .compute_graph_name(application.name.to_string())
-        .graph_version(application.version.clone())
+        .application_name(application.name.to_string())
+        .application_version(application.version.clone())
         .request_id(request_id.clone())
         .created_at(get_epoch_time_in_ms())
         .function_runs(fn_runs)
@@ -292,7 +292,7 @@ async fn do_invoke_api_with_object_v1(
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
-        compute_graph_name: application.name.clone(),
+        application_name: application.name.clone(),
         ctx: graph_invocation_ctx.clone(),
     });
     if accept_header.contains("application/json") {

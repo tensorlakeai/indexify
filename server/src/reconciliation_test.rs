@@ -15,8 +15,8 @@ mod tests {
             FunctionAllowlist,
             FunctionExecutorState,
             FunctionExecutorTerminationReason,
+            FunctionRunOutcome,
             GraphVersion,
-            TaskOutcome,
         },
         service::Service,
         state_store::test_state_store,
@@ -57,7 +57,7 @@ mod tests {
                     Some(mock_updates()),
                     None,
                 )
-                .task_outcome(TaskOutcome::Success),
+                .task_outcome(FunctionRunOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -82,8 +82,8 @@ mod tests {
         let mut executor_meta = mock_executor_metadata(TEST_EXECUTOR_ID.into());
         executor_meta.function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some(TEST_NAMESPACE.to_string()),
-            compute_graph_name: Some("graph_A".to_string()),
-            compute_fn_name: Some("fn_a".to_string()),
+            application_name: Some("graph_A".to_string()),
+            function: Some("fn_a".to_string()),
             version: Some(GraphVersion("1".to_string())),
         }]);
 
@@ -105,7 +105,7 @@ mod tests {
                     Some(mock_updates()),
                     None,
                 )
-                .task_outcome(TaskOutcome::Success),
+                .task_outcome(FunctionRunOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -199,7 +199,7 @@ mod tests {
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .task_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;
@@ -220,7 +220,7 @@ mod tests {
                 .into_values()
                 .collect();
             for fe in fes.iter_mut() {
-                if fe.compute_fn_name == "fn_a" {
+                if fe.function_name == "fn_a" {
                     fe.state = FunctionExecutorState::Terminated {
                         reason: FunctionExecutorTerminationReason::FunctionCancelled,
                         failed_alloc_ids: Vec::new(),
@@ -239,7 +239,7 @@ mod tests {
         assert!(executor_server_state
             .function_executors
             .iter()
-            .all(|(_id, fe)| { fe.compute_fn_name != "fn_a" }));
+            .all(|(_id, fe)| { fe.function_name != "fn_a" }));
 
         Ok(())
     }
@@ -248,7 +248,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: crate::data_model::TaskFailureReason = reason.into();
+        let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
         assert!(task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
@@ -462,7 +462,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: crate::data_model::TaskFailureReason = reason.into();
+        let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
         assert!(!task_failure_reason.should_count_against_task_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;

@@ -539,12 +539,12 @@ pub enum TaskOutcome {
     Failure,
 }
 
-impl From<data_model::TaskOutcome> for TaskOutcome {
-    fn from(outcome: data_model::TaskOutcome) -> Self {
+impl From<data_model::FunctionRunOutcome> for TaskOutcome {
+    fn from(outcome: data_model::FunctionRunOutcome) -> Self {
         match outcome {
-            data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
-            data_model::TaskOutcome::Success => TaskOutcome::Success,
-            data_model::TaskOutcome::Failure(_) => TaskOutcome::Failure,
+            data_model::FunctionRunOutcome::Unknown => TaskOutcome::Undefined,
+            data_model::FunctionRunOutcome::Success => TaskOutcome::Success,
+            data_model::FunctionRunOutcome::Failure(_) => TaskOutcome::Failure,
         }
     }
 }
@@ -571,12 +571,12 @@ pub enum TaskStatus {
     Completed,
 }
 
-impl From<data_model::TaskStatus> for TaskStatus {
-    fn from(status: data_model::TaskStatus) -> Self {
+impl From<data_model::FunctionRunStatus> for TaskStatus {
+    fn from(status: data_model::FunctionRunStatus) -> Self {
         match status {
-            data_model::TaskStatus::Pending => TaskStatus::Pending,
-            data_model::TaskStatus::Running(_) => TaskStatus::Running,
-            data_model::TaskStatus::Completed => TaskStatus::Completed,
+            data_model::FunctionRunStatus::Pending => TaskStatus::Pending,
+            data_model::FunctionRunStatus::Running(_) => TaskStatus::Running,
+            data_model::FunctionRunStatus::Completed => TaskStatus::Completed,
         }
     }
 }
@@ -671,8 +671,8 @@ pub fn from_data_model_function_executor(
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
         namespace: fe.namespace,
-        compute_graph_name: fe.compute_graph_name,
-        compute_fn_name: fe.compute_fn_name,
+        compute_graph_name: fe.application_name,
+        compute_fn_name: fe.function_name,
         version: fe.version.to_string(),
         max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
@@ -710,8 +710,8 @@ pub fn from_data_model_executor_metadata(
             .iter()
             .map(|fn_uri| FunctionAllowlist {
                 namespace: fn_uri.namespace.clone(),
-                compute_graph: fn_uri.compute_graph_name.clone(),
-                compute_fn: fn_uri.compute_fn_name.clone(),
+                compute_graph: fn_uri.application_name.clone(),
+                compute_fn: fn_uri.function.clone(),
                 version: fn_uri.version.clone().map(|v| v.into()),
             })
             .collect()
@@ -820,8 +820,8 @@ impl From<data_model::Allocation> for Allocation {
         Self {
             id: allocation.id.to_string(),
             namespace: allocation.namespace,
-            compute_graph: allocation.compute_graph,
-            compute_fn: allocation.compute_fn,
+            compute_graph: allocation.application,
+            compute_fn: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             task_id: allocation.function_call_id.to_string(),
@@ -852,7 +852,7 @@ impl From<data_model::StateChange> for StateChange {
             change_type: item.change_type.to_string(),
             created_at: item.created_at,
             namespace: item.namespace,
-            compute_graph: item.compute_graph,
+            compute_graph: item.application,
             invocation: item.invocation,
         }
     }

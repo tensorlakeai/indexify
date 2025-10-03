@@ -10,22 +10,13 @@ use tracing::{debug, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        Allocation,
-        ComputeGraph,
-        ComputeGraphVersion,
-        GcUrl,
-        GcUrlBuilder,
-        GraphInvocationCtx,
-        NamespaceBuilder,
-        StateChange,
+        Allocation, Application, ApplicationVersion, GcUrl, GcUrlBuilder, GraphInvocationCtx,
+        NamespaceBuilder, StateChange,
     },
     state_store::{
         driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         requests::{
-            AllocationOutput,
-            DeleteInvocationRequest,
-            InvokeComputeGraphRequest,
-            NamespaceRequest,
+            AllocationOutput, DeleteInvocationRequest, InvokeComputeGraphRequest, NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
@@ -36,12 +27,12 @@ use crate::{
 pub enum IndexifyObjectsColumns {
     StateMachineMetadata, //  StateMachineMetadata
     Namespaces,           //  Namespaces
-    ComputeGraphs,        //  Ns_ComputeGraphName -> ComputeGraph
+    Applications,         //  Ns_ComputeGraphName -> ComputeGraph
     /// Compute graph versions
     ///
     /// Keys:
     /// - `<Ns>_<ComputeGraphName>_<Version> -> ComputeGraphVersion`
-    ComputeGraphVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
+    ApplicationVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
     GraphInvocationCtx,   //  Ns_CG_IngestedId -> GraphInvocationCtx
     GraphInvocationCtxSecondaryIndex, // NS_CG_InvocationId_CreatedAt -> empty
 
@@ -74,21 +65,21 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
     let span = info_span!(
         "create_invocation",
         namespace = req.namespace,
-        graph = req.compute_graph_name,
+        graph = req.application_name,
         invocation_id = req.ctx.request_id
     );
     let _guard = span.enter();
 
-    let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
+    let application_key = Application::key_from(&req.namespace, &req.application_name);
     let cg = txn
         .get(
-            IndexifyObjectsColumns::ComputeGraphs.as_ref(),
-            &compute_graph_key,
+            IndexifyObjectsColumns::Applications.as_ref(),
+            &application_key,
         )?
-        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+        .ok_or(anyhow::anyhow!("Application not found"))?;
+    let cg: Application = JsonEncoder::decode(&cg)?;
     if cg.tombstoned {
-        return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
+        return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
     txn.put(
         IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
@@ -102,8 +93,8 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
     )?;
 
     info!(
-        "created invocation: namespace: {}, compute_graph: {}",
-        req.namespace, req.compute_graph_name
+        "created invocation: namespace: {}, application: {}",
+        req.namespace, req.application_name
     );
 
     Ok(())
@@ -123,7 +114,7 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
     let span = info_span!(
         "delete_invocation",
         namespace = req.namespace,
-        graph = req.compute_graph,
+        graph = req.application,
         invocation_id = req.invocation_id,
     );
     let _guard = span.enter();
@@ -132,7 +123,7 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
 
     // Check if the invocation was deleted before the task completes
     let invocation_ctx_key =
-        GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+        GraphInvocationCtx::key_from(&req.namespace, &req.application, &req.invocation_id);
     let invocation_ctx = txn
         .get(
             IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
@@ -174,7 +165,7 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
 
     let allocation_prefix = Allocation::key_prefix_from_invocation(
         &req.namespace,
-        &req.compute_graph,
+        &req.application,
         &req.invocation_id,
     );
     // delete all allocations for this invocation
@@ -186,7 +177,7 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
             info!(
                 allocation_id = %value.id,
                 function_call_id = value.function_call_id.to_string(),
-                "fn" = value.compute_fn,
+                "fn" = value.function,
                 "deleting allocation",
             );
             txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)?;
@@ -209,17 +200,15 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
     Ok(())
 }
 
-fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGraph) -> Result<()> {
-    let cg_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(
-        &compute_graph.namespace,
-        &compute_graph.name,
-    );
+fn update_graph_invocations_for_cg(txn: &Transaction, application: &Application) -> Result<()> {
+    let cg_prefix =
+        GraphInvocationCtx::key_prefix_for_application(&application.namespace, &application.name);
 
     let span = info_span!(
         "update_graph_invocations_for_cg",
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
+        namespace = application.namespace,
+        graph = application.name,
+        graph_version = application.version.0,
     );
     let _guard = span.enter();
 
@@ -233,20 +222,20 @@ fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGra
     for kv in iter {
         let (key, val) = kv?;
         let mut request_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
-        if request_ctx.graph_version != compute_graph.version && request_ctx.outcome.is_none() {
+        if request_ctx.application_version != application.version && request_ctx.outcome.is_none() {
             info!(
                 invocation_id = request_ctx.request_id,
                 "updating request_ctx for invocation id: {} from version: {} to version: {}",
                 request_ctx.request_id,
-                request_ctx.graph_version.0,
-                compute_graph.version.0
+                request_ctx.application_version.0,
+                application.version.0
             );
-            request_ctx.graph_version = compute_graph.version.clone();
+            request_ctx.application_version = application.version.clone();
             for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
-                if function_run.graph_version != compute_graph.version &&
-                    function_run.outcome.is_none()
+                if function_run.application_version != application.version
+                    && function_run.outcome.is_none()
                 {
-                    function_run.graph_version = compute_graph.version.clone();
+                    function_run.application_version = application.version.clone();
                     request_ctx
                         .function_runs
                         .insert(function_run.id.clone(), function_run.clone());
@@ -270,65 +259,65 @@ fn update_graph_invocations_for_cg(txn: &Transaction, compute_graph: &ComputeGra
     Ok(())
 }
 
-pub(crate) fn create_or_update_compute_graph(
+pub(crate) fn create_or_update_application(
     txn: &Transaction,
-    compute_graph: ComputeGraph,
+    application: Application,
     upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
     let span = info_span!(
-        "create_or_update_compute_graph",
-        namespace = compute_graph.namespace,
-        graph = compute_graph.name,
-        graph_version = compute_graph.version.0,
+        "create_or_update_application",
+        namespace = application.namespace,
+        application = application.name,
+        application_version = application.version.0,
     );
     let _guard = span.enter();
 
     info!(
-        "creating compute graph: ns: {} name: {}, upgrade invocations: {}",
-        compute_graph.namespace, compute_graph.name, upgrade_existing_tasks_to_current_version
+        "creating application: ns: {} name: {}, upgrade invocations: {}",
+        application.namespace, application.name, upgrade_existing_tasks_to_current_version
     );
-    let existing_compute_graph = txn
+    let existing_application = txn
         .get(
-            IndexifyObjectsColumns::ComputeGraphs.as_ref(),
-            compute_graph.key(),
+            IndexifyObjectsColumns::Applications.as_ref(),
+            application.key(),
         )?
-        .map(|v| JsonEncoder::decode::<ComputeGraph>(&v));
+        .map(|v| JsonEncoder::decode::<Application>(&v));
 
-    let new_compute_graph_version = match existing_compute_graph {
-        Some(Ok(mut existing_compute_graph)) => {
-            existing_compute_graph.update(compute_graph.clone());
-            existing_compute_graph.to_version()
+    let new_application_version = match existing_application {
+        Some(Ok(mut existing_application)) => {
+            existing_application.update(application.clone());
+            existing_application.to_version()
         }
         Some(Err(e)) => {
-            return Err(anyhow!("failed to decode existing compute graph: {e}"));
+            return Err(anyhow!("failed to decode existing application: {e}"));
         }
-        None => compute_graph.to_version(),
+        None => application.to_version(),
     }?;
     info!(
-        "new compute graph version: {}",
-        &new_compute_graph_version.version.0
+        "new application version: {}",
+        &new_application_version.version.0
     );
-    let serialized_compute_graph_version = JsonEncoder::encode(&new_compute_graph_version)?;
+    let serialized_application_version = JsonEncoder::encode(&new_application_version)?;
     txn.put(
-        IndexifyObjectsColumns::ComputeGraphVersions.as_ref(),
-        new_compute_graph_version.key(),
-        &serialized_compute_graph_version,
+        IndexifyObjectsColumns::ApplicationVersions.as_ref(),
+        new_application_version.key(),
+        &serialized_application_version,
     )?;
 
-    let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
+    let serialized_application = JsonEncoder::encode(&application)?;
     txn.put(
-        IndexifyObjectsColumns::ComputeGraphs.as_ref(),
-        compute_graph.key(),
-        &serialized_compute_graph,
+        IndexifyObjectsColumns::Applications.as_ref(),
+        application.key(),
+        &serialized_application,
     )?;
 
     if upgrade_existing_tasks_to_current_version {
-        update_graph_invocations_for_cg(txn, &compute_graph)?;
+        update_graph_invocations_for_cg(txn, &application)?;
     }
 
     info!(
-        "finished creating compute graph namespace: {} name: {}, version: {}",
-        compute_graph.namespace, compute_graph.name, compute_graph.version.0
+        "finished creating application namespace: {} name: {}, version: {}",
+        application.namespace, application.name, application.version.0
     );
     Ok(())
 }
@@ -345,20 +334,24 @@ fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
-    let span = info_span!("delete_compute_graph", namespace = namespace, graph = name,);
+pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
+    let span = info_span!(
+        "delete_application",
+        namespace = namespace,
+        application = name
+    );
     let _guard = span.enter();
 
     info!(
-        "deleting compute graph: namespace: {}, name: {}",
+        "deleting application: namespace: {}, name: {}",
         namespace, name
     );
     txn.delete(
-        IndexifyObjectsColumns::ComputeGraphs.as_ref(),
-        ComputeGraph::key_from(namespace, name).as_bytes(),
+        IndexifyObjectsColumns::Applications.as_ref(),
+        Application::key_from(namespace, name).as_bytes(),
     )?;
 
-    let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, name);
+    let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_application(namespace, name);
 
     for iter in txn.iter(
         &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
@@ -371,19 +364,19 @@ pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> R
             txn,
             &DeleteInvocationRequest {
                 namespace: value.namespace,
-                compute_graph: value.compute_graph_name,
+                application: value.application_name,
                 invocation_id: value.request_id,
             },
         )?;
     }
 
     for iter in txn.iter(
-        IndexifyObjectsColumns::ComputeGraphVersions.as_ref(),
-        ComputeGraphVersion::key_prefix_from(namespace, name).as_bytes(),
+        IndexifyObjectsColumns::ApplicationVersions.as_ref(),
+        ApplicationVersion::key_prefix_from(namespace, name).as_bytes(),
         Default::default(),
     ) {
         let (key, value) = iter?;
-        let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
+        let value = JsonEncoder::decode::<ApplicationVersion>(&value)?;
 
         // mark all code urls for gc.
         let gc_url = GcUrlBuilder::default()
@@ -396,7 +389,7 @@ pub fn delete_compute_graph(txn: &Transaction, namespace: &str, name: &str) -> R
             gc_url.key().as_bytes(),
             &serialized_gc_url,
         )?;
-        txn.delete(IndexifyObjectsColumns::ComputeGraphVersions.as_ref(), &key)?;
+        txn.delete(IndexifyObjectsColumns::ApplicationVersions.as_ref(), &key)?;
     }
 
     Ok(())
@@ -419,9 +412,9 @@ pub(crate) fn handle_scheduler_update(
     for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
-            graph = alloc.compute_graph,
+            graph = alloc.application,
             invocation_id = alloc.invocation_id,
-            "fn" = alloc.compute_fn,
+            "fn" = alloc.function,
             task_id = alloc.function_call_id.to_string(),
             allocation_id = %alloc.id,
             fn_executor_id = alloc.target.function_executor_id.get(),
@@ -441,7 +434,7 @@ pub(crate) fn handle_scheduler_update(
             info!(
                 invocation_id = invocation_ctx.request_id.to_string(),
                 namespace = invocation_ctx.namespace,
-                graph = invocation_ctx.compute_graph_name,
+                graph = invocation_ctx.application_name,
                 outcome = invocation_ctx
                     .outcome
                     .as_ref()
@@ -482,29 +475,28 @@ pub fn can_allocation_output_be_updated(
     let span = info_span!(
         "can_allocation_output_be_updated",
         namespace = &req.allocation.namespace,
-        graph = &req.allocation.compute_graph,
+        graph = &req.allocation.application,
         invocation_id = &req.invocation_id,
-        "fn" = &req.allocation.compute_fn,
+        "fn" = &req.allocation.function,
         task_id = req.allocation.function_call_id.to_string(),
     );
     let _guard = span.enter();
 
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
-    let graph_key =
-        ComputeGraph::key_from(&req.allocation.namespace, &req.allocation.compute_graph);
+    let graph_key = Application::key_from(&req.allocation.namespace, &req.allocation.application);
     let graph = db
-        .get(IndexifyObjectsColumns::ComputeGraphs.as_ref(), &graph_key)
+        .get(IndexifyObjectsColumns::Applications.as_ref(), &graph_key)
         .map_err(|e| anyhow!("failed to get compute graph: {e}"))?;
     if graph.is_none() {
-        info!("Compute graph not found: {}", &req.allocation.compute_graph);
+        info!("Compute graph not found: {}", &req.allocation.application);
         return Ok(false);
     }
 
     // Check if the invocation was deleted before the task completes
     let invocation_ctx_key = GraphInvocationCtx::key_from(
         &req.allocation.namespace,
-        &req.allocation.compute_graph,
+        &req.allocation.application,
         &req.invocation_id,
     );
     let invocation = db
