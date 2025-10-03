@@ -10,6 +10,7 @@ use crate::{
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         Allocation,
+        ApplicationInvocationCtx,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -18,7 +19,6 @@ use crate::{
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
-        GraphInvocationCtx,
     },
     executor_api::executor_api_pb::TaskAllocation,
     service::Service,
@@ -132,7 +132,9 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<GraphInvocationCtx>(IndexifyObjectsColumns::GraphInvocationCtx)
+            .get_all_rows_from_cf::<ApplicationInvocationCtx>(
+                IndexifyObjectsColumns::GraphInvocationCtx,
+            )
             .unwrap()
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())

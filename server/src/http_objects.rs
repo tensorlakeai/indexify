@@ -552,13 +552,13 @@ impl From<data_model::FunctionRunOutcome> for TaskOutcome {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct GraphVersion(pub String);
 
-impl From<data_model::GraphVersion> for GraphVersion {
-    fn from(version: data_model::GraphVersion) -> Self {
+impl From<data_model::ApplicationVersionString> for GraphVersion {
+    fn from(version: data_model::ApplicationVersionString) -> Self {
         Self(version.0)
     }
 }
 
-impl From<GraphVersion> for data_model::GraphVersion {
+impl From<GraphVersion> for data_model::ApplicationVersionString {
     fn from(version: GraphVersion) -> Self {
         Self(version.0)
     }

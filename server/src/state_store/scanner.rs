@@ -8,8 +8,15 @@ use tracing::{debug, trace};
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
-        Allocation, Application, ApplicationVersion, GcUrl, GraphInvocationCtx, GraphVersion,
-        Namespace, StateChange, UnprocessedStateChanges,
+        Allocation,
+        Application,
+        ApplicationInvocationCtx,
+        ApplicationVersion,
+        ApplicationVersionString,
+        GcUrl,
+        Namespace,
+        StateChange,
+        UnprocessedStateChanges,
     },
     metrics::{self, Timer},
     state_store::{
@@ -269,7 +276,11 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: usize,
         direction: Option<CursorDirection>,
-    ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+    ) -> Result<(
+        Vec<ApplicationInvocationCtx>,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+    )> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let key_prefix = [namespace.as_bytes(), b"|", application.as_bytes(), b"|"].concat();
@@ -297,9 +308,11 @@ impl StateReader {
         let mut invocation_prefixes = range
             .items
             .iter()
-            .flat_map(|key| GraphInvocationCtx::get_invocation_id_from_secondary_index_key(key))
+            .flat_map(|key| {
+                ApplicationInvocationCtx::get_invocation_id_from_secondary_index_key(key)
+            })
             .map(|invocation_id| {
-                GraphInvocationCtx::key_from(namespace, application, &invocation_id)
+                ApplicationInvocationCtx::key_from(namespace, application, &invocation_id)
                     .as_bytes()
                     .to_vec()
             })
@@ -310,7 +323,7 @@ impl StateReader {
             invocation_prefixes.reverse();
         }
 
-        let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
+        let invocations = self.get_rows_from_cf_multi_key::<ApplicationInvocationCtx>(
             invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
             IndexifyObjectsColumns::GraphInvocationCtx,
         )?;
@@ -353,7 +366,7 @@ impl StateReader {
         &self,
         namespace: &str,
         name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Result<Option<ApplicationVersion>> {
         let kvs = &[KeyValue::new("op", "get_application_version")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -409,17 +422,17 @@ impl StateReader {
         namespace: &str,
         application: &str,
         invocation_id: &str,
-    ) -> Result<Option<GraphInvocationCtx>> {
+    ) -> Result<Option<ApplicationInvocationCtx>> {
         let kvs = &[KeyValue::new("op", "invocation_ctx")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
-        let key = GraphInvocationCtx::key_from(namespace, application, invocation_id);
+        let key = ApplicationInvocationCtx::key_from(namespace, application, invocation_id);
         let value = self.db.get(cf, &key)?;
         if value.is_none() {
             return Ok(None);
         }
-        let invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&value.unwrap())
+        let invocation_ctx: ApplicationInvocationCtx = JsonEncoder::decode(&value.unwrap())
             .map_err(|e| anyhow!("unable to decode invocation ctx: {e}"))?;
         Ok(Some(invocation_ctx))
     }

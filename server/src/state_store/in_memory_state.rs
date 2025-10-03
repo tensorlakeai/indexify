@@ -14,16 +14,33 @@ use tracing::{debug, error, warn};
 
 use crate::{
     data_model::{
-        Allocation, Application, ApplicationState, ApplicationVersion, DataPayload, ExecutorId,
-        ExecutorMetadata, ExecutorServerMetadata, FunctionExecutorId, FunctionExecutorResources,
-        FunctionExecutorServerMetadata, FunctionExecutorState, FunctionResources, FunctionRun,
-        FunctionRunStatus, FunctionURI, GraphInvocationCtx, GraphVersion, Namespace,
+        Allocation,
+        Application,
+        ApplicationInvocationCtx,
+        ApplicationState,
+        ApplicationVersion,
+        ApplicationVersionString,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorServerMetadata,
+        FunctionExecutorId,
+        FunctionExecutorResources,
+        FunctionExecutorServerMetadata,
+        FunctionExecutorState,
+        FunctionResources,
+        FunctionRun,
+        FunctionRunStatus,
+        FunctionURI,
+        Namespace,
         NamespaceBuilder,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
-        requests::RequestPayload, scanner::StateReader, state_machine::IndexifyObjectsColumns,
+        requests::RequestPayload,
+        scanner::StateReader,
+        state_machine::IndexifyObjectsColumns,
         ExecutorCatalog,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
@@ -168,8 +185,8 @@ impl From<&String> for RequestCtxKey {
     }
 }
 
-impl From<&GraphInvocationCtx> for RequestCtxKey {
-    fn from(ctx: &GraphInvocationCtx) -> Self {
+impl From<&ApplicationInvocationCtx> for RequestCtxKey {
+    fn from(ctx: &ApplicationInvocationCtx) -> Self {
         RequestCtxKey(ctx.key())
     }
 }
@@ -238,7 +255,7 @@ pub struct InMemoryState {
     pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<ApplicationInvocationCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
@@ -536,7 +553,7 @@ impl InMemoryState {
 
         let mut invocation_ctx = im::OrdMap::new();
         {
-            let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
+            let all_graph_invocation_ctx: Vec<(String, ApplicationInvocationCtx)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
             for (_id, ctx) in all_graph_invocation_ctx {
                 // Do not cache completed invocations
@@ -642,7 +659,7 @@ impl InMemoryState {
                     {
                         let mut invocation_ctx_to_update = vec![];
                         let invocation_ctx_key_prefix =
-                            GraphInvocationCtx::key_prefix_for_application(
+                            ApplicationInvocationCtx::key_prefix_for_application(
                                 &req.namespace,
                                 &req.application.name,
                             );
@@ -706,7 +723,10 @@ impl InMemoryState {
                 // Remove invocation contexts
                 {
                     let invocation_key_prefix =
-                        GraphInvocationCtx::key_prefix_for_application(&req.namespace, &req.name);
+                        ApplicationInvocationCtx::key_prefix_for_application(
+                            &req.namespace,
+                            &req.name,
+                        );
                     let invocations_to_remove = self
                         .invocation_ctx
                         .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
@@ -819,7 +839,7 @@ impl InMemoryState {
                     } else {
                         error!(
                             namespace = &allocation.namespace,
-                            graph = &allocation.application,
+                            application = &allocation.application,
                             "fn" = &allocation.function,
                             executor_id = allocation.target.executor_id.get(),
                             allocation_id = %allocation.id,
@@ -1056,8 +1076,8 @@ impl InMemoryState {
         if let Some(function_executors) = function_executors {
             for function_executor_kv in function_executors.iter() {
                 let function_executor = function_executor_kv.1;
-                if function_executor.function_executor.state == FunctionExecutorState::Pending
-                    || function_executor.function_executor.state == FunctionExecutorState::Unknown
+                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
+                    function_executor.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
@@ -1077,8 +1097,8 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if (allocation_count as u32)
-                    < capacity_threshold * function_executor.function_executor.max_concurrency
+                if (allocation_count as u32) <
+                    capacity_threshold * function_executor.function_executor.max_concurrency
                 {
                     candidates.push(function_executor.clone());
                 }
@@ -1113,7 +1133,7 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Option<FunctionResources> {
         let cg_version = self
             .application_versions
@@ -1130,7 +1150,7 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Option<u32> {
         let cg_version = self
             .application_versions
@@ -1144,8 +1164,9 @@ impl InMemoryState {
 
     pub fn delete_invocation(&mut self, namespace: &str, application: &str, invocation_id: &str) {
         // Remove invocation ctx
-        self.invocation_ctx
-            .remove(&GraphInvocationCtx::key_from(namespace, application, invocation_id).into());
+        self.invocation_ctx.remove(
+            &ApplicationInvocationCtx::key_from(namespace, application, invocation_id).into(),
+        );
 
         // Remove tasks
         let key_prefix = FunctionRun::key_prefix_for_request(namespace, application, invocation_id);
@@ -1243,8 +1264,8 @@ impl InMemoryState {
                     let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe)
-                                && fe.version == latest_cg_version
+                            if allowlist_entry.matches_function_executor(fe) &&
+                                fe.version == latest_cg_version
                             {
                                 found_allowlist_match = true;
                                 break;
@@ -1303,8 +1324,8 @@ impl InMemoryState {
             .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.function_name
-                    && v.application_version == fe_meta.function_executor.version
+                v.name == fe_meta.function_executor.function_name &&
+                    v.application_version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1404,7 +1425,7 @@ impl InMemoryState {
         &'a self,
         namespace: &str,
         application_name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Option<&'a Box<ApplicationVersion>> {
         self.application_versions
             .get(&ApplicationVersion::key_from(
@@ -1435,9 +1456,9 @@ impl InMemoryState {
                     task_id = function_run.id.to_string(),
                     invocation_id = function_run.request_id.to_string(),
                     namespace = function_run.namespace,
-                    graph = function_run.application,
+                    application = function_run.application,
                     "fn" = function_run.name,
-                    graph_version = function_run.application_version.0,
+                    application_version = function_run.application_version.0,
                     "application version not found",
                 );
                 None
@@ -1494,10 +1515,21 @@ mod tests {
 
     use crate::{
         data_model::{
-            ComputeOp, ExecutorId, FunctionCall, FunctionCallId, FunctionExecutorBuilder,
-            FunctionExecutorId, FunctionExecutorResources, FunctionExecutorServerMetadata,
-            FunctionExecutorState, FunctionRun, FunctionRunBuilder, FunctionRunFailureReason,
-            FunctionRunOutcome, FunctionRunStatus, GraphVersion,
+            ApplicationVersionString,
+            ComputeOp,
+            ExecutorId,
+            FunctionCall,
+            FunctionCallId,
+            FunctionExecutorBuilder,
+            FunctionExecutorId,
+            FunctionExecutorResources,
+            FunctionExecutorServerMetadata,
+            FunctionExecutorState,
+            FunctionRun,
+            FunctionRunBuilder,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
+            FunctionRunStatus,
         },
         in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
@@ -1538,7 +1570,7 @@ mod tests {
                 .namespace(namespace.to_string())
                 .application(application.to_string())
                 .name(compute_fn.to_string())
-                .application_version(GraphVersion("1.0".to_string()))
+                .application_version(ApplicationVersionString("1.0".to_string()))
                 .compute_op(ComputeOp::FunctionCall(FunctionCall {
                     inputs: vec![],
                     function_call_id: FunctionCallId(format!(
@@ -1564,7 +1596,7 @@ mod tests {
             .namespace("test-namespace".to_string())
             .application_name("test-graph".to_string())
             .function_name("test-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
+            .version(ApplicationVersionString("1.0".to_string()))
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
@@ -1674,9 +1706,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|")
-                    && function_run.name == "test-function"
-                    && function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "test-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1694,7 +1726,7 @@ mod tests {
             .namespace("test-namespace".to_string())
             .application_name("test-graph".to_string())
             .function_name("different-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
+            .version(ApplicationVersionString("1.0".to_string()))
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
@@ -1720,9 +1752,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|")
-                    && function_run.name == "different-function"
-                    && function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "different-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();

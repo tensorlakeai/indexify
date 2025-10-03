@@ -1,7 +1,11 @@
 use if_chain::if_chain;
 
 use crate::data_model::{
-    Allocation, ApplicationVersion, FunctionRun, FunctionRunFailureReason, FunctionRunOutcome,
+    Allocation,
+    ApplicationVersion,
+    FunctionRun,
+    FunctionRunFailureReason,
+    FunctionRunOutcome,
     FunctionRunStatus,
 };
 

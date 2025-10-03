@@ -227,7 +227,7 @@ mod tests {
         };
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
-            .application("graph".to_string())
+            .application("application".to_string())
             .function("fn".to_string())
             .invocation_id("invoc-1".to_string())
             .function_call_id("task-1".into())

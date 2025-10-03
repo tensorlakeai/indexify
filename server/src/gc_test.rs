@@ -9,13 +9,17 @@ mod tests {
     use crate::{
         data_model::{
             test_objects::tests::{mock_application, mock_function_call, TEST_NAMESPACE},
-            DataPayload, GraphInvocationCtxBuilder, InputArgs,
+            ApplicationInvocationCtxBuilder,
+            DataPayload,
+            InputArgs,
         },
         service::Service,
         state_store::{
             driver::Writer,
             requests::{
-                CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, RequestPayload,
+                CreateOrUpdateComputeGraphRequest,
+                DeleteComputeGraphRequest,
+                RequestPayload,
                 StateMachineUpdateRequest,
             },
             serializer::{JsonEncode, JsonEncoder},
@@ -92,13 +96,13 @@ mod tests {
                 }],
                 &request_id,
             )?;
-            let graph_ctx = GraphInvocationCtxBuilder::default()
+            let graph_ctx = ApplicationInvocationCtxBuilder::default()
                 .request_id(request_id)
                 .application_name(application.name.clone())
                 .namespace(TEST_NAMESPACE.to_string())
                 .application_version(application.version.clone())
                 .outcome(Some(crate::data_model::GraphInvocationOutcome::Failure(
-                    crate::data_model::GraphInvocationFailureReason::InternalError,
+                    crate::data_model::ApplicationInvocationFailureReason::InternalError,
                 )))
                 .function_runs(HashMap::from([(
                     mock_function_run.id.clone(),

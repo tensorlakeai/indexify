@@ -5,13 +5,21 @@ use utoipa::ToSchema;
 
 use crate::{
     data_model::{
-        self, ApplicationBuilder, GraphInvocationCtx, GraphInvocationFailureReason,
+        self,
+        ApplicationBuilder,
+        ApplicationInvocationCtx,
+        ApplicationInvocationFailureReason,
         GraphInvocationOutcome,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
-        ApplicationFunction, DataPayload, GraphVersion, IndexifyAPIError, RequestError,
-        TaskOutcome, TaskStatus,
+        ApplicationFunction,
+        DataPayload,
+        GraphVersion,
+        IndexifyAPIError,
+        RequestError,
+        TaskOutcome,
+        TaskStatus,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -141,8 +149,8 @@ pub struct ShallowGraphRequest {
     pub outcome: Option<RequestOutcome>,
 }
 
-impl From<GraphInvocationCtx> for ShallowGraphRequest {
-    fn from(ctx: GraphInvocationCtx) -> Self {
+impl From<ApplicationInvocationCtx> for ShallowGraphRequest {
+    fn from(ctx: ApplicationInvocationCtx) -> Self {
         Self {
             id: ctx.request_id.to_string(),
             created_at: ctx.created_at.into(),
@@ -233,17 +241,23 @@ pub enum RequestFailureReason {
     ConstraintUnsatisfiable,
 }
 
-impl From<GraphInvocationFailureReason> for RequestFailureReason {
-    fn from(failure_reason: GraphInvocationFailureReason) -> Self {
+impl From<ApplicationInvocationFailureReason> for RequestFailureReason {
+    fn from(failure_reason: ApplicationInvocationFailureReason) -> Self {
         match failure_reason {
-            GraphInvocationFailureReason::Unknown => RequestFailureReason::Unknown,
-            GraphInvocationFailureReason::InternalError => RequestFailureReason::InternalError,
-            GraphInvocationFailureReason::FunctionError => RequestFailureReason::FunctionError,
-            GraphInvocationFailureReason::InvocationError => RequestFailureReason::RequestError,
-            GraphInvocationFailureReason::NextFunctionNotFound => {
+            ApplicationInvocationFailureReason::Unknown => RequestFailureReason::Unknown,
+            ApplicationInvocationFailureReason::InternalError => {
+                RequestFailureReason::InternalError
+            }
+            ApplicationInvocationFailureReason::FunctionError => {
+                RequestFailureReason::FunctionError
+            }
+            ApplicationInvocationFailureReason::InvocationError => {
+                RequestFailureReason::RequestError
+            }
+            ApplicationInvocationFailureReason::NextFunctionNotFound => {
                 RequestFailureReason::NextFunctionNotFound
             }
-            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
+            ApplicationInvocationFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
         }
@@ -263,7 +277,7 @@ pub struct Request {
 
 impl Request {
     pub fn build(
-        ctx: GraphInvocationCtx,
+        ctx: ApplicationInvocationCtx,
         output: Option<DataPayload>,
         invocation_error: Option<RequestError>,
         allocations: Vec<data_model::Allocation>,

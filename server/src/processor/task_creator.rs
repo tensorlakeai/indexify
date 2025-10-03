@@ -9,10 +9,21 @@ use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent, ComputeOp, FunctionArgs, FunctionCall, FunctionCallId,
-        FunctionRun, FunctionRunOutcome, FunctionRunStatus, GraphInvocationCtx,
-        GraphInvocationError, GraphInvocationFailureReason, GraphInvocationOutcome, InputArgs,
-        ReduceOperation, RunningTaskStatus,
+        AllocationOutputIngestedEvent,
+        ApplicationInvocationCtx,
+        ApplicationInvocationError,
+        ApplicationInvocationFailureReason,
+        ComputeOp,
+        FunctionArgs,
+        FunctionCall,
+        FunctionCallId,
+        FunctionRun,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        GraphInvocationOutcome,
+        InputArgs,
+        ReduceOperation,
+        RunningTaskStatus,
     },
     processor::task_policy::TaskRetryPolicy,
     state_store::{
@@ -46,7 +57,7 @@ impl TaskCreator {
         let Some(mut invocation_ctx) = in_memory_state
             .invocation_ctx
             .get(
-                &GraphInvocationCtx::key_from(
+                &ApplicationInvocationCtx::key_from(
                     &alloc_finished_event.namespace,
                     &alloc_finished_event.application,
                     &alloc_finished_event.invocation_id,
@@ -73,7 +84,7 @@ impl TaskCreator {
                 function_call_id = alloc_finished_event.function_call_id.to_string(),
                 invocation_id = alloc_finished_event.invocation_id,
                 namespace = alloc_finished_event.namespace,
-                graph = alloc_finished_event.application,
+                application = alloc_finished_event.application,
                 fn = alloc_finished_event.compute_fn,
                 "function run not found, stopping scheduling of child tasks",
             );
@@ -97,8 +108,8 @@ impl TaskCreator {
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
         // on FE termination and alloc output ingestion paths.
-        if function_run.status
-            != FunctionRunStatus::Running(RunningTaskStatus {
+        if function_run.status !=
+            FunctionRunStatus::Running(RunningTaskStatus {
                 allocation_id: allocation.id.clone(),
             })
         {
@@ -149,7 +160,7 @@ impl TaskCreator {
             function_run.status = FunctionRunStatus::Completed;
             function_run.outcome = Some(allocation.outcome);
             if let Some(invocation_error_payload) = &alloc_finished_event.request_exception {
-                invocation_ctx.request_error = Some(GraphInvocationError {
+                invocation_ctx.request_error = Some(ApplicationInvocationError {
                     function_name: function_run.name.clone(),
                     payload: invocation_error_payload.clone(),
                 });
@@ -180,7 +191,7 @@ impl TaskCreator {
                             "reducer collection is empty"
                         );
                         invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
-                            GraphInvocationFailureReason::FunctionError,
+                            ApplicationInvocationFailureReason::FunctionError,
                         ));
                         return Ok(scheduler_update);
                     };
@@ -192,7 +203,7 @@ impl TaskCreator {
                             "reducer collection has < 2 items"
                         );
                         invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
-                            GraphInvocationFailureReason::FunctionError,
+                            ApplicationInvocationFailureReason::FunctionError,
                         ));
                         return Ok(scheduler_update);
                     };
@@ -334,7 +345,7 @@ fn create_function_call_from_reduce_op(
 }
 
 fn propagate_output_to_consumers(
-    invocation_ctx: &mut GraphInvocationCtx,
+    invocation_ctx: &mut ApplicationInvocationCtx,
     function_run: &FunctionRun,
 ) -> Result<SchedulerUpdateRequest> {
     let mut scheduler_update = SchedulerUpdateRequest::default();

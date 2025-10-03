@@ -8,9 +8,20 @@ pub mod tests {
     use super::super::{Application, Function};
     use crate::{
         data_model::{
-            ApplicationBuilder, ApplicationState, ComputeOp, DataPayload, EntryPointManifest,
-            ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionArgs, FunctionCall,
-            FunctionCallId, FunctionRetryPolicy, GraphInvocationCtx, GraphInvocationCtxBuilder,
+            ApplicationBuilder,
+            ApplicationInvocationCtx,
+            ApplicationInvocationCtxBuilder,
+            ApplicationState,
+            ComputeOp,
+            DataPayload,
+            EntryPointManifest,
+            ExecutorId,
+            ExecutorMetadata,
+            ExecutorMetadataBuilder,
+            FunctionArgs,
+            FunctionCall,
+            FunctionCallId,
+            FunctionRetryPolicy,
             InputArgs,
         },
         state_store::requests::GraphUpdates,
@@ -73,7 +84,10 @@ pub mod tests {
         }
     }
 
-    pub fn mock_request_ctx(namespace: &str, application: &Application) -> GraphInvocationCtx {
+    pub fn mock_request_ctx(
+        namespace: &str,
+        application: &Application,
+    ) -> ApplicationInvocationCtx {
         let request_id = nanoid!();
         let fn_call = mock_function_call();
         let input_args = vec![InputArgs {
@@ -85,7 +99,7 @@ pub mod tests {
             .unwrap()
             .create_function_run(&fn_call, input_args, &request_id)
             .unwrap();
-        GraphInvocationCtxBuilder::default()
+        ApplicationInvocationCtxBuilder::default()
             .namespace(namespace.to_string())
             .request_id(request_id)
             .application_name(application.name.clone())
@@ -118,7 +132,7 @@ pub mod tests {
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_d".to_string(), fn_d),
             ]))
-            .version(crate::data_model::GraphVersion::from("1"))
+            .version(crate::data_model::ApplicationVersionString::from("1"))
             .description("description graph_A".to_string())
             .code(DataPayload {
                 id: "code_id".to_string(),

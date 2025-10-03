@@ -21,8 +21,13 @@ use crate::{
     executor_api::{
         blob_store_path_to_url,
         executor_api_pb::{
-            self, DataPayload, DataPayloadEncoding, DesiredExecutorState,
-            FunctionExecutorDescription, FunctionRef, TaskAllocation,
+            self,
+            DataPayload,
+            DataPayloadEncoding,
+            DesiredExecutorState,
+            FunctionExecutorDescription,
+            FunctionRef,
+            TaskAllocation,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},

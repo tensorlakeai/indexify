@@ -5,7 +5,8 @@ use axum::{
     http::Response,
     response::{Html, IntoResponse},
     routing::{get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use hyper::StatusCode;
 use tracing::{error, info};
@@ -14,9 +15,21 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        from_data_model_executor_metadata, Allocation, CacheKey, CreateNamespace, ExecutorCatalog,
-        ExecutorMetadata, ExecutorsAllocationsResponse, Function, GraphVersion, IndexifyAPIError,
-        Namespace, NamespaceList, StateChangesResponse, TaskOutcome, UnallocatedFunctionRuns,
+        from_data_model_executor_metadata,
+        Allocation,
+        CacheKey,
+        CreateNamespace,
+        ExecutorCatalog,
+        ExecutorMetadata,
+        ExecutorsAllocationsResponse,
+        Function,
+        GraphVersion,
+        IndexifyAPIError,
+        Namespace,
+        NamespaceList,
+        StateChangesResponse,
+        TaskOutcome,
+        UnallocatedFunctionRuns,
     },
     http_objects_v1,
     indexify_ui::Assets as UiAssets,
@@ -323,10 +336,10 @@ async fn list_unallocated_function_runs(
 }
 
 async fn get_unversioned_code(
-    Path((namespace, compute_graph)): Path<(String, String)>,
+    Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    get_versioned_code(Path((namespace, compute_graph, None)), State(state)).await
+    get_versioned_code(Path((namespace, application, None)), State(state)).await
 }
 
 async fn get_versioned_code(
@@ -367,20 +380,19 @@ async fn get_versioned_code(
             }));
     }
 
-    // Getting code without the compute graph version is deprecated.
+    // Getting code without the application version is deprecated.
     // TODO: Remove this block after all clients are updated.
 
-    let compute_graph = state
+    let application = state
         .indexify_state
         .reader()
         .get_application(&namespace, &application)
         .map_err(IndexifyAPIError::internal_error)?;
-    let compute_graph =
-        compute_graph.ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
+    let application = application.ok_or(IndexifyAPIError::not_found("Application not found"))?;
     let storage_reader = state
         .blob_storage
         .get_blob_store(&namespace)
-        .get(&compute_graph.code.path, None)
+        .get(&application.code.path, None)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e}"))
@@ -388,10 +400,7 @@ async fn get_versioned_code(
 
     Ok(Response::builder()
         .header("Content-Type", "application/octet-stream")
-        .header(
-            "Content-Length",
-            compute_graph.code.clone().size.to_string(),
-        )
+        .header("Content-Length", application.code.clone().size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string())))
 }

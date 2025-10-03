@@ -17,7 +17,13 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
+    data_model::{
+        self,
+        ApplicationInvocationCtxBuilder,
+        ApplicationState,
+        FunctionCallId,
+        InputArgs,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
@@ -56,7 +62,7 @@ async fn create_invocation_progress_stream(
             Ok(None) => {
                 info!(
                     namespace = namespace,
-                    graph = application,
+                    application = application,
                     invocation_id=id,
                     "invocation not found, stopping stream");
                 return;
@@ -280,7 +286,7 @@ async fn do_invoke_api_with_object_v1(
     let fn_runs = HashMap::from([(fn_run.id.clone(), fn_run)]);
     let fn_calls = HashMap::from([(fn_call.function_call_id.clone(), fn_call)]);
 
-    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+    let graph_invocation_ctx = ApplicationInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
         .application_name(application.name.to_string())
         .application_version(application.version.clone())
@@ -338,7 +344,7 @@ async fn return_sse_response(
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     let rx = state.indexify_state.task_event_stream();
     state
@@ -349,7 +355,7 @@ async fn return_sse_response(
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let invocation_event_stream =
-        create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;
+        create_invocation_progress_stream(request_id, rx, state, namespace, application).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
@@ -362,7 +368,7 @@ async fn return_sse_response(
 /// Stream progress of a request until it is completed
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/progress",
+    path = "/namespaces/{namespace}/compute-graphs/{application}/requests/{request_id}/progress",
     tag = "operations",
     responses(
         (status = 200, description = "SSE events of an invocation"),
@@ -371,14 +377,13 @@ async fn return_sse_response(
 )]
 #[axum::debug_handler]
 pub async fn progress_stream(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let rx = state.indexify_state.task_event_stream();
 
     let invocation_event_stream =
-        create_invocation_progress_stream(invocation_id, rx, &state, namespace, compute_graph)
-            .await;
+        create_invocation_progress_stream(invocation_id, rx, &state, namespace, application).await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()

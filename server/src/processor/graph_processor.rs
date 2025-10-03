@@ -11,8 +11,11 @@ use crate::{
     processor::{function_executor_manager, task_allocator::TaskAllocationProcessor, task_creator},
     state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, DeleteInvocationRequest,
-            RequestPayload, StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest,
+            DeleteComputeGraphRequest,
+            DeleteInvocationRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
         IndexifyState,
     },
@@ -64,9 +67,9 @@ impl GraphProcessor {
                 };
 
                 if target_state != application.state {
-                    let mut updated_graph = *application.clone();
-                    updated_graph.state = target_state;
-                    Some(updated_graph)
+                    let mut updated_application = *application.clone();
+                    updated_application.state = target_state;
+                    Some(updated_application)
                 } else {
                     None
                 }
@@ -240,7 +243,7 @@ impl GraphProcessor {
         let task_allocator = TaskAllocationProcessor::new(clock, &fe_manager);
 
         let req = match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(_) => {
+            ChangeType::InvokeApplication(_) => {
                 let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
 
                 StateMachineUpdateRequest {

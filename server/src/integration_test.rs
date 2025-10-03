@@ -9,10 +9,14 @@ mod tests {
         assert_task_counts,
         data_model::{
             test_objects::tests::{
-                mock_data_payload, mock_executor_metadata, mock_updates, TEST_EXECUTOR_ID,
+                mock_data_payload,
+                mock_executor_metadata,
+                mock_updates,
+                TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
-            FunctionRunFailureReason, FunctionRunOutcome,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,

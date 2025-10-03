@@ -10,12 +10,12 @@ use hyper::StatusCode;
 use super::routes_state::RouteState;
 use crate::{
     blob_store::BlobStorage,
-    data_model::{DataPayload, FunctionCallId, GraphInvocationError},
+    data_model::{ApplicationInvocationError, DataPayload, FunctionCallId},
     http_objects::{IndexifyAPIError, RequestError},
 };
 
 pub async fn download_invocation_error(
-    invocation_error: Option<GraphInvocationError>,
+    invocation_error: Option<ApplicationInvocationError>,
     blob_storage: &BlobStorage,
 ) -> Result<Option<RequestError>, IndexifyAPIError> {
     let Some(invocation_error) = invocation_error else {

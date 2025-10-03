@@ -305,8 +305,8 @@ impl IndexifyState {
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteComputeGraphRequest(_)
-            | RequestPayload::DeleteInvocationRequest(_) => {
+            RequestPayload::DeleteComputeGraphRequest(_) |
+            RequestPayload::DeleteInvocationRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -400,17 +400,27 @@ impl IndexifyState {
 #[cfg(test)]
 mod tests {
     use requests::{
-        CreateOrUpdateComputeGraphRequest, InvokeComputeGraphRequest, NamespaceRequest,
+        CreateOrUpdateComputeGraphRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
     };
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
-            mock_application, mock_data_payload, mock_function_call, TEST_EXECUTOR_ID,
+            mock_application,
+            mock_data_payload,
+            mock_function_call,
+            TEST_EXECUTOR_ID,
             TEST_NAMESPACE,
         },
-        Application, GraphInvocationCtxBuilder, GraphVersion, InputArgs, Namespace, StateChangeId,
+        Application,
+        ApplicationInvocationCtxBuilder,
+        ApplicationVersionString,
+        InputArgs,
+        Namespace,
+        StateChangeId,
     };
 
     #[tokio::test]
@@ -474,7 +484,7 @@ mod tests {
         for i in 2..4 {
             // Update the graph
             let mut application = mock_application();
-            application.version = GraphVersion(i.to_string());
+            application.version = ApplicationVersionString(i.to_string());
 
             _write_to_test_state_store(&indexify_state, application).await?;
 
@@ -483,7 +493,10 @@ mod tests {
 
             // Verify the name is the same. Verify the version is different.
             assert!(application.iter().any(|cg| cg.name == "graph_A"));
-            assert_eq!(application[0].version, GraphVersion(i.to_string()));
+            assert_eq!(
+                application[0].version,
+                ApplicationVersionString(i.to_string())
+            );
         }
 
         Ok(())
@@ -505,7 +518,7 @@ mod tests {
                 "foo1",
             )?;
 
-        let ctx = GraphInvocationCtxBuilder::default()
+        let ctx = ApplicationInvocationCtxBuilder::default()
             .namespace("namespace1".to_string())
             .application_name("cg1".to_string())
             .request_id("foo1".to_string())
@@ -517,7 +530,7 @@ mod tests {
                 function_run.id.clone(),
                 function_run.clone(),
             )]))
-            .application_version(GraphVersion("1".to_string()))
+            .application_version(ApplicationVersionString("1".to_string()))
             .build()?;
         let state_change_1 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,

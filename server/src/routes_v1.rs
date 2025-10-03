@@ -5,7 +5,8 @@ use axum::{
     middleware::{self, Next},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use base64::prelude::*;
 use download::download_invocation_error;
@@ -16,9 +17,21 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        Allocation, CacheKey, CreateNamespace, CursorDirection, ExecutorMetadata,
-        ExecutorsAllocationsResponse, Function, GraphVersion, IndexifyAPIError, ListParams,
-        Namespace, NamespaceList, StateChangesResponse, TaskOutcome, UnallocatedFunctionRuns,
+        Allocation,
+        CacheKey,
+        CreateNamespace,
+        CursorDirection,
+        ExecutorMetadata,
+        ExecutorsAllocationsResponse,
+        Function,
+        GraphVersion,
+        IndexifyAPIError,
+        ListParams,
+        Namespace,
+        NamespaceList,
+        StateChangesResponse,
+        TaskOutcome,
+        UnallocatedFunctionRuns,
     },
     http_objects_v1::{self, Application, ApplicationsList, GraphRequests},
     routes::{
@@ -30,7 +43,10 @@ use crate::{
     state_store::{
         self,
         requests::{
-            DeleteInvocationRequest, NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
+            DeleteInvocationRequest,
+            NamespaceRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
     },
 };

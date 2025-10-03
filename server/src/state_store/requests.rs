@@ -7,9 +7,21 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        Allocation, Application, ComputeOp, DataPayload, ExecutorId, ExecutorMetadata,
-        FunctionCall, FunctionCallId, FunctionExecutorId, FunctionExecutorServerMetadata,
-        FunctionRun, GcUrl, GraphInvocationCtx, HostResources, StateChange,
+        Allocation,
+        Application,
+        ApplicationInvocationCtx,
+        ComputeOp,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        FunctionCall,
+        FunctionCallId,
+        FunctionExecutorId,
+        FunctionExecutorServerMetadata,
+        FunctionRun,
+        GcUrl,
+        HostResources,
+        StateChange,
     },
     state_store::{state_changes, IndexifyState},
 };
@@ -65,7 +77,7 @@ pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub cached_task_keys: HashMap<String, DataPayload>,
-    pub updated_invocations_states: HashMap<String, GraphInvocationCtx>,
+    pub updated_invocations_states: HashMap<String, ApplicationInvocationCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
@@ -100,7 +112,7 @@ impl SchedulerUpdateRequest {
     pub fn add_function_run(
         &mut self,
         function_run: FunctionRun,
-        invocation_ctx: &mut GraphInvocationCtx,
+        invocation_ctx: &mut ApplicationInvocationCtx,
     ) {
         invocation_ctx
             .function_runs
@@ -113,7 +125,7 @@ impl SchedulerUpdateRequest {
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }
 
-    pub fn add_invocation_state(&mut self, invocation_ctx: &GraphInvocationCtx) {
+    pub fn add_invocation_state(&mut self, invocation_ctx: &ApplicationInvocationCtx) {
         self.updated_invocations_states
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }
@@ -121,7 +133,7 @@ impl SchedulerUpdateRequest {
     pub fn add_function_call(
         &mut self,
         function_call: FunctionCall,
-        invocation_ctx: &mut GraphInvocationCtx,
+        invocation_ctx: &mut ApplicationInvocationCtx,
     ) {
         invocation_ctx.function_calls.insert(
             function_call.function_call_id.clone(),
@@ -154,7 +166,7 @@ pub struct AllocationOutput {
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub application_name: String,
-    pub ctx: GraphInvocationCtx,
+    pub ctx: ApplicationInvocationCtx,
 }
 
 #[derive(Debug, Clone)]

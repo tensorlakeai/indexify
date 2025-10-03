@@ -4,11 +4,11 @@ use tracing::{debug, info_span, warn};
 use crate::{
     data_model::{
         AllocationBuilder,
+        ApplicationInvocationCtx,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
-        GraphInvocationCtx,
         RunningTaskStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
@@ -59,7 +59,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                         warn!(
                             function_call_id = function_run.id.to_string(),
                             namespace = function_run.namespace,
-                            graph = function_run.application,
+                            application = function_run.application,
                             graph_version = state_store_error.version(),
                             "fn" = state_store_error.function_name(),
                             error = %state_store_error,
@@ -84,7 +84,7 @@ impl<'a> TaskAllocationProcessor<'a> {
                             // Add the failed function run to the update
                             ctx.outcome = Some(
                                 crate::data_model::GraphInvocationOutcome::Failure(
-                                    crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
+                                    crate::data_model::ApplicationInvocationFailureReason::ConstraintUnsatisfiable
                                 )
                             );
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
@@ -105,14 +105,14 @@ impl<'a> TaskAllocationProcessor<'a> {
         &self,
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
-        ctx: &mut GraphInvocationCtx,
+        ctx: &mut ApplicationInvocationCtx,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "create_allocation",
             namespace = function_run.namespace,
             function_call_id = function_run.id.to_string(),
             request_id = function_run.request_id,
-            graph = function_run.application,
+            application = function_run.application,
             "fn" = function_run.name,
             graph_version = function_run.application_version.to_string(),
         );

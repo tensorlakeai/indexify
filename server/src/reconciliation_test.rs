@@ -12,11 +12,11 @@ mod tests {
                 TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
+            ApplicationVersionString,
             FunctionAllowlist,
             FunctionExecutorState,
             FunctionExecutorTerminationReason,
             FunctionRunOutcome,
-            GraphVersion,
         },
         service::Service,
         state_store::test_state_store,
@@ -84,7 +84,7 @@ mod tests {
             namespace: Some(TEST_NAMESPACE.to_string()),
             application_name: Some("graph_A".to_string()),
             function: Some("fn_a".to_string()),
-            version: Some(GraphVersion("1".to_string())),
+            version: Some(ApplicationVersionString("1".to_string())),
         }]);
 
         let executor = test_srv.create_executor(executor_meta).await?;

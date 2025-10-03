@@ -12,7 +12,9 @@ mod tests {
             ApplicationState,
         },
         state_store::requests::{
-            CreateOrUpdateComputeGraphRequest, RequestPayload, StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
         testing::TestService,
     };
@@ -38,9 +40,9 @@ mod tests {
 
         // Step 2: Build a compute graph whose functions require foo==baz
         // (unsatisfiable)
-        let mut compute_graph = test_objects::mock_application();
-        compute_graph.name = "graph_unsatisfiable".to_string();
-        compute_graph.state = ApplicationState::Active;
+        let mut application = test_objects::mock_application();
+        application.name = "graph_unsatisfiable".to_string();
+        application.state = ApplicationState::Active;
 
         let unsat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
@@ -49,15 +51,15 @@ mod tests {
         }]);
 
         // Apply the unsatisfiable placement constraints to all functions
-        for compute_fn in compute_graph.nodes.values_mut() {
-            compute_fn.placement_constraints = unsat_constraint.clone();
+        for function in application.nodes.values_mut() {
+            function.placement_constraints = unsat_constraint.clone();
         }
-        compute_graph.start_fn.placement_constraints = unsat_constraint.clone();
+        application.start_fn.placement_constraints = unsat_constraint.clone();
 
         // Step 3: Persist the compute graph
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
-            application: compute_graph.clone(),
+            application: application.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
@@ -77,14 +79,14 @@ mod tests {
         // Step 5: Verify that the compute graph has been disabled
         let in_memory = indexify_state.in_memory_state.read().await;
         let key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_unsatisfiable");
-        let stored_graph = in_memory
+        let stored_app = in_memory
             .applications
             .get(&key)
             .expect("compute graph not found in state");
 
-        println!("stored_graph: {stored_graph:?}");
+        println!("stored_graph: {stored_app:?}");
 
-        match &stored_graph.state {
+        match &stored_app.state {
             ApplicationState::Disabled { .. } => {}
             _ => panic!("Compute graph should be disabled due to unsatisfiable constraints"),
         }
@@ -93,9 +95,9 @@ mod tests {
         drop(in_memory);
 
         // Step 6: Build a compute graph whose functions require foo==bar (satisfiable)
-        let mut sat_compute_graph = test_objects::mock_application();
-        sat_compute_graph.name = "graph_satisfiable".to_string();
-        sat_compute_graph.state = ApplicationState::Active;
+        let mut set_application = test_objects::mock_application();
+        set_application.name = "graph_satisfiable".to_string();
+        set_application.state = ApplicationState::Active;
 
         let sat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
@@ -104,15 +106,15 @@ mod tests {
         }]);
 
         // Apply the satisfiable placement constraints to all functions
-        for compute_fn in sat_compute_graph.nodes.values_mut() {
-            compute_fn.placement_constraints = sat_constraint.clone();
+        for function in set_application.nodes.values_mut() {
+            function.placement_constraints = sat_constraint.clone();
         }
-        sat_compute_graph.start_fn.placement_constraints = sat_constraint.clone();
+        set_application.start_fn.placement_constraints = sat_constraint.clone();
 
         // Step 7: Persist the satisfiable compute graph
         let sat_cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
-            application: sat_compute_graph.clone(),
+            application: set_application.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
@@ -298,7 +300,10 @@ mod tests {
     #[tokio::test]
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
-            FunctionResources, GPUResources, GPU_MODEL_NVIDIA_A10, GPU_MODEL_NVIDIA_H100_80GB,
+            FunctionResources,
+            GPUResources,
+            GPU_MODEL_NVIDIA_A10,
+            GPU_MODEL_NVIDIA_H100_80GB,
         };
 
         // Single catalog entry with specific capacities
@@ -315,7 +320,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Helper to build a graph with given resources applied to all nodes
-        let build_graph = |name: &str, resources: FunctionResources| {
+        let build_app = |name: &str, resources: FunctionResources| {
             let mut g = test_objects::mock_application();
             g.name = name.to_string();
             g.state = ApplicationState::Active;
@@ -327,7 +332,7 @@ mod tests {
         };
 
         // Graphs per-resource scenario
-        let graph_cpu_unsat = build_graph(
+        let graph_cpu_unsat = build_app(
             "graph_cpu_unsat",
             FunctionResources {
                 cpu_ms_per_sec: 3000, // needs 3 cores, catalog has 2
@@ -337,7 +342,7 @@ mod tests {
             },
         );
 
-        let graph_cpu_sat = build_graph(
+        let graph_cpu_sat = build_app(
             "graph_cpu_sat",
             FunctionResources {
                 cpu_ms_per_sec: 2000, // exactly 2 cores
@@ -349,7 +354,7 @@ mod tests {
 
         // Use very large values to exceed (catalog.memory_gb * 1024 * 1024) MB if that
         // logic is used
-        let graph_mem_unsat = build_graph(
+        let graph_mem_unsat = build_app(
             "graph_mem_unsat",
             FunctionResources {
                 cpu_ms_per_sec: 1000,
@@ -359,7 +364,7 @@ mod tests {
             },
         );
 
-        let graph_disk_unsat = build_graph(
+        let graph_disk_unsat = build_app(
             "graph_disk_unsat",
             FunctionResources {
                 cpu_ms_per_sec: 1000,
@@ -369,7 +374,7 @@ mod tests {
             },
         );
 
-        let graph_gpu_unsat = build_graph(
+        let graph_gpu_unsat = build_app(
             "graph_gpu_unsat",
             FunctionResources {
                 cpu_ms_per_sec: 1000,
@@ -382,7 +387,7 @@ mod tests {
             },
         );
 
-        let graph_gpu_sat = build_graph(
+        let graph_gpu_sat = build_app(
             "graph_gpu_sat",
             FunctionResources {
                 cpu_ms_per_sec: 1000,
@@ -430,16 +435,16 @@ mod tests {
 
         let assert_state = |name: &str, expect_active: bool| {
             let key = crate::data_model::Application::key_from(TEST_NAMESPACE, name);
-            let graph = in_memory
+            let application = in_memory
                 .applications
                 .get(&key)
-                .expect("compute graph not found");
-            match (&graph.state, expect_active) {
+                .expect("application not found");
+            match (&application.state, expect_active) {
                 (ApplicationState::Active, true) => {}
                 (ApplicationState::Disabled { .. }, false) => {}
                 _ => panic!(
-                    "compute graph '{}' unexpected state: {:?}",
-                    name, graph.state
+                    "application '{}' unexpected state: {:?}",
+                    name, application.state
                 ),
             }
         };

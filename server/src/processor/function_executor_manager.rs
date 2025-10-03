@@ -7,10 +7,20 @@ use tracing::{debug, error, info, info_span, warn};
 
 use crate::{
     data_model::{
-        AllocationTarget, ExecutorId, ExecutorMetadata, ExecutorServerMetadata, FunctionExecutor,
-        FunctionExecutorBuilder, FunctionExecutorServerMetadata, FunctionExecutorState,
-        FunctionExecutorTerminationReason, FunctionResources, FunctionRun, FunctionRunOutcome,
-        FunctionRunStatus, RunningTaskStatus,
+        AllocationTarget,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorServerMetadata,
+        FunctionExecutor,
+        FunctionExecutorBuilder,
+        FunctionExecutorServerMetadata,
+        FunctionExecutorState,
+        FunctionExecutorTerminationReason,
+        FunctionResources,
+        FunctionRun,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        RunningTaskStatus,
     },
     processor::{targets, task_policy::TaskRetryPolicy},
     state_store::{
@@ -84,9 +94,9 @@ impl FunctionExecutorManager {
             namespace = task.namespace,
             invocation_id = task.request_id,
             function_call_id = task.id.to_string(),
-            graph = task.application,
+            application = task.application,
             "fn" = task.name,
-            graph_version = task.application_version.to_string(),
+            application_version = task.application_version.to_string(),
         );
         let _guard = span.enter();
 
@@ -209,8 +219,8 @@ impl FunctionExecutorManager {
             }
         }
         for fe in fes_exist_only_in_executor {
-            if !matches!(fe.state, FunctionExecutorState::Terminated { .. })
-                && executor_server_metadata
+            if !matches!(fe.state, FunctionExecutorState::Terminated { .. }) &&
+                executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
@@ -302,7 +312,7 @@ impl FunctionExecutorManager {
             info!(
                 target: targets::SCHEDULER,
                 namespace = fe.namespace,
-                graph = fe.application_name,
+                application = fe.application_name,
                 fn = fe.function_name,
                 executor_id = executor_server_metadata.executor_id.get(),
                 fn_executor_id = fe.id.get(),
@@ -334,8 +344,8 @@ impl FunctionExecutorManager {
                 // Idempotency: we only act on this alloc's task if the task is currently
                 // running this alloc. This is because we handle allocation
                 // failures on FE termination and alloc output ingestion paths.
-                if function_run.status
-                    != FunctionRunStatus::Running(RunningTaskStatus {
+                if function_run.status !=
+                    FunctionRunStatus::Running(RunningTaskStatus {
                         allocation_id: alloc.id.clone(),
                     })
                 {
@@ -475,8 +485,8 @@ impl FunctionExecutorManager {
             in_memory_state.candidate_function_executors(task, self.queue_size)?;
 
         // If no function executors are available, create one
-        if function_executors.function_executors.is_empty()
-            && function_executors.num_pending_function_executors == 0
+        if function_executors.function_executors.is_empty() &&
+            function_executors.num_pending_function_executors == 0
         {
             debug!(target: targets::SCHEDULER, "no function executors found for task, creating one");
             let fe_update = self.create_function_executor(in_memory_state, task)?;

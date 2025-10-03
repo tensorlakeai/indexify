@@ -7,13 +7,25 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent, ChangeType, ExecutorId, ExecutorRemovedEvent,
-        ExecutorUpsertedEvent, GraphUpdates, InvokeApplicationEvent, StateChange,
-        StateChangeBuilder, StateChangeId, TombstoneComputeGraphEvent, TombstoneInvocationEvent,
+        AllocationOutputIngestedEvent,
+        ChangeType,
+        ExecutorId,
+        ExecutorRemovedEvent,
+        ExecutorUpsertedEvent,
+        GraphUpdates,
+        InvokeApplicationEvent,
+        StateChange,
+        StateChangeBuilder,
+        StateChangeId,
+        TombstoneApplicationEvent,
+        TombstoneInvocationEvent,
     },
     state_store::requests::{
-        AllocationOutput, DeleteComputeGraphRequest, DeleteInvocationRequest,
-        DeregisterExecutorRequest, InvokeComputeGraphRequest,
+        AllocationOutput,
+        DeleteComputeGraphRequest,
+        DeleteInvocationRequest,
+        DeregisterExecutorRequest,
+        InvokeComputeGraphRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -27,7 +39,7 @@ pub fn invoke_application(
         .namespace(Some(request.namespace.clone()))
         .application(Some(request.application_name.clone()))
         .invocation(Some(request.ctx.request_id.clone()))
-        .change_type(ChangeType::InvokeComputeGraph(InvokeApplicationEvent {
+        .change_type(ChangeType::InvokeApplication(InvokeApplicationEvent {
             namespace: request.namespace.clone(),
             invocation_id: request.ctx.request_id.clone(),
             application: request.application_name.clone(),
@@ -48,7 +60,7 @@ pub fn tombstone_application(
     let state_change = StateChangeBuilder::default()
         .id(StateChangeId::new(last_change_id))
         .change_type(ChangeType::TombstoneApplication(
-            TombstoneComputeGraphEvent {
+            TombstoneApplicationEvent {
                 namespace: request.namespace.clone(),
                 application: request.name.clone(),
             },
