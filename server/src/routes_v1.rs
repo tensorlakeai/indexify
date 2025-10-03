@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use axum::{
     extract::{Path, Query, RawPathParams, Request, State},
@@ -64,7 +62,6 @@ use crate::{
             compute_graphs::applications,
             compute_graphs::get_application,
             compute_graphs::delete_application,
-            list_function_runs,
             delete_request,
             download::v1_download_fn_output_payload,
         ),
@@ -148,10 +145,6 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/applications/{application}/requests/{request_id}",
             delete(delete_request).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/requests/{request_id}/function-runs",
-            get(list_function_runs).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests/{request_id}/output/{fn_call_id}",
@@ -255,67 +248,6 @@ async fn list_requests(
     }))
 }
 
-/// List tasks for a request
-#[utoipa::path(
-    get,
-    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/function-runs",
-    tag = "operations",
-    params(
-        ListParams
-    ),
-    responses(
-        (status = 200, description = "list function runs for a given request id", body = http_objects_v1::FunctionRuns),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
-        (status = NOT_FOUND, description = "request not found")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_function_runs(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
-    Query(params): Query<ListParams>,
-    State(state): State<RouteState>,
-) -> Result<Json<http_objects_v1::FunctionRuns>, IndexifyAPIError> {
-    let cursor = params
-        .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
-    let invocation_ctx = state
-        .indexify_state
-        .reader()
-        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
-        .map_err(IndexifyAPIError::internal_error)?
-        .ok_or(IndexifyAPIError::not_found("request not found"))?;
-    let allocations = state
-        .indexify_state
-        .reader()
-        .get_allocations_by_invocation(&namespace, &compute_graph, &invocation_id)
-        .map_err(IndexifyAPIError::internal_error)?;
-    let mut allocations_by_task_id: HashMap<String, Vec<http_objects_v1::Allocation>> =
-        HashMap::new();
-    for allocation in allocations {
-        allocations_by_task_id
-            .entry(allocation.function_call_id.to_string())
-            .or_default()
-            .push(allocation.into());
-    }
-    let mut http_function_runs = vec![];
-    for function_run in invocation_ctx.function_runs.values() {
-        let allocations = allocations_by_task_id
-            .get(&function_run.id.0.to_string())
-            .cloned()
-            .clone()
-            .unwrap_or_default();
-        http_function_runs.push(http_objects_v1::FunctionRun::from_data_model_function_run(
-            function_run.clone(),
-            allocations,
-        ));
-    }
-    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
-    Ok(Json(http_objects_v1::FunctionRuns {
-        function_runs: http_function_runs,
-        cursor,
-    }))
-}
-
 /// Get request status by id
 #[utoipa::path(
     get,
@@ -344,6 +276,12 @@ async fn find_request(
         .ok_or(IndexifyAPIError::not_found("function run not found"))?
         .clone();
 
+    let allocations = state
+        .indexify_state
+        .reader()
+        .get_allocations_by_invocation(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?;
+
     let output = function_run.output.clone().map(|output| output.into());
     let invocation_error = download_invocation_error(
         invocation_ctx.request_error.clone(),
@@ -351,7 +289,8 @@ async fn find_request(
     )
     .await?;
 
-    let request = http_objects_v1::Request::build(invocation_ctx, output, invocation_error);
+    let request =
+        http_objects_v1::Request::build(invocation_ctx, output, invocation_error, allocations);
 
     Ok(Json(request))
 }
