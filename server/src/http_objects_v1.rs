@@ -254,7 +254,7 @@ impl From<GraphInvocationFailureReason> for RequestFailureReason {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Request {
     pub id: String,
     pub outcome: Option<RequestOutcome>,
@@ -262,6 +262,7 @@ pub struct Request {
     pub created_at: u128,
     pub request_error: Option<RequestError>,
     pub output: Option<DataPayload>,
+    pub function_runs: Vec<FunctionRun>,
 }
 
 impl Request {
@@ -269,7 +270,26 @@ impl Request {
         ctx: GraphInvocationCtx,
         output: Option<DataPayload>,
         invocation_error: Option<RequestError>,
+        allocations: Vec<data_model::Allocation>,
     ) -> Self {
+        let mut allocs_by_function_call_id: HashMap<String, Vec<Allocation>> = HashMap::new();
+        for allocation in allocations {
+            allocs_by_function_call_id
+                .entry(allocation.function_call_id.to_string())
+                .or_default()
+                .push(allocation.into());
+        }
+        let mut function_runs = vec![];
+        for function_run in ctx.function_runs.values() {
+            let allocations = allocs_by_function_call_id
+                .get(&function_run.id.to_string())
+                .cloned()
+                .unwrap_or_default();
+            function_runs.push(FunctionRun::from_data_model_function_run(
+                function_run.clone(),
+                allocations,
+            ));
+        }
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
@@ -277,6 +297,7 @@ impl Request {
             created_at: ctx.created_at.into(),
             request_error: invocation_error,
             output,
+            function_runs,
         }
     }
 }
