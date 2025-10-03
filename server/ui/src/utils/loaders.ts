@@ -1,8 +1,13 @@
+import axios from 'axios'
 import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
+import {
+  Application,
+  ApplicationsList,
+  GraphRequest,
+  GraphRequests,
+} from '../types/types'
 import { getIndexifyServiceURL } from './helpers'
-import axios from 'axios'
-import { ComputeGraph, ComputeGraphsList } from '../types'
 
 const indexifyServiceURL = getIndexifyServiceURL()
 
@@ -33,97 +38,66 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
   return { client }
 }
 
-export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace || 'default'
-  const client = createClient(namespace)
-
-  try {
-    const computeGraphs = await apiGet<ComputeGraphsList>(
-      `/namespaces/${namespace}/compute_graphs`
-    )
-    return { client, computeGraphs, namespace }
-  } catch {
-    return { client, computeGraphs: { compute_graphs: [] }, namespace }
-  }
-}
-
-export async function IndividualComputeGraphPageLoader({
-  params,
-  request,
-}: LoaderFunctionArgs) {
-  const { namespace, 'compute-graph': computeGraph } = params
-  if (!namespace) return redirect('/')
-
-  const url = new URL(request.url)
-  const cursor = url.searchParams.get('cursor') || undefined
-  const direction = url.searchParams.get('direction') || 'forward'
-  const limit = 20
-
-  try {
-    const invocationsUrl = `/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${
-      cursor ? `&cursor=${cursor}` : ''
-    }${direction ? `&direction=${direction}` : ''}`
-
-    const [computeGraphs, invocationsResponse] = await Promise.all([
-      apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
-      apiGet<{
-        invocations: unknown[]
-        prev_cursor?: string
-        next_cursor?: string
-      }>(invocationsUrl),
-    ])
-
-    const localComputeGraph = computeGraphs.compute_graphs.find(
-      (graph: ComputeGraph) => graph.name === computeGraph
-    )
-
-    if (!localComputeGraph) {
-      throw new Error(`Compute graph ${computeGraph} not found`)
-    }
-
-    return {
-      invocationsList: invocationsResponse.invocations,
-      prevCursor: invocationsResponse.prev_cursor,
-      nextCursor: invocationsResponse.next_cursor,
-      currentDirection: direction,
-      computeGraph: localComputeGraph,
-      namespace,
-    }
-  } catch (error) {
-    console.error('Error fetching compute graph data:', error)
-    throw error
-  }
-}
-
-export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
-  const { namespace, 'compute-graph': computeGraph } = params
-  if (!namespace) return redirect('/')
-
-  const client = createClient(namespace)
-  const invocationsList = await client.getGraphInvocations(computeGraph || '')
-
-  return { namespace, computeGraph, invocationsList }
-}
-
 export async function ExecutorsPageLoader() {
   const executors = await apiGet<unknown>('/internal/executors')
   return { executors }
 }
 
-export async function IndividualInvocationPageLoader({
+export async function ApplicationsListPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const {
-    namespace,
-    'compute-graph': computeGraph,
-    'invocation-id': invocationId,
-  } = params
+  const namespace = params.namespace || 'default'
+  const client = createClient(namespace)
 
-  return {
-    indexifyServiceURL,
-    invocationId,
-    computeGraph,
-    namespace,
+  try {
+    const applications = await apiGet<ApplicationsList>(
+      `/v1/namespaces/${namespace}/applications`
+    )
+    return { client, applications, namespace }
+  } catch {
+    return { client, applications: { applications: [] }, namespace }
+  }
+}
+
+export async function ApplicationsDetailsPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const namespace = params.namespace || 'default'
+  const application = params.application
+  const client = createClient(namespace)
+
+  try {
+    const applicationPayload = await apiGet<Application>(
+      `/v1/namespaces/${namespace}/applications/${application}`
+    )
+    const graphRequests = await apiGet<GraphRequests>(
+      `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
+    )
+    return {
+      client,
+      namespace,
+      application: applicationPayload,
+      graphRequests,
+    }
+  } catch {
+    return { client, namespace, application: null, graphRequests: null }
+  }
+}
+
+export async function GraphRequestDetailsPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const namespace = params.namespace || 'default'
+  const application = params.application
+  const requestId = params['request-id']
+  const client = createClient(namespace)
+
+  try {
+    const graphRequest = await apiGet<GraphRequest>(
+      `/v1/namespaces/${namespace}/applications/${application}/requests/${requestId}`
+    )
+    return { client, namespace, application, requestId, graphRequest }
+  } catch {
+    return { client, namespace, application, requestId, graphRequest: null }
   }
 }

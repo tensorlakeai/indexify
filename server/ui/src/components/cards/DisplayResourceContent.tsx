@@ -1,4 +1,4 @@
-import { HostResources } from '../../types'
+import { HostResources } from '../../types/types'
 import { bytesToGigabytes } from '../../utils/helpers'
 
 interface DisplayResourceContentProps {

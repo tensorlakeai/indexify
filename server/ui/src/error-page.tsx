@@ -1,7 +1,7 @@
-import { isRouteErrorResponse, useRouteError } from "react-router-dom";
+import { isRouteErrorResponse, useRouteError } from 'react-router-dom'
 
 export function ErrorPage() {
-  const error = useRouteError();
+  const error = useRouteError()
 
   if (isRouteErrorResponse(error)) {
     return (
@@ -14,7 +14,7 @@ export function ErrorPage() {
           </p>
         )}
       </div>
-    );
+    )
   } else if (error instanceof Error) {
     return (
       <div id="error-page">
@@ -24,8 +24,8 @@ export function ErrorPage() {
           <i>{error.message}</i>
         </p>
       </div>
-    );
+    )
   } else {
-    return <></>;
+    return <></>
   }
 }

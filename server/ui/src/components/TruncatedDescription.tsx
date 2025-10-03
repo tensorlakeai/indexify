@@ -1,20 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
-import { Typography, Tooltip } from '@mui/material';
+import { useEffect, useRef, useState } from 'react'
+import { Typography, Tooltip } from '@mui/material'
 
-export const TruncatedDescription = ({ description }: { description: string }) => {
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const textRef = useRef<HTMLParagraphElement>(null);
+export const TruncatedDescription = ({
+  description,
+}: {
+  description: string
+}) => {
+  const [isOverflowing, setIsOverflowing] = useState(false)
+  const textRef = useRef<HTMLParagraphElement>(null)
 
   useEffect(() => {
     const checkOverflow = () => {
       if (textRef.current) {
-        setIsOverflowing(textRef.current.scrollHeight > textRef.current.clientHeight);
+        setIsOverflowing(
+          textRef.current.scrollHeight > textRef.current.clientHeight
+        )
       }
-    };
-    checkOverflow();
-    window.addEventListener('resize', checkOverflow);
-    return () => window.removeEventListener('resize', checkOverflow);
-  }, [description]);
+    }
+    checkOverflow()
+    window.addEventListener('resize', checkOverflow)
+    return () => window.removeEventListener('resize', checkOverflow)
+  }, [description])
 
   return (
     <Tooltip title={isOverflowing ? description : ''} arrow>
@@ -35,5 +41,5 @@ export const TruncatedDescription = ({ description }: { description: string }) =
         {description}
       </Typography>
     </Tooltip>
-  );
-};
+  )
+}

@@ -16,7 +16,7 @@ import { Box, Stack } from '@mui/system'
 import { ArrowDown2, ArrowUp2, InfoCircle, Setting4 } from 'iconsax-react'
 import { useState } from 'react'
 import { stateBackgroundColorMap, stateColorMap } from '../../theme'
-import { ExecutorMetadata } from '../../types'
+import { ExecutorMetadata } from '../../types/types'
 import DisplayResourceContent from './DisplayResourceContent'
 import { FunctionExecutorsContent } from './FunctionExecutorsContent'
 
