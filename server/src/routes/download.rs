@@ -26,8 +26,8 @@ pub async fn download_invocation_error(
         .get(
             &invocation_error.payload.path,
             Some(
-                invocation_error.payload.offset..
-                    invocation_error.payload.offset + invocation_error.payload.size,
+                invocation_error.payload.offset
+                    ..invocation_error.payload.offset + invocation_error.payload.size,
             ),
         )
         .await
@@ -58,7 +58,7 @@ pub async fn download_invocation_error(
 /// Get function output by index
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output/{fn_call_id}",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output/{fn_call_id}",
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
@@ -97,7 +97,7 @@ pub async fn v1_download_fn_output_payload(
 /// Get function output
 #[utoipa::path(
     get,
-    path = "v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output",
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output",
     tag = "retrieve",
     responses(
         (status = 200, description = "function output"),
