@@ -16,11 +16,12 @@ import {
   ApplicationsListPageLoader,
   // ExecutorsPageLoader,
   // IndividualComputeGraphPageLoader,
+  ApplicationsDetailsPageLoader,
   // IndividualInvocationPageLoader,
 } from './utils/loaders'
 import {
   ApplicationsListPage,
-  // IndividualComputeGraphPage,
+  ApplicationDetailsPage,
   // IndividualInvocationPage,
   // ExecutorsPage,
 } from './routes/Namespace'
@@ -80,12 +81,12 @@ const router = createBrowserRouter(
           loader: ApplicationsListPageLoader,
           errorElement: <ErrorPage />,
         },
-        // {
-        //   path: '/:namespace/compute-graphs/:compute-graph',
-        //   element: <IndividualComputeGraphPage />,
-        //   loader: IndividualComputeGraphPageLoader,
-        //   errorElement: <ErrorPage />,
-        // },
+        {
+          path: '/:namespace/applications/:application',
+          element: <ApplicationDetailsPage />,
+          loader: ApplicationsDetailsPageLoader,
+          errorElement: <ErrorPage />,
+        },
         // {
         //   path: '/:namespace/compute-graphs/:compute-graph/invocations/:invocation-id',
         //   element: <IndividualInvocationPage />,

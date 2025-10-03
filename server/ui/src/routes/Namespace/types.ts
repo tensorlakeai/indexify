@@ -16,12 +16,11 @@ export interface ApplicationsListLoaderData extends NamespaceLoaderData {
   applications: ApplicationsList
 }
 
-export interface IndividualComputeGraphLoaderData extends NamespaceLoaderData {
-  invocationsList: ShallowGraphRequest[]
-  computeGraph: Application
-  prevCursor: string | null
-  nextCursor: string | null
-  direction?: string
+export interface ApplicationDetailsLoaderData extends NamespaceLoaderData {
+  application: Application
+  // prevCursor: string | null
+  // nextCursor: string | null
+  // direction?: string
 }
 
 export interface IndividualInvocationLoaderData extends NamespaceLoaderData {

@@ -49,6 +49,23 @@ export async function ApplicationsListPageLoader({
   }
 }
 
+export async function ApplicationsDetailsPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const namespace = params.namespace || 'default'
+  const application = params.application
+  const client = createClient(namespace)
+
+  try {
+    const applicationPayload = await apiGet<Application>(
+      `/v1/namespaces/${namespace}/applications/${application}`
+    )
+    return { client, application: applicationPayload, namespace }
+  } catch {
+    return { client, application: null, namespace }
+  }
+}
+
 // export async function IndividualComputeGraphPageLoader({
 //   params,
 //   request,
@@ -97,35 +114,35 @@ export async function ApplicationsListPageLoader({
 //   }
 // }
 
-// export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
-//   const { namespace, 'compute-graph': computeGraph } = params
-//   if (!namespace) return redirect('/')
+export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
+  const { namespace, 'compute-graph': computeGraph } = params
+  if (!namespace) return redirect('/')
 
-//   const client = createClient(namespace)
-//   const invocationsList = await client.getGraphInvocations(computeGraph || '')
+  const client = createClient(namespace)
+  const invocationsList = await client.getGraphInvocations(computeGraph || '')
 
-//   return { namespace, computeGraph, invocationsList }
-// }
+  return { namespace, computeGraph, invocationsList }
+}
 
-// export async function ExecutorsPageLoader() {
-//   const executors = await apiGet<unknown>('/internal/executors')
-//   return { executors }
-// }
+export async function ExecutorsPageLoader() {
+  const executors = await apiGet<unknown>('/internal/executors')
+  return { executors }
+}
 
-// export async function IndividualInvocationPageLoader({
-//   params,
-// }: LoaderFunctionArgs) {
-//   if (!params.namespace) return redirect('/')
-//   const {
-//     namespace,
-//     'compute-graph': computeGraph,
-//     'invocation-id': invocationId,
-//   } = params
+export async function IndividualInvocationPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  if (!params.namespace) return redirect('/')
+  const {
+    namespace,
+    'compute-graph': computeGraph,
+    'invocation-id': invocationId,
+  } = params
 
-//   return {
-//     indexifyServiceURL,
-//     invocationId,
-//     computeGraph,
-//     namespace,
-//   }
-// }
+  return {
+    indexifyServiceURL,
+    invocationId,
+    computeGraph,
+    namespace,
+  }
+}
