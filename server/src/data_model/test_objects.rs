@@ -8,21 +8,10 @@ pub mod tests {
     use super::super::{Application, Function};
     use crate::{
         data_model::{
-            ApplicationBuilder,
-            ApplicationInvocationCtx,
-            ApplicationInvocationCtxBuilder,
-            ApplicationState,
-            ComputeOp,
-            DataPayload,
-            EntryPointManifest,
-            ExecutorId,
-            ExecutorMetadata,
-            ExecutorMetadataBuilder,
-            FunctionArgs,
-            FunctionCall,
-            FunctionCallId,
-            FunctionRetryPolicy,
-            InputArgs,
+            ApplicationBuilder, ApplicationInvocationCtx, ApplicationInvocationCtxBuilder,
+            ApplicationState, ComputeOp, DataPayload, EntryPointManifest, ExecutorId,
+            ExecutorMetadata, ExecutorMetadataBuilder, FunctionArgs, FunctionCall, FunctionCallId,
+            FunctionRetryPolicy, InputArgs,
         },
         state_store::requests::GraphUpdates,
         utils::get_epoch_time_in_ms,
@@ -58,7 +47,7 @@ pub mod tests {
         }
     }
 
-    pub fn test_compute_fn(name: &str, max_retries: u32) -> Function {
+    pub fn test_function(name: &str, max_retries: u32) -> Function {
         Function {
             name: name.to_string(),
             description: format!("description {name}"),
@@ -112,10 +101,10 @@ pub mod tests {
     }
 
     pub fn mock_graph_with_retries(max_retries: u32) -> Application {
-        let fn_a = test_compute_fn("fn_a", max_retries);
-        let fn_b = test_compute_fn("fn_b", max_retries);
-        let fn_c = test_compute_fn("fn_c", max_retries);
-        let fn_d = test_compute_fn("fn_d", max_retries);
+        let fn_a = test_function("fn_a", max_retries);
+        let fn_b = test_function("fn_b", max_retries);
+        let fn_c = test_function("fn_c", max_retries);
+        let fn_d = test_function("fn_d", max_retries);
 
         ApplicationBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())

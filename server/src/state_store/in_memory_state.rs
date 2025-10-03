@@ -14,33 +14,16 @@ use tracing::{debug, error, warn};
 
 use crate::{
     data_model::{
-        Allocation,
-        Application,
-        ApplicationInvocationCtx,
-        ApplicationState,
-        ApplicationVersion,
-        ApplicationVersionString,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorServerMetadata,
-        FunctionExecutorId,
-        FunctionExecutorResources,
-        FunctionExecutorServerMetadata,
-        FunctionExecutorState,
-        FunctionResources,
-        FunctionRun,
-        FunctionRunStatus,
-        FunctionURI,
-        Namespace,
-        NamespaceBuilder,
+        Allocation, Application, ApplicationInvocationCtx, ApplicationState, ApplicationVersion,
+        ApplicationVersionString, DataPayload, ExecutorId, ExecutorMetadata,
+        ExecutorServerMetadata, FunctionExecutorId, FunctionExecutorResources,
+        FunctionExecutorServerMetadata, FunctionExecutorState, FunctionResources, FunctionRun,
+        FunctionRunStatus, FunctionURI, Namespace, NamespaceBuilder,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
-        requests::RequestPayload,
-        scanner::StateReader,
-        state_machine::IndexifyObjectsColumns,
+        requests::RequestPayload, scanner::StateReader, state_machine::IndexifyObjectsColumns,
         ExecutorCatalog,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
@@ -988,11 +971,11 @@ impl InMemoryState {
                 "compute graph version: {} not found",
                 function_run.application_version
             ))?;
-        let compute_fn = application
+        let function = application
             .nodes
             .get(&function_run.name)
             .ok_or(anyhow!("compute function: {} not found", function_run.name))?;
-        Ok(compute_fn.resources.clone())
+        Ok(function.resources.clone())
     }
 
     pub fn candidate_executors(
@@ -1023,7 +1006,7 @@ impl InMemoryState {
             .into());
         }
 
-        let compute_fn = application.nodes.get(&function_run.name).ok_or_else(|| {
+        let function = application.nodes.get(&function_run.name).ok_or_else(|| {
             Error::ComputeFunctionNotFound {
                 version: function_run.application_version.0.clone(),
                 function_name: function_run.name.clone(),
@@ -1046,7 +1029,7 @@ impl InMemoryState {
 
             // Check if this executor's labels matches the function's
             // placement constraints
-            if !compute_fn.placement_constraints.matches(&executor.labels) {
+            if !function.placement_constraints.matches(&executor.labels) {
                 continue;
             }
 
@@ -1054,7 +1037,7 @@ impl InMemoryState {
             // gpu_configs.
             if executor_state
                 .free_resources
-                .can_handle_function_resources(&compute_fn.resources)
+                .can_handle_function_resources(&function.resources)
                 .is_ok()
             {
                 candidates.push(*executor_state.clone());
@@ -1076,8 +1059,8 @@ impl InMemoryState {
         if let Some(function_executors) = function_executors {
             for function_executor_kv in function_executors.iter() {
                 let function_executor = function_executor_kv.1;
-                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
-                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+                if function_executor.function_executor.state == FunctionExecutorState::Pending
+                    || function_executor.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
@@ -1097,8 +1080,8 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if (allocation_count as u32) <
-                    capacity_threshold * function_executor.function_executor.max_concurrency
+                if (allocation_count as u32)
+                    < capacity_threshold * function_executor.function_executor.max_concurrency
                 {
                     candidates.push(function_executor.clone());
                 }
@@ -1264,8 +1247,8 @@ impl InMemoryState {
                     let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe) &&
-                                fe.version == latest_cg_version
+                            if allowlist_entry.matches_function_executor(fe)
+                                && fe.version == latest_cg_version
                             {
                                 found_allowlist_match = true;
                                 break;
@@ -1324,8 +1307,8 @@ impl InMemoryState {
             .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.function_name &&
-                    v.application_version == fe_meta.function_executor.version
+                v.name == fe_meta.function_executor.function_name
+                    && v.application_version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1421,7 +1404,7 @@ impl InMemoryState {
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn application_graph_version<'a>(
+    pub fn application_version<'a>(
         &'a self,
         namespace: &str,
         application_name: &str,
@@ -1515,21 +1498,10 @@ mod tests {
 
     use crate::{
         data_model::{
-            ApplicationVersionString,
-            ComputeOp,
-            ExecutorId,
-            FunctionCall,
-            FunctionCallId,
-            FunctionExecutorBuilder,
-            FunctionExecutorId,
-            FunctionExecutorResources,
-            FunctionExecutorServerMetadata,
-            FunctionExecutorState,
-            FunctionRun,
-            FunctionRunBuilder,
-            FunctionRunFailureReason,
-            FunctionRunOutcome,
-            FunctionRunStatus,
+            ApplicationVersionString, ComputeOp, ExecutorId, FunctionCall, FunctionCallId,
+            FunctionExecutorBuilder, FunctionExecutorId, FunctionExecutorResources,
+            FunctionExecutorServerMetadata, FunctionExecutorState, FunctionRun, FunctionRunBuilder,
+            FunctionRunFailureReason, FunctionRunOutcome, FunctionRunStatus,
         },
         in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
@@ -1558,26 +1530,26 @@ mod tests {
             namespace: &str,
             application: &str,
             request_id: &str,
-            compute_fn: &str,
+            function: &str,
             outcome: Option<FunctionRunOutcome>,
         ) -> FunctionRun {
             FunctionRunBuilder::default()
                 .id(FunctionCallId(format!(
                     "{}-{}-{}-{}",
-                    namespace, application, request_id, compute_fn
+                    namespace, application, request_id, function
                 )))
                 .request_id(request_id.to_string())
                 .namespace(namespace.to_string())
                 .application(application.to_string())
-                .name(compute_fn.to_string())
+                .name(function.to_string())
                 .application_version(ApplicationVersionString("1.0".to_string()))
                 .compute_op(ComputeOp::FunctionCall(FunctionCall {
                     inputs: vec![],
                     function_call_id: FunctionCallId(format!(
                         "{}-{}-{}-{}",
-                        namespace, application, request_id, compute_fn
+                        namespace, application, request_id, function
                     )),
-                    fn_name: compute_fn.to_string(),
+                    fn_name: function.to_string(),
                     call_metadata: Bytes::new(),
                 }))
                 .status(FunctionRunStatus::Pending)
@@ -1706,9 +1678,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "test-function" &&
-                    function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|")
+                    && function_run.name == "test-function"
+                    && function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1752,9 +1724,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "different-function" &&
-                    function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|")
+                    && function_run.name == "different-function"
+                    && function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();

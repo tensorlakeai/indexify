@@ -311,7 +311,7 @@ use std::fmt::Display;
 pub struct FnMetricsId {
     pub namespace: String,
     pub application: String,
-    pub compute_fn: String,
+    pub function: String,
 }
 
 impl Display for FnMetricsId {
@@ -319,7 +319,7 @@ impl Display for FnMetricsId {
         write!(
             f,
             "{}/{}/{}",
-            self.namespace, self.application, self.compute_fn
+            self.namespace, self.application, self.function
         )
     }
 }

@@ -935,25 +935,25 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_fn_with_placement_constraints() {
+    fn test_function_with_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
 
-        let compute_fn: Function = serde_json::from_str(json).unwrap();
-        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
 
         // Test conversion to data model
-        let data_model_fn: crate::data_model::Function = compute_fn.try_into().unwrap();
+        let data_model_fn: crate::data_model::Function = function.try_into().unwrap();
         assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
     }
 
     #[test]
-    fn test_compute_fn_with_unparseable_placement_constraints() {
+    fn test_function_with_unparseable_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
 
-        let compute_fn: Function = serde_json::from_str(json).unwrap();
-        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
 
         // Test failed conversion to data model
-        assert!(<Function as TryInto<crate::data_model::Function>>::try_into(compute_fn).is_err());
+        assert!(<Function as TryInto<crate::data_model::Function>>::try_into(function).is_err());
     }
 }

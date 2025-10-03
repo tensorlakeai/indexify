@@ -3,13 +3,8 @@ use tracing::{debug, info_span, warn};
 
 use crate::{
     data_model::{
-        AllocationBuilder,
-        ApplicationInvocationCtx,
-        FunctionRun,
-        FunctionRunFailureReason,
-        FunctionRunOutcome,
-        FunctionRunStatus,
-        RunningTaskStatus,
+        AllocationBuilder, ApplicationInvocationCtx, FunctionRun, FunctionRunFailureReason,
+        FunctionRunOutcome, FunctionRunStatus, RunningTaskStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
@@ -60,8 +55,8 @@ impl<'a> TaskAllocationProcessor<'a> {
                             function_call_id = function_run.id.to_string(),
                             namespace = function_run.namespace,
                             application = function_run.application,
-                            graph_version = state_store_error.version(),
-                            "fn" = state_store_error.function_name(),
+                            application_version = state_store_error.version(),
+                            "fb" = state_store_error.function_name(),
                             error = %state_store_error,
                             "Unable to allocate task"
                         );
@@ -114,7 +109,7 @@ impl<'a> TaskAllocationProcessor<'a> {
             request_id = function_run.request_id,
             application = function_run.application,
             "fn" = function_run.name,
-            graph_version = function_run.application_version.to_string(),
+            application_version = function_run.application_version.to_string(),
         );
         let _guard = span.enter();
 

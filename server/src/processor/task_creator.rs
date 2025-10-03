@@ -9,21 +9,10 @@ use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent,
-        ApplicationInvocationCtx,
-        ApplicationInvocationError,
-        ApplicationInvocationFailureReason,
-        ComputeOp,
-        FunctionArgs,
-        FunctionCall,
-        FunctionCallId,
-        FunctionRun,
-        FunctionRunOutcome,
-        FunctionRunStatus,
-        GraphInvocationOutcome,
-        InputArgs,
-        ReduceOperation,
-        RunningTaskStatus,
+        AllocationOutputIngestedEvent, ApplicationInvocationCtx, ApplicationInvocationError,
+        ApplicationInvocationFailureReason, ComputeOp, FunctionArgs, FunctionCall, FunctionCallId,
+        FunctionRun, FunctionRunOutcome, FunctionRunStatus, GraphInvocationOutcome, InputArgs,
+        ReduceOperation, RunningTaskStatus,
     },
     processor::task_policy::TaskRetryPolicy,
     state_store::{
@@ -85,7 +74,7 @@ impl TaskCreator {
                 invocation_id = alloc_finished_event.invocation_id,
                 namespace = alloc_finished_event.namespace,
                 application = alloc_finished_event.application,
-                fn = alloc_finished_event.compute_fn,
+                fn = alloc_finished_event.function,
                 "function run not found, stopping scheduling of child tasks",
             );
             return Ok(SchedulerUpdateRequest::default());
@@ -108,8 +97,8 @@ impl TaskCreator {
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
         // on FE termination and alloc output ingestion paths.
-        if function_run.status !=
-            FunctionRunStatus::Running(RunningTaskStatus {
+        if function_run.status
+            != FunctionRunStatus::Running(RunningTaskStatus {
                 allocation_id: allocation.id.clone(),
             })
         {
@@ -133,11 +122,11 @@ impl TaskCreator {
         else {
             warn!(
                 function_run.id = function_run.id.to_string(),
-                function_run.request_id = function_run.request_id,
-                function_run.namespace = function_run.namespace,
-                function_run.application = function_run.application,
-                function_run.graph_version = function_run.application_version.0,
-                "compute graph version not found, stopping scheduling of child tasks",
+                request_id = function_run.request_id,
+                namespace = function_run.namespace,
+                application = function_run.application,
+                application_version = function_run.application_version.0,
+                "application version not found, stopping scheduling of child tasks",
             );
             return Ok(SchedulerUpdateRequest::default());
         };

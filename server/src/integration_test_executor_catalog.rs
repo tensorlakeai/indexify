@@ -12,9 +12,7 @@ mod tests {
             ApplicationState,
         },
         state_store::requests::{
-            CreateOrUpdateComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest, RequestPayload, StateMachineUpdateRequest,
         },
         testing::TestService,
     };
@@ -167,58 +165,58 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Build graph with no placement constraints (should remain active)
-        let mut graph_valid_no = test_objects::mock_application();
-        graph_valid_no.name = "graph_valid_no_constraints".to_string();
-        graph_valid_no.state = ApplicationState::Active;
+        let mut app_valid_no = test_objects::mock_application();
+        app_valid_no.name = "graph_valid_no_constraints".to_string();
+        app_valid_no.state = ApplicationState::Active;
 
         // Build graph with satisfiable constraints (foo==bar)
-        let mut graph_valid_constraints = test_objects::mock_application();
-        graph_valid_constraints.name = "graph_valid_constraints".to_string();
-        graph_valid_constraints.state = ApplicationState::Active;
+        let mut app_valid_constraints = test_objects::mock_application();
+        app_valid_constraints.name = "graph_valid_constraints".to_string();
+        app_valid_constraints.state = ApplicationState::Active;
         let sat_constraint = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "bar".to_string(),
             operator: Operator::Eq,
         }]);
-        for compute_fn in graph_valid_constraints.nodes.values_mut() {
-            compute_fn.placement_constraints = sat_constraint.clone();
+        for function in app_valid_constraints.nodes.values_mut() {
+            function.placement_constraints = sat_constraint.clone();
         }
-        graph_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
+        app_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
 
         // Build graph with unsatisfiable constraints (foo==baz)
-        let mut graph_invalid_baz = test_objects::mock_application();
-        graph_invalid_baz.name = "graph_invalid_baz".to_string();
-        graph_invalid_baz.state = ApplicationState::Active;
+        let mut app_invalid_baz = test_objects::mock_application();
+        app_invalid_baz.name = "graph_invalid_baz".to_string();
+        app_invalid_baz.state = ApplicationState::Active;
         let bad_constraint_baz = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "baz".to_string(),
             operator: Operator::Eq,
         }]);
-        for compute_fn in graph_invalid_baz.nodes.values_mut() {
-            compute_fn.placement_constraints = bad_constraint_baz.clone();
+        for function in app_invalid_baz.nodes.values_mut() {
+            function.placement_constraints = bad_constraint_baz.clone();
         }
-        graph_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
+        app_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
 
         // Build graph with another unsatisfiable constraint (foo==qux)
-        let mut graph_invalid_qux = test_objects::mock_application();
-        graph_invalid_qux.name = "graph_invalid_qux".to_string();
-        graph_invalid_qux.state = ApplicationState::Active;
+        let mut app_invalid_qux = test_objects::mock_application();
+        app_invalid_qux.name = "graph_invalid_qux".to_string();
+        app_invalid_qux.state = ApplicationState::Active;
         let bad_constraint_qux = LabelsFilter(vec![Expression {
             key: "foo".to_string(),
             value: "qux".to_string(),
             operator: Operator::Eq,
         }]);
-        for compute_fn in graph_invalid_qux.nodes.values_mut() {
-            compute_fn.placement_constraints = bad_constraint_qux.clone();
+        for function in app_invalid_qux.nodes.values_mut() {
+            function.placement_constraints = bad_constraint_qux.clone();
         }
-        graph_invalid_qux.start_fn.placement_constraints = bad_constraint_qux.clone();
+        app_invalid_qux.start_fn.placement_constraints = bad_constraint_qux.clone();
 
         // Persist all graphs
         for application in [
-            graph_valid_no.clone(),
-            graph_valid_constraints.clone(),
-            graph_invalid_baz.clone(),
-            graph_invalid_qux.clone(),
+            app_valid_no.clone(),
+            app_valid_constraints.clone(),
+            app_invalid_baz.clone(),
+            app_invalid_qux.clone(),
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
@@ -300,10 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
-            FunctionResources,
-            GPUResources,
-            GPU_MODEL_NVIDIA_A10,
-            GPU_MODEL_NVIDIA_H100_80GB,
+            FunctionResources, GPUResources, GPU_MODEL_NVIDIA_A10, GPU_MODEL_NVIDIA_H100_80GB,
         };
 
         // Single catalog entry with specific capacities

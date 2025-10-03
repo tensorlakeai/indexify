@@ -18,11 +18,7 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self,
-        ApplicationInvocationCtxBuilder,
-        ApplicationState,
-        FunctionCallId,
-        InputArgs,
+        self, ApplicationInvocationCtxBuilder, ApplicationState, FunctionCallId, InputArgs,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
@@ -266,7 +262,7 @@ async fn do_invoke_api_with_object_v1(
         .in_memory_state
         .read()
         .await
-        .application_graph_version(&namespace, &application.name, &application.version)
+        .application_version(&namespace, &application.name, &application.version)
         .cloned()
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",

@@ -7,25 +7,13 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent,
-        ChangeType,
-        ExecutorId,
-        ExecutorRemovedEvent,
-        ExecutorUpsertedEvent,
-        GraphUpdates,
-        InvokeApplicationEvent,
-        StateChange,
-        StateChangeBuilder,
-        StateChangeId,
-        TombstoneApplicationEvent,
-        TombstoneInvocationEvent,
+        AllocationOutputIngestedEvent, ChangeType, ExecutorId, ExecutorRemovedEvent,
+        ExecutorUpsertedEvent, GraphUpdates, InvokeApplicationEvent, StateChange,
+        StateChangeBuilder, StateChangeId, TombstoneApplicationEvent, TombstoneInvocationEvent,
     },
     state_store::requests::{
-        AllocationOutput,
-        DeleteComputeGraphRequest,
-        DeleteInvocationRequest,
-        DeregisterExecutorRequest,
-        InvokeComputeGraphRequest,
+        AllocationOutput, DeleteComputeGraphRequest, DeleteInvocationRequest,
+        DeregisterExecutorRequest, InvokeComputeGraphRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -110,7 +98,7 @@ pub fn task_outputs_ingested(
             AllocationOutputIngestedEvent {
                 namespace: request.allocation.namespace.clone(),
                 application: request.allocation.application.clone(),
-                compute_fn: request.allocation.function.clone(),
+                function: request.allocation.function.clone(),
                 invocation_id: request.invocation_id.clone(),
                 function_call_id: request.allocation.function_call_id.clone(),
                 data_payload: request.data_payload.clone(),

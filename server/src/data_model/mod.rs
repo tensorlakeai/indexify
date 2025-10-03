@@ -7,8 +7,7 @@ use std::{
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
-    str,
-    vec,
+    str, vec,
 };
 
 use anyhow::{anyhow, Result};
@@ -1006,11 +1005,11 @@ impl FunctionRunFailureReason {
         // they fail the invocation permanently.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError |
-                FunctionRunFailureReason::FunctionError |
-                FunctionRunFailureReason::FunctionTimeout |
-                FunctionRunFailureReason::TaskCancelled |
-                FunctionRunFailureReason::FunctionExecutorTerminated
+            FunctionRunFailureReason::InternalError
+                | FunctionRunFailureReason::FunctionError
+                | FunctionRunFailureReason::FunctionTimeout
+                | FunctionRunFailureReason::TaskCancelled
+                | FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
 
@@ -1023,9 +1022,9 @@ impl FunctionRunFailureReason {
         // with long lasting internal problems.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError |
-                FunctionRunFailureReason::FunctionError |
-                FunctionRunFailureReason::FunctionTimeout
+            FunctionRunFailureReason::InternalError
+                | FunctionRunFailureReason::FunctionError
+                | FunctionRunFailureReason::FunctionTimeout
         )
     }
 }
@@ -1431,14 +1430,17 @@ impl FunctionAllowlist {
     pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.application_name
+            .is_none_or(|ns| ns == &function_executor.namespace)
+            && self
+                .application_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
-            self.function
+                .is_none_or(|cg_name| cg_name == &function_executor.application_name)
+            && self
+                .function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
-            self.version
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
+            && self
+                .version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
     }
@@ -1446,14 +1448,17 @@ impl FunctionAllowlist {
     pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_run.namespace) &&
-            self.application_name
+            .is_none_or(|ns| ns == &function_run.namespace)
+            && self
+                .application_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_run.application) &&
-            self.function
+                .is_none_or(|cg_name| cg_name == &function_run.application)
+            && self
+                .function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_run.name) &&
-            self.version
+                .is_none_or(|fn_name| fn_name == &function_run.name)
+            && self
+                .version
                 .as_ref()
                 .is_none_or(|version| version == &function_run.application_version)
     }
@@ -1570,8 +1575,8 @@ impl Eq for FunctionExecutorServerMetadata {}
 
 impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.executor_id == other.executor_id &&
-            self.function_executor.id == other.function_executor.id
+        self.executor_id == other.executor_id
+            && self.function_executor.id == other.function_executor.id
     }
 }
 
@@ -1685,7 +1690,7 @@ pub struct GraphUpdates {
 pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub application: String,
-    pub compute_fn: String,
+    pub function: String,
     pub invocation_id: String,
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
@@ -1861,18 +1866,16 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::test_compute_fn,
-        Application,
-        ApplicationVersion,
+        test_objects::tests::test_function, Application, ApplicationVersion,
         ApplicationVersionString,
     };
 
     #[test]
     fn test_application_update() {
         const TEST_NAMESPACE: &str = "namespace1";
-        let fn_a = test_compute_fn("fn_a", 0);
-        let fn_b = test_compute_fn("fn_b", 0);
-        let fn_c = test_compute_fn("fn_c", 0);
+        let fn_a = test_function("fn_a", 0);
+        let fn_b = test_function("fn_b", 0);
+        let fn_c = test_function("fn_c", 0);
 
         let original_application: Application = ApplicationBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
@@ -2027,7 +2030,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
                     ..original_application.clone()
                 },
@@ -2037,7 +2040,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
                     ..original_application.clone()
                 },
@@ -2047,7 +2050,7 @@ mod tests {
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
                     ..original_version.clone()
                 },
@@ -2087,7 +2090,7 @@ mod tests {
                 update: Application {
                     version: ApplicationVersionString::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)), // different
+                        ("fn_a".to_string(), test_function("fn_a", 0)), // different
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2096,7 +2099,7 @@ mod tests {
                 expected_graph: Application {
                     version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)),
+                        ("fn_a".to_string(), test_function("fn_a", 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2105,7 +2108,7 @@ mod tests {
                 expected_version: ApplicationVersion {
                     version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a",  0)),
+                        ("fn_a".to_string(), test_function("fn_a",  0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2217,7 +2220,7 @@ mod tests {
         let application_version = ApplicationVersionString::from("42");
 
         // Minimal Application for the builder
-        let fn_a = test_compute_fn("fn_a", 0);
+        let fn_a = test_function("fn_a", 0);
         let _application = ApplicationBuilder::default()
             .namespace(namespace.clone())
             .name(application_name.clone())
