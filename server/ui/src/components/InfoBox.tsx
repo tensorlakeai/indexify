@@ -1,8 +1,8 @@
-import { Box, Typography } from '@mui/material';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import { Box, Typography } from '@mui/material'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
 
 interface InfoBoxProps {
-    text?: string;
+  text?: string
 }
 
 export function InfoBox({ text }: InfoBoxProps) {
@@ -32,7 +32,7 @@ export function InfoBox({ text }: InfoBoxProps) {
         {text}
       </Typography>
     </Box>
-  );
+  )
 }
 
-export default InfoBox;
+export default InfoBox

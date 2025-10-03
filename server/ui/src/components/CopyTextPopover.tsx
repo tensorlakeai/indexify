@@ -1,5 +1,5 @@
-import { Popover, Typography } from '@mui/material'
 import { ContentCopy } from '@mui/icons-material'
+import { Popover, Typography } from '@mui/material'
 import { useState, type ReactNode } from 'react'
 
 interface CopyTextPopoverProps {
@@ -35,8 +35,8 @@ function CopyTextPopover({ text, children }: CopyTextPopoverProps) {
   const open = Boolean(anchorEl)
 
   return (
-    <div 
-      onMouseEnter={handlePopoverOpen} 
+    <div
+      onMouseEnter={handlePopoverOpen}
       onMouseLeave={handlePopoverClose}
       style={{ display: 'inline-block' }}
     >
@@ -56,8 +56,8 @@ function CopyTextPopover({ text, children }: CopyTextPopoverProps) {
         sx={{
           pointerEvents: 'none',
           '& .MuiPopover-paper': {
-            pointerEvents: 'auto'
-          }
+            pointerEvents: 'auto',
+          },
         }}
       >
         <Typography
@@ -68,9 +68,9 @@ function CopyTextPopover({ text, children }: CopyTextPopoverProps) {
             gap: 1,
             cursor: 'pointer',
             '&:hover': {
-              bgcolor: 'action.hover'
+              bgcolor: 'action.hover',
             },
-            fontSize: 12
+            fontSize: 12,
           }}
           onClick={handleCopy}
         >

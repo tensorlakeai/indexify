@@ -1,36 +1,36 @@
-import { type ReactElement } from 'react'
-import { ThemeProvider } from '@mui/material/styles'
 import {
   Box,
   CssBaseline,
-  Toolbar,
-  Typography,
+  Divider,
   Drawer,
+  FormControl,
+  InputLabel,
   List,
   ListItemButton,
   ListItemText,
-  Divider,
-  Select,
   MenuItem,
-  FormControl,
-  InputLabel,
+  Select,
   SelectChangeEvent,
+  Toolbar,
+  Typography,
 } from '@mui/material'
+import { ThemeProvider } from '@mui/material/styles'
+import { Cpu, Setting4 } from 'iconsax-react'
+import { type ReactElement } from 'react'
 import {
+  Link,
   LoaderFunctionArgs,
   Outlet,
   redirect,
   useLocation,
-  Link,
   useParams,
 } from 'react-router-dom'
-import { Cpu, Setting4 } from 'iconsax-react'
-import { getIndexifyServiceURL } from '../utils/helpers'
 import theme from '../theme'
+import { getIndexifyServiceURL } from '../utils/helpers'
 
+import { useLoaderData } from 'react-router-dom'
 import Footer from '../components/Footer'
 import VersionDisplay from '../components/VersionDisplay'
-import { useLoaderData } from 'react-router-dom'
 
 const DRAWER_WIDTH = 240
 const SERVICE_URL = getIndexifyServiceURL()

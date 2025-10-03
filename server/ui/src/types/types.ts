@@ -1,11 +1,11 @@
-import {
-  EntryPointManifest,
-  NodeResources,
-  NodeRetryPolicy,
-  Parameter,
-  PlacementConstraints,
-} from './application-types'
-import { Allocation, TaskOutcome, TaskStatus } from './function-run-types'
+// ----------------------------------------------
+// Namespaces
+// ----------------------------------------------
+
+export interface Namespace {
+  name: string
+  created_at: number
+}
 
 // ----------------------------------------------
 // Applications
@@ -41,6 +41,42 @@ export interface ApplicationFunction {
   return_type?: string
   secret_names: string[]
   timeout_sec: number
+}
+export interface EntryPointManifest {
+  function_name: string
+  input_serializer: string
+  output_serializer: string
+  output_type_hints_base64: string
+}
+
+export interface GPURequirement {
+  count: number
+  model: string
+}
+
+export interface NodeResources {
+  cpus: number
+  ephemeral_disk_mb: number
+  gpus: GPURequirement[]
+  memory_mb: number
+}
+
+export interface NodeRetryPolicy {
+  delay_multiplier: number
+  initial_delay_sec: number
+  max_delay_sec: number
+  max_retries: number
+}
+
+export interface Parameter {
+  data_type: string
+  description: string
+  name: string
+  required: boolean
+}
+
+export interface PlacementConstraints {
+  filter_expressions: string[]
 }
 
 // ----------------------------------------------
@@ -115,47 +151,25 @@ export interface FunctionRun {
   created_at: number
 }
 
-// ----------------------------------------------
-// TODO: double check below
-// ----------------------------------------------
-
-export interface ComputeFn {
-  name: string
-  fn_name: string
-  description: string
-  reducer: boolean
-  payload_encoder: string
-  image_name: string
-}
-
-export type Node = ComputeFn
-
-export interface CreateNamespace {
-  name: string
-}
-
-export interface DataObject {
-  id: string
-  payload_size: number
-  payload_sha_256: string
-  created_at?: number
-}
-
-export interface IndexifyAPIError {
-  status_code: number
-  message: string
-}
-
-export interface Namespace {
-  name: string
-  created_at: number
-}
-
-export interface NamespaceList {
-  namespaces: Namespace[]
-}
-
 export type GraphVersion = string
+
+export interface Allocation {
+  id: string
+  function_name: string
+  executor_id: string
+  function_executor_id: string
+  created_at: number
+  outcome: TaskOutcome
+  attempt_number: number
+  execution_duration_ms: number | null
+}
+
+export type TaskOutcome = 'Unknown' | 'Success' | 'Failure'
+export type TaskStatus = 'pending' | 'running' | 'completed'
+
+// ----------------------------------------------
+// Executors
+// ----------------------------------------------
 
 export interface ExecutorMetadata {
   id: string

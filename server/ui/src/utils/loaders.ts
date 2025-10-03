@@ -1,13 +1,13 @@
+import axios from 'axios'
 import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
-import { getIndexifyServiceURL } from './helpers'
-import axios from 'axios'
 import {
   Application,
   ApplicationsList,
   GraphRequest,
   GraphRequests,
 } from '../types/types'
+import { getIndexifyServiceURL } from './helpers'
 
 const indexifyServiceURL = getIndexifyServiceURL()
 
@@ -36,6 +36,11 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = createClient(params.namespace)
   return { client }
+}
+
+export async function ExecutorsPageLoader() {
+  const executors = await apiGet<unknown>('/internal/executors')
+  return { executors }
 }
 
 export async function ApplicationsListPageLoader({

@@ -19,7 +19,6 @@ interface GraphRequestTableProps {
   namespace: string
   applicationName: string
   shallowGraphRequests: ShallowGraphRequest[]
-  // onDelete: (updatedList: ShallowGraphRequest[]) => void
 }
 
 export function GraphRequestsTable({
@@ -27,26 +26,6 @@ export function GraphRequestsTable({
   applicationName,
   shallowGraphRequests,
 }: GraphRequestTableProps) {
-  console.log('shallowGraphRequests', shallowGraphRequests)
-
-  // TODO: update this
-  // const handleDelete = async (invocationId: string) => {
-  //   try {
-  //     await axios.delete(
-  //       `${getIndexifyServiceURL()}/namespaces/${namespace}/compute_graphs/${computeGraph}/requests/${invocationId}`,
-  //       { headers: { accept: '*/*' } }
-  //     )
-
-  //     onDelete(
-  //       shallowGraphRequests.filter(
-  //         (invocation) => invocation.id !== invocationId
-  //       )
-  //     )
-  //   } catch (error) {
-  //     console.error(`Error deleting invocation ${invocationId}:`, error)
-  //   }
-  // }
-
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
       <Typography variant="h6" gutterBottom>

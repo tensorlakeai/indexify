@@ -4,26 +4,28 @@ import './index.css'
 
 import {
   createBrowserRouter,
+  LoaderFunctionArgs,
   Navigate,
   RouterProvider,
   useParams,
-  LoaderFunctionArgs,
 } from 'react-router-dom'
 
-import Root from './routes/root'
+import { IndexifyClient } from 'getindexify'
 import { ErrorPage } from './error-page'
 import {
-  ApplicationsListPageLoader,
-  ApplicationsDetailsPageLoader,
-  GraphRequestDetailsPageLoader,
-} from './utils/loaders'
-import {
-  ApplicationsListPage,
   ApplicationDetailsPage,
+  ApplicationsListPage,
   GraphRequestDetailsPage,
 } from './routes/Namespace'
-import { IndexifyClient } from 'getindexify'
+import ExecutorsPage from './routes/Namespace/ExecutorsPage'
+import Root from './routes/root'
 import { getIndexifyServiceURL } from './utils/helpers'
+import {
+  ApplicationsDetailsPageLoader,
+  ApplicationsListPageLoader,
+  ExecutorsPageLoader,
+  GraphRequestDetailsPageLoader,
+} from './utils/loaders'
 
 function RedirectToComputeGraphs() {
   const { namespace } = useParams<{ namespace: string }>()
@@ -88,6 +90,12 @@ const router = createBrowserRouter(
           path: '/:namespace/applications/:application/requests/:request-id',
           element: <GraphRequestDetailsPage />,
           loader: GraphRequestDetailsPageLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: '/executors',
+          element: <ExecutorsPage />,
+          loader: ExecutorsPageLoader,
           errorElement: <ErrorPage />,
         },
       ],

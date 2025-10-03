@@ -15,13 +15,12 @@ import {
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   Allocation,
+  FunctionRun,
   TaskOutcome,
   TaskStatus,
-} from '../../types/function-run-types'
-import { FunctionRun } from '../../types/types'
+} from '../../types/types'
 import { formatTimestamp, nanoSecondsToDate } from '../../utils/helpers'
 import CopyText from '../CopyText'
 
@@ -106,11 +105,7 @@ function FunctionRunRow({
         </TableCell>
         <TableCell>
           <Box display="flex" flexDirection="row" alignItems="center">
-            <Link
-              to={`/${namespace}/applications/${applicationName}/function-runs/${functionRun.id}`}
-            >
-              {functionRun.id}
-            </Link>
+            {functionRun.id}
             <CopyText text={functionRun.id} />
           </Box>
         </TableCell>

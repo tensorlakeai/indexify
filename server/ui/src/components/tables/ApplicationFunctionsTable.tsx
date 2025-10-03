@@ -10,13 +10,13 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { ApplicationFunction } from '../../types/types'
 import {
-  Parameter,
-  PlacementConstraints,
+  ApplicationFunction,
   NodeResources,
   NodeRetryPolicy,
-} from '../../types/application-types'
+  Parameter,
+  PlacementConstraints,
+} from '../../types/types'
 import CopyText from '../CopyText'
 
 interface ApplicationFunctionsTableProps {

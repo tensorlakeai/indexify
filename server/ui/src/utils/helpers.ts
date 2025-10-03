@@ -39,7 +39,7 @@ export function stringToColor(input: string): string {
 // Returns the appropriate service URL based on environment
 export function getIndexifyServiceURL(): string {
   return process.env.NODE_ENV === 'development'
-    ? 'http://dev-indexify-server-002.tail5981c8.ts.net:8900'
+    ? 'http://localhost:8900'
     : window.location.origin
 }
 

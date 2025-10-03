@@ -13,9 +13,9 @@ import { TableDocument } from 'iconsax-react'
 import { Link, useLoaderData } from 'react-router-dom'
 import CopyText from '../../components/CopyText'
 import CopyTextPopover from '../../components/CopyTextPopover'
+import FunctionRunsTable from '../../components/tables/FunctionRunsTable'
 import { GraphRequest, RequestOutcome } from '../../types/types'
 import { formatTimestamp } from '../../utils/helpers'
-import FunctionRunsTable from '../../components/tables/FunctionRunsTable'
 
 const GraphRequestDetailsPage = () => {
   const { namespace, application, requestId, graphRequest } =
@@ -91,7 +91,7 @@ const GraphRequestDetailsPage = () => {
               />
             </div>
             <Typography variant="h4" display={'flex'} flexDirection={'row'}>
-              Requests - {requestId} <CopyText text={requestId} />
+              Graph Requests - {requestId} <CopyText text={requestId} />
             </Typography>
           </div>
         </Box>
@@ -105,7 +105,7 @@ const GraphRequestDetailsPage = () => {
         >
           <CardContent>
             <Typography variant="h6" gutterBottom>
-              Request Details
+              Details
             </Typography>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
@@ -209,10 +209,15 @@ const GraphRequestDetailsPage = () => {
                           <Typography variant="caption" color="text.secondary">
                             Path
                           </Typography>
-                          <Box display="flex" alignItems="center" gap={1}>
+                          <Box display="flex" alignItems="flex-start" gap={1}>
                             <Typography
                               variant="body2"
-                              sx={{ fontFamily: 'monospace' }}
+                              sx={{
+                                fontFamily: 'monospace',
+                                wordBreak: 'break-all',
+                                overflowWrap: 'break-word',
+                                flex: 1,
+                              }}
                             >
                               {graphRequest.output.path}
                             </Typography>

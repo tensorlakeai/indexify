@@ -15,7 +15,9 @@ import { useCallback, useState } from 'react'
 import { Link, useLoaderData } from 'react-router-dom'
 import CopyText from '../../components/CopyText'
 import CopyTextPopover from '../../components/CopyTextPopover'
+import ApplicationEntrypointTable from '../../components/tables/ApplicationEntrypointTable'
 import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
+import ApplicationTagsTable from '../../components/tables/ApplicationTagsTable'
 import { GraphRequestsTable } from '../../components/tables/ShallowGraphRequestsTable'
 import type { ShallowGraphRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
@@ -38,13 +40,6 @@ const ApplicationDetailsPage = () => {
   const [nextCursor, setNextCursor] = useState<string | null>(
     graphRequestsPayload.next_cursor ? graphRequestsPayload.next_cursor : null
   )
-
-  // const handleDelete = useCallback((updatedList: ShallowGraphRequest[]) => {
-  //   const sortedList = [...updatedList].sort(
-  //     (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
-  //   )
-  //   setShallowGraphRequests(sortedList)
-  // }, [])
 
   const fetchInvocations = useCallback(
     async (cursor: string | null, direction: 'forward' | 'backward') => {
@@ -133,13 +128,19 @@ const ApplicationDetailsPage = () => {
             namespace={namespace}
             applicationFunctions={application.functions}
           />
+
+          <ApplicationEntrypointTable
+            namespace={namespace}
+            entrypoint={application.entrypoint}
+          />
+
+          <ApplicationTagsTable namespace={namespace} tags={application.tags} />
         </Box>
 
         <GraphRequestsTable
           namespace={namespace}
           applicationName={application.name}
           shallowGraphRequests={shallowGraphRequests}
-          // onDelete={handleDelete}
         />
 
         <Box
