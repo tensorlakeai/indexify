@@ -2,7 +2,12 @@ import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import { getIndexifyServiceURL } from './helpers'
 import axios from 'axios'
-import { Application, ApplicationsList, GraphRequests } from '../types/types'
+import {
+  Application,
+  ApplicationsList,
+  GraphRequest,
+  GraphRequests,
+} from '../types/types'
 
 const indexifyServiceURL = getIndexifyServiceURL()
 
@@ -60,7 +65,7 @@ export async function ApplicationsDetailsPageLoader({
     const applicationPayload = await apiGet<Application>(
       `/v1/namespaces/${namespace}/applications/${application}`
     )
-    const graphRequests = await apiGet<GraphRequests[]>(
+    const graphRequests = await apiGet<GraphRequests>(
       `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
     )
     return {
@@ -70,87 +75,24 @@ export async function ApplicationsDetailsPageLoader({
       graphRequests,
     }
   } catch {
-    return { client, namespace, application: null, graphRequests: [] }
+    return { client, namespace, application: null, graphRequests: null }
   }
 }
 
-// export async function IndividualComputeGraphPageLoader({
-//   params,
-//   request,
-// }: LoaderFunctionArgs) {
-//   const { namespace, application, request_id } = params
-//   if (!namespace) return redirect('/')
-
-//   const url = new URL(request.url)
-//   const cursor = url.searchParams.get('cursor') || undefined
-//   const direction = url.searchParams.get('direction') || 'forward'
-//   const limit = 20
-
-//   try {
-//     const requestsUrl = `/v1/namespaces/${namespace}/applications/${application}/requests/${request_id}/function-runs?limit=${limit}${
-//       cursor ? `&cursor=${cursor}` : ''
-//     }${direction ? `&direction=${direction}` : ''}`
-
-//     const [computeGraphs, requestsResponse] = await Promise.all([
-//       apiGet<ApplicationsList>(`/v1/namespaces/${namespace}/applications`),
-//       apiGet<{
-//         invocations: unknown[]
-//         prev_cursor?: string
-//         next_cursor?: string
-//       }>(requestsUrl),
-//     ])
-
-//     const localComputeGraph = computeGraphs.applications.find(
-//       (graph: Application) => graph.name === computeGraph
-//     )
-
-//     if (!localComputeGraph) {
-//       throw new Error(`Compute graph ${computeGraph} not found`)
-//     }
-
-//     return {
-//       invocationsList: invocationsResponse.invocations,
-//       prevCursor: invocationsResponse.prev_cursor,
-//       nextCursor: invocationsResponse.next_cursor,
-//       currentDirection: direction,
-//       computeGraph: localComputeGraph,
-//       namespace,
-//     }
-//   } catch (error) {
-//     console.error('Error fetching compute graph data:', error)
-//     throw error
-//   }
-// }
-
-export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
-  const { namespace, 'compute-graph': computeGraph } = params
-  if (!namespace) return redirect('/')
-
-  const client = createClient(namespace)
-  const invocationsList = await client.getGraphInvocations(computeGraph || '')
-
-  return { namespace, computeGraph, invocationsList }
-}
-
-export async function ExecutorsPageLoader() {
-  const executors = await apiGet<unknown>('/internal/executors')
-  return { executors }
-}
-
-export async function IndividualInvocationPageLoader({
+export async function GraphRequestDetailsPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const {
-    namespace,
-    'compute-graph': computeGraph,
-    'invocation-id': invocationId,
-  } = params
+  const namespace = params.namespace || 'default'
+  const application = params.application
+  const requestId = params['request-id']
+  const client = createClient(namespace)
 
-  return {
-    indexifyServiceURL,
-    invocationId,
-    computeGraph,
-    namespace,
+  try {
+    const graphRequest = await apiGet<GraphRequest>(
+      `/v1/namespaces/${namespace}/applications/${application}/requests/${requestId}`
+    )
+    return { client, namespace, application, requestId, graphRequest }
+  } catch {
+    return { client, namespace, application, requestId, graphRequest: null }
   }
 }

@@ -58,6 +58,24 @@ export function splitLabels(data: Record<string, string>): string[] {
   return Object.entries(data).map(([key, value]) => `${key}: ${value}`)
 }
 
+export function nanoSecondsToDate(nanoSeconds: number): string {
+  // Convert nanoseconds to milliseconds
+  let milliseconds = nanoSeconds / 1e6
+
+  // Create a Date object
+  let date = new Date(milliseconds)
+
+  // Format the date in a human-readable way
+  let year = date.getFullYear()
+  let month = String(date.getMonth() + 1).padStart(2, '0') // Months are 0-based
+  let day = String(date.getDate()).padStart(2, '0')
+  let hour = String(date.getHours()).padStart(2, '0')
+  let minute = String(date.getMinutes()).padStart(2, '0')
+  let second = String(date.getSeconds()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
 const DATE_FORMAT_OPTIONS: DateFormatOptions = {
   year: 'numeric',
   month: 'short',

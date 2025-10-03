@@ -1,5 +1,4 @@
 export { default as NamespacesPage } from './NamespacesPage'
 export { default as ApplicationsListPage } from './ApplicationsListPage'
 export { default as ApplicationDetailsPage } from './ApplicationDetailsPage'
-export { default as IndividualInvocationPage } from './IndividualInvocationPage'
-export { default as ExecutorsPage } from './ExecutorsPage'
+export { default as GraphRequestDetailsPage } from './GraphRequestDetailsPage'

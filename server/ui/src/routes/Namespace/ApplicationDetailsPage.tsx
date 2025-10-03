@@ -95,9 +95,9 @@ const ApplicationDetailsPage = () => {
         <CopyTextPopover text={namespace}>
           <Typography color="text.primary">{namespace}</Typography>
         </CopyTextPopover>
-        <Link to={`/${namespace}/compute-graphs`}>
-          <CopyTextPopover text="Compute Graphs">
-            <Typography color="text.primary">Compute Graphs</Typography>
+        <Link to={`/${namespace}/applications`}>
+          <CopyTextPopover text="Applications">
+            <Typography color="text.primary">Applications</Typography>
           </CopyTextPopover>
         </Link>
         <CopyTextPopover text={application.name}>

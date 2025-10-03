@@ -54,13 +54,14 @@ export interface DataPayload {
   sha256_hash: string
 }
 
-export interface Request {
+export interface GraphRequest {
   id: string
-  outcome?: RequestOutcome
   application_version: string
   created_at: number
-  request_error?: RequestError
+  function_runs: FunctionRun[]
+  outcome?: RequestOutcome
   output?: DataPayload
+  request_error?: RequestError
 }
 
 export interface GraphRequests {

@@ -14,16 +14,13 @@ import Root from './routes/root'
 import { ErrorPage } from './error-page'
 import {
   ApplicationsListPageLoader,
-  // ExecutorsPageLoader,
-  // IndividualComputeGraphPageLoader,
   ApplicationsDetailsPageLoader,
-  // IndividualInvocationPageLoader,
+  GraphRequestDetailsPageLoader,
 } from './utils/loaders'
 import {
   ApplicationsListPage,
   ApplicationDetailsPage,
-  // IndividualInvocationPage,
-  // ExecutorsPage,
+  GraphRequestDetailsPage,
 } from './routes/Namespace'
 import { IndexifyClient } from 'getindexify'
 import { getIndexifyServiceURL } from './utils/helpers'
@@ -34,12 +31,12 @@ function RedirectToComputeGraphs() {
   if (namespace === 'namespaces') return null
 
   const currentNamespace = namespace || 'default'
-  return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />
+  return <Navigate to={`/${currentNamespace}/applications`} replace />
 }
 
 function RootRedirect() {
   const { namespace = 'default' } = useParams<{ namespace: string }>()
-  return <Navigate to={`/${namespace}/compute-graphs`} replace />
+  return <Navigate to={`/${namespace}/applications`} replace />
 }
 
 async function rootLoader({ params }: LoaderFunctionArgs) {
@@ -87,18 +84,12 @@ const router = createBrowserRouter(
           loader: ApplicationsDetailsPageLoader,
           errorElement: <ErrorPage />,
         },
-        // {
-        //   path: '/:namespace/compute-graphs/:compute-graph/invocations/:invocation-id',
-        //   element: <IndividualInvocationPage />,
-        //   loader: IndividualInvocationPageLoader,
-        //   errorElement: <ErrorPage />,
-        // },
-        // {
-        //   path: '/executors',
-        //   element: <ExecutorsPage />,
-        //   loader: ExecutorsPageLoader,
-        //   errorElement: <ErrorPage />,
-        // },
+        {
+          path: '/:namespace/applications/:application/requests/:request-id',
+          element: <GraphRequestDetailsPage />,
+          loader: GraphRequestDetailsPageLoader,
+          errorElement: <ErrorPage />,
+        },
       ],
     },
   ],

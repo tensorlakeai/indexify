@@ -33,7 +33,7 @@ export function GraphRequestsTable({
   // const handleDelete = async (invocationId: string) => {
   //   try {
   //     await axios.delete(
-  //       `${getIndexifyServiceURL()}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}`,
+  //       `${getIndexifyServiceURL()}/namespaces/${namespace}/compute_graphs/${computeGraph}/requests/${invocationId}`,
   //       { headers: { accept: '*/*' } }
   //     )
 
@@ -70,7 +70,7 @@ export function GraphRequestsTable({
                 <TableCell>
                   <Box display="flex" flexDirection="row" alignItems="center">
                     <Link
-                      to={`/${namespace}/applications/${applicationName}/invocations/${request.id}`}
+                      to={`/${namespace}/applications/${applicationName}/requests/${request.id}`}
                     >
                       {request.id}
                     </Link>

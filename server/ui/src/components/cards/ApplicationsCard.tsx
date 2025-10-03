@@ -1,19 +1,17 @@
-import { useState } from 'react'
+import DeleteIcon from '@mui/icons-material/Delete'
 import {
   Alert,
   Card,
   CardContent,
-  Chip,
   Grid,
   IconButton,
-  ListItem,
   Typography,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import { Cpu, InfoCircle } from 'iconsax-react'
-import DeleteIcon from '@mui/icons-material/Delete'
-import { Link } from 'react-router-dom'
 import { IndexifyClient } from 'getindexify'
+import { Cpu, InfoCircle } from 'iconsax-react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Application, ApplicationsList } from '../../types/types'
 import CopyText from '../CopyText'
 import TruncatedText from '../TruncatedText'

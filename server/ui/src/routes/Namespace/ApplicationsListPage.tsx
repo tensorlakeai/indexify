@@ -1,6 +1,6 @@
 import { Box, Alert } from '@mui/material'
 import { useLoaderData } from 'react-router-dom'
-import { ApplicationsCard } from '../../components/cards/ComputeGraphsCard'
+import { ApplicationsCard } from '../../components/cards/ApplicationsCard'
 import { ApplicationsListLoaderData } from './types'
 
 const ApplicationsListPage = () => {
