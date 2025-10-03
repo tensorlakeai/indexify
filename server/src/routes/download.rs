@@ -26,8 +26,8 @@ pub async fn download_invocation_error(
         .get(
             &invocation_error.payload.path,
             Some(
-                invocation_error.payload.offset
-                    ..invocation_error.payload.offset + invocation_error.payload.size,
+                invocation_error.payload.offset..
+                    invocation_error.payload.offset + invocation_error.payload.size,
             ),
         )
         .await
