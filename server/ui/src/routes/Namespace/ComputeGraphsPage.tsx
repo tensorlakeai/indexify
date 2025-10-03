@@ -1,30 +1,31 @@
-import { Box, Alert } from "@mui/material";
-import { useLoaderData } from "react-router-dom";
-import { ComputeGraphsCard } from "../../components/cards/ComputeGraphsCard";
-import type { ComputeGraphLoaderData } from "./types";
+import { Box, Alert } from '@mui/material'
+import { useLoaderData } from 'react-router-dom'
+import { ApplicationsCard } from '../../components/cards/ComputeGraphsCard'
+import { ApplicationsListLoaderData } from './types'
 
-const ComputeGraphsPage = () => {
-  const { client, computeGraphs, namespace } = useLoaderData() as ComputeGraphLoaderData;
+const ApplicationsListPage = () => {
+  const { client, applications, namespace } =
+    useLoaderData() as ApplicationsListLoaderData
 
-  if (!client || !computeGraphs || !namespace) {
+  if (!client || !applications || !namespace) {
     return (
       <Box>
         <Alert severity="error">
           Failed to load compute graphs data. Please try again.
         </Alert>
       </Box>
-    );
+    )
   }
 
   return (
     <Box>
-      <ComputeGraphsCard
-        computeGraphs={computeGraphs}
+      <ApplicationsCard
+        applications={applications}
         client={client}
         namespace={namespace}
       />
     </Box>
-  );
-};
+  )
+}
 
-export default ComputeGraphsPage;
+export default ApplicationsListPage

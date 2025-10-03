@@ -14,31 +14,31 @@ import { Cpu, InfoCircle } from 'iconsax-react'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { Link } from 'react-router-dom'
 import { IndexifyClient } from 'getindexify'
-import { ComputeGraph, ComputeGraphsList } from '../../types'
+import { Application, ApplicationsList } from '../../types/types'
 import CopyText from '../CopyText'
 import TruncatedText from '../TruncatedText'
 
-interface ComputeGraphsCardProps {
+interface ApplicationsProps {
   client: IndexifyClient
-  computeGraphs: ComputeGraphsList
+  applications: ApplicationsList
   namespace: string
 }
 
-export function ComputeGraphsCard({
+export function ApplicationsCard({
   client,
-  computeGraphs,
+  applications,
   namespace,
-}: ComputeGraphsCardProps) {
-  const [localGraphs, setLocalGraphs] = useState<ComputeGraph[]>(
-    computeGraphs.compute_graphs || []
+}: ApplicationsProps) {
+  const [localApplications, setLocalApplications] = useState<Application[]>(
+    applications.applications || []
   )
   const [error, setError] = useState<string | null>(null)
 
-  async function handleDeleteGraph(graphName: string) {
+  async function handleDeleteApplication(applicationName: string) {
     try {
-      await client.deleteComputeGraph(graphName)
-      setLocalGraphs((prevGraphs) =>
-        prevGraphs.filter((graph) => graph.name !== graphName)
+      await client.deleteComputeGraph(applicationName)
+      setLocalApplications((prevGraphs) =>
+        prevGraphs.filter((graph) => graph.name !== applicationName)
       )
     } catch (err) {
       console.error('Error deleting compute graph:', err)
@@ -46,9 +46,9 @@ export function ComputeGraphsCard({
     }
   }
 
-  function renderGraphCard(graph: ComputeGraph) {
+  function renderGraphCard(application: Application) {
     return (
-      <Grid item xs={12} sm={6} md={4} key={graph.name} mb={2}>
+      <Grid item xs={12} sm={6} md={4} key={application.name} mb={2}>
         <Card
           sx={{
             minWidth: 275,
@@ -58,54 +58,92 @@ export function ComputeGraphsCard({
         >
           <CardContent>
             <Box display="flex" justifyContent="space-between">
-              <Link to={`/${namespace}/compute-graphs/${graph.name}`}>
-                <TruncatedText text={graph.name} maxLength={20} />
+              <Link to={`/${namespace}/applications/${application.name}`}>
+                <TruncatedText text={application.name} maxLength={20} />
               </Link>
               <Box display="flex" flexDirection="row" alignItems="center">
-                <CopyText text={graph.name} />
+                <CopyText text={application.name} />
                 <IconButton
-                  onClick={() => handleDeleteGraph(graph.name)}
-                  aria-label="delete compute graph"
+                  onClick={() => handleDeleteApplication(application.name)}
+                  aria-label="delete application"
                 >
                   <DeleteIcon color="error" />
                 </IconButton>
               </Box>
             </Box>
-            <Typography variant="subtitle2" color="text.secondary">
-              Version: {graph.version || 'N/A'}
+
+            <Typography
+              variant="subtitle2"
+              color="text.secondary"
+              sx={{ mb: 1 }}
+            >
+              {application.description}
             </Typography>
+
             <Typography variant="subtitle2" color="text.secondary">
-              Namespace: {graph.namespace}
-            </Typography>
-            <Typography variant="subtitle2" color="text.secondary">
-              Number of Nodes: {Object.keys(graph.nodes || {}).length}
-            </Typography>
-            {graph.created_at !== undefined && graph.created_at > 0 && (
-              <Typography variant="subtitle2" color="text.secondary">
-                Created At: {new Date(graph.created_at).toLocaleString()}
-              </Typography>
-            )}
-            <Typography variant="subtitle2" color="text.secondary">
-              SDK Version: {graph?.runtime_information?.sdk_version || 'unknown'}
-            </Typography>
-            {Object.keys(graph.tags || {}).length > 0 && (
-              <Typography variant="subtitle2" color="text.secondary">
-                Tags:
-                  <Box display="flex" flexWrap="wrap" mt={1}>
-                    {Object.entries(graph.tags).map(([key, value]) => (
-                      <ListItem key={key}>
-                        <Chip
-                          key={key}
-                          label={`${key}: ${value}`}
-                          color="primary"
-                          size="small"
-                          sx={{ m: 0.5 }}
-                        />
-                      </ListItem>
+              <Typography sx={{ mb: 0 }}>Functions:</Typography>
+              {Object.keys(application.functions).length > 0 ? (
+                <>
+                  <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                    {Object.values(application.functions).map((func) => (
+                      <li key={func.name}>{func.name} </li>
                     ))}
-                  </Box>
-              </Typography>
-            )}
+                  </ul>
+                </>
+              ) : (
+                <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                  <li>N/A</li>
+                </ul>
+              )}
+            </Typography>
+
+            <Typography variant="subtitle2" color="text.secondary">
+              <Typography sx={{ mb: 0 }}>Tags:</Typography>
+              {Object.keys(application.tags).length > 0 ? (
+                <>
+                  <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                    {Object.values(application.tags).map((tag) => (
+                      <li key={tag}>{tag} </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                  <li>N/A</li>
+                </ul>
+              )}
+            </Typography>
+
+            <Typography variant="subtitle2" color="text.secondary">
+              <Typography sx={{ mb: 0 }}>Entrypoint:</Typography>
+              {Object.keys(application.entrypoint).length > 0 ? (
+                <>
+                  <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                    {Object.values(application.entrypoint).map((entry) => (
+                      <li key={entry}>{entry} </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
+                  <li>N/A</li>
+                </ul>
+              )}
+            </Typography>
+
+            {application.created_at !== undefined &&
+              application.created_at > 0 && (
+                <Typography variant="subtitle2" color="text.secondary">
+                  Created At:{' '}
+                  {new Date(application.created_at).toLocaleString()}
+                </Typography>
+              )}
+            <Typography variant="subtitle2" color="text.secondary">
+              Version: {application.version || 'unknown'}
+            </Typography>
+            <Typography variant="subtitle2" color="text.secondary">
+              Tombstoned: {application.tombstoned ? 'true' : 'false'}
+            </Typography>
           </CardContent>
         </Card>
       </Grid>
@@ -120,14 +158,14 @@ export function ComputeGraphsCard({
         </Alert>
       )
 
-    if (!localGraphs.length)
+    if (!localApplications.length)
       return (
         <Alert variant="outlined" severity="info" sx={{ my: 2 }}>
           No Graphs Found
         </Alert>
       )
 
-    const sortedGraphs = [...localGraphs].sort((a, b) =>
+    const sortedGraphs = [...localApplications].sort((a, b) =>
       a.name.localeCompare(b.name)
     )
 
@@ -147,9 +185,9 @@ export function ComputeGraphsCard({
           <Cpu size="25" className="heading-icons" variant="Outline" />
         </div>
         <Typography variant="h4">
-          Compute Graphs
+          Applications
           <IconButton
-            href="https://docs.tensorlake.ai/key-concepts#graphs"
+            href="https://docs.tensorlake.ai/applications/quickstart"
             target="_blank"
           >
             <InfoCircle size="20" variant="Outline" />

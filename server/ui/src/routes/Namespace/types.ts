@@ -1,24 +1,24 @@
 import { IndexifyClient } from 'getindexify'
 import {
-  ComputeGraph,
+  Application,
   Namespace,
   ExecutorMetadata,
-  ComputeGraphsList,
-  Invocation,
-} from '../../types'
+  ApplicationsList,
+  ShallowGraphRequest,
+} from '../../types/types'
 
 export interface NamespaceLoaderData {
   namespace: string
   client?: IndexifyClient
 }
 
-export interface ComputeGraphLoaderData extends NamespaceLoaderData {
-  computeGraphs: ComputeGraphsList
+export interface ApplicationsListLoaderData extends NamespaceLoaderData {
+  applications: ApplicationsList
 }
 
 export interface IndividualComputeGraphLoaderData extends NamespaceLoaderData {
-  invocationsList: Invocation[]
-  computeGraph: ComputeGraph
+  invocationsList: ShallowGraphRequest[]
+  computeGraph: Application
   prevCursor: string | null
   nextCursor: string | null
   direction?: string

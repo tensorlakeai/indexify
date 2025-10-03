@@ -64,9 +64,9 @@ function Dashboard() {
 
   const navItems: NavItem[] = [
     {
-      path: `${namespace}/compute-graphs`,
+      path: `${namespace}/applications`,
       icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
-      label: 'Compute Graphs',
+      label: 'Applications',
     },
     {
       path: '/executors',

@@ -1,11 +1,11 @@
-import { Alert, IconButton, Typography, Paper, Grid } from '@mui/material';
-import { Box, Stack } from '@mui/system';
-import { TableDocument, InfoCircle } from 'iconsax-react';
-import { formatTimestamp } from '../../utils/helpers';
-import { Namespace } from '../../types';
+import { Alert, IconButton, Typography, Paper, Grid } from '@mui/material'
+import { Box, Stack } from '@mui/system'
+import { TableDocument, InfoCircle } from 'iconsax-react'
+import { formatTimestamp } from '../../utils/helpers'
+import { Namespace } from '../../types/types'
 
 interface NamespacesCardProps {
-  namespaces: Namespace[];
+  namespaces: Namespace[]
 }
 
 function TableDocumentIcon({ size }: { size: string }) {
@@ -13,7 +13,7 @@ function TableDocumentIcon({ size }: { size: string }) {
     <div className="heading-icon-container">
       <TableDocument size={size} variant="Outline" />
     </div>
-  );
+  )
 }
 
 function NamespaceItem({ namespace }: { namespace: Namespace }) {
@@ -26,7 +26,7 @@ function NamespaceItem({ namespace }: { namespace: Namespace }) {
           display: 'flex',
           flexDirection: 'column',
           borderRadius: '8px',
-          boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"
+          boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset',
         }}
         elevation={0}
       >
@@ -40,12 +40,12 @@ function NamespaceItem({ namespace }: { namespace: Namespace }) {
             </Typography>
           </Grid>
         </Grid>
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            alignItems: { xs: 'left', lg: 'flex-start' }, 
-            flexDirection: { xs: 'column', lg: 'row' }, 
-            mt: 1 
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'left', lg: 'flex-start' },
+            flexDirection: { xs: 'column', lg: 'row' },
+            mt: 1,
           }}
         >
           <Typography variant="subtitle2" color="text.secondary">
@@ -55,18 +55,18 @@ function NamespaceItem({ namespace }: { namespace: Namespace }) {
         </Box>
       </Paper>
     </Grid>
-  );
+  )
 }
 
 function NamespacesCard({ namespaces }: NamespacesCardProps) {
-  if (namespaces.length === 0) 
+  if (namespaces.length === 0)
     return (
       <Box mt={2} mb={2}>
         <Alert variant="outlined" severity="info">
           No Namespaces Found
         </Alert>
       </Box>
-    );
+    )
 
   return (
     <>
@@ -74,8 +74,8 @@ function NamespacesCard({ namespaces }: NamespacesCardProps) {
         <TableDocumentIcon size="25" />
         <Typography variant="h4">
           Namespaces
-          <IconButton 
-            href="https://docs.getindexify.ai/concepts/#namespaces" 
+          <IconButton
+            href="https://docs.getindexify.ai/concepts/#namespaces"
             target="_blank"
             aria-label="Learn more about namespaces"
           >
@@ -91,7 +91,7 @@ function NamespacesCard({ namespaces }: NamespacesCardProps) {
         </Grid>
       </Box>
     </>
-  );
+  )
 }
 
-export default NamespacesCard;
+export default NamespacesCard

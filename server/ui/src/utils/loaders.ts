@@ -2,7 +2,7 @@ import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import { getIndexifyServiceURL } from './helpers'
 import axios from 'axios'
-import { ComputeGraph, ComputeGraphsList } from '../types'
+import { Application, ApplicationsList } from '../types/types'
 
 const indexifyServiceURL = getIndexifyServiceURL()
 
@@ -33,97 +33,99 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
   return { client }
 }
 
-export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
+export async function ApplicationsListPageLoader({
+  params,
+}: LoaderFunctionArgs) {
   const namespace = params.namespace || 'default'
   const client = createClient(namespace)
 
   try {
-    const computeGraphs = await apiGet<ComputeGraphsList>(
-      `/namespaces/${namespace}/compute_graphs`
+    const applications = await apiGet<ApplicationsList>(
+      `/v1/namespaces/${namespace}/applications`
     )
-    return { client, computeGraphs, namespace }
+    return { client, applications, namespace }
   } catch {
-    return { client, computeGraphs: { compute_graphs: [] }, namespace }
+    return { client, applications: { applications: [] }, namespace }
   }
 }
 
-export async function IndividualComputeGraphPageLoader({
-  params,
-  request,
-}: LoaderFunctionArgs) {
-  const { namespace, 'compute-graph': computeGraph } = params
-  if (!namespace) return redirect('/')
+// export async function IndividualComputeGraphPageLoader({
+//   params,
+//   request,
+// }: LoaderFunctionArgs) {
+//   const { namespace, application, request_id } = params
+//   if (!namespace) return redirect('/')
 
-  const url = new URL(request.url)
-  const cursor = url.searchParams.get('cursor') || undefined
-  const direction = url.searchParams.get('direction') || 'forward'
-  const limit = 20
+//   const url = new URL(request.url)
+//   const cursor = url.searchParams.get('cursor') || undefined
+//   const direction = url.searchParams.get('direction') || 'forward'
+//   const limit = 20
 
-  try {
-    const invocationsUrl = `/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${
-      cursor ? `&cursor=${cursor}` : ''
-    }${direction ? `&direction=${direction}` : ''}`
+//   try {
+//     const requestsUrl = `/v1/namespaces/${namespace}/applications/${application}/requests/${request_id}/function-runs?limit=${limit}${
+//       cursor ? `&cursor=${cursor}` : ''
+//     }${direction ? `&direction=${direction}` : ''}`
 
-    const [computeGraphs, invocationsResponse] = await Promise.all([
-      apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
-      apiGet<{
-        invocations: unknown[]
-        prev_cursor?: string
-        next_cursor?: string
-      }>(invocationsUrl),
-    ])
+//     const [computeGraphs, requestsResponse] = await Promise.all([
+//       apiGet<ApplicationsList>(`/v1/namespaces/${namespace}/applications`),
+//       apiGet<{
+//         invocations: unknown[]
+//         prev_cursor?: string
+//         next_cursor?: string
+//       }>(requestsUrl),
+//     ])
 
-    const localComputeGraph = computeGraphs.compute_graphs.find(
-      (graph: ComputeGraph) => graph.name === computeGraph
-    )
+//     const localComputeGraph = computeGraphs.applications.find(
+//       (graph: Application) => graph.name === computeGraph
+//     )
 
-    if (!localComputeGraph) {
-      throw new Error(`Compute graph ${computeGraph} not found`)
-    }
+//     if (!localComputeGraph) {
+//       throw new Error(`Compute graph ${computeGraph} not found`)
+//     }
 
-    return {
-      invocationsList: invocationsResponse.invocations,
-      prevCursor: invocationsResponse.prev_cursor,
-      nextCursor: invocationsResponse.next_cursor,
-      currentDirection: direction,
-      computeGraph: localComputeGraph,
-      namespace,
-    }
-  } catch (error) {
-    console.error('Error fetching compute graph data:', error)
-    throw error
-  }
-}
+//     return {
+//       invocationsList: invocationsResponse.invocations,
+//       prevCursor: invocationsResponse.prev_cursor,
+//       nextCursor: invocationsResponse.next_cursor,
+//       currentDirection: direction,
+//       computeGraph: localComputeGraph,
+//       namespace,
+//     }
+//   } catch (error) {
+//     console.error('Error fetching compute graph data:', error)
+//     throw error
+//   }
+// }
 
-export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
-  const { namespace, 'compute-graph': computeGraph } = params
-  if (!namespace) return redirect('/')
+// export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
+//   const { namespace, 'compute-graph': computeGraph } = params
+//   if (!namespace) return redirect('/')
 
-  const client = createClient(namespace)
-  const invocationsList = await client.getGraphInvocations(computeGraph || '')
+//   const client = createClient(namespace)
+//   const invocationsList = await client.getGraphInvocations(computeGraph || '')
 
-  return { namespace, computeGraph, invocationsList }
-}
+//   return { namespace, computeGraph, invocationsList }
+// }
 
-export async function ExecutorsPageLoader() {
-  const executors = await apiGet<unknown>('/internal/executors')
-  return { executors }
-}
+// export async function ExecutorsPageLoader() {
+//   const executors = await apiGet<unknown>('/internal/executors')
+//   return { executors }
+// }
 
-export async function IndividualInvocationPageLoader({
-  params,
-}: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const {
-    namespace,
-    'compute-graph': computeGraph,
-    'invocation-id': invocationId,
-  } = params
+// export async function IndividualInvocationPageLoader({
+//   params,
+// }: LoaderFunctionArgs) {
+//   if (!params.namespace) return redirect('/')
+//   const {
+//     namespace,
+//     'compute-graph': computeGraph,
+//     'invocation-id': invocationId,
+//   } = params
 
-  return {
-    indexifyServiceURL,
-    invocationId,
-    computeGraph,
-    namespace,
-  }
-}
+//   return {
+//     indexifyServiceURL,
+//     invocationId,
+//     computeGraph,
+//     namespace,
+//   }
+// }
