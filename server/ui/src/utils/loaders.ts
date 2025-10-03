@@ -2,7 +2,7 @@ import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import { getIndexifyServiceURL } from './helpers'
 import axios from 'axios'
-import { Application, ApplicationsList } from '../types/types'
+import { Application, ApplicationsList, GraphRequests } from '../types/types'
 
 const indexifyServiceURL = getIndexifyServiceURL()
 
@@ -60,9 +60,17 @@ export async function ApplicationsDetailsPageLoader({
     const applicationPayload = await apiGet<Application>(
       `/v1/namespaces/${namespace}/applications/${application}`
     )
-    return { client, application: applicationPayload, namespace }
+    const graphRequests = await apiGet<GraphRequests[]>(
+      `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
+    )
+    return {
+      client,
+      namespace,
+      application: applicationPayload,
+      graphRequests,
+    }
   } catch {
-    return { client, application: null, namespace }
+    return { client, namespace, application: null, graphRequests: [] }
   }
 }
 

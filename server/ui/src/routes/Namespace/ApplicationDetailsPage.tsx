@@ -16,77 +16,75 @@ import { Link, useLoaderData } from 'react-router-dom'
 import CopyText from '../../components/CopyText'
 import CopyTextPopover from '../../components/CopyTextPopover'
 import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
-// import InvocationsTable from '../../components/tables/InvocationsTable'
+import { GraphRequestsTable } from '../../components/tables/ShallowGraphRequestsTable'
 import type { ShallowGraphRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import { ApplicationDetailsLoaderData } from './types'
 
 const ApplicationDetailsPage = () => {
   const {
-    // invocationsList,
-    // computeGraph,
     namespace,
     application,
-    // prevCursor: prevCursorLoader,
-    // nextCursor: nextCursorLoader,
+    graphRequests: graphRequestsPayload,
   } = useLoaderData() as ApplicationDetailsLoaderData
 
-  // const [invocations, setInvocations] =
-  //   useState<ShallowGraphRequest[]>(invocationsList)
-  // const [isLoading, setIsLoading] = useState(false)
-  // const [prevCursor, setPrevCursor] = useState<string | null>(prevCursorLoader)
-  // const [nextCursor, setNextCursor] = useState<string | null>(nextCursorLoader)
+  const [shallowGraphRequests, setShallowGraphRequests] = useState<
+    ShallowGraphRequest[]
+  >(graphRequestsPayload.requests)
+  const [isLoading, setIsLoading] = useState(false)
+  const [prevCursor, setPrevCursor] = useState<string | null>(
+    graphRequestsPayload.prev_cursor ? graphRequestsPayload.prev_cursor : null
+  )
+  const [nextCursor, setNextCursor] = useState<string | null>(
+    graphRequestsPayload.next_cursor ? graphRequestsPayload.next_cursor : null
+  )
 
   // const handleDelete = useCallback((updatedList: ShallowGraphRequest[]) => {
   //   const sortedList = [...updatedList].sort(
   //     (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
   //   )
-  //   setInvocations(sortedList)
+  //   setShallowGraphRequests(sortedList)
   // }, [])
 
-  // const fetchInvocations = useCallback(
-  //   async (cursor: string | null, direction: 'forward' | 'backward') => {
-  //     setIsLoading(true)
-  //     try {
-  //       const serviceURL = getIndexifyServiceURL()
-  //       const limit = 20
-  //       const url = `${serviceURL}/namespaces/${namespace}/compute_graphs/${
-  //         computeGraph.name
-  //       }/invocations?limit=${limit}${
-  //         cursor ? `&cursor=${cursor}` : ''
-  //       }&direction=${direction}`
+  const fetchInvocations = useCallback(
+    async (cursor: string | null, direction: 'forward' | 'backward') => {
+      setIsLoading(true)
+      try {
+        const serviceURL = getIndexifyServiceURL()
+        const limit = 20
+        const url = `${serviceURL}/v1/namespaces/${namespace}/applications/${
+          application.name
+        }/requests?limit=${limit}${
+          cursor ? `&cursor=${cursor}` : ''
+        }&direction=${direction}`
 
-  //       const response = await axios.get(url)
-  //       const data = response.data
+        const response = await axios.get(url)
+        const data = response.data
 
-  //       setInvocations([...data.invocations])
+        setShallowGraphRequests([...data.invocations])
 
-  //       setPrevCursor(data.prev_cursor)
-  //       setNextCursor(data.next_cursor)
-  //       console.log(direction, {
-  //         prevCursor: data.prev_cursor,
-  //         nextCursor: data.next_cursor,
-  //       })
-  //     } catch (error) {
-  //       console.error('Error fetching invocations:', error)
-  //     } finally {
-  //       setIsLoading(false)
-  //     }
-  //   },
-  //   [namespace, computeGraph.name]
-  // )
+        setPrevCursor(data.prev_cursor)
+        setNextCursor(data.next_cursor)
+      } catch (error) {
+        console.error('Error fetching invocations:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [namespace, application.name]
+  )
 
-  // const handleNextPage = useCallback(() => {
-  //   if (nextCursor) {
-  //     fetchInvocations(nextCursor, 'forward')
-  //   }
-  // }, [nextCursor, fetchInvocations])
+  const handleNextPage = useCallback(() => {
+    if (nextCursor) {
+      fetchInvocations(nextCursor, 'forward')
+    }
+  }, [nextCursor, fetchInvocations])
 
-  // const handlePreviousPage = useCallback(() => {
-  //   if (prevCursor) {
-  //     fetchInvocations(prevCursor, 'backward')
-  //   }
-  // }, [prevCursor, fetchInvocations])
+  const handlePreviousPage = useCallback(() => {
+    if (prevCursor) {
+      fetchInvocations(prevCursor, 'backward')
+    }
+  }, [prevCursor, fetchInvocations])
 
   return (
     <Stack direction="column" spacing={3}>
@@ -137,14 +135,14 @@ const ApplicationDetailsPage = () => {
           />
         </Box>
 
-        {/* <InvocationsTable
-          invocationsList={invocations}
+        <GraphRequestsTable
           namespace={namespace}
-          computeGraph={computeGraph.name}
-          onDelete={handleDelete}
-        /> */}
+          applicationName={application.name}
+          shallowGraphRequests={shallowGraphRequests}
+          // onDelete={handleDelete}
+        />
 
-        {/* <Box
+        <Box
           sx={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -171,7 +169,7 @@ const ApplicationDetailsPage = () => {
           >
             Next
           </Button>
-        </Box> */}
+        </Box>
       </Box>
     </Stack>
   )
