@@ -9,14 +9,10 @@ mod tests {
         assert_task_counts,
         data_model::{
             test_objects::tests::{
-                mock_data_payload,
-                mock_executor_metadata,
-                mock_updates,
-                TEST_EXECUTOR_ID,
+                mock_data_payload, mock_executor_metadata, mock_updates, TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
-            FunctionRunFailureReason,
-            FunctionRunOutcome,
+            FunctionRunFailureReason, FunctionRunOutcome,
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
@@ -839,22 +835,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
+    async fn test_create_read_and_delete_application() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
         let _ = test_state_store::with_simple_graph(&indexify_state).await;
 
-        let (compute_graphs, _) = test_srv
+        let (applications, _) = test_srv
             .service
             .indexify_state
             .reader()
             .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
-        // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        // Check if the application was created
+        assert!(applications.iter().any(|cg| cg.name == "graph_A"));
 
-        // Delete the compute graph
+        // Delete the application graph
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
@@ -865,16 +861,16 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // Read the compute graph again
-        let (compute_graphs, _) = test_srv
+        // Read the application graph again
+        let (applications, _) = test_srv
             .service
             .indexify_state
             .reader()
             .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
-        // Check if the compute graph was deleted
-        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        // Check if the application was deleted
+        assert!(!applications.iter().any(|cg| cg.name == "graph_A"));
 
         Ok(())
     }

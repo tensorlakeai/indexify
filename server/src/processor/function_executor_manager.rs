@@ -343,7 +343,7 @@ impl FunctionExecutorManager {
                 }
 
                 if_chain! {
-                        if let Some(compute_graph_version) = in_memory_state.get_existing_application_version(&function_run);
+                        if let Some(application_version) = in_memory_state.get_existing_application_version(&function_run);
                         if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
                 then {
                             if blame_alloc_ids.contains(&alloc.id.to_string()) {
@@ -352,7 +352,7 @@ impl FunctionExecutorManager {
                                 TaskRetryPolicy::handle_allocation_outcome(
                                     &mut function_run,
                                     &updated_alloc,
-                                    compute_graph_version,
+                                    application_version,
                                 );
                             } else {
                                 // This allocation wasn't blamed for the FE termination,

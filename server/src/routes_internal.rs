@@ -14,10 +14,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        from_data_model_executor_metadata, Allocation, CacheKey, ComputeFn, CreateNamespace,
-        ExecutorCatalog, ExecutorMetadata, ExecutorsAllocationsResponse, GraphVersion,
-        IndexifyAPIError, Namespace, NamespaceList, StateChangesResponse, TaskOutcome,
-        UnallocatedFunctionRuns,
+        from_data_model_executor_metadata, Allocation, CacheKey, CreateNamespace, ExecutorCatalog,
+        ExecutorMetadata, ExecutorsAllocationsResponse, Function, GraphVersion, IndexifyAPIError,
+        Namespace, NamespaceList, StateChangesResponse, TaskOutcome, UnallocatedFunctionRuns,
     },
     http_objects_v1,
     indexify_ui::Assets as UiAssets,
@@ -46,7 +45,7 @@ use crate::{
                 IndexifyAPIError,
                 Namespace,
 		        CacheKey,
-                ComputeFn,
+                Function,
                 ExecutorMetadata,
                 TaskOutcome,
                 GraphVersion,
@@ -398,13 +397,13 @@ async fn get_versioned_code(
 }
 
 async fn set_ctx_state_key(
-    Path((namespace, compute_graph, invocation_id, key)): Path<(String, String, String, String)>,
+    Path((namespace, application, invocation_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
     mut values: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut request: WriteContextData = WriteContextData {
         namespace,
-        application: compute_graph,
+        application,
         invocation_id,
         key,
         value: vec![],
@@ -447,14 +446,14 @@ async fn set_ctx_state_key(
 }
 
 async fn get_ctx_state_key(
-    Path((namespace, compute_graph, invocation_id, key)): Path<(String, String, String, String)>,
+    Path((namespace, application, invocation_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
     let value = state
         .kvs
         .get_ctx_state_key(ReadContextData {
             namespace,
-            application: compute_graph,
+            application,
             invocation_id,
             key,
         })

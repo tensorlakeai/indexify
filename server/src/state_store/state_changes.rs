@@ -40,14 +40,14 @@ pub fn invoke_application(
     Ok(vec![state_change])
 }
 
-pub fn tombstone_compute_graph(
+pub fn tombstone_application(
     last_change_id: &AtomicU64,
     request: &DeleteComputeGraphRequest,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .id(StateChangeId::new(last_change_id))
-        .change_type(ChangeType::TombstoneComputeGraph(
+        .change_type(ChangeType::TombstoneApplication(
             TombstoneComputeGraphEvent {
                 namespace: request.namespace.clone(),
                 application: request.name.clone(),

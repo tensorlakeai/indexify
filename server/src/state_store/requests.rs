@@ -29,7 +29,7 @@ impl StateMachineUpdateRequest {
                 state_changes::invoke_application(state_change_id_seq, request)
             }
             RequestPayload::TombstoneComputeGraph(request) => {
-                state_changes::tombstone_compute_graph(state_change_id_seq, request)
+                state_changes::tombstone_application(state_change_id_seq, request)
             }
             RequestPayload::TombstoneInvocation(request) => {
                 state_changes::tombstone_invocation(state_change_id_seq, request)

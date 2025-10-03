@@ -340,11 +340,11 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .namespace
             .clone()
             .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_ref
+        let application_name = function_ref
             .application_name
             .clone()
             .ok_or(anyhow::anyhow!("application_name is required"))?;
-        let compute_fn_name = function_ref
+        let function_name = function_ref
             .function_name
             .clone()
             .ok_or(anyhow::anyhow!("function_name is required"))?;
@@ -379,8 +379,8 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new(id.clone()))
             .namespace(namespace.clone())
-            .application_name(compute_graph_name.clone())
-            .function_name(compute_fn_name.clone())
+            .application_name(application_name.clone())
+            .function_name(function_name.clone())
             .version(GraphVersion(version.clone()))
             .state(state)
             .resources(resources)

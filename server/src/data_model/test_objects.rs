@@ -5,7 +5,7 @@ pub mod tests {
     use bytes::Bytes;
     use nanoid::nanoid;
 
-    use super::super::{Application, ComputeFn};
+    use super::super::{Application, Function};
     use crate::{
         data_model::{
             ApplicationBuilder, ApplicationState, ComputeOp, DataPayload, EntryPointManifest,
@@ -47,8 +47,8 @@ pub mod tests {
         }
     }
 
-    pub fn test_compute_fn(name: &str, max_retries: u32) -> ComputeFn {
-        ComputeFn {
+    pub fn test_compute_fn(name: &str, max_retries: u32) -> Function {
+        Function {
             name: name.to_string(),
             description: format!("description {name}"),
             fn_name: name.to_string(),
@@ -73,14 +73,14 @@ pub mod tests {
         }
     }
 
-    pub fn mock_request_ctx(namespace: &str, compute_graph: &Application) -> GraphInvocationCtx {
+    pub fn mock_request_ctx(namespace: &str, application: &Application) -> GraphInvocationCtx {
         let request_id = nanoid!();
         let fn_call = mock_function_call();
         let input_args = vec![InputArgs {
             function_call_id: None,
             data_payload: mock_data_payload(),
         }];
-        let fn_run = compute_graph
+        let fn_run = application
             .to_version()
             .unwrap()
             .create_function_run(&fn_call, input_args, &request_id)
@@ -88,8 +88,8 @@ pub mod tests {
         GraphInvocationCtxBuilder::default()
             .namespace(namespace.to_string())
             .request_id(request_id)
-            .application_name(compute_graph.name.clone())
-            .application_version(compute_graph.version.clone())
+            .application_name(application.name.clone())
+            .application_version(application.version.clone())
             .function_runs(HashMap::from([(fn_run.id.clone(), fn_run)]))
             .function_calls(HashMap::from([(fn_call.function_call_id.clone(), fn_call)]))
             .created_at(get_epoch_time_in_ms())

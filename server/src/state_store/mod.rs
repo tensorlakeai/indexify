@@ -483,7 +483,6 @@ mod tests {
 
             // Verify the name is the same. Verify the version is different.
             assert!(application.iter().any(|cg| cg.name == "graph_A"));
-            // println!("compute graph {:?}", compute_graphs[0]);
             assert_eq!(application[0].version, GraphVersion(i.to_string()));
         }
 
@@ -588,8 +587,8 @@ mod tests {
         let columns = vec![
             "StateMachineMetadata",
             "Namespaces",
-            "ComputeGraphs",
-            "ComputeGraphVersions",
+            "Applications",
+            "ApplicationVersions",
             "GraphInvocationCtx",
             "GraphInvocationCtxSecondaryIndex",
             "UnprocessedStateChanges",

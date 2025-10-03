@@ -60,7 +60,7 @@ impl Application {
         let mut nodes = HashMap::new();
         for (name, node) in self.functions {
             node.validate()?;
-            let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
+            let converted_node: data_model::Function = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in function '{name}': {e}"
                 ))
@@ -74,7 +74,7 @@ impl Application {
             )));
         };
 
-        let compute_graph = ApplicationBuilder::default()
+        let application = ApplicationBuilder::default()
             .name(self.name)
             .namespace(self.namespace)
             .description(self.description)
@@ -104,7 +104,7 @@ impl Application {
             .map_err(|e| {
                 IndexifyAPIError::bad_request(&format!("Failed to create ComputeGraph: {e}"))
             })?;
-        Ok(compute_graph)
+        Ok(application)
     }
 }
 

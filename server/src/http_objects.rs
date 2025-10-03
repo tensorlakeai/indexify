@@ -345,11 +345,11 @@ pub struct ApplicationFunction {
     pub max_concurrency: u32,
 }
 
-impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
+impl TryFrom<ApplicationFunction> for data_model::Function {
     type Error = anyhow::Error;
 
     fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
-        Ok(data_model::ComputeFn {
+        Ok(data_model::Function {
             name: val.name.clone(),
             fn_name: val.name.clone(),
             description: val.description.clone(),
@@ -369,8 +369,8 @@ impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
     }
 }
 
-impl From<data_model::ComputeFn> for ApplicationFunction {
-    fn from(c: data_model::ComputeFn) -> Self {
+impl From<data_model::Function> for ApplicationFunction {
+    fn from(c: data_model::Function) -> Self {
         Self {
             name: c.name,
             description: c.description,
@@ -402,7 +402,7 @@ impl ApplicationFunction {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ComputeFn {
+pub struct Function {
     pub name: String,
     pub fn_name: String,
     pub description: String,
@@ -432,11 +432,11 @@ pub struct ComputeFn {
     pub max_concurrency: u32,
 }
 
-impl TryFrom<ComputeFn> for data_model::ComputeFn {
+impl TryFrom<Function> for data_model::Function {
     type Error = anyhow::Error;
 
-    fn try_from(val: ComputeFn) -> Result<Self, Self::Error> {
-        Ok(data_model::ComputeFn {
+    fn try_from(val: Function) -> Result<Self, Self::Error> {
+        Ok(data_model::Function {
             name: val.name.clone(),
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
@@ -456,8 +456,8 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
     }
 }
 
-impl From<data_model::ComputeFn> for ComputeFn {
-    fn from(c: data_model::ComputeFn) -> Self {
+impl From<data_model::Function> for Function {
+    fn from(c: data_model::Function) -> Self {
         Self {
             name: c.name,
             fn_name: c.fn_name,
@@ -523,7 +523,7 @@ pub struct QueryParams {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GraphOutputNotification {
     pub output_id: String,
-    pub compute_graph: String,
+    pub application: String,
     pub fn_name: String,
 }
 
@@ -616,8 +616,8 @@ pub struct RequestId {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
-    pub compute_graph: Option<String>,
-    pub compute_fn: Option<String>,
+    pub application: Option<String>,
+    pub function: Option<String>,
 
     // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
@@ -656,8 +656,8 @@ impl From<data_model::HostResources> for HostResources {
 pub struct FunctionExecutorMetadata {
     pub id: String,
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub compute_fn_name: String,
+    pub application_name: String,
+    pub function_name: String,
     pub version: String,
     pub max_concurrency: u32,
     pub state: String,
@@ -671,8 +671,8 @@ pub fn from_data_model_function_executor(
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
         namespace: fe.namespace,
-        compute_graph_name: fe.application_name,
-        compute_fn_name: fe.function_name,
+        application_name: fe.application_name,
+        function_name: fe.function_name,
         version: fe.version.to_string(),
         max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
@@ -710,8 +710,8 @@ pub fn from_data_model_executor_metadata(
             .iter()
             .map(|fn_uri| FunctionAllowlist {
                 namespace: fn_uri.namespace.clone(),
-                compute_graph: fn_uri.application_name.clone(),
-                compute_fn: fn_uri.function.clone(),
+                application: fn_uri.application_name.clone(),
+                function: fn_uri.function.clone(),
                 version: fn_uri.version.clone().map(|v| v.into()),
             })
             .collect()
@@ -803,8 +803,8 @@ impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
 pub struct Allocation {
     pub id: String,
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
     pub executor_id: String,
     pub function_executor_id: String,
     pub task_id: String,
@@ -820,8 +820,8 @@ impl From<data_model::Allocation> for Allocation {
         Self {
             id: allocation.id.to_string(),
             namespace: allocation.namespace,
-            compute_graph: allocation.application,
-            compute_fn: allocation.function,
+            application: allocation.application,
+            function: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             task_id: allocation.function_call_id.to_string(),
@@ -841,7 +841,7 @@ pub struct StateChange {
     pub change_type: String,
     pub created_at: u64,
     pub namespace: Option<String>,
-    pub compute_graph: Option<String>,
+    pub application: Option<String>,
     pub invocation: Option<String>,
 }
 impl From<data_model::StateChange> for StateChange {
@@ -852,7 +852,7 @@ impl From<data_model::StateChange> for StateChange {
             change_type: item.change_type.to_string(),
             created_at: item.created_at,
             namespace: item.namespace,
-            compute_graph: item.application,
+            application: item.application,
             invocation: item.invocation,
         }
     }
@@ -894,7 +894,7 @@ pub struct ExecutorsAllocationsResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::{ComputeFn, PlacementConstraints};
+    use crate::http_objects::{Function, PlacementConstraints};
 
     #[test]
     fn test_labels_filter_conversion() {
@@ -938,11 +938,11 @@ mod tests {
     fn test_compute_fn_with_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
 
-        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
+        let compute_fn: Function = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
 
         // Test conversion to data model
-        let data_model_fn: crate::data_model::ComputeFn = compute_fn.try_into().unwrap();
+        let data_model_fn: crate::data_model::Function = compute_fn.try_into().unwrap();
         assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
     }
 
@@ -950,12 +950,10 @@ mod tests {
     fn test_compute_fn_with_unparseable_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
 
-        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
+        let compute_fn: Function = serde_json::from_str(json).unwrap();
         assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
 
         // Test failed conversion to data model
-        assert!(
-            <ComputeFn as TryInto<crate::data_model::ComputeFn>>::try_into(compute_fn).is_err()
-        );
+        assert!(<Function as TryInto<crate::data_model::Function>>::try_into(compute_fn).is_err());
     }
 }

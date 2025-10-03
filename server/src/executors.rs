@@ -407,7 +407,7 @@ impl ExecutorManager {
                 content_type: Some("application/zip".to_string()),
             };
             let fe = &desired_state_fe.function_executor.function_executor;
-            let Some(compute_graph_version) = self
+            let Some(application_version) = self
                 .indexify_state
                 .in_memory_state
                 .read()
@@ -435,7 +435,7 @@ impl ExecutorManager {
                 initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
                 application: Some(code_payload_pb),
                 allocation_timeout_ms: Some(
-                    compute_graph_version
+                    application_version
                         .nodes
                         .get(&fe.function_name)
                         .unwrap()

@@ -8,18 +8,14 @@ mod tests {
 
     use crate::{
         data_model::{
-            test_objects::tests::{mock_function_call, mock_application, TEST_NAMESPACE},
-            DataPayload,
-            GraphInvocationCtxBuilder,
-            InputArgs,
+            test_objects::tests::{mock_application, mock_function_call, TEST_NAMESPACE},
+            DataPayload, GraphInvocationCtxBuilder, InputArgs,
         },
         service::Service,
         state_store::{
             driver::Writer,
             requests::{
-                CreateOrUpdateComputeGraphRequest,
-                DeleteComputeGraphRequest,
-                RequestPayload,
+                CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, RequestPayload,
                 StateMachineUpdateRequest,
             },
             serializer::{JsonEncode, JsonEncoder},
@@ -39,32 +35,32 @@ mod tests {
             ..
         } = test_srv.service;
 
-        // Create a compute graph
-        let compute_graph = {
-            let mut compute_graph = mock_application().clone();
+        // Create an application
+        let application = {
+            let mut application = mock_application().clone();
             let data = "code";
-            let path = compute_graph.code.path.to_string();
+            let path = application.code.path.to_string();
 
             let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
             let res = blob_storage_registry
                 .get_blob_store(TEST_NAMESPACE)
                 .put(&path, data_stream)
                 .await?;
-            compute_graph.code.path = res.url;
+            application.code.path = res.url;
 
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
                             namespace: TEST_NAMESPACE.to_string(),
-                            application: compute_graph.clone(),
+                            application: application.clone(),
                             upgrade_requests_to_current_version: false,
                         },
                     )),
                 })
                 .await?;
 
-            compute_graph
+            application
         };
 
         let res = {
@@ -77,7 +73,7 @@ mod tests {
                 .await?;
 
             let mock_function_call = mock_function_call();
-            let mock_compute_graph = mock_application();
+            let mock_application = mock_application();
             let input_payload = DataPayload {
                 id: "test".to_string(),
                 path: res.url.clone(),
@@ -88,22 +84,19 @@ mod tests {
                 offset: 0,
             };
             let request_id = nanoid::nanoid!();
-            let mock_function_run = mock_compute_graph
-                .to_version()
-                .unwrap()
-                .create_function_run(
-                    &mock_function_call,
-                    vec![InputArgs {
-                        function_call_id: None,
-                        data_payload: input_payload,
-                    }],
-                    &request_id,
-                )?;
+            let mock_function_run = mock_application.to_version().unwrap().create_function_run(
+                &mock_function_call,
+                vec![InputArgs {
+                    function_call_id: None,
+                    data_payload: input_payload,
+                }],
+                &request_id,
+            )?;
             let graph_ctx = GraphInvocationCtxBuilder::default()
                 .request_id(request_id)
-                .application_name(compute_graph.name.clone())
+                .application_name(application.name.clone())
                 .namespace(TEST_NAMESPACE.to_string())
-                .application_version(compute_graph.version.clone())
+                .application_version(application.version.clone())
                 .outcome(Some(crate::data_model::GraphInvocationOutcome::Failure(
                     crate::data_model::GraphInvocationFailureReason::InternalError,
                 )))
@@ -139,7 +132,7 @@ mod tests {
                 payload: RequestPayload::DeleteComputeGraphRequest((
                     DeleteComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
-                        name: compute_graph.name.clone(),
+                        name: application.name.clone(),
                     },
                     vec![],
                 )),

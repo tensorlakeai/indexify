@@ -378,7 +378,7 @@ fn default_max_concurrency() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ComputeFn {
+pub struct Function {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
@@ -405,7 +405,7 @@ pub struct ComputeFn {
     pub max_concurrency: u32,
 }
 
-impl ComputeFn {
+impl Function {
     pub fn create_function_call(
         &self,
         function_call_id: FunctionCallId,
@@ -490,8 +490,8 @@ pub struct Application {
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: GraphVersion,
     pub code: DataPayload,
-    pub start_fn: ComputeFn,
-    pub nodes: HashMap<String, ComputeFn>,
+    pub start_fn: Function,
+    pub nodes: HashMap<String, Function>,
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
@@ -543,7 +543,7 @@ impl Application {
     pub fn to_version(&self) -> Result<ApplicationVersion> {
         ApplicationVersionBuilder::default()
             .namespace(self.namespace.clone())
-            .compute_graph_name(self.name.clone())
+            .application_name(self.name.clone())
             .created_at(self.created_at)
             .version(self.version.clone())
             .code(self.code.clone())
@@ -641,13 +641,13 @@ impl Application {
 pub struct ApplicationVersion {
     // Graph is currently versioned manually by users.
     pub namespace: String,
-    pub compute_graph_name: String,
+    pub application_name: String,
     pub created_at: u64,
     pub version: GraphVersion,
     pub code: DataPayload,
-    pub start_fn: ComputeFn,
+    pub start_fn: Function,
     #[builder(default)]
-    pub nodes: HashMap<String, ComputeFn>,
+    pub nodes: HashMap<String, Function>,
     #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -673,7 +673,7 @@ impl ApplicationVersion {
         FunctionRunBuilder::default()
             .id(fn_call.function_call_id.clone())
             .namespace(self.namespace.clone())
-            .application(self.compute_graph_name.clone())
+            .application(self.application_name.clone())
             .application_version(self.version.clone())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 function_call_id: fn_call.function_call_id.clone(),
@@ -694,11 +694,11 @@ impl ApplicationVersion {
     }
 
     pub fn key(&self) -> String {
-        ApplicationVersion::key_from(&self.namespace, &self.compute_graph_name, &self.version)
+        ApplicationVersion::key_from(&self.namespace, &self.application_name, &self.version)
     }
 
-    pub fn key_from(namespace: &str, compute_graph_name: &str, version: &GraphVersion) -> String {
-        format!("{}|{}|{}", namespace, compute_graph_name, version.0)
+    pub fn key_from(namespace: &str, application_name: &str, version: &GraphVersion) -> String {
+        format!("{}|{}|{}", namespace, application_name, version.0)
     }
 
     pub fn key_prefix_from(namespace: &str, name: &str) -> String {
@@ -1714,7 +1714,7 @@ pub struct ExecutorUpsertedEvent {
 pub enum ChangeType {
     InvokeComputeGraph(InvokeApplicationEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
-    TombstoneComputeGraph(TombstoneComputeGraphEvent),
+    TombstoneApplication(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
@@ -1735,9 +1735,9 @@ impl fmt::Display for ChangeType {
                 "TaskOutputsIngested ns: {}, invocation: {}, application: {}, task: {}",
                 ev.namespace, ev.invocation_id, ev.application, ev.function_call_id,
             ),
-            ChangeType::TombstoneComputeGraph(ev) => write!(
+            ChangeType::TombstoneApplication(ev) => write!(
                 f,
-                "TombstoneComputeGraph ns: {}, compute_graph: {}",
+                "TombstoneApplication ns: {}, application: {}",
                 ev.namespace, ev.application
             ),
             ChangeType::ExecutorUpserted(e) => {
@@ -1748,7 +1748,7 @@ impl fmt::Display for ChangeType {
             }
             ChangeType::TombstoneInvocation(ev) => write!(
                 f,
-                "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",
+                "TombstoneInvocation, ns: {}, application: {}, invocation_id: {}",
                 ev.namespace, ev.application, ev.invocation_id
             ),
         }
@@ -1858,7 +1858,7 @@ mod tests {
     };
 
     #[test]
-    fn test_compute_graph_update() {
+    fn test_application_update() {
         const TEST_NAMESPACE: &str = "namespace1";
         let fn_a = test_compute_fn("fn_a", 0);
         let fn_b = test_compute_fn("fn_b", 0);
@@ -2289,8 +2289,8 @@ mod tests {
     fn test_function_executor_builder_build_success() {
         let id: FunctionExecutorId = "fe-123".into();
         let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
+        let application_name = "graph".to_string();
+        let function_name = "fn".to_string();
         let version = GraphVersion::from("1");
         let state = FunctionExecutorState::Running;
         let resources = FunctionExecutorResources {
@@ -2308,8 +2308,8 @@ mod tests {
         builder
             .id(id.clone())
             .namespace(namespace.clone())
-            .application_name(compute_graph_name.clone())
-            .function_name(compute_fn_name.clone())
+            .application_name(application_name.clone())
+            .function_name(function_name.clone())
             .version(version.clone())
             .state(state.clone())
             .resources(resources.clone())
@@ -2319,8 +2319,8 @@ mod tests {
 
         assert_eq!(fe.id, id);
         assert_eq!(fe.namespace, namespace);
-        assert_eq!(fe.application_name, compute_graph_name);
-        assert_eq!(fe.function_name, compute_fn_name);
+        assert_eq!(fe.application_name, application_name);
+        assert_eq!(fe.function_name, function_name);
         assert_eq!(fe.version, version);
         assert_eq!(fe.state, state);
         assert_eq!(fe.resources, resources);
@@ -2331,11 +2331,8 @@ mod tests {
         let json = serde_json::to_string(&fe).expect("Should serialize FunctionExecutor to JSON");
         assert!(json.contains(&format!("\"id\":\"{}\"", fe.id.get())));
         assert!(json.contains(&format!("\"namespace\":\"{}\"", fe.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            fe.application_name
-        )));
-        assert!(json.contains(&format!("\"compute_fn_name\":\"{}\"", fe.function_name)));
+        assert!(json.contains(&format!("\"application_name\":\"{}\"", fe.application_name)));
+        assert!(json.contains(&format!("\"function_name\":\"{}\"", fe.function_name)));
         assert!(json.contains(&format!("\"version\":\"{}\"", fe.version)));
         assert!(json.contains(&format!("\"state\":\"{}\"", fe.state.as_ref())));
         assert!(json.contains(&format!("\"max_concurrency\":{}", fe.max_concurrency)));

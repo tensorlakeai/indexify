@@ -187,14 +187,14 @@ pub async fn applications(
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
-    let (compute_graphs, cursor) = state
+    let (application, cursor) = state
         .indexify_state
         .reader()
         .list_applications(&namespace, cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(http_objects_v1::ApplicationsList {
-        applications: compute_graphs.into_iter().map(|c| c.into()).collect(),
+        applications: application.into_iter().map(|c| c.into()).collect(),
         cursor,
     }))
 }

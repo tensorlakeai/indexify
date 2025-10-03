@@ -53,18 +53,18 @@ impl GraphProcessor {
     }
 
     pub async fn validate_graph_constraints(&self) -> Result<()> {
-        let updated_compute_graphs = {
+        let updated_applications = {
             let in_memory_state = self.indexify_state.in_memory_state.read().await;
             let executor_catalog = &in_memory_state.executor_catalog;
-            in_memory_state.applications.values().filter_map(|compute_graph| {
-                let target_state = if compute_graph.can_be_scheduled(executor_catalog).is_ok() {
+            in_memory_state.applications.values().filter_map(|application| {
+                let target_state = if application.can_be_scheduled(executor_catalog).is_ok() {
                         ApplicationState::Active
                 } else {
                         ApplicationState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}
                 };
 
-                if target_state != compute_graph.state {
-                    let mut updated_graph = *compute_graph.clone();
+                if target_state != application.state {
+                    let mut updated_graph = *application.clone();
                     updated_graph.state = target_state;
                     Some(updated_graph)
                 } else {
@@ -74,13 +74,13 @@ impl GraphProcessor {
                 .collect::<Vec<Application>>()
         };
 
-        for compute_graph in updated_compute_graphs {
+        for application in updated_applications {
             self.indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
                         CreateOrUpdateComputeGraphRequest {
-                            namespace: compute_graph.namespace.clone(),
-                            application: compute_graph,
+                            namespace: application.namespace.clone(),
+                            application,
                             upgrade_requests_to_current_version: true,
                         },
                     )),
@@ -288,7 +288,7 @@ impl GraphProcessor {
                     )),
                 }
             }
-            ChangeType::TombstoneComputeGraph(request) => StateMachineUpdateRequest {
+            ChangeType::TombstoneApplication(request) => StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteComputeGraphRequest((
                     DeleteComputeGraphRequest {
                         namespace: request.namespace.clone(),

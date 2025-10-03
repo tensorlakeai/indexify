@@ -33,13 +33,13 @@ async fn create_invocation_progress_stream(
     mut rx: Receiver<InvocationStateChangeEvent>,
     state: &RouteState,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     let reader = state.indexify_state.reader();
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+        match reader.invocation_ctx(namespace.as_str(), application.as_str(), &id)
         {
             Ok(Some(invocation)) => {
                 if invocation.outcome.is_some() {
@@ -56,7 +56,7 @@ async fn create_invocation_progress_stream(
             Ok(None) => {
                 info!(
                     namespace = namespace,
-                    graph = compute_graph,
+                    graph = application,
                     invocation_id=id,
                     "invocation not found, stopping stream");
                 return;
@@ -82,13 +82,13 @@ async fn create_invocation_progress_stream(
                 Err(RecvError::Lagged(num)) => {
                     warn!(
                         namespace = namespace,
-                        graph = compute_graph,
+                        application = application,
                         invocation_id=id,
                         "lagging behind task event stream by {} events", num);
 
                     // Check if completion happened during lag
                     match reader
-                        .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+                        .invocation_ctx(namespace.as_str(), application.as_str(), &id)
                     {
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
@@ -105,7 +105,7 @@ async fn create_invocation_progress_stream(
                         Ok(None) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
+                                application = application,
                                 invocation_id=id,
                                 "invocation not found");
                             return;
@@ -113,7 +113,7 @@ async fn create_invocation_progress_stream(
                         Err(e) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
+                                application = application,
                                 invocation_id=id,
                                 "failed to get invocation context: {:?}", e);
                             return;

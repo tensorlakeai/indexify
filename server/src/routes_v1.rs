@@ -1,14 +1,13 @@
 use anyhow::Result;
+use applications::{applications, delete_application, get_application};
 use axum::{
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use base64::prelude::*;
-use compute_graphs::{applications, delete_application, get_application};
 use download::download_invocation_error;
 use invoke::{invoke_api_with_object_v1, invoke_default_api_with_object_v1};
 use tracing::info;
@@ -17,25 +16,13 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        Allocation,
-        CacheKey,
-        ComputeFn,
-        CreateNamespace,
-        CursorDirection,
-        ExecutorMetadata,
-        ExecutorsAllocationsResponse,
-        GraphVersion,
-        IndexifyAPIError,
-        ListParams,
-        Namespace,
-        NamespaceList,
-        StateChangesResponse,
-        TaskOutcome,
-        UnallocatedFunctionRuns,
+        Allocation, CacheKey, CreateNamespace, CursorDirection, ExecutorMetadata,
+        ExecutorsAllocationsResponse, Function, GraphVersion, IndexifyAPIError, ListParams,
+        Namespace, NamespaceList, StateChangesResponse, TaskOutcome, UnallocatedFunctionRuns,
     },
     http_objects_v1::{self, Application, ApplicationsList, GraphRequests},
     routes::{
-        compute_graphs::{self, create_or_update_application},
+        applications::{self, create_or_update_application},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
         invoke::{self, progress_stream},
         routes_state::RouteState,
@@ -43,10 +30,7 @@ use crate::{
     state_store::{
         self,
         requests::{
-            DeleteInvocationRequest,
-            NamespaceRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            DeleteInvocationRequest, NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
         },
     },
 };
@@ -58,10 +42,10 @@ use crate::{
             invoke::invoke_api_with_object_v1,
             list_requests,
             find_request,
-            compute_graphs::create_or_update_application,
-            compute_graphs::applications,
-            compute_graphs::get_application,
-            compute_graphs::delete_application,
+            applications::create_or_update_application,
+            applications::applications,
+            applications::get_application,
+            applications::delete_application,
             delete_request,
             download::v1_download_fn_output_payload,
         ),
@@ -73,7 +57,7 @@ use crate::{
                 Namespace,
                 Application,
 		        CacheKey,
-                ComputeFn,
+                Function,
                 ListParams,
                 ApplicationsList,
                 ExecutorMetadata,

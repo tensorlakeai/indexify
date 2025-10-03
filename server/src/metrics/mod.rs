@@ -310,7 +310,7 @@ use std::fmt::Display;
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct FnMetricsId {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
     pub compute_fn: String,
 }
 
@@ -319,7 +319,7 @@ impl Display for FnMetricsId {
         write!(
             f,
             "{}/{}/{}",
-            self.namespace, self.compute_graph, self.compute_fn
+            self.namespace, self.application, self.compute_fn
         )
     }
 }
