@@ -1,46 +1,45 @@
+import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore'
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import {
   Box,
   Breadcrumbs,
-  Typography,
-  Stack,
-  Chip,
   Button,
+  Chip,
   CircularProgress,
+  Stack,
+  Typography,
 } from '@mui/material'
-import { TableDocument } from 'iconsax-react'
-import NavigateNextIcon from '@mui/icons-material/NavigateNext'
-import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore'
-import { Link, useLoaderData } from 'react-router-dom'
-import { useState, useCallback } from 'react'
-import type { Invocation } from '../../types'
-import type { IndividualComputeGraphLoaderData } from './types'
-import ComputeGraphTable from '../../components/tables/ComputeGraphTable'
-import CopyText from '../../components/CopyText'
-import InvocationsTable from '../../components/tables/InvocationsTable'
-import CopyTextPopover from '../../components/CopyTextPopover'
 import axios from 'axios'
+import { TableDocument } from 'iconsax-react'
+import { useCallback, useState } from 'react'
+import { Link, useLoaderData } from 'react-router-dom'
+import CopyText from '../../components/CopyText'
+import CopyTextPopover from '../../components/CopyTextPopover'
+import ApplicationEntrypointTable from '../../components/tables/ApplicationEntrypointTable'
+import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
+import ApplicationTagsTable from '../../components/tables/ApplicationTagsTable'
+import { GraphRequestsTable } from '../../components/tables/ShallowGraphRequestsTable'
+import type { ShallowGraphRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
+import { ApplicationDetailsLoaderData } from './types'
 
-const IndividualComputeGraphPage = () => {
+const ApplicationDetailsPage = () => {
   const {
-    invocationsList,
-    computeGraph,
     namespace,
-    prevCursor: prevCursorLoader,
-    nextCursor: nextCursorLoader,
-  } = useLoaderData() as IndividualComputeGraphLoaderData
+    application,
+    graphRequests: graphRequestsPayload,
+  } = useLoaderData() as ApplicationDetailsLoaderData
 
-  const [invocations, setInvocations] = useState<Invocation[]>(invocationsList)
+  const [shallowGraphRequests, setShallowGraphRequests] = useState<
+    ShallowGraphRequest[]
+  >(graphRequestsPayload.requests)
   const [isLoading, setIsLoading] = useState(false)
-  const [prevCursor, setPrevCursor] = useState<string | null>(prevCursorLoader)
-  const [nextCursor, setNextCursor] = useState<string | null>(nextCursorLoader)
-
-  const handleDelete = useCallback((updatedList: Invocation[]) => {
-    const sortedList = [...updatedList].sort(
-      (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
-    )
-    setInvocations(sortedList)
-  }, [])
+  const [prevCursor, setPrevCursor] = useState<string | null>(
+    graphRequestsPayload.prev_cursor ? graphRequestsPayload.prev_cursor : null
+  )
+  const [nextCursor, setNextCursor] = useState<string | null>(
+    graphRequestsPayload.next_cursor ? graphRequestsPayload.next_cursor : null
+  )
 
   const fetchInvocations = useCallback(
     async (cursor: string | null, direction: 'forward' | 'backward') => {
@@ -48,30 +47,26 @@ const IndividualComputeGraphPage = () => {
       try {
         const serviceURL = getIndexifyServiceURL()
         const limit = 20
-        const url = `${serviceURL}/namespaces/${namespace}/compute_graphs/${
-          computeGraph.name
-        }/invocations?limit=${limit}${
+        const url = `${serviceURL}/v1/namespaces/${namespace}/applications/${
+          application.name
+        }/requests?limit=${limit}${
           cursor ? `&cursor=${cursor}` : ''
         }&direction=${direction}`
 
         const response = await axios.get(url)
         const data = response.data
 
-        setInvocations([...data.invocations])
+        setShallowGraphRequests([...data.invocations])
 
         setPrevCursor(data.prev_cursor)
         setNextCursor(data.next_cursor)
-        console.log(direction, {
-          prevCursor: data.prev_cursor,
-          nextCursor: data.next_cursor,
-        })
       } catch (error) {
         console.error('Error fetching invocations:', error)
       } finally {
         setIsLoading(false)
       }
     },
-    [namespace, computeGraph.name]
+    [namespace, application.name]
   )
 
   const handleNextPage = useCallback(() => {
@@ -85,6 +80,7 @@ const IndividualComputeGraphPage = () => {
       fetchInvocations(prevCursor, 'backward')
     }
   }, [prevCursor, fetchInvocations])
+
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -94,13 +90,13 @@ const IndividualComputeGraphPage = () => {
         <CopyTextPopover text={namespace}>
           <Typography color="text.primary">{namespace}</Typography>
         </CopyTextPopover>
-        <Link to={`/${namespace}/compute-graphs`}>
-          <CopyTextPopover text="Compute Graphs">
-            <Typography color="text.primary">Compute Graphs</Typography>
+        <Link to={`/${namespace}/applications`}>
+          <CopyTextPopover text="Applications">
+            <Typography color="text.primary">Applications</Typography>
           </CopyTextPopover>
         </Link>
-        <CopyTextPopover text={computeGraph.name}>
-          <Typography color="text.primary">{computeGraph.name}</Typography>
+        <CopyTextPopover text={application.name}>
+          <Typography color="text.primary">{application.name}</Typography>
         </CopyTextPopover>
       </Breadcrumbs>
       <Box>
@@ -122,20 +118,29 @@ const IndividualComputeGraphPage = () => {
                 gap: 1,
               }}
             >
-              {computeGraph.name}
-              <Chip label={`Version ${computeGraph.version}`} size="small" />
-              <CopyText text={computeGraph.name} />
+              {application.name}
+              <Chip label={`Version ${application.version}`} size="small" />
+              <CopyText text={application.name} />
             </Typography>
           </div>
 
-          <ComputeGraphTable namespace={namespace} graphData={computeGraph} />
+          <ApplicationFunctionsTable
+            namespace={namespace}
+            applicationFunctions={application.functions}
+          />
+
+          <ApplicationEntrypointTable
+            namespace={namespace}
+            entrypoint={application.entrypoint}
+          />
+
+          <ApplicationTagsTable namespace={namespace} tags={application.tags} />
         </Box>
 
-        <InvocationsTable
-          invocationsList={invocations}
+        <GraphRequestsTable
           namespace={namespace}
-          computeGraph={computeGraph.name}
-          onDelete={handleDelete}
+          applicationName={application.name}
+          shallowGraphRequests={shallowGraphRequests}
         />
 
         <Box
@@ -171,4 +176,4 @@ const IndividualComputeGraphPage = () => {
   )
 }
 
-export default IndividualComputeGraphPage
+export default ApplicationDetailsPage

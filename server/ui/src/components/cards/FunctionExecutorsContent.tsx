@@ -1,6 +1,6 @@
 import { Table, TableCell, TableRow } from '@mui/material'
 import { stateColorMap } from '../../theme'
-import { FunctionExecutorMetadata } from '../../types'
+import { FunctionExecutorMetadata } from '../../types/types'
 
 export function FunctionExecutorsContent({
   functionExecutor,

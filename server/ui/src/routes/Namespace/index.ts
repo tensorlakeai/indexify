@@ -1,5 +1,4 @@
-export { default as NamespacesPage } from "./NamespacesPage";
-export { default as ComputeGraphsPage } from "./ComputeGraphsPage";
-export { default as IndividualComputeGraphPage } from "./IndividualComputeGraphPage";
-export { default as IndividualInvocationPage } from "./IndividualInvocationPage";
-export { default as ExecutorsPage } from "./ExecutorsPage";
+export { default as ApplicationDetailsPage } from './ApplicationDetailsPage'
+export { default as ApplicationsListPage } from './ApplicationsListPage'
+export { default as GraphRequestDetailsPage } from './GraphRequestDetailsPage'
+export { default as NamespacesPage } from './NamespacesPage'
