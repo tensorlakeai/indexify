@@ -550,16 +550,16 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GraphVersion(pub String);
+pub struct ApplicationVersionString(pub String);
 
-impl From<data_model::ApplicationVersionString> for GraphVersion {
+impl From<data_model::ApplicationVersionString> for ApplicationVersionString {
     fn from(version: data_model::ApplicationVersionString) -> Self {
         Self(version.0)
     }
 }
 
-impl From<GraphVersion> for data_model::ApplicationVersionString {
-    fn from(version: GraphVersion) -> Self {
+impl From<ApplicationVersionString> for data_model::ApplicationVersionString {
+    fn from(version: ApplicationVersionString) -> Self {
         Self(version.0)
     }
 }
@@ -624,7 +624,7 @@ pub struct FunctionAllowlist {
     // when the scheduler can turn off containers of older
     // versions after all the invocations into them have been
     // completed, and turn on new versions of the executor.
-    pub version: Option<GraphVersion>,
+    pub version: Option<ApplicationVersionString>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]

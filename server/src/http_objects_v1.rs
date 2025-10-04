@@ -14,10 +14,10 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
+        ApplicationVersionString,
         DataPayload,
         FunctionRunOutcome,
         FunctionRunStatus,
-        GraphVersion,
         IndexifyAPIError,
         RequestError,
     },
@@ -50,7 +50,7 @@ pub struct Application {
     // This is not supplied by the client, do we need this here?
     #[serde(default)]
     pub tombstoned: bool,
-    pub version: GraphVersion,
+    pub version: ApplicationVersionString,
     pub tags: HashMap<String, String>,
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
@@ -158,7 +158,7 @@ impl From<ApplicationInvocationCtx> for ShallowGraphRequest {
             created_at: ctx.created_at.into(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             function_runs_count: ctx.function_runs.len(),
-            application_version: ctx.graph_version.to_string(),
+            application_version: ctx.application_version.to_string(),
         }
     }
 }
@@ -178,7 +178,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub status: FunctionRunStatus,
     pub outcome: Option<FunctionRunOutcome>,
-    pub application_version: GraphVersion,
+    pub application_version: ApplicationVersionString,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
 }

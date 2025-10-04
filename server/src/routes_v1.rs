@@ -18,6 +18,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     http_objects::{
         Allocation,
+        ApplicationVersionString,
         CacheKey,
         CreateNamespace,
         CursorDirection,
@@ -25,7 +26,6 @@ use crate::{
         ExecutorsAllocationsResponse,
         Function,
         FunctionRunOutcome,
-        GraphVersion,
         IndexifyAPIError,
         ListParams,
         Namespace,
@@ -78,7 +78,7 @@ use crate::{
                 ApplicationsList,
                 ExecutorMetadata,
                 FunctionRunOutcome,
-                GraphVersion,
+                ApplicationVersionString,
                 Allocation,
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,

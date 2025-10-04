@@ -17,6 +17,7 @@ use crate::{
     http_objects::{
         from_data_model_executor_metadata,
         Allocation,
+        ApplicationVersionString,
         CacheKey,
         CreateNamespace,
         ExecutorCatalog,
@@ -24,7 +25,6 @@ use crate::{
         ExecutorsAllocationsResponse,
         Function,
         FunctionRunOutcome,
-        GraphVersion,
         IndexifyAPIError,
         Namespace,
         NamespaceList,
@@ -61,7 +61,7 @@ use crate::{
                 Function,
                 ExecutorMetadata,
                 FunctionRunOutcome,
-                GraphVersion,
+                ApplicationVersionString,
                 Allocation,
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
@@ -343,7 +343,11 @@ async fn get_unversioned_code(
 }
 
 async fn get_versioned_code(
-    Path((namespace, application, version)): Path<(String, String, Option<GraphVersion>)>,
+    Path((namespace, application, version)): Path<(
+        String,
+        String,
+        Option<ApplicationVersionString>,
+    )>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     if let Some(version) = version {
