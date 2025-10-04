@@ -8,7 +8,8 @@ use anyhow::Result;
 use crate::{
     data_model::{
         Allocation,
-        ComputeGraph,
+        Application,
+        ApplicationInvocationCtx,
         ComputeOp,
         DataPayload,
         ExecutorId,
@@ -19,7 +20,6 @@ use crate::{
         FunctionExecutorServerMetadata,
         FunctionRun,
         GcUrl,
-        GraphInvocationCtx,
         HostResources,
         StateChange,
     },
@@ -38,10 +38,10 @@ impl StateMachineUpdateRequest {
     ) -> anyhow::Result<Vec<StateChange>> {
         match &self.payload {
             RequestPayload::InvokeComputeGraph(request) => {
-                state_changes::invoke_compute_graph(state_change_id_seq, request)
+                state_changes::invoke_application(state_change_id_seq, request)
             }
             RequestPayload::TombstoneComputeGraph(request) => {
-                state_changes::tombstone_compute_graph(state_change_id_seq, request)
+                state_changes::tombstone_application(state_change_id_seq, request)
             }
             RequestPayload::TombstoneInvocation(request) => {
                 state_changes::tombstone_invocation(state_change_id_seq, request)
@@ -77,7 +77,7 @@ pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub cached_task_keys: HashMap<String, DataPayload>,
-    pub updated_invocations_states: HashMap<String, GraphInvocationCtx>,
+    pub updated_invocations_states: HashMap<String, ApplicationInvocationCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
@@ -112,7 +112,7 @@ impl SchedulerUpdateRequest {
     pub fn add_function_run(
         &mut self,
         function_run: FunctionRun,
-        invocation_ctx: &mut GraphInvocationCtx,
+        invocation_ctx: &mut ApplicationInvocationCtx,
     ) {
         invocation_ctx
             .function_runs
@@ -125,7 +125,7 @@ impl SchedulerUpdateRequest {
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }
 
-    pub fn add_invocation_state(&mut self, invocation_ctx: &GraphInvocationCtx) {
+    pub fn add_invocation_state(&mut self, invocation_ctx: &ApplicationInvocationCtx) {
         self.updated_invocations_states
             .insert(invocation_ctx.key(), invocation_ctx.clone());
     }
@@ -133,7 +133,7 @@ impl SchedulerUpdateRequest {
     pub fn add_function_call(
         &mut self,
         function_call: FunctionCall,
-        invocation_ctx: &mut GraphInvocationCtx,
+        invocation_ctx: &mut ApplicationInvocationCtx,
     ) {
         invocation_ctx.function_calls.insert(
             function_call.function_call_id.clone(),
@@ -165,8 +165,8 @@ pub struct AllocationOutput {
 #[derive(Debug, Clone)]
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub ctx: GraphInvocationCtx,
+    pub application_name: String,
+    pub ctx: ApplicationInvocationCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -179,7 +179,7 @@ pub struct NamespaceRequest {
 #[derive(Debug, Clone)]
 pub struct CreateOrUpdateComputeGraphRequest {
     pub namespace: String,
-    pub compute_graph: ComputeGraph,
+    pub application: Application,
     pub upgrade_requests_to_current_version: bool,
 }
 
@@ -192,7 +192,7 @@ pub struct DeleteComputeGraphRequest {
 #[derive(Debug, Clone)]
 pub struct DeleteInvocationRequest {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
     pub invocation_id: String,
 }
 

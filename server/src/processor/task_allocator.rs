@@ -4,12 +4,12 @@ use tracing::{debug, info_span, warn};
 use crate::{
     data_model::{
         AllocationBuilder,
+        ApplicationInvocationCtx,
         FunctionRun,
-        GraphInvocationCtx,
-        RunningTaskStatus,
-        TaskFailureReason,
-        TaskOutcome,
-        TaskStatus,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        RunningFunctionRunStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
@@ -19,12 +19,12 @@ use crate::{
     },
 };
 
-pub struct TaskAllocationProcessor<'a> {
+pub struct FunctionRunProcessor<'a> {
     clock: u64,
     fe_manager: &'a FunctionExecutorManager,
 }
 
-impl<'a> TaskAllocationProcessor<'a> {
+impl<'a> FunctionRunProcessor<'a> {
     pub fn new(clock: u64, fe_manager: &'a FunctionExecutorManager) -> Self {
         Self { clock, fe_manager }
     }
@@ -59,9 +59,9 @@ impl<'a> TaskAllocationProcessor<'a> {
                         warn!(
                             function_call_id = function_run.id.to_string(),
                             namespace = function_run.namespace,
-                            graph = function_run.application,
-                            graph_version = state_store_error.version(),
-                            "fn" = state_store_error.function_name(),
+                            application = function_run.application,
+                            application_version = state_store_error.version(),
+                            "fb" = state_store_error.function_name(),
                             error = %state_store_error,
                             "Unable to allocate task"
                         );
@@ -76,15 +76,15 @@ impl<'a> TaskAllocationProcessor<'a> {
                         ) {
                             // Fail the task
                             let mut failed_function_run = function_run.clone();
-                            failed_function_run.status = TaskStatus::Completed;
-                            failed_function_run.outcome = Some(TaskOutcome::Failure(
-                                TaskFailureReason::ConstraintUnsatisfiable,
+                            failed_function_run.status = FunctionRunStatus::Completed;
+                            failed_function_run.outcome = Some(FunctionRunOutcome::Failure(
+                                FunctionRunFailureReason::ConstraintUnsatisfiable,
                             ));
 
                             // Add the failed function run to the update
                             ctx.outcome = Some(
-                                crate::data_model::GraphInvocationOutcome::Failure(
-                                    crate::data_model::GraphInvocationFailureReason::ConstraintUnsatisfiable
+                                crate::data_model::ApplicationRequestOutcome::Failure(
+                                    crate::data_model::ApplicationInvocationFailureReason::ConstraintUnsatisfiable
                                 )
                             );
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
@@ -105,16 +105,16 @@ impl<'a> TaskAllocationProcessor<'a> {
         &self,
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
-        ctx: &mut GraphInvocationCtx,
+        ctx: &mut ApplicationInvocationCtx,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "create_allocation",
             namespace = function_run.namespace,
             function_call_id = function_run.id.to_string(),
             request_id = function_run.request_id,
-            graph = function_run.application,
+            application = function_run.application,
             "fn" = function_run.name,
-            graph_version = function_run.graph_version.to_string(),
+            application_version = function_run.application_version.to_string(),
         );
         let _guard = span.enter();
 
@@ -131,21 +131,21 @@ impl<'a> TaskAllocationProcessor<'a> {
         };
         let allocation = AllocationBuilder::default()
             .namespace(function_run.namespace.clone())
-            .compute_graph(function_run.application.clone())
-            .compute_fn(function_run.name.clone())
+            .application(function_run.application.clone())
+            .function(function_run.name.clone())
             .invocation_id(function_run.request_id.clone())
             .function_call_id(function_run.id.clone())
             .call_metadata(function_run.call_metadata.clone())
             .input_args(function_run.input_args.clone())
             .target(target)
             .attempt_number(function_run.attempt_number)
-            .outcome(TaskOutcome::Unknown)
+            .outcome(FunctionRunOutcome::Unknown)
             .build()?;
 
         debug!(allocation_id = %allocation.id, "created allocation");
 
         let mut updated_function_run = function_run.clone();
-        updated_function_run.status = TaskStatus::Running(RunningTaskStatus {
+        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
             allocation_id: allocation.id.clone(),
         });
 

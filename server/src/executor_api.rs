@@ -36,6 +36,8 @@ use crate::{
     data_model::{
         self,
         Allocation,
+        ApplicationInvocationCtxBuilder,
+        ApplicationVersionString,
         DataPayload,
         DataPayloadBuilder,
         ExecutorId,
@@ -46,11 +48,9 @@ use crate::{
         FunctionCallId,
         FunctionExecutorBuilder,
         FunctionExecutorId,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GPUResources,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        TaskFailureReason,
-        TaskOutcome,
     },
     executor_api::executor_api_pb::{
         FunctionCallRequest,
@@ -61,7 +61,7 @@ use crate::{
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
             AllocationOutput,
             GraphUpdates,
@@ -79,11 +79,13 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let version = allowed_function.application_version.map(GraphVersion);
+        let version = allowed_function
+            .application_version
+            .map(ApplicationVersionString);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
-            compute_graph_name: allowed_function.application_name,
-            compute_fn_name: allowed_function.function_name,
+            application_name: allowed_function.application_name,
+            function: allowed_function.function_name,
             version,
         })
     }
@@ -369,11 +371,11 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .namespace
             .clone()
             .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_ref
+        let application_name = function_ref
             .application_name
             .clone()
             .ok_or(anyhow::anyhow!("application_name is required"))?;
-        let compute_fn_name = function_ref
+        let function_name = function_ref
             .function_name
             .clone()
             .ok_or(anyhow::anyhow!("function_name is required"))?;
@@ -408,9 +410,9 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new(id.clone()))
             .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .version(GraphVersion(version.clone()))
+            .application_name(application_name.clone())
+            .function_name(function_name.clone())
+            .version(ApplicationVersionString(version.clone()))
             .state(state)
             .resources(resources)
             .max_concurrency(max_concurrency)
@@ -626,37 +628,37 @@ impl ExecutorAPIService {
             let allocation_failure_reason = match failure_reason {
                 Some(reason) => match reason {
                     executor_api_pb::AllocationFailureReason::Unknown => {
-                        Some(TaskFailureReason::Unknown)
+                        Some(FunctionRunFailureReason::Unknown)
                     }
                     executor_api_pb::AllocationFailureReason::InternalError => {
-                        Some(TaskFailureReason::InternalError)
+                        Some(FunctionRunFailureReason::InternalError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionError => {
-                        Some(TaskFailureReason::FunctionError)
+                        Some(FunctionRunFailureReason::FunctionError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionTimeout => {
-                        Some(TaskFailureReason::FunctionTimeout)
+                        Some(FunctionRunFailureReason::FunctionTimeout)
                     }
                     executor_api_pb::AllocationFailureReason::RequestError => {
-                        Some(TaskFailureReason::InvocationError)
+                        Some(FunctionRunFailureReason::InvocationError)
                     }
                     executor_api_pb::AllocationFailureReason::AllocationCancelled => {
-                        Some(TaskFailureReason::TaskCancelled)
+                        Some(FunctionRunFailureReason::FunctionRunCancelled)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
-                        Some(TaskFailureReason::FunctionExecutorTerminated)
+                        Some(FunctionRunFailureReason::FunctionExecutorTerminated)
                     }
                 },
                 None => None,
             };
             let task_outcome = match outcome_code {
-                executor_api_pb::AllocationOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::AllocationOutcomeCode::Success => FunctionRunOutcome::Success,
                 executor_api_pb::AllocationOutcomeCode::Failure => {
                     let failure_reason =
-                        allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
-                    TaskOutcome::Failure(failure_reason)
+                        allocation_failure_reason.unwrap_or(FunctionRunFailureReason::Unknown);
+                    FunctionRunOutcome::Failure(failure_reason)
                 }
-                executor_api_pb::AllocationOutcomeCode::Unknown => TaskOutcome::Unknown,
+                executor_api_pb::AllocationOutcomeCode::Unknown => FunctionRunOutcome::Unknown,
             };
             allocation.outcome = task_outcome;
             allocation.execution_duration_ms = Some(execution_duration_ms);
@@ -960,7 +962,11 @@ impl ExecutorApi for ExecutorAPIService {
         let function_run = self
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &application, &parent_request_ctx.graph_version)
+            .get_application_version(
+                &namespace,
+                &application,
+                &parent_request_ctx.application_version,
+            )
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or(Status::not_found("compute graph version not found"))?
             .create_function_run(
@@ -980,10 +986,10 @@ impl ExecutorApi for ExecutorAPIService {
             )
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        let graph_invocation_ctx = ApplicationInvocationCtxBuilder::default()
             .namespace(namespace.to_string())
-            .compute_graph_name(application.to_string())
-            .graph_version(parent_request_ctx.graph_version.clone())
+            .application_name(application.to_string())
+            .application_version(parent_request_ctx.application_version.clone())
             .request_id(request_id.clone())
             .created_at(get_epoch_time_in_ms())
             .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
@@ -1000,12 +1006,12 @@ impl ExecutorApi for ExecutorAPIService {
 
         let sm_request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
             namespace: namespace.clone(),
-            compute_graph_name: application.clone(),
+            application_name: application.clone(),
             ctx: parent_request_ctx.clone(),
         });
 
         // Open the broadcast stream before writing the request to avoid races
-        let mut rx = self.indexify_state.task_event_stream();
+        let mut rx = self.indexify_state.function_run_event_stream();
         self.indexify_state
             .write(StateMachineUpdateRequest {
                 payload: sm_request,
@@ -1026,7 +1032,7 @@ impl ExecutorApi for ExecutorAPIService {
                             let update = serde_json::to_string(&ev)
                                 .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
                             yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
-                            if let InvocationStateChangeEvent::RequestFinished(_) = ev { return; }
+                            if let RequestStateChangeEvent::RequestFinished(_) = ev { return; }
                         }
                     }
                     Err(RecvError::Lagged(_num)) => {
@@ -1034,7 +1040,7 @@ impl ExecutorApi for ExecutorAPIService {
                         match reader.invocation_ctx(ns.as_str(), app.as_str(), &id) {
                             Ok(Some(context)) => {
                                 if context.outcome.is_some() {
-                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
+                                    let update = serde_json::to_string(&RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
                                         .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
                                     yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
                                     return;

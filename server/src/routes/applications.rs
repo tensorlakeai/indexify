@@ -101,7 +101,7 @@ pub async fn create_or_update_application(
 
     let put_result = put_result.ok_or(IndexifyAPIError::bad_request("Code is required"))?;
 
-    let compute_graph = application_manifest.into_data_model(
+    let application = application_manifest.into_data_model(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
@@ -113,10 +113,10 @@ pub async fn create_or_update_application(
         .await
         .executor_catalog
         .clone();
-    compute_graph
+    application
         .can_be_scheduled(&executor_catalog)
         .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-    let name = compute_graph.name.clone();
+    let name = application.name.clone();
 
     info!(
         "creating compute graph {}, upgrade existing tasks and invocations: {}",
@@ -126,7 +126,7 @@ pub async fn create_or_update_application(
     let request =
         RequestPayload::CreateOrUpdateComputeGraph(Box::new(CreateOrUpdateComputeGraphRequest {
             namespace,
-            compute_graph,
+            application,
             upgrade_requests_to_current_version: upgrade_requests_to_current_version
                 .unwrap_or(false),
         }));
@@ -189,14 +189,14 @@ pub async fn applications(
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
-    let (compute_graphs, cursor) = state
+    let (application, cursor) = state
         .indexify_state
         .reader()
-        .list_compute_graphs(&namespace, cursor.as_deref(), params.limit)
+        .list_applications(&namespace, cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(http_objects_v1::ApplicationsList {
-        applications: compute_graphs.into_iter().map(|c| c.into()).collect(),
+        applications: application.into_iter().map(|c| c.into()).collect(),
         cursor,
     }))
 }
@@ -218,7 +218,7 @@ pub async fn get_application(
     let application = state
         .indexify_state
         .reader()
-        .get_compute_graph(&namespace, &name)
+        .get_application(&namespace, &name)
         .map_err(IndexifyAPIError::internal_error)?;
     if let Some(application) = application {
         return Ok(Json(application.into()));

@@ -17,11 +17,17 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ComputeGraphState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
+    data_model::{
+        self,
+        ApplicationInvocationCtxBuilder,
+        ApplicationState,
+        FunctionCallId,
+        InputArgs,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
@@ -30,21 +36,21 @@ use crate::{
 // New shared function for creating SSE streams
 async fn create_invocation_progress_stream(
     id: String,
-    mut rx: Receiver<InvocationStateChangeEvent>,
+    mut rx: Receiver<RequestStateChangeEvent>,
     state: &RouteState,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     let reader = state.indexify_state.reader();
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+        match reader.invocation_ctx(namespace.as_str(), application.as_str(), &id)
         {
             Ok(Some(invocation)) => {
                 if invocation.outcome.is_some() {
                     yield Event::default().json_data(
-                        InvocationStateChangeEvent::RequestFinished(
+                        RequestStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
                                 request_id: id.clone()
                             }
@@ -56,7 +62,7 @@ async fn create_invocation_progress_stream(
             Ok(None) => {
                 info!(
                     namespace = namespace,
-                    graph = compute_graph,
+                    application = application,
                     invocation_id=id,
                     "invocation not found, stopping stream");
                 return;
@@ -74,7 +80,7 @@ async fn create_invocation_progress_stream(
                     if ev.invocation_id() == id {
                         yield Event::default().json_data(ev.clone());
 
-                        if let InvocationStateChangeEvent::RequestFinished(_) = ev {
+                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
                             return;
                         }
                     }
@@ -82,18 +88,18 @@ async fn create_invocation_progress_stream(
                 Err(RecvError::Lagged(num)) => {
                     warn!(
                         namespace = namespace,
-                        graph = compute_graph,
+                        application = application,
                         invocation_id=id,
                         "lagging behind task event stream by {} events", num);
 
                     // Check if completion happened during lag
                     match reader
-                        .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+                        .invocation_ctx(namespace.as_str(), application.as_str(), &id)
                     {
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
                                 yield Event::default().json_data(
-                                    InvocationStateChangeEvent::RequestFinished(
+                                    RequestStateChangeEvent::RequestFinished(
                                         RequestFinishedEvent {
                                             request_id: id.clone()
                                         }
@@ -105,7 +111,7 @@ async fn create_invocation_progress_stream(
                         Ok(None) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
+                                application = application,
                                 invocation_id=id,
                                 "invocation not found");
                             return;
@@ -113,7 +119,7 @@ async fn create_invocation_progress_stream(
                         Err(e) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
+                                application = application,
                                 invocation_id=id,
                                 "failed to get invocation context: {:?}", e);
                             return;
@@ -232,11 +238,11 @@ async fn do_invoke_api_with_object_v1(
     let application = state
         .indexify_state
         .reader()
-        .get_compute_graph(&namespace, &application)
+        .get_application(&namespace, &application)
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
         .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
 
-    if let ComputeGraphState::Disabled { reason } = &application.state {
+    if let ApplicationState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
@@ -260,7 +266,7 @@ async fn do_invoke_api_with_object_v1(
         .in_memory_state
         .read()
         .await
-        .compute_graph_version(&namespace, &application.name, &application.version)
+        .application_version(&namespace, &application.name, &application.version)
         .cloned()
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
@@ -280,10 +286,10 @@ async fn do_invoke_api_with_object_v1(
     let fn_runs = HashMap::from([(fn_run.id.clone(), fn_run)]);
     let fn_calls = HashMap::from([(fn_call.function_call_id.clone(), fn_call)]);
 
-    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+    let graph_invocation_ctx = ApplicationInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
-        .compute_graph_name(application.name.to_string())
-        .graph_version(application.version.clone())
+        .application_name(application.name.to_string())
+        .application_version(application.version.clone())
         .request_id(request_id.clone())
         .created_at(get_epoch_time_in_ms())
         .function_runs(fn_runs)
@@ -292,7 +298,7 @@ async fn do_invoke_api_with_object_v1(
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
-        compute_graph_name: application.name.clone(),
+        application_name: application.name.clone(),
         ctx: graph_invocation_ctx.clone(),
     });
     if accept_header.contains("application/json") {
@@ -338,9 +344,9 @@ async fn return_sse_response(
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
@@ -349,7 +355,7 @@ async fn return_sse_response(
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let invocation_event_stream =
-        create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;
+        create_invocation_progress_stream(request_id, rx, state, namespace, application).await;
     Ok(axum::response::Sse::new(invocation_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
@@ -362,7 +368,7 @@ async fn return_sse_response(
 /// Stream progress of a request until it is completed
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/progress",
+    path = "/namespaces/{namespace}/compute-graphs/{application}/requests/{request_id}/progress",
     tag = "operations",
     responses(
         (status = 200, description = "SSE events of an invocation"),
@@ -371,14 +377,13 @@ async fn return_sse_response(
 )]
 #[axum::debug_handler]
 pub async fn progress_stream(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
 
     let invocation_event_stream =
-        create_invocation_progress_stream(invocation_id, rx, &state, namespace, compute_graph)
-            .await;
+        create_invocation_progress_stream(invocation_id, rx, &state, namespace, application).await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()

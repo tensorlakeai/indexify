@@ -15,9 +15,11 @@ use tracing::{debug, error, warn};
 use crate::{
     data_model::{
         Allocation,
-        ComputeGraph,
-        ComputeGraphState,
-        ComputeGraphVersion,
+        Application,
+        ApplicationInvocationCtx,
+        ApplicationState,
+        ApplicationVersion,
+        ApplicationVersionString,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -28,12 +30,10 @@ use crate::{
         FunctionExecutorState,
         FunctionResources,
         FunctionRun,
+        FunctionRunStatus,
         FunctionURI,
-        GraphInvocationCtx,
-        GraphVersion,
         Namespace,
         NamespaceBuilder,
-        TaskStatus,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
@@ -150,7 +150,7 @@ impl From<&Allocation> for FunctionRunKey {
     fn from(allocation: &Allocation) -> Self {
         FunctionRunKey(format!(
             "{}|{}|{}",
-            allocation.namespace, allocation.compute_graph, allocation.function_call_id
+            allocation.namespace, allocation.application, allocation.function_call_id
         ))
     }
 }
@@ -159,7 +159,7 @@ impl From<&Box<Allocation>> for FunctionRunKey {
     fn from(allocation: &Box<Allocation>) -> Self {
         FunctionRunKey(format!(
             "{}|{}|{}",
-            allocation.namespace, allocation.compute_graph, allocation.function_call_id
+            allocation.namespace, allocation.application, allocation.function_call_id
         ))
     }
 }
@@ -185,8 +185,8 @@ impl From<&String> for RequestCtxKey {
     }
 }
 
-impl From<&GraphInvocationCtx> for RequestCtxKey {
-    fn from(ctx: &GraphInvocationCtx) -> Self {
+impl From<&ApplicationInvocationCtx> for RequestCtxKey {
+    fn from(ctx: &ApplicationInvocationCtx) -> Self {
         RequestCtxKey(ctx.key())
     }
 }
@@ -225,10 +225,10 @@ pub struct InMemoryState {
     pub namespaces: im::HashMap<String, Box<Namespace>>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub compute_graphs: im::HashMap<String, Box<ComputeGraph>>,
+    pub applications: im::HashMap<String, Box<Application>>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub compute_graph_versions: im::OrdMap<String, Box<ComputeGraphVersion>>,
+    pub application_versions: im::OrdMap<String, Box<ApplicationVersion>>,
 
     // ExecutorId -> ExecutorMetadata
     // This is the metadata that executor is sending us, not the **Desired** state
@@ -255,7 +255,7 @@ pub struct InMemoryState {
     pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<ApplicationInvocationCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
@@ -480,7 +480,7 @@ impl InMemoryState {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
-        let task_pending_latency = meter
+        let function_run_pending_latency = meter
             .f64_histogram("indexify.function_run_pending_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
@@ -503,7 +503,7 @@ impl InMemoryState {
 
         // Creating Namespaces
         let mut namespaces = im::HashMap::new();
-        let mut compute_graphs = im::HashMap::new();
+        let mut applications = im::HashMap::new();
         {
             let all_ns = reader.get_all_namespaces()?;
             for ns in &all_ns {
@@ -511,19 +511,19 @@ impl InMemoryState {
                 namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
 
                 // Creating Compute Graphs and Versions
-                let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
+                let cgs = reader.list_applications(&ns.name, None, None)?.0;
                 for cg in cgs {
-                    compute_graphs.insert(cg.key(), Box::new(cg));
+                    applications.insert(cg.key(), Box::new(cg));
                 }
             }
         }
 
-        let mut compute_graph_versions = im::OrdMap::new();
+        let mut application_versions = im::OrdMap::new();
         {
-            let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
+            let all_cg_versions: Vec<(String, ApplicationVersion)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)?;
             for (id, cg) in all_cg_versions {
-                compute_graph_versions.insert(id, Box::new(cg));
+                application_versions.insert(id, Box::new(cg));
             }
         }
         // Creating Allocated Tasks By Function by Executor
@@ -553,7 +553,7 @@ impl InMemoryState {
 
         let mut invocation_ctx = im::OrdMap::new();
         {
-            let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
+            let all_graph_invocation_ctx: Vec<(String, ApplicationInvocationCtx)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
             for (_id, ctx) in all_graph_invocation_ctx {
                 // Do not cache completed invocations
@@ -571,7 +571,7 @@ impl InMemoryState {
                 if function_run.outcome.is_some() {
                     continue;
                 }
-                if function_run.status == TaskStatus::Pending {
+                if function_run.status == FunctionRunStatus::Pending {
                     unallocated_function_runs.insert(function_run.clone().into());
                 }
                 function_runs.insert(function_run.clone().into(), Box::new(function_run.clone()));
@@ -581,8 +581,8 @@ impl InMemoryState {
         let in_memory_state = Self {
             clock,
             namespaces,
-            compute_graphs,
-            compute_graph_versions,
+            applications,
+            application_versions,
             executors: im::HashMap::new(),
             function_runs,
             unallocated_function_runs,
@@ -593,7 +593,7 @@ impl InMemoryState {
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
             // metrics
-            function_run_pending_latency: task_pending_latency,
+            function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
         };
@@ -644,12 +644,12 @@ impl InMemoryState {
                 );
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
-                self.compute_graphs
-                    .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
-                let req_version = req.compute_graph.to_version()?;
+                self.applications
+                    .insert(req.application.key(), Box::new(req.application.clone()));
+                let req_version = req.application.to_version()?;
                 let version = req_version.version.clone();
 
-                self.compute_graph_versions
+                self.application_versions
                     .insert(req_version.key(), Box::new(req_version));
 
                 // FIXME - we should set this in the API and not here, so that these things are
@@ -659,9 +659,9 @@ impl InMemoryState {
                     {
                         let mut invocation_ctx_to_update = vec![];
                         let invocation_ctx_key_prefix =
-                            GraphInvocationCtx::key_prefix_for_compute_graph(
+                            ApplicationInvocationCtx::key_prefix_for_application(
                                 &req.namespace,
-                                &req.compute_graph.name,
+                                &req.application.name,
                             );
                         self.invocation_ctx
                             .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
@@ -670,7 +670,7 @@ impl InMemoryState {
                             .take_while(|(k, _v)| k.0.starts_with(&invocation_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
-                                ctx.graph_version = version.clone();
+                                ctx.application_version = version.clone();
                                 invocation_ctx_to_update.push(ctx);
                             });
 
@@ -678,8 +678,8 @@ impl InMemoryState {
                             for (_function_call_id, function_run) in
                                 ctx.function_runs.clone().iter_mut()
                             {
-                                if function_run.graph_version != version {
-                                    function_run.graph_version = version.clone();
+                                if function_run.application_version != version {
+                                    function_run.application_version = version.clone();
                                     ctx.function_runs
                                         .insert(function_run.id.clone(), function_run.clone());
                                 }
@@ -698,32 +698,35 @@ impl InMemoryState {
                 }
             }
             RequestPayload::DeleteInvocationRequest((req, _)) => {
-                self.delete_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
+                self.delete_invocation(&req.namespace, &req.application, &req.invocation_id);
             }
             RequestPayload::DeleteComputeGraphRequest((req, _)) => {
                 // Remove compute graph
-                let key = ComputeGraph::key_from(&req.namespace, &req.name);
-                self.compute_graphs.remove(&key);
+                let key = Application::key_from(&req.namespace, &req.name);
+                self.applications.remove(&key);
 
                 // Remove compute graph versions
                 {
                     let version_key_prefix =
-                        ComputeGraphVersion::key_prefix_from(&req.namespace, &req.name);
+                        ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
                     let keys_to_remove = self
-                        .compute_graph_versions
+                        .application_versions
                         .range(version_key_prefix.clone()..)
                         .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
                         .map(|(k, _v)| k.clone())
                         .collect::<Vec<String>>();
                     for k in keys_to_remove {
-                        self.compute_graph_versions.remove(&k);
+                        self.application_versions.remove(&k);
                     }
                 }
 
                 // Remove invocation contexts
                 {
                     let invocation_key_prefix =
-                        GraphInvocationCtx::key_prefix_for_compute_graph(&req.namespace, &req.name);
+                        ApplicationInvocationCtx::key_prefix_for_application(
+                            &req.namespace,
+                            &req.name,
+                        );
                     let invocations_to_remove = self
                         .invocation_ctx
                         .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
@@ -756,7 +759,7 @@ impl InMemoryState {
                             );
                             continue;
                         };
-                        if function_run.status == TaskStatus::Pending {
+                        if function_run.status == FunctionRunStatus::Pending {
                             self.unallocated_function_runs
                                 .insert(function_run.clone().into());
                         } else {
@@ -772,7 +775,7 @@ impl InMemoryState {
                     if invocation_ctx.outcome.is_some() {
                         self.delete_invocation(
                             &invocation_ctx.namespace,
-                            &invocation_ctx.compute_graph_name,
+                            &invocation_ctx.application_name,
                             &invocation_ctx.request_id,
                         );
                     } else {
@@ -836,8 +839,8 @@ impl InMemoryState {
                     } else {
                         error!(
                             namespace = &allocation.namespace,
-                            graph = &allocation.compute_graph,
-                            "fn" = &allocation.compute_fn,
+                            application = &allocation.application,
+                            "fn" = &allocation.function,
                             executor_id = allocation.target.executor_id.get(),
                             allocation_id = %allocation.id,
                             invocation_id = &allocation.invocation_id,
@@ -974,55 +977,55 @@ impl InMemoryState {
         &self,
         function_run: &FunctionRun,
     ) -> Result<FunctionResources> {
-        let compute_graph = self
-            .compute_graph_versions
-            .get(&ComputeGraphVersion::key_from(
+        let application = self
+            .application_versions
+            .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.graph_version,
+                &function_run.application_version,
             ))
             .ok_or(anyhow!(
                 "compute graph version: {} not found",
-                function_run.graph_version
+                function_run.application_version
             ))?;
-        let compute_fn = compute_graph
+        let function = application
             .nodes
             .get(&function_run.name)
             .ok_or(anyhow!("compute function: {} not found", function_run.name))?;
-        Ok(compute_fn.resources.clone())
+        Ok(function.resources.clone())
     }
 
     pub fn candidate_executors(
         &self,
         function_run: &FunctionRun,
     ) -> Result<Vec<ExecutorServerMetadata>> {
-        let compute_graph = self
-            .compute_graph_versions
-            .get(&ComputeGraphVersion::key_from(
+        let application = self
+            .application_versions
+            .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.graph_version,
+                &function_run.application_version,
             ))
             .ok_or_else(|| Error::ComputeGraphVersionNotFound {
-                version: function_run.graph_version.0.clone(),
+                version: function_run.application_version.0.clone(),
                 function_name: function_run.name.clone(),
             })?;
 
         // Check to see whether the compute graph state is marked as
         // active; if not, we do not schedule its tasks, even if there
         // are executors that could handle this particular task.
-        if let ComputeGraphState::Disabled { reason } = &compute_graph.state {
+        if let ApplicationState::Disabled { reason } = &application.state {
             return Err(Error::ConstraintUnsatisfiable {
-                version: compute_graph.version.to_string(),
+                version: application.version.to_string(),
                 function_name: function_run.name.clone(),
                 reason: reason.to_owned(),
             }
             .into());
         }
 
-        let compute_fn = compute_graph.nodes.get(&function_run.name).ok_or_else(|| {
+        let function = application.nodes.get(&function_run.name).ok_or_else(|| {
             Error::ComputeFunctionNotFound {
-                version: function_run.graph_version.0.clone(),
+                version: function_run.application_version.0.clone(),
                 function_name: function_run.name.clone(),
             }
         })?;
@@ -1043,7 +1046,7 @@ impl InMemoryState {
 
             // Check if this executor's labels matches the function's
             // placement constraints
-            if !compute_fn.placement_constraints.matches(&executor.labels) {
+            if !function.placement_constraints.matches(&executor.labels) {
                 continue;
             }
 
@@ -1051,7 +1054,7 @@ impl InMemoryState {
             // gpu_configs.
             if executor_state
                 .free_resources
-                .can_handle_function_resources(&compute_fn.resources)
+                .can_handle_function_resources(&function.resources)
                 .is_ok()
             {
                 candidates.push(*executor_state.clone());
@@ -1130,11 +1133,11 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Option<FunctionResources> {
         let cg_version = self
-            .compute_graph_versions
-            .get(&ComputeGraphVersion::key_from(ns, cg, version))
+            .application_versions
+            .get(&ApplicationVersion::key_from(ns, cg, version))
             .cloned()?;
         cg_version
             .nodes
@@ -1147,11 +1150,11 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &GraphVersion,
+        version: &ApplicationVersionString,
     ) -> Option<u32> {
         let cg_version = self
-            .compute_graph_versions
-            .get(&ComputeGraphVersion::key_from(ns, cg, version))
+            .application_versions
+            .get(&ApplicationVersion::key_from(ns, cg, version))
             .cloned()?;
         cg_version
             .nodes
@@ -1159,14 +1162,14 @@ impl InMemoryState {
             .map(|node| node.max_concurrency)
     }
 
-    pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
+    pub fn delete_invocation(&mut self, namespace: &str, application: &str, invocation_id: &str) {
         // Remove invocation ctx
-        self.invocation_ctx
-            .remove(&GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id).into());
+        self.invocation_ctx.remove(
+            &ApplicationInvocationCtx::key_from(namespace, application, invocation_id).into(),
+        );
 
         // Remove tasks
-        let key_prefix =
-            FunctionRun::key_prefix_for_request(namespace, compute_graph, invocation_id);
+        let key_prefix = FunctionRun::key_prefix_for_request(namespace, application, invocation_id);
         let mut function_runs_to_remove = Vec::new();
         self.function_runs
             .range(FunctionRunKey(key_prefix.clone())..)
@@ -1246,11 +1249,8 @@ impl InMemoryState {
                 };
 
                 let Some(latest_cg_version) = self
-                    .compute_graphs
-                    .get(&ComputeGraph::key_from(
-                        &fe.namespace,
-                        &fe.compute_graph_name,
-                    ))
+                    .applications
+                    .get(&Application::key_from(&fe.namespace, &fe.application_name))
                     .map(|cg| cg.version.clone())
                 else {
                     function_executors_to_remove.push(*fe_metadata.clone());
@@ -1318,14 +1318,14 @@ impl InMemoryState {
     fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
-            fe_meta.function_executor.namespace, fe_meta.function_executor.compute_graph_name
+            fe_meta.function_executor.namespace, fe_meta.function_executor.application_name
         );
         self.function_runs
             .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.compute_fn_name &&
-                    v.graph_version == fe_meta.function_executor.version
+                v.name == fe_meta.function_executor.function_name &&
+                    v.application_version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1352,17 +1352,17 @@ impl InMemoryState {
         for fe_meta in active_function_executors.iter() {
             let fe = &fe_meta.function_executor;
             let Some(cg_version) = self
-                .compute_graph_versions
-                .get(&ComputeGraphVersion::key_from(
+                .application_versions
+                .get(&ApplicationVersion::key_from(
                     &fe.namespace,
-                    &fe.compute_graph_name,
+                    &fe.application_name,
                     &fe.version,
                 ))
                 .cloned()
             else {
                 continue;
             };
-            let Some(cg_node) = cg_version.nodes.get(&fe.compute_fn_name) else {
+            let Some(cg_node) = cg_version.nodes.get(&fe.function_name) else {
                 continue;
             };
             function_executors.push(Box::new(DesiredStateFunctionExecutor {
@@ -1403,8 +1403,8 @@ impl InMemoryState {
         Arc::new(tokio::sync::RwLock::new(InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
-            compute_graphs: self.compute_graphs.clone(),
-            compute_graph_versions: self.compute_graph_versions.clone(),
+            applications: self.applications.clone(),
+            application_versions: self.application_versions.clone(),
             executors: self.executors.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
@@ -1421,45 +1421,45 @@ impl InMemoryState {
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn compute_graph_version<'a>(
+    pub fn application_version<'a>(
         &'a self,
         namespace: &str,
-        compute_graph_name: &str,
-        version: &GraphVersion,
-    ) -> Option<&'a Box<ComputeGraphVersion>> {
-        self.compute_graph_versions
-            .get(&ComputeGraphVersion::key_from(
+        application_name: &str,
+        version: &ApplicationVersionString,
+    ) -> Option<&'a Box<ApplicationVersion>> {
+        self.application_versions
+            .get(&ApplicationVersion::key_from(
                 namespace,
-                compute_graph_name,
+                application_name,
                 version,
             ))
             .or_else(|| {
                 error!(
                     namespace = namespace,
-                    compute_graph_name = compute_graph_name,
+                    application_name = application_name,
                     version = version.0,
-                    "compute graph version not found",
+                    "application version not found",
                 );
                 None
             })
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn get_existing_compute_graph_version<'a>(
+    pub fn get_existing_application_version<'a>(
         &'a self,
         function_run: &FunctionRun,
-    ) -> Option<&'a Box<ComputeGraphVersion>> {
-        self.compute_graph_versions
-            .get(&function_run.key_compute_graph_version(&function_run.application))
+    ) -> Option<&'a Box<ApplicationVersion>> {
+        self.application_versions
+            .get(&function_run.key_application_version(&function_run.application))
             .or_else(|| {
                 error!(
                     task_id = function_run.id.to_string(),
                     invocation_id = function_run.request_id.to_string(),
                     namespace = function_run.namespace,
-                    graph = function_run.application,
+                    application = function_run.application,
                     "fn" = function_run.name,
-                    graph_version = function_run.graph_version.0,
-                    "compute graph version not found",
+                    application_version = function_run.application_version.0,
+                    "application version not found",
                 );
                 None
             })
@@ -1491,8 +1491,8 @@ mod test_helpers {
             Self {
                 clock: 0,
                 namespaces: im::HashMap::new(),
-                compute_graphs: im::HashMap::new(),
-                compute_graph_versions: im::OrdMap::new(),
+                applications: im::HashMap::new(),
+                application_versions: im::OrdMap::new(),
                 executors: im::HashMap::new(),
                 executor_states: im::HashMap::new(),
                 function_executors_by_fn_uri: im::HashMap::new(),
@@ -1515,6 +1515,7 @@ mod tests {
 
     use crate::{
         data_model::{
+            ApplicationVersionString,
             ComputeOp,
             ExecutorId,
             FunctionCall,
@@ -1526,10 +1527,9 @@ mod tests {
             FunctionExecutorState,
             FunctionRun,
             FunctionRunBuilder,
-            GraphVersion,
-            TaskFailureReason,
-            TaskOutcome,
-            TaskStatus,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
+            FunctionRunStatus,
         },
         in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
@@ -1558,29 +1558,29 @@ mod tests {
             namespace: &str,
             application: &str,
             request_id: &str,
-            compute_fn: &str,
-            outcome: Option<TaskOutcome>,
+            function: &str,
+            outcome: Option<FunctionRunOutcome>,
         ) -> FunctionRun {
             FunctionRunBuilder::default()
                 .id(FunctionCallId(format!(
                     "{}-{}-{}-{}",
-                    namespace, application, request_id, compute_fn
+                    namespace, application, request_id, function
                 )))
                 .request_id(request_id.to_string())
                 .namespace(namespace.to_string())
                 .application(application.to_string())
-                .name(compute_fn.to_string())
-                .graph_version(GraphVersion("1.0".to_string()))
+                .name(function.to_string())
+                .application_version(ApplicationVersionString("1.0".to_string()))
                 .compute_op(ComputeOp::FunctionCall(FunctionCall {
                     inputs: vec![],
                     function_call_id: FunctionCallId(format!(
                         "{}-{}-{}-{}",
-                        namespace, application, request_id, compute_fn
+                        namespace, application, request_id, function
                     )),
-                    fn_name: compute_fn.to_string(),
+                    fn_name: function.to_string(),
                     call_metadata: Bytes::new(),
                 }))
-                .status(TaskStatus::Pending)
+                .status(FunctionRunStatus::Pending)
                 .outcome(outcome)
                 .input_args(vec![])
                 .attempt_number(0)
@@ -1594,9 +1594,9 @@ mod tests {
         let function_executor = FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new("test-fe".to_string()))
             .namespace("test-namespace".to_string())
-            .compute_graph_name("test-graph".to_string())
-            .compute_fn_name("test-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
+            .application_name("test-graph".to_string())
+            .function_name("test-function".to_string())
+            .version(ApplicationVersionString("1.0".to_string()))
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
@@ -1624,7 +1624,7 @@ mod tests {
             "test-graph",
             "inv-1",
             "test-function",
-            Some(TaskOutcome::Success),
+            Some(FunctionRunOutcome::Success),
         );
         state
             .function_runs
@@ -1637,7 +1637,9 @@ mod tests {
             "test-graph",
             "inv-2",
             "test-function",
-            Some(TaskOutcome::Failure(TaskFailureReason::FunctionError)),
+            Some(FunctionRunOutcome::Failure(
+                FunctionRunFailureReason::FunctionError,
+            )),
         );
         state
             .function_runs
@@ -1713,7 +1715,7 @@ mod tests {
 
         for key in keys_to_update {
             if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
-                function_run.outcome = Some(TaskOutcome::Success);
+                function_run.outcome = Some(FunctionRunOutcome::Success);
                 state.function_runs.insert(key, function_run);
             }
         }
@@ -1722,9 +1724,9 @@ mod tests {
         let function_executor = FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new("test-fe-2".to_string()))
             .namespace("test-namespace".to_string())
-            .compute_graph_name("test-graph".to_string())
-            .compute_fn_name("different-function".to_string())
-            .version(GraphVersion("1.0".to_string()))
+            .application_name("test-graph".to_string())
+            .function_name("different-function".to_string())
+            .version(ApplicationVersionString("1.0".to_string()))
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
@@ -1759,7 +1761,7 @@ mod tests {
 
         for key in keys_to_update2 {
             if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
-                function_run.outcome = Some(TaskOutcome::Success);
+                function_run.outcome = Some(FunctionRunOutcome::Success);
                 state.function_runs.insert(key, function_run);
             }
         }

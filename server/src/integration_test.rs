@@ -6,7 +6,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use crate::{
-        assert_task_counts,
+        assert_function_run_counts,
         data_model::{
             test_objects::tests::{
                 mock_data_payload,
@@ -15,8 +15,8 @@ mod tests {
                 TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
-            TaskFailureReason,
-            TaskOutcome,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
@@ -26,7 +26,7 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
             test_state_store,
         },
-        testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
+        testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -94,7 +94,7 @@ mod tests {
         );
 
         // And now, we should have an unallocated task
-        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         Ok(())
     }
@@ -109,7 +109,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // We should have an unallocated task
-        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Add an executor...
         test_srv
@@ -118,7 +118,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // And now the task should be allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
     }
@@ -146,18 +146,18 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
             test_srv.process_all_state_changes().await?;
 
-            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize tasks for fn_b and fn_c
@@ -169,12 +169,12 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(
+                        FinalizeFunctionRunArgs::new(
                             allocation_key_from_proto(&task_allocation),
                             None,
                             Some(mock_data_payload()),
                         )
-                        .task_outcome(TaskOutcome::Success),
+                        .function_run_outcome(FunctionRunOutcome::Success),
                     )
                     .await?;
             }
@@ -188,12 +188,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -214,7 +214,7 @@ mod tests {
             assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
             let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .filter(|t| t.outcome == Some(FunctionRunOutcome::Success))
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
@@ -259,12 +259,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
@@ -284,7 +284,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // verify that everything was deleted
-        assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
         // This makes sure we never leak any data on deletion!
         assert_cf_counts(
@@ -325,18 +325,18 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
 
             test_srv.process_all_state_changes().await?;
 
-            assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
         // finalize the remaining tasks
@@ -353,12 +353,12 @@ mod tests {
                 executor
                     .finalize_task(
                         &task_allocation,
-                        FinalizeTaskArgs::new(
+                        FinalizeFunctionRunArgs::new(
                             allocation_key_from_proto(&task_allocation),
                             None,
                             Some(mock_data_payload()),
                         )
-                        .task_outcome(TaskOutcome::Success),
+                        .function_run_outcome(FunctionRunOutcome::Success),
                     )
                     .await?;
             }
@@ -371,12 +371,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         None,
                         Some(mock_data_payload()),
                     )
-                    .task_outcome(TaskOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;
@@ -396,7 +396,7 @@ mod tests {
             assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
             let successful_tasks = function_runs
                 .into_iter()
-                .filter(|t| t.outcome == Some(TaskOutcome::Success))
+                .filter(|t| t.outcome == Some(FunctionRunOutcome::Success))
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
@@ -427,7 +427,7 @@ mod tests {
                 .await?;
 
             test_srv.process_all_state_changes().await?;
-            assert_task_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
             // This makes sure we never leak any data on deletion!
             assert_cf_counts(
@@ -468,7 +468,7 @@ mod tests {
                 desired_state.task_allocations
             );
 
-            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             let task_allocation = desired_state.task_allocations.first().unwrap();
 
@@ -476,13 +476,15 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         None,
                         None,
                         //"fn_b".to_string(),
                     )
-                    .task_outcome(TaskOutcome::Failure(TaskFailureReason::InvocationError)),
+                    .function_run_outcome(FunctionRunOutcome::Failure(
+                        FunctionRunFailureReason::InvocationError,
+                    )),
                 )
                 .await?;
 
@@ -491,7 +493,7 @@ mod tests {
 
         // check for completion
         {
-            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -512,10 +514,10 @@ mod tests {
     }
 
     async fn test_task_retry_attempt_used(
-        reason: TaskFailureReason,
+        reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
-        assert!(reason.should_count_against_task_retry_attempts());
+        assert!(reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
@@ -551,12 +553,12 @@ mod tests {
                 executor
                     .finalize_task(
                         task_allocation,
-                        FinalizeTaskArgs::new(
+                        FinalizeFunctionRunArgs::new(
                             allocation_key_from_proto(task_allocation),
                             None,
                             None,
                         )
-                        .task_outcome(TaskOutcome::Failure(reason)),
+                        .function_run_outcome(FunctionRunOutcome::Failure(reason)),
                     )
                     .await?;
 
@@ -580,7 +582,7 @@ mod tests {
 
         // check for completion
         {
-            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -602,39 +604,45 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::InternalError, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, TEST_FN_MAX_RETRIES)
+            .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::InternalError, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionError, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, TEST_FN_MAX_RETRIES)
+            .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionError, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, TEST_FN_MAX_RETRIES).await
+        test_task_retry_attempt_used(
+            FunctionRunFailureReason::FunctionTimeout,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(TaskFailureReason::FunctionTimeout, 0).await
+        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionTimeout, 0).await
     }
 
     async fn test_task_retry_attempt_not_used(
-        reason: TaskFailureReason,
+        reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
-        assert!(!reason.should_count_against_task_retry_attempts());
+        assert!(!reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
@@ -650,7 +658,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // make sure the task is allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // track the attempt number
         let attempt_number: u32 = 0;
@@ -671,8 +679,12 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(allocation_key_from_proto(task_allocation), None, None)
-                        .task_outcome(TaskOutcome::Failure(reason)),
+                    FinalizeFunctionRunArgs::new(
+                        allocation_key_from_proto(task_allocation),
+                        None,
+                        None,
+                    )
+                    .function_run_outcome(FunctionRunOutcome::Failure(reason)),
                 )
                 .await?;
 
@@ -688,9 +700,9 @@ mod tests {
 
         // make sure the task is still allocated iff the reason is retriable.
         if reason.is_retriable() {
-            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
         } else {
-            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
         }
 
         Ok(())
@@ -698,19 +710,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, TEST_FN_MAX_RETRIES)
-            .await
+        test_task_retry_attempt_not_used(
+            FunctionRunFailureReason::FunctionRunCancelled,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::TaskCancelled, 0).await
+        test_task_retry_attempt_not_used(FunctionRunFailureReason::FunctionRunCancelled, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
         test_task_retry_attempt_not_used(
-            TaskFailureReason::FunctionExecutorTerminated,
+            FunctionRunFailureReason::FunctionExecutorTerminated,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -719,7 +734,8 @@ mod tests {
     #[tokio::test]
     async fn test_task_retry_attempt_not_used_on_function_executor_terminated_no_retries(
     ) -> Result<()> {
-        test_task_retry_attempt_not_used(TaskFailureReason::FunctionExecutorTerminated, 0).await
+        test_task_retry_attempt_not_used(FunctionRunFailureReason::FunctionExecutorTerminated, 0)
+            .await
     }
 
     #[tokio::test]
@@ -781,7 +797,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // verify that both executors are still alive and tasks are still on executor1
-            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
             let desired_state = executor1.desired_state().await;
             assert_eq!(
                 desired_state.task_allocations.len(),
@@ -808,7 +824,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // verify that the tasks are still allocated but moved to executor2
-            assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             // verify that the tasks are reassigned to executor2
             let desired_state = executor2.desired_state().await;
@@ -827,22 +843,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
+    async fn test_create_read_and_delete_application() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
         let _ = test_state_store::with_simple_graph(&indexify_state).await;
 
-        let (compute_graphs, _) = test_srv
+        let (applications, _) = test_srv
             .service
             .indexify_state
             .reader()
-            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
-        // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        // Check if the application was created
+        assert!(applications.iter().any(|cg| cg.name == "graph_A"));
 
-        // Delete the compute graph
+        // Delete the application graph
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
@@ -853,16 +869,16 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // Read the compute graph again
-        let (compute_graphs, _) = test_srv
+        // Read the application graph again
+        let (applications, _) = test_srv
             .service
             .indexify_state
             .reader()
-            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .list_applications(TEST_NAMESPACE, None, None)
             .unwrap();
 
-        // Check if the compute graph was deleted
-        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        // Check if the application was deleted
+        assert!(!applications.iter().any(|cg| cg.name == "graph_A"));
 
         Ok(())
     }

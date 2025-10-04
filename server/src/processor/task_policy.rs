@@ -2,42 +2,42 @@ use if_chain::if_chain;
 
 use crate::data_model::{
     Allocation,
-    ComputeGraphVersion,
+    ApplicationVersion,
     FunctionRun,
-    TaskFailureReason,
-    TaskOutcome,
-    TaskStatus,
+    FunctionRunFailureReason,
+    FunctionRunOutcome,
+    FunctionRunStatus,
 };
 
 /// Determines task retry policy based on failure reasons and retry
 /// configuration
-pub struct TaskRetryPolicy;
+pub struct FunctionRunRetryPolicy;
 
-impl TaskRetryPolicy {
+impl FunctionRunRetryPolicy {
     /// Determines if a task should be retried based on an allocation failure
     /// reason, updating the task accordingly.
     fn handle_allocation_failure(
-        task: &mut FunctionRun,
-        alloc_failure_reason: TaskFailureReason,
-        compute_graph_version: &ComputeGraphVersion,
+        run: &mut FunctionRun,
+        alloc_failure_reason: FunctionRunFailureReason,
+        application_version: &ApplicationVersion,
     ) {
-        let uses_attempt = alloc_failure_reason.should_count_against_task_retry_attempts();
+        let uses_attempt = alloc_failure_reason.should_count_against_function_run_retry_attempts();
 
         if_chain! {
-            if let Some(max_retries) = compute_graph_version.task_max_retries(task);
+            if let Some(max_retries) = application_version.function_run_max_retries(run);
             if alloc_failure_reason.is_retriable();
-        if task.attempt_number < max_retries || !uses_attempt;
+        if run.attempt_number < max_retries || !uses_attempt;
             then {
                 // Task can be retried
-                task.status = TaskStatus::Pending;
+                run.status = FunctionRunStatus::Pending;
                 if uses_attempt {
-                    task.attempt_number += 1;
+                    run.attempt_number += 1;
                 }
             }
             else {
                 // Task cannot be retried - either no max retries, not retriable, or exhausted attempts.
-                task.status = TaskStatus::Completed;
-                task.outcome = Some(TaskOutcome::Failure(alloc_failure_reason));
+                run.status = FunctionRunStatus::Completed;
+                run.outcome = Some(FunctionRunOutcome::Failure(alloc_failure_reason));
             }
         }
     }
@@ -46,18 +46,18 @@ impl TaskRetryPolicy {
     /// outcome, leaving the task with the appropriate status.
     /// The task must be running the allocation to ensure idempotency.
     pub fn handle_allocation_outcome(
-        task: &mut FunctionRun,
+        run: &mut FunctionRun,
         allocation: &Allocation,
-        compute_graph_version: &ComputeGraphVersion,
+        application_version: &ApplicationVersion,
     ) {
         match allocation.outcome {
-            TaskOutcome::Success => {
-                task.status = TaskStatus::Completed;
-                task.outcome = Some(allocation.outcome);
+            FunctionRunOutcome::Success => {
+                run.status = FunctionRunStatus::Completed;
+                run.outcome = Some(allocation.outcome);
             }
-            TaskOutcome::Failure(failure_reason) => {
+            FunctionRunOutcome::Failure(failure_reason) => {
                 // Handle allocation failure
-                Self::handle_allocation_failure(task, failure_reason, compute_graph_version);
+                Self::handle_allocation_failure(run, failure_reason, application_version);
             }
             _ => {}
         }

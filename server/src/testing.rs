@@ -10,15 +10,15 @@ use crate::{
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         Allocation,
+        ApplicationInvocationCtx,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
         FunctionExecutor,
         FunctionExecutorState,
         FunctionRun,
-        GraphInvocationCtx,
-        TaskOutcome,
-        TaskStatus,
+        FunctionRunOutcome,
+        FunctionRunStatus,
     },
     executor_api::executor_api_pb::TaskAllocation,
     service::Service,
@@ -132,7 +132,9 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<GraphInvocationCtx>(IndexifyObjectsColumns::GraphInvocationCtx)
+            .get_all_rows_from_cf::<ApplicationInvocationCtx>(
+                IndexifyObjectsColumns::GraphInvocationCtx,
+            )
             .unwrap()
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
@@ -146,7 +148,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let allocated_tasks = tasks
             .into_iter()
-            .filter(|t| matches!(t.status, TaskStatus::Running(_)))
+            .filter(|t| matches!(t.status, FunctionRunStatus::Running(_)))
             .collect::<Vec<_>>();
         Ok(allocated_tasks)
     }
@@ -155,7 +157,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let pending_tasks = tasks
             .into_iter()
-            .filter(|t| t.status == TaskStatus::Pending)
+            .filter(|t| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         let pending_count = pending_tasks.len();
@@ -171,7 +173,7 @@ impl TestService {
 
         let pending_tasks_memory = pending_tasks_memory
             .iter()
-            .filter(|(_k, t)| t.status == TaskStatus::Pending)
+            .filter(|(_k, t)| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -203,7 +205,8 @@ impl TestService {
         let completed_success_tasks = function_runs
             .into_iter()
             .filter(|t| {
-                t.status == TaskStatus::Completed && t.outcome == Some(TaskOutcome::Success)
+                t.status == FunctionRunStatus::Completed &&
+                    t.outcome == Some(FunctionRunOutcome::Success)
             })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)
@@ -212,7 +215,7 @@ impl TestService {
 
 // Declarative macros for task state assertions
 #[macro_export]
-macro_rules! assert_task_counts {
+macro_rules! assert_function_run_counts {
     ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
         let all_function_runs = $test_srv.get_all_function_runs().await?;
         let allocated_tasks = $test_srv.get_allocated_tasks().await?;
@@ -275,8 +278,8 @@ macro_rules! assert_executor_state {
     }};
 }
 
-pub struct FinalizeTaskArgs {
-    pub task_outcome: TaskOutcome,
+pub struct FinalizeFunctionRunArgs {
+    pub task_outcome: FunctionRunOutcome,
     pub allocation_key: String,
     pub graph_updates: Option<GraphUpdates>,
     pub data_payload: Option<DataPayload>,
@@ -303,21 +306,24 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
     )
 }
 
-impl FinalizeTaskArgs {
+impl FinalizeFunctionRunArgs {
     pub fn new(
         allocation_key: String,
         graph_updates: Option<GraphUpdates>,
         data_payload: Option<DataPayload>,
-    ) -> FinalizeTaskArgs {
-        FinalizeTaskArgs {
-            task_outcome: TaskOutcome::Success,
+    ) -> FinalizeFunctionRunArgs {
+        FinalizeFunctionRunArgs {
+            task_outcome: FunctionRunOutcome::Success,
             allocation_key,
             graph_updates,
             data_payload,
         }
     }
 
-    pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
+    pub fn function_run_outcome(
+        mut self,
+        task_outcome: FunctionRunOutcome,
+    ) -> FinalizeFunctionRunArgs {
         self.task_outcome = task_outcome;
         self
     }
@@ -472,7 +478,7 @@ impl TestExecutor<'_> {
     pub async fn finalize_task(
         &self,
         task_allocation: &TaskAllocation,
-        args: FinalizeTaskArgs,
+        args: FinalizeFunctionRunArgs,
     ) -> Result<()> {
         let mut allocation = self
             .test_service

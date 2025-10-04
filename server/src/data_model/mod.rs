@@ -56,15 +56,15 @@ impl From<&str> for ExecutorId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TaskId(String);
+pub struct FunctionRunId(String);
 
-impl Display for TaskId {
+impl Display for FunctionRunId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<&str> for TaskId {
+impl From<&str> for FunctionRunId {
     fn from(value: &str) -> Self {
         Self(value.to_string())
     }
@@ -130,12 +130,12 @@ pub struct Allocation {
     pub target: AllocationTarget,
     pub function_call_id: FunctionCallId,
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
     pub invocation_id: String,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u128,
-    pub outcome: TaskOutcome,
+    pub outcome: FunctionRunOutcome,
     #[builder(setter(strip_option), default)]
     pub attempt_number: u32,
     #[builder(setter(into, strip_option), default)]
@@ -162,26 +162,29 @@ impl Allocation {
     pub fn key(&self) -> String {
         Allocation::key_from(
             &self.namespace,
-            &self.compute_graph,
+            &self.application,
             &self.invocation_id,
             &self.id,
         )
     }
 
-    pub fn key_from(namespace: &str, compute_graph: &str, invocation_id: &str, id: &str) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|{id}",)
+    pub fn key_from(namespace: &str, application: &str, invocation_id: &str, id: &str) -> String {
+        format!("{namespace}|{application}|{invocation_id}|{id}",)
     }
 
     pub fn key_prefix_from_invocation(
         namespace: &str,
-        compute_graph: &str,
+        application: &str,
         invocation_id: &str,
     ) -> String {
-        format!("{namespace}|{compute_graph}|{invocation_id}|")
+        format!("{namespace}|{application}|{invocation_id}|")
     }
 
     pub fn is_terminal(&self) -> bool {
-        matches!(self.outcome, TaskOutcome::Success | TaskOutcome::Failure(_))
+        matches!(
+            self.outcome,
+            FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
+        )
     }
 }
 
@@ -235,7 +238,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub application: String,
     pub name: String,
-    pub graph_version: GraphVersion,
+    pub application_version: ApplicationVersionString,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
     // Function call which output will be used as output of this function run
@@ -247,11 +250,11 @@ pub struct FunctionRun {
     #[builder(default)]
     pub output: Option<DataPayload>,
     #[builder(default)]
-    pub status: TaskStatus,
+    pub status: FunctionRunStatus,
     #[builder(default)]
     pub cache_hit: bool,
     #[builder(default)]
-    pub outcome: Option<TaskOutcome>,
+    pub outcome: Option<FunctionRunOutcome>,
     pub attempt_number: u32,
     #[builder(default = "self.default_creation_time_ns()")]
     pub creation_time_ns: u128,
@@ -267,8 +270,11 @@ impl FunctionRunBuilder {
 }
 
 impl FunctionRun {
-    pub fn key_compute_graph_version(&self, graph_name: &str) -> String {
-        format!("{}|{}|{}", self.namespace, graph_name, self.graph_version.0,)
+    pub fn key_application_version(&self, application_name: &str) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, application_name, self.application_version.0,
+        )
     }
 
     pub fn key(&self) -> String {
@@ -373,7 +379,7 @@ fn default_max_concurrency() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ComputeFn {
+pub struct Function {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
@@ -400,7 +406,7 @@ pub struct ComputeFn {
     pub max_concurrency: u32,
 }
 
-impl ComputeFn {
+impl Function {
     pub fn create_function_call(
         &self,
         function_call_id: FunctionCallId,
@@ -417,21 +423,21 @@ impl ComputeFn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct GraphVersion(pub String);
+pub struct ApplicationVersionString(pub String);
 
-impl Default for GraphVersion {
+impl Default for ApplicationVersionString {
     fn default() -> Self {
         Self("1".to_string())
     }
 }
 
-impl From<&str> for GraphVersion {
+impl From<&str> for ApplicationVersionString {
     fn from(item: &str) -> Self {
-        GraphVersion(item.to_string())
+        ApplicationVersionString(item.to_string())
     }
 }
 
-impl Display for GraphVersion {
+impl Display for ApplicationVersionString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -455,7 +461,7 @@ pub struct ParameterMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub enum ComputeGraphState {
+pub enum ApplicationState {
     #[default]
     Active,
     Disabled {
@@ -472,7 +478,7 @@ pub struct EntryPointManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct ComputeGraph {
+pub struct Application {
     pub namespace: String,
     pub name: String,
     pub tombstoned: bool,
@@ -483,43 +489,43 @@ pub struct ComputeGraph {
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
-    pub version: GraphVersion,
+    pub version: ApplicationVersionString,
     pub code: DataPayload,
-    pub start_fn: ComputeFn,
-    pub nodes: HashMap<String, ComputeFn>,
+    pub start_fn: Function,
+    pub nodes: HashMap<String, Function>,
     #[serde(default)]
     #[builder(default)]
-    pub state: ComputeGraphState,
+    pub state: ApplicationState,
     #[builder(default)]
     vector_clock: VectorClock,
     pub entrypoint: EntryPointManifest,
 }
 
-impl ComputeGraphBuilder {
+impl ApplicationBuilder {
     fn default_created_at(&self) -> u64 {
         get_epoch_time_in_ms()
     }
 }
 
-impl Linearizable for ComputeGraph {
+impl Linearizable for Application {
     fn vector_clock(&self) -> VectorClock {
         self.vector_clock.clone()
     }
 }
 
-impl ComputeGraph {
+impl Application {
     pub fn key(&self) -> String {
-        ComputeGraph::key_from(&self.namespace, &self.name)
+        Application::key_from(&self.namespace, &self.name)
     }
 
     pub fn key_from(namespace: &str, name: &str) -> String {
         format!("{namespace}|{name}")
     }
 
-    /// Update the compute graph from all the supplied Graph fields.
+    /// Update the application from all the supplied Application fields.
     ///
     /// Assumes validated update values.
-    pub fn update(&mut self, update: ComputeGraph) {
+    pub fn update(&mut self, update: Application) {
         // immutable fields
         // self.namespace = other.namespace;
         // self.name = other.name;
@@ -535,10 +541,10 @@ impl ComputeGraph {
         self.entrypoint = update.entrypoint;
     }
 
-    pub fn to_version(&self) -> Result<ComputeGraphVersion> {
-        ComputeGraphVersionBuilder::default()
+    pub fn to_version(&self) -> Result<ApplicationVersion> {
+        ApplicationVersionBuilder::default()
             .namespace(self.namespace.clone())
-            .compute_graph_name(self.name.clone())
+            .application_name(self.name.clone())
             .created_at(self.created_at)
             .version(self.version.clone())
             .code(self.code.clone())
@@ -633,32 +639,31 @@ impl ComputeGraph {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct ComputeGraphVersion {
-    // Graph is currently versioned manually by users.
+pub struct ApplicationVersion {
     pub namespace: String,
-    pub compute_graph_name: String,
+    pub application_name: String,
     pub created_at: u64,
-    pub version: GraphVersion,
+    pub version: ApplicationVersionString,
     pub code: DataPayload,
-    pub start_fn: ComputeFn,
+    pub start_fn: Function,
     #[builder(default)]
-    pub nodes: HashMap<String, ComputeFn>,
+    pub nodes: HashMap<String, Function>,
     #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default)]
     #[builder(default)]
-    pub state: ComputeGraphState,
+    pub state: ApplicationState,
     #[builder(default)]
     vector_clock: VectorClock,
 }
 
-impl Linearizable for ComputeGraphVersion {
+impl Linearizable for ApplicationVersion {
     fn vector_clock(&self) -> VectorClock {
         self.vector_clock.clone()
     }
 }
 
-impl ComputeGraphVersion {
+impl ApplicationVersion {
     pub fn create_function_run(
         &self,
         fn_call: &FunctionCall,
@@ -668,8 +673,8 @@ impl ComputeGraphVersion {
         FunctionRunBuilder::default()
             .id(fn_call.function_call_id.clone())
             .namespace(self.namespace.clone())
-            .application(self.compute_graph_name.clone())
-            .graph_version(self.version.clone())
+            .application(self.application_name.clone())
+            .application_version(self.version.clone())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 function_call_id: fn_call.function_call_id.clone(),
                 inputs: fn_call.inputs.clone(),
@@ -679,7 +684,7 @@ impl ComputeGraphVersion {
             .input_args(input_args)
             .name(fn_call.fn_name.clone())
             .request_id(request_id.to_string())
-            .status(TaskStatus::Pending)
+            .status(FunctionRunStatus::Pending)
             .attempt_number(0)
             .call_metadata(fn_call.call_metadata.clone())
             .creation_time_ns(get_epoch_time_in_ns())
@@ -689,18 +694,22 @@ impl ComputeGraphVersion {
     }
 
     pub fn key(&self) -> String {
-        ComputeGraphVersion::key_from(&self.namespace, &self.compute_graph_name, &self.version)
+        ApplicationVersion::key_from(&self.namespace, &self.application_name, &self.version)
     }
 
-    pub fn key_from(namespace: &str, compute_graph_name: &str, version: &GraphVersion) -> String {
-        format!("{}|{}|{}", namespace, compute_graph_name, version.0)
+    pub fn key_from(
+        namespace: &str,
+        application_name: &str,
+        version: &ApplicationVersionString,
+    ) -> String {
+        format!("{}|{}|{}", namespace, application_name, version.0)
     }
 
     pub fn key_prefix_from(namespace: &str, name: &str) -> String {
         format!("{namespace}|{name}|")
     }
 
-    pub fn task_max_retries(&self, task: &FunctionRun) -> Option<u32> {
+    pub fn function_run_max_retries(&self, task: &FunctionRun) -> Option<u32> {
         self.nodes
             .get(&task.name)
             .map(|node| node.retry_policy.max_retries)
@@ -736,42 +745,42 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TaskDiagnostics {
+pub struct FunctionRunDiagnostics {
     pub stdout: Option<DataPayload>,
     pub stderr: Option<DataPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GraphInvocationOutcome {
+pub enum ApplicationRequestOutcome {
     Unknown,
     Success,
-    Failure(GraphInvocationFailureReason),
+    Failure(ApplicationInvocationFailureReason),
 }
 
-impl Default for GraphInvocationOutcome {
+impl Default for ApplicationRequestOutcome {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<TaskOutcome> for GraphInvocationOutcome {
-    fn from(outcome: TaskOutcome) -> Self {
+impl From<FunctionRunOutcome> for ApplicationRequestOutcome {
+    fn from(outcome: FunctionRunOutcome) -> Self {
         match outcome {
-            TaskOutcome::Success => GraphInvocationOutcome::Success,
-            TaskOutcome::Failure(failure_reason) => {
-                GraphInvocationOutcome::Failure(failure_reason.into())
+            FunctionRunOutcome::Success => ApplicationRequestOutcome::Success,
+            FunctionRunOutcome::Failure(failure_reason) => {
+                ApplicationRequestOutcome::Failure(failure_reason.into())
             }
-            TaskOutcome::Unknown => GraphInvocationOutcome::Unknown,
+            FunctionRunOutcome::Unknown => ApplicationRequestOutcome::Unknown,
         }
     }
 }
 
-impl Display for GraphInvocationOutcome {
+impl Display for ApplicationRequestOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphInvocationOutcome::Unknown => write!(f, "Unknown"),
-            GraphInvocationOutcome::Success => write!(f, "Success"),
-            GraphInvocationOutcome::Failure(reason) => {
+            ApplicationRequestOutcome::Unknown => write!(f, "Unknown"),
+            ApplicationRequestOutcome::Success => write!(f, "Success"),
+            ApplicationRequestOutcome::Failure(reason) => {
                 write!(f, "Failure (")?;
                 reason.fmt(f)?;
                 write!(f, ")")
@@ -781,7 +790,7 @@ impl Display for GraphInvocationOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GraphInvocationFailureReason {
+pub enum ApplicationInvocationFailureReason {
     // Used when invocation didn't finish yet and when invocation finished successfully
     Unknown,
     // Internal error on Executor aka platform error.
@@ -796,64 +805,76 @@ pub enum GraphInvocationFailureReason {
     ConstraintUnsatisfiable,
 }
 
-impl Display for GraphInvocationFailureReason {
+impl Display for ApplicationInvocationFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
-            GraphInvocationFailureReason::Unknown => "Unknown",
-            GraphInvocationFailureReason::InternalError => "InternalError",
-            GraphInvocationFailureReason::FunctionError => "FunctionError",
-            GraphInvocationFailureReason::InvocationError => "InvocationError",
-            GraphInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
-            GraphInvocationFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            ApplicationInvocationFailureReason::Unknown => "Unknown",
+            ApplicationInvocationFailureReason::InternalError => "InternalError",
+            ApplicationInvocationFailureReason::FunctionError => "FunctionError",
+            ApplicationInvocationFailureReason::InvocationError => "InvocationError",
+            ApplicationInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
+            ApplicationInvocationFailureReason::ConstraintUnsatisfiable => {
+                "ConstraintUnsatisfiable"
+            }
         };
         write!(f, "{str_val}")
     }
 }
 
-impl Default for GraphInvocationFailureReason {
+impl Default for ApplicationInvocationFailureReason {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<TaskFailureReason> for GraphInvocationFailureReason {
-    fn from(failure_reason: TaskFailureReason) -> Self {
+impl From<FunctionRunFailureReason> for ApplicationInvocationFailureReason {
+    fn from(failure_reason: FunctionRunFailureReason) -> Self {
         match failure_reason {
-            TaskFailureReason::Unknown => GraphInvocationFailureReason::Unknown,
-            TaskFailureReason::InternalError => GraphInvocationFailureReason::InternalError,
-            TaskFailureReason::FunctionError => GraphInvocationFailureReason::FunctionError,
-            TaskFailureReason::FunctionTimeout => GraphInvocationFailureReason::FunctionError,
-            TaskFailureReason::InvocationError => GraphInvocationFailureReason::InvocationError,
-            TaskFailureReason::TaskCancelled => GraphInvocationFailureReason::InternalError,
-            TaskFailureReason::FunctionExecutorTerminated => {
-                GraphInvocationFailureReason::InternalError
+            FunctionRunFailureReason::Unknown => ApplicationInvocationFailureReason::Unknown,
+            FunctionRunFailureReason::InternalError => {
+                ApplicationInvocationFailureReason::InternalError
             }
-            TaskFailureReason::ConstraintUnsatisfiable => {
-                GraphInvocationFailureReason::ConstraintUnsatisfiable
+            FunctionRunFailureReason::FunctionError => {
+                ApplicationInvocationFailureReason::FunctionError
+            }
+            FunctionRunFailureReason::FunctionTimeout => {
+                ApplicationInvocationFailureReason::FunctionError
+            }
+            FunctionRunFailureReason::InvocationError => {
+                ApplicationInvocationFailureReason::InvocationError
+            }
+            FunctionRunFailureReason::FunctionRunCancelled => {
+                ApplicationInvocationFailureReason::InternalError
+            }
+            FunctionRunFailureReason::FunctionExecutorTerminated => {
+                ApplicationInvocationFailureReason::InternalError
+            }
+            FunctionRunFailureReason::ConstraintUnsatisfiable => {
+                ApplicationInvocationFailureReason::ConstraintUnsatisfiable
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct GraphInvocationError {
+pub struct ApplicationInvocationError {
     pub function_name: String,
     pub payload: DataPayload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct GraphInvocationCtx {
+pub struct ApplicationInvocationCtx {
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub graph_version: GraphVersion,
+    pub application_name: String,
+    pub application_version: ApplicationVersionString,
     pub request_id: String,
     #[serde(default)]
     #[builder(default)]
-    pub outcome: Option<GraphInvocationOutcome>,
+    pub outcome: Option<ApplicationRequestOutcome>,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
-    pub request_error: Option<GraphInvocationError>,
+    pub request_error: Option<ApplicationInvocationError>,
     #[builder(default)]
     vector_clock: VectorClock,
 
@@ -862,27 +883,28 @@ pub struct GraphInvocationCtx {
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
 
     #[builder(default)]
-    pub child_function_calls: HashMap<String, GraphInvocationCtx>, /* Child Request ID -> Child
-                                                                    * GraphInvocationCtx */
+    pub child_function_calls: HashMap<String, ApplicationInvocationCtx>, /* Child Request ID ->
+                                                                          * Child
+                                                                          * GraphInvocationCtx */
 }
 
-impl GraphInvocationCtxBuilder {
+impl ApplicationInvocationCtxBuilder {
     fn default_created_at(&self) -> u64 {
         get_epoch_time_in_ms()
     }
 }
 
-impl Linearizable for GraphInvocationCtx {
+impl Linearizable for ApplicationInvocationCtx {
     fn vector_clock(&self) -> VectorClock {
         self.vector_clock.clone()
     }
 }
 
-impl GraphInvocationCtx {
+impl ApplicationInvocationCtx {
     pub fn key(&self) -> String {
         format!(
             "{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.request_id
+            self.namespace, self.application_name, self.request_id
         )
     }
 
@@ -890,7 +912,7 @@ impl GraphInvocationCtx {
         let mut key = Vec::new();
         key.extend_from_slice(self.namespace.as_bytes());
         key.push(b'|');
-        key.extend_from_slice(self.compute_graph_name.as_bytes());
+        key.extend_from_slice(self.application_name.as_bytes());
         key.push(b'|');
         key.extend_from_slice(&self.created_at.to_be_bytes());
         key.push(b'|');
@@ -908,25 +930,25 @@ impl GraphInvocationCtx {
         format!("{ns}|{cg}|{id}")
     }
 
-    pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
-        format!("{namespace}|{compute_graph}|")
+    pub fn key_prefix_for_application(namespace: &str, application: &str) -> String {
+        format!("{namespace}|{application}|")
     }
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum TaskOutcome {
+pub enum FunctionRunOutcome {
     #[default]
     Unknown,
     Success,
-    Failure(TaskFailureReason),
+    Failure(FunctionRunFailureReason),
 }
 
-impl Display for TaskOutcome {
+impl Display for FunctionRunOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskOutcome::Unknown => write!(f, "Unknown"),
-            TaskOutcome::Success => write!(f, "Success"),
-            TaskOutcome::Failure(reason) => {
+            FunctionRunOutcome::Unknown => write!(f, "Unknown"),
+            FunctionRunOutcome::Success => write!(f, "Success"),
+            FunctionRunOutcome::Failure(reason) => {
                 write!(f, "Failure (")?;
                 reason.fmt(f)?;
                 write!(f, ")")
@@ -936,7 +958,7 @@ impl Display for TaskOutcome {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum TaskFailureReason {
+pub enum FunctionRunFailureReason {
     Unknown,
     // Internal error on Executor aka platform error.
     InternalError,
@@ -949,50 +971,50 @@ pub enum TaskFailureReason {
     InvocationError,
     // Server removed the task allocation from Executor desired state.
     // The task allocation didn't finish before the removal.
-    TaskCancelled,
+    FunctionRunCancelled,
     // Function Executor terminated - can't run the task allocation on it anymore.
     FunctionExecutorTerminated,
-    // Task cannot be scheduled given its constraints.
+    // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
 }
 
-impl Display for TaskFailureReason {
+impl Display for FunctionRunFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
-            TaskFailureReason::Unknown => "Unknown",
-            TaskFailureReason::InternalError => "InternalError",
-            TaskFailureReason::FunctionError => "FunctionError",
-            TaskFailureReason::FunctionTimeout => "FunctionTimeout",
-            TaskFailureReason::InvocationError => "InvocationError",
-            TaskFailureReason::TaskCancelled => "TaskCancelled",
-            TaskFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
-            TaskFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            FunctionRunFailureReason::Unknown => "Unknown",
+            FunctionRunFailureReason::InternalError => "InternalError",
+            FunctionRunFailureReason::FunctionError => "FunctionError",
+            FunctionRunFailureReason::FunctionTimeout => "FunctionTimeout",
+            FunctionRunFailureReason::InvocationError => "InvocationError",
+            FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
+            FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
+            FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
         };
         write!(f, "{str_val}")
     }
 }
 
-impl Default for TaskFailureReason {
+impl Default for FunctionRunFailureReason {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl TaskFailureReason {
+impl FunctionRunFailureReason {
     pub fn is_retriable(&self) -> bool {
         // InvocationError and RetryLimitExceeded are not retriable;
         // they fail the invocation permanently.
         matches!(
             self,
-            TaskFailureReason::InternalError |
-                TaskFailureReason::FunctionError |
-                TaskFailureReason::FunctionTimeout |
-                TaskFailureReason::TaskCancelled |
-                TaskFailureReason::FunctionExecutorTerminated
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout |
+                FunctionRunFailureReason::FunctionRunCancelled |
+                FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
 
-    pub fn should_count_against_task_retry_attempts(self) -> bool {
+    pub fn should_count_against_function_run_retry_attempts(self) -> bool {
         // Explicit platform decisions and provable infrastructure
         // failures don't count against retry attempts; everything
         // else counts against retry attempts.
@@ -1001,40 +1023,40 @@ impl TaskFailureReason {
         // with long lasting internal problems.
         matches!(
             self,
-            TaskFailureReason::InternalError |
-                TaskFailureReason::FunctionError |
-                TaskFailureReason::FunctionTimeout
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout
         )
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct RunningTaskStatus {
+pub struct RunningFunctionRunStatus {
     pub allocation_id: AllocationId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum TaskStatus {
-    /// Task is waiting for execution
+pub enum FunctionRunStatus {
+    /// Function run is waiting for execution
     Pending,
-    /// Task is running
-    Running(RunningTaskStatus),
-    /// Task is completed
+    /// Function run is running
+    Running(RunningFunctionRunStatus),
+    /// Function run is completed
     Completed,
 }
 
-impl Default for TaskStatus {
+impl Default for FunctionRunStatus {
     fn default() -> Self {
         Self::Completed
     }
 }
 
-impl Display for TaskStatus {
+impl Display for FunctionRunStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
-            TaskStatus::Pending => "Pending".to_string(),
-            TaskStatus::Running(status) => format!("Running({status:?})"),
-            TaskStatus::Completed => "Completed".to_string(),
+            FunctionRunStatus::Pending => "Pending".to_string(),
+            FunctionRunStatus::Running(status) => format!("Running({status:?})"),
+            FunctionRunStatus::Completed => "Completed".to_string(),
         };
         write!(f, "{str_val}")
     }
@@ -1050,15 +1072,15 @@ pub struct FunctionURI {
     pub namespace: String,
     pub application: String,
     pub fn_name: String,
-    pub version: GraphVersion,
+    pub version: ApplicationVersionString,
 }
 
 impl From<FunctionExecutorServerMetadata> for FunctionURI {
     fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
-            application: fe_meta.function_executor.compute_graph_name.clone(),
-            fn_name: fe_meta.function_executor.compute_fn_name.clone(),
+            application: fe_meta.function_executor.application_name.clone(),
+            fn_name: fe_meta.function_executor.function_name.clone(),
             version: fe_meta.function_executor.version.clone(),
         }
     }
@@ -1074,8 +1096,8 @@ impl From<&FunctionExecutor> for FunctionURI {
     fn from(fe: &FunctionExecutor) -> Self {
         FunctionURI {
             namespace: fe.namespace.clone(),
-            application: fe.compute_graph_name.clone(),
-            fn_name: fe.compute_fn_name.clone(),
+            application: fe.application_name.clone(),
+            fn_name: fe.function_name.clone(),
             version: fe.version.clone(),
         }
     }
@@ -1087,7 +1109,7 @@ impl From<&FunctionRun> for FunctionURI {
             namespace: function_run.namespace.clone(),
             application: function_run.application.clone(),
             fn_name: function_run.name.clone(),
-            version: function_run.graph_version.clone(),
+            version: function_run.application_version.clone(),
         }
     }
 }
@@ -1357,35 +1379,41 @@ pub enum FunctionExecutorTerminationReason {
     ExecutorRemoved,
 }
 
-impl From<FunctionExecutorTerminationReason> for TaskFailureReason {
+impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
     fn from(reason: FunctionExecutorTerminationReason) -> Self {
         match reason {
             FunctionExecutorTerminationReason::Unknown => {
-                TaskFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::StartupFailedInternalError => {
-                TaskFailureReason::InternalError
+                FunctionRunFailureReason::InternalError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionError => {
-                TaskFailureReason::FunctionError
+                FunctionRunFailureReason::FunctionError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
-                TaskFailureReason::FunctionTimeout
+                FunctionRunFailureReason::FunctionTimeout
             }
-            FunctionExecutorTerminationReason::Unhealthy => TaskFailureReason::FunctionTimeout,
-            FunctionExecutorTerminationReason::InternalError => TaskFailureReason::InternalError,
-            FunctionExecutorTerminationReason::FunctionError => TaskFailureReason::FunctionError,
+            FunctionExecutorTerminationReason::Unhealthy => {
+                FunctionRunFailureReason::FunctionTimeout
+            }
+            FunctionExecutorTerminationReason::InternalError => {
+                FunctionRunFailureReason::InternalError
+            }
+            FunctionExecutorTerminationReason::FunctionError => {
+                FunctionRunFailureReason::FunctionError
+            }
             FunctionExecutorTerminationReason::FunctionTimeout => {
-                TaskFailureReason::FunctionTimeout
+                FunctionRunFailureReason::FunctionTimeout
             }
             FunctionExecutorTerminationReason::FunctionCancelled => {
-                TaskFailureReason::TaskCancelled
+                FunctionRunFailureReason::FunctionRunCancelled
             }
             FunctionExecutorTerminationReason::DesiredStateRemoved => {
-                TaskFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::ExecutorRemoved => {
-                TaskFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::FunctionExecutorTerminated
             }
         }
     }
@@ -1394,9 +1422,9 @@ impl From<FunctionExecutorTerminationReason> for TaskFailureReason {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
-    pub compute_graph_name: Option<String>,
-    pub compute_fn_name: Option<String>,
-    pub version: Option<GraphVersion>,
+    pub application_name: Option<String>,
+    pub function: Option<String>,
+    pub version: Option<ApplicationVersionString>,
 }
 
 impl FunctionAllowlist {
@@ -1404,12 +1432,12 @@ impl FunctionAllowlist {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.compute_graph_name
+            self.application_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.compute_graph_name) &&
-            self.compute_fn_name
+                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
+            self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.compute_fn_name) &&
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
             self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
@@ -1419,15 +1447,15 @@ impl FunctionAllowlist {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_run.namespace) &&
-            self.compute_graph_name
+            self.application_name
                 .as_ref()
                 .is_none_or(|cg_name| cg_name == &function_run.application) &&
-            self.compute_fn_name
+            self.function
                 .as_ref()
                 .is_none_or(|fn_name| fn_name == &function_run.name) &&
             self.version
                 .as_ref()
-                .is_none_or(|version| version == &function_run.graph_version)
+                .is_none_or(|version| version == &function_run.application_version)
     }
 }
 
@@ -1464,9 +1492,9 @@ pub struct FunctionExecutor {
     #[builder(default)]
     pub id: FunctionExecutorId,
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub compute_fn_name: String,
-    pub version: GraphVersion,
+    pub application_name: String,
+    pub function_name: String,
+    pub version: ApplicationVersionString,
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
@@ -1498,7 +1526,7 @@ impl FunctionExecutor {
     pub fn fn_uri_str(&self) -> String {
         format!(
             "{}|{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.compute_fn_name, self.version,
+            self.namespace, self.application_name, self.function_name, self.version,
         )
     }
 
@@ -1619,28 +1647,28 @@ impl ExecutorMetadata {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
-pub struct InvokeComputeGraphEvent {
+pub struct InvokeApplicationEvent {
     pub invocation_id: String,
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TaskFinalizedEvent {
+pub struct FunctionRunFinalizedEvent {
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
     pub invocation_id: String,
-    pub task_id: TaskId,
+    pub function_run_id: FunctionRunId,
     pub executor_id: ExecutorId,
 }
 
-impl fmt::Display for TaskFinalizedEvent {
+impl fmt::Display for FunctionRunFinalizedEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TaskFinishedEvent(namespace: {}, compute_graph: {}, compute_fn: {}, task_id: {})",
-            self.namespace, self.compute_graph, self.compute_fn, self.task_id,
+            "FunctionRunFinalizedEvent(namespace: {}, application: {}, function: {}, invocation_id: {}, function_run_id: {}, executor_id: {})",
+            self.namespace, self.application, self.function, self.invocation_id, self.function_run_id, self.executor_id,
         )
     }
 }
@@ -1656,8 +1684,8 @@ pub struct GraphUpdates {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
     pub invocation_id: String,
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
@@ -1672,15 +1700,15 @@ pub struct ExecutorRemovedEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TombstoneComputeGraphEvent {
+pub struct TombstoneApplicationEvent {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TombstoneInvocationEvent {
     pub namespace: String,
-    pub compute_graph: String,
+    pub application: String,
     pub invocation_id: String,
 }
 
@@ -1691,9 +1719,9 @@ pub struct ExecutorUpsertedEvent {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
-    InvokeComputeGraph(InvokeComputeGraphEvent),
+    InvokeApplication(InvokeApplicationEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
-    TombstoneComputeGraph(TombstoneComputeGraphEvent),
+    TombstoneApplication(TombstoneApplicationEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
@@ -1702,22 +1730,22 @@ pub enum ChangeType {
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChangeType::InvokeComputeGraph(ev) => {
+            ChangeType::InvokeApplication(ev) => {
                 write!(
                     f,
-                    "InvokeComputeGraph ns: {}, invocation: {}, compute_graph: {}",
-                    ev.namespace, ev.invocation_id, ev.compute_graph
+                    "InvokeApplication ns: {}, invocation: {}, application: {}",
+                    ev.namespace, ev.invocation_id, ev.application
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
-                "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",
-                ev.namespace, ev.invocation_id, ev.compute_graph, ev.function_call_id,
+                "AllocationOutputsIngested ns: {}, invocation: {}, application: {}, function_run: {}",
+                ev.namespace, ev.invocation_id, ev.application, ev.function_call_id,
             ),
-            ChangeType::TombstoneComputeGraph(ev) => write!(
+            ChangeType::TombstoneApplication(ev) => write!(
                 f,
-                "TombstoneComputeGraph ns: {}, compute_graph: {}",
-                ev.namespace, ev.compute_graph
+                "TombstoneApplication ns: {}, application: {}",
+                ev.namespace, ev.application
             ),
             ChangeType::ExecutorUpserted(e) => {
                 write!(f, "ExecutorAdded, executor_id: {}", e.executor_id)
@@ -1727,8 +1755,8 @@ impl fmt::Display for ChangeType {
             }
             ChangeType::TombstoneInvocation(ev) => write!(
                 f,
-                "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",
-                ev.namespace, ev.compute_graph, ev.invocation_id
+                "TombstoneInvocation, ns: {}, application: {}, invocation_id: {}",
+                ev.namespace, ev.application, ev.invocation_id
             ),
         }
     }
@@ -1770,7 +1798,7 @@ pub struct StateChange {
     pub created_at: u64,
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
-    pub compute_graph: Option<String>,
+    pub application: Option<String>,
     pub invocation: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
@@ -1833,32 +1861,32 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::test_compute_fn,
-        ComputeGraph,
-        ComputeGraphVersion,
-        GraphVersion,
+        test_objects::tests::test_function,
+        Application,
+        ApplicationVersion,
+        ApplicationVersionString,
     };
 
     #[test]
-    fn test_compute_graph_update() {
+    fn test_application_update() {
         const TEST_NAMESPACE: &str = "namespace1";
-        let fn_a = test_compute_fn("fn_a", 0);
-        let fn_b = test_compute_fn("fn_b", 0);
-        let fn_c = test_compute_fn("fn_c", 0);
+        let fn_a = test_function("fn_a", 0);
+        let fn_b = test_function("fn_b", 0);
+        let fn_c = test_function("fn_c", 0);
 
-        let original_graph: ComputeGraph = ComputeGraphBuilder::default()
+        let original_application: Application = ApplicationBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .name("graph1".to_string())
             .tombstoned(false)
             .description("description1".to_string())
             .tags(HashMap::new())
-            .state(ComputeGraphState::Active)
+            .state(ApplicationState::Active)
             .nodes(HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),
                 ("fn_c".to_string(), fn_c.clone()),
             ]))
-            .version(crate::data_model::GraphVersion::from("1"))
+            .version(crate::data_model::ApplicationVersionString::from("1"))
             .code(DataPayload {
                 id: "code_id".to_string(),
                 path: "cgc_path".to_string(),
@@ -1879,78 +1907,78 @@ mod tests {
             .build()
             .unwrap();
 
-        let original_version = original_graph.to_version().unwrap();
+        let original_version = original_application.to_version().unwrap();
         struct TestCase {
             description: &'static str,
-            update: ComputeGraph,
-            expected_graph: ComputeGraph,
-            expected_version: ComputeGraphVersion,
+            update: Application,
+            expected_graph: Application,
+            expected_version: ApplicationVersion,
         }
 
         let test_cases = [
             TestCase {
                 description: "no graph and version changes",
-                update: original_graph.clone(),
-                expected_graph: original_graph.clone(),
+                update: original_application.clone(),
+                expected_graph: original_application.clone(),
                 expected_version: original_version.clone(),
             },
             TestCase {
                 description: "version update",
-                update: ComputeGraph {
-                    version: crate::data_model::GraphVersion::from("100"),   // different
-                    ..original_graph.clone()
+                update: Application {
+                    version: crate::data_model::ApplicationVersionString::from("100"),   // different
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: crate::data_model::GraphVersion::from("100"),
-                    ..original_graph.clone()
+                expected_graph: Application {
+                    version: crate::data_model::ApplicationVersionString::from("100"),
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("100"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("100"),
                     ..original_version.clone()
                 },
             },
             TestCase {
                 description: "immutable fields should not change when version changed",
-                update: ComputeGraph {
+                update: Application {
                     namespace: "namespace2".to_string(),         // different
                     name: "graph2".to_string(),                  // different
-                    version: crate::data_model::GraphVersion::from("100"),   // different
+                    version: crate::data_model::ApplicationVersionString::from("100"),   // different
                     created_at: 10,                              // different
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: crate::data_model::GraphVersion::from("100"),
-                    ..original_graph.clone()
+                expected_graph: Application {
+                    version: crate::data_model::ApplicationVersionString::from("100"),
+                    ..original_application.clone()
                 },
-                expected_version:ComputeGraphVersion {
-                    version: GraphVersion::from("100"),
+                expected_version:ApplicationVersion {
+                    version: ApplicationVersionString::from("100"),
                     ..original_version.clone()
                 },
             },
             // Code.
             TestCase {
                 description: "changing code with version change should change code",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_graph.code.clone()
+                        ..original_application.code.clone()
                     },
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_graph.code.clone()
+                        ..original_application.code.clone()
                     },
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_graph.code.clone()
+                        ..original_application.code.clone()
                     },
                     ..original_version.clone()
                 },
@@ -1958,34 +1986,34 @@ mod tests {
             // Edges.
             TestCase {
                 description: "changing edges with version change should change edges",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
-                    ..original_graph.clone()
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"),
-                    ..original_graph.clone()
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"),
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     ..original_version.clone()
                 },
             },
             // start_fn.
             TestCase {
                 description: "changing start function with version change should change start function",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     start_fn: fn_b.clone(), // different
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"),
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"),
                     start_fn: fn_b.clone(),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     start_fn: fn_b.clone(),
                     ..original_version.clone()
                 },
@@ -1993,33 +2021,33 @@ mod tests {
             // Adding a node.
             TestCase {
                 description: "adding a node with version change should add node",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"),
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
-                        ("fn_d".to_string(), test_compute_fn("fn_d", 0)), // added
+                        ("fn_d".to_string(), test_function("fn_d", 0)), // added
                     ]),
                     ..original_version.clone()
                 },
@@ -2027,25 +2055,25 @@ mod tests {
             // Removing a node.
             TestCase {
                 description: "removing a node with version change should remove the node",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         // "fn_c" removed
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"),
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
@@ -2056,28 +2084,28 @@ mod tests {
             // Changing a node's image.
             TestCase {
                 description: "changing a node's image with version change should update the image and version",
-                update: ComputeGraph {
-                    version: GraphVersion::from("2"), // different
+                update: Application {
+                    version: ApplicationVersionString::from("2"), // different
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)), // different
+                        ("fn_a".to_string(), test_function("fn_a", 0)), // different
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_graph: ComputeGraph {
-                    version: GraphVersion::from("2"),
+                expected_graph: Application {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a", 0)),
+                        ("fn_a".to_string(), test_function("fn_a", 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
-                    ..original_graph.clone()
+                    ..original_application.clone()
                 },
-                expected_version: ComputeGraphVersion {
-                    version: GraphVersion::from("2"),
+                expected_version: ApplicationVersion {
+                    version: ApplicationVersionString::from("2"),
                     nodes: HashMap::from([
-                        ("fn_a".to_string(), test_compute_fn("fn_a",  0)),
+                        ("fn_a".to_string(), test_function("fn_a",  0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),
@@ -2087,17 +2115,17 @@ mod tests {
         ];
 
         for test_case in test_cases.iter() {
-            let mut updated_graph = original_graph.clone();
-            updated_graph.update(test_case.update.clone());
+            let mut updated_app = original_application.clone();
+            updated_app.update(test_case.update.clone());
             assert_eq!(
-                updated_graph, test_case.expected_graph,
+                updated_app, test_case.expected_graph,
                 "{}",
                 test_case.description
             );
             assert_eq!(
-                updated_graph.to_version().unwrap(),
+                updated_app.to_version().unwrap(),
                 test_case.expected_version,
-                "different ComputeGraphVersion for test `{}`",
+                "different ApplicationVersion for test `{}`",
                 test_case.description
             );
         }
@@ -2113,8 +2141,8 @@ mod tests {
         };
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
-            .compute_graph("graph".to_string())
-            .compute_fn("fn".to_string())
+            .application("graph".to_string())
+            .function("fn".to_string())
             .invocation_id("invoc-1".to_string())
             .function_call_id("task-1".into())
             .input_args(vec![InputArgs {
@@ -2132,12 +2160,12 @@ mod tests {
             .target(target.clone())
             .call_metadata(Bytes::new())
             .attempt_number(1)
-            .outcome(TaskOutcome::Success)
+            .outcome(FunctionRunOutcome::Success)
             .build()
             .expect("Allocation should build successfully");
         assert_eq!(allocation.namespace, "test-ns");
-        assert_eq!(allocation.compute_graph, "graph");
-        assert_eq!(allocation.compute_fn, "fn");
+        assert_eq!(allocation.application, "graph");
+        assert_eq!(allocation.function, "fn");
         assert_eq!(allocation.invocation_id, "invoc-1");
         assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
@@ -2146,7 +2174,7 @@ mod tests {
             target.function_executor_id
         );
         assert_eq!(allocation.attempt_number, 1);
-        assert_eq!(allocation.outcome, TaskOutcome::Success);
+        assert_eq!(allocation.outcome, FunctionRunOutcome::Success);
         assert!(!allocation.id.is_empty());
         assert_eq!(allocation.created_at, 9999999999);
         assert!(allocation.execution_duration_ms.is_none());
@@ -2156,11 +2184,8 @@ mod tests {
 
         // Check all fields are present and correctly serialized
         assert!(json.contains(&format!("\"namespace\":\"{}\"", allocation.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph\":\"{}\"",
-            allocation.compute_graph
-        )));
-        assert!(json.contains(&format!("\"compute_fn\":\"{}\"", allocation.compute_fn)));
+        assert!(json.contains(&format!("\"application\":\"{}\"", allocation.application)));
+        assert!(json.contains(&format!("\"function\":\"{}\"", allocation.function)));
         assert!(json.contains(&format!(
             "\"invocation_id\":\"{}\"",
             allocation.invocation_id
@@ -2187,21 +2212,21 @@ mod tests {
         MockClock::set_system_time(Duration::from_nanos(9999999999999999));
 
         let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
+        let application_name = "graph".to_string();
         let invocation_id = "invoc-1".to_string();
-        let graph_version = GraphVersion::from("42");
+        let application_version = ApplicationVersionString::from("42");
 
-        // Minimal ComputeGraph for the builder
-        let fn_a = test_compute_fn("fn_a", 0);
-        let _compute_graph = ComputeGraphBuilder::default()
+        // Minimal Application for the builder
+        let fn_a = test_function("fn_a", 0);
+        let _application = ApplicationBuilder::default()
             .namespace(namespace.clone())
-            .name(compute_graph_name.clone())
+            .name(application_name.clone())
             .tombstoned(false)
             .description("desc".to_string())
             .tags(HashMap::new())
-            .state(ComputeGraphState::Active)
+            .state(ApplicationState::Active)
             .nodes(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
-            .version(graph_version.clone())
+            .version(application_version.clone())
             .code(DataPayload {
                 id: "code_id".to_string(),
                 encoding: "application/octet-stream".to_string(),
@@ -2222,20 +2247,20 @@ mod tests {
             .build()
             .unwrap();
 
-        let ctx = GraphInvocationCtxBuilder::default()
+        let ctx = ApplicationInvocationCtxBuilder::default()
             .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
+            .application_name(application_name.clone())
             .request_id(invocation_id.clone())
             .function_calls(HashMap::new())
             .function_runs(HashMap::new())
-            .graph_version(graph_version.clone())
+            .application_version(application_version.clone())
             .build()
             .expect("GraphInvocationCtx should build successfully");
 
         assert_eq!(ctx.namespace, namespace);
-        assert_eq!(ctx.compute_graph_name, compute_graph_name);
+        assert_eq!(ctx.application_name, application_name);
         assert_eq!(ctx.request_id, invocation_id);
-        assert_eq!(ctx.graph_version, graph_version);
+        assert_eq!(ctx.application_version, application_version);
         assert_eq!(ctx.outcome, None);
         assert!(ctx.request_error.is_none());
         assert_eq!(ctx.created_at, 9999999999);
@@ -2247,7 +2272,7 @@ mod tests {
             key,
             format!(
                 "{}|{}|{}",
-                ctx.namespace, ctx.compute_graph_name, ctx.request_id
+                ctx.namespace, ctx.application_name, ctx.request_id
             )
         );
 
@@ -2256,11 +2281,14 @@ mod tests {
             serde_json::to_string(&ctx).expect("Should serialize GraphInvocationCtx to JSON");
         assert!(json.contains(&format!("\"namespace\":\"{}\"", ctx.namespace)));
         assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            ctx.compute_graph_name
+            "\"application_name\":\"{}\"",
+            ctx.application_name
         )));
         assert!(json.contains(&format!("\"request_id\":\"{}\"", ctx.request_id)));
-        assert!(json.contains(&format!("\"graph_version\":\"{}\"", ctx.graph_version)));
+        assert!(json.contains(&format!(
+            "\"application_version\":\"{}\"",
+            ctx.application_version
+        )));
         assert!(json.contains("\"outcome\":null"));
         assert!(json.contains("\"created_at\":"));
         assert!(json.contains("\"request_error\":null"));
@@ -2271,9 +2299,9 @@ mod tests {
     fn test_function_executor_builder_build_success() {
         let id: FunctionExecutorId = "fe-123".into();
         let namespace = "test-ns".to_string();
-        let compute_graph_name = "graph".to_string();
-        let compute_fn_name = "fn".to_string();
-        let version = GraphVersion::from("1");
+        let application_name = "graph".to_string();
+        let function_name = "fn".to_string();
+        let version = ApplicationVersionString::from("1");
         let state = FunctionExecutorState::Running;
         let resources = FunctionExecutorResources {
             cpu_ms_per_sec: 2000,
@@ -2290,8 +2318,8 @@ mod tests {
         builder
             .id(id.clone())
             .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
+            .application_name(application_name.clone())
+            .function_name(function_name.clone())
             .version(version.clone())
             .state(state.clone())
             .resources(resources.clone())
@@ -2301,8 +2329,8 @@ mod tests {
 
         assert_eq!(fe.id, id);
         assert_eq!(fe.namespace, namespace);
-        assert_eq!(fe.compute_graph_name, compute_graph_name);
-        assert_eq!(fe.compute_fn_name, compute_fn_name);
+        assert_eq!(fe.application_name, application_name);
+        assert_eq!(fe.function_name, function_name);
         assert_eq!(fe.version, version);
         assert_eq!(fe.state, state);
         assert_eq!(fe.resources, resources);
@@ -2313,11 +2341,8 @@ mod tests {
         let json = serde_json::to_string(&fe).expect("Should serialize FunctionExecutor to JSON");
         assert!(json.contains(&format!("\"id\":\"{}\"", fe.id.get())));
         assert!(json.contains(&format!("\"namespace\":\"{}\"", fe.namespace)));
-        assert!(json.contains(&format!(
-            "\"compute_graph_name\":\"{}\"",
-            fe.compute_graph_name
-        )));
-        assert!(json.contains(&format!("\"compute_fn_name\":\"{}\"", fe.compute_fn_name)));
+        assert!(json.contains(&format!("\"application_name\":\"{}\"", fe.application_name)));
+        assert!(json.contains(&format!("\"function_name\":\"{}\"", fe.function_name)));
         assert!(json.contains(&format!("\"version\":\"{}\"", fe.version)));
         assert!(json.contains(&format!("\"state\":\"{}\"", fe.state.as_ref())));
         assert!(json.contains(&format!("\"max_concurrency\":{}", fe.max_concurrency)));
@@ -2346,9 +2371,9 @@ mod tests {
         let executor_version = "0.2.17".to_string();
         let function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some("ns".to_string()),
-            compute_graph_name: Some("graph".to_string()),
-            compute_fn_name: Some("fn".to_string()),
-            version: Some(GraphVersion::from("1")),
+            application_name: Some("graph".to_string()),
+            function: Some("fn".to_string()),
+            version: Some(ApplicationVersionString::from("1")),
         }]);
         let addr = "127.0.0.1:8080".to_string();
         let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
@@ -2358,9 +2383,9 @@ mod tests {
             FunctionExecutorBuilder::default()
                 .id(fe_id.clone())
                 .namespace("ns".to_string())
-                .compute_graph_name("graph".to_string())
-                .compute_fn_name("fn".to_string())
-                .version(GraphVersion::from("1"))
+                .application_name("graph".to_string())
+                .function_name("fn".to_string())
+                .version(ApplicationVersionString::from("1"))
                 .state(FunctionExecutorState::Running)
                 .resources(FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,
