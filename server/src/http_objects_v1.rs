@@ -147,6 +147,8 @@ pub struct ShallowGraphRequest {
     pub id: String,
     pub created_at: u128,
     pub outcome: Option<RequestOutcome>,
+    pub function_runs_count: usize,
+    pub application_version: String,
 }
 
 impl From<ApplicationInvocationCtx> for ShallowGraphRequest {
@@ -155,6 +157,8 @@ impl From<ApplicationInvocationCtx> for ShallowGraphRequest {
             id: ctx.request_id.to_string(),
             created_at: ctx.created_at.into(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
+            function_runs_count: ctx.function_runs.len(),
+            application_version: ctx.graph_version.to_string(),
         }
     }
 }
