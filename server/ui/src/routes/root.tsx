@@ -58,8 +58,7 @@ function Dashboard() {
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
     const newNamespace = event.target.value
-    const newPath = location.pathname.replace(/^\/[^/]+/, `/${newNamespace}`)
-    window.location.href = window.location.origin + '/ui' + newPath
+    window.location.href = window.location.origin + `/ui/${newNamespace}`
   }
 
   const navItems: NavItem[] = [
@@ -143,8 +142,8 @@ function Dashboard() {
                     label="Namespace"
                     onChange={handleNamespaceChange}
                   >
-                    {namespaces.map((ns) => (
-                      <MenuItem key={ns.name} value={ns.name}>
+                    {namespaces.map((ns, index) => (
+                      <MenuItem key={ns.name + '_' + index} value={ns.name}>
                         {ns.name}
                       </MenuItem>
                     ))}
