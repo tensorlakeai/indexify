@@ -159,7 +159,7 @@ export function ApplicationsCard({
     if (!localApplications.length)
       return (
         <Alert variant="outlined" severity="info" sx={{ my: 2 }}>
-          No Graphs Found
+          No Applications Found
         </Alert>
       )
 
