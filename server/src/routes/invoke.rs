@@ -18,12 +18,16 @@ use uuid::Uuid;
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self, ApplicationInvocationCtxBuilder, ApplicationState, FunctionCallId, InputArgs,
+        self,
+        ApplicationInvocationCtxBuilder,
+        ApplicationState,
+        FunctionCallId,
+        InputArgs,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
@@ -32,7 +36,7 @@ use crate::{
 // New shared function for creating SSE streams
 async fn create_invocation_progress_stream(
     id: String,
-    mut rx: Receiver<InvocationStateChangeEvent>,
+    mut rx: Receiver<RequestStateChangeEvent>,
     state: &RouteState,
     namespace: String,
     application: String,
@@ -46,7 +50,7 @@ async fn create_invocation_progress_stream(
             Ok(Some(invocation)) => {
                 if invocation.outcome.is_some() {
                     yield Event::default().json_data(
-                        InvocationStateChangeEvent::RequestFinished(
+                        RequestStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
                                 request_id: id.clone()
                             }
@@ -76,7 +80,7 @@ async fn create_invocation_progress_stream(
                     if ev.invocation_id() == id {
                         yield Event::default().json_data(ev.clone());
 
-                        if let InvocationStateChangeEvent::RequestFinished(_) = ev {
+                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
                             return;
                         }
                     }
@@ -95,7 +99,7 @@ async fn create_invocation_progress_stream(
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
                                 yield Event::default().json_data(
-                                    InvocationStateChangeEvent::RequestFinished(
+                                    RequestStateChangeEvent::RequestFinished(
                                         RequestFinishedEvent {
                                             request_id: id.clone()
                                         }
@@ -342,7 +346,7 @@ async fn return_sse_response(
     namespace: String,
     application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
@@ -376,7 +380,7 @@ pub async fn progress_stream(
     Path((namespace, application, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
 
     let invocation_event_stream =
         create_invocation_progress_stream(invocation_id, rx, &state, namespace, application).await;

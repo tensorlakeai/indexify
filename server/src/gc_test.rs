@@ -101,7 +101,7 @@ mod tests {
                 .application_name(application.name.clone())
                 .namespace(TEST_NAMESPACE.to_string())
                 .application_version(application.version.clone())
-                .outcome(Some(crate::data_model::GraphInvocationOutcome::Failure(
+                .outcome(Some(crate::data_model::ApplicationRequestOutcome::Failure(
                     crate::data_model::ApplicationInvocationFailureReason::InternalError,
                 )))
                 .function_runs(HashMap::from([(

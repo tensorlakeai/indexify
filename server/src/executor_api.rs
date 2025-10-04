@@ -61,7 +61,7 @@ use crate::{
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
             AllocationOutput,
             GraphUpdates,
@@ -643,7 +643,7 @@ impl ExecutorAPIService {
                         Some(FunctionRunFailureReason::InvocationError)
                     }
                     executor_api_pb::AllocationFailureReason::AllocationCancelled => {
-                        Some(FunctionRunFailureReason::TaskCancelled)
+                        Some(FunctionRunFailureReason::FunctionRunCancelled)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(FunctionRunFailureReason::FunctionExecutorTerminated)
@@ -1011,7 +1011,7 @@ impl ExecutorApi for ExecutorAPIService {
         });
 
         // Open the broadcast stream before writing the request to avoid races
-        let mut rx = self.indexify_state.task_event_stream();
+        let mut rx = self.indexify_state.function_run_event_stream();
         self.indexify_state
             .write(StateMachineUpdateRequest {
                 payload: sm_request,
@@ -1032,7 +1032,7 @@ impl ExecutorApi for ExecutorAPIService {
                             let update = serde_json::to_string(&ev)
                                 .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
                             yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
-                            if let InvocationStateChangeEvent::RequestFinished(_) = ev { return; }
+                            if let RequestStateChangeEvent::RequestFinished(_) = ev { return; }
                         }
                     }
                     Err(RecvError::Lagged(_num)) => {
@@ -1040,7 +1040,7 @@ impl ExecutorApi for ExecutorAPIService {
                         match reader.invocation_ctx(ns.as_str(), app.as_str(), &id) {
                             Ok(Some(context)) => {
                                 if context.outcome.is_some() {
-                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
+                                    let update = serde_json::to_string(&RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
                                         .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
                                     yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
                                     return;

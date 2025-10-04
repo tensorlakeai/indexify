@@ -7,7 +7,8 @@ use std::{
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
-    str, vec,
+    str,
+    vec,
 };
 
 use anyhow::{anyhow, Result};
@@ -55,15 +56,15 @@ impl From<&str> for ExecutorId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TaskId(String);
+pub struct FunctionRunId(String);
 
-impl Display for TaskId {
+impl Display for FunctionRunId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<&str> for TaskId {
+impl From<&str> for FunctionRunId {
     fn from(value: &str) -> Self {
         Self(value.to_string())
     }
@@ -708,7 +709,7 @@ impl ApplicationVersion {
         format!("{namespace}|{name}|")
     }
 
-    pub fn task_max_retries(&self, task: &FunctionRun) -> Option<u32> {
+    pub fn function_run_max_retries(&self, task: &FunctionRun) -> Option<u32> {
         self.nodes
             .get(&task.name)
             .map(|node| node.retry_policy.max_retries)
@@ -744,42 +745,42 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TaskDiagnostics {
+pub struct FunctionRunDiagnostics {
     pub stdout: Option<DataPayload>,
     pub stderr: Option<DataPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GraphInvocationOutcome {
+pub enum ApplicationRequestOutcome {
     Unknown,
     Success,
     Failure(ApplicationInvocationFailureReason),
 }
 
-impl Default for GraphInvocationOutcome {
+impl Default for ApplicationRequestOutcome {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<FunctionRunOutcome> for GraphInvocationOutcome {
+impl From<FunctionRunOutcome> for ApplicationRequestOutcome {
     fn from(outcome: FunctionRunOutcome) -> Self {
         match outcome {
-            FunctionRunOutcome::Success => GraphInvocationOutcome::Success,
+            FunctionRunOutcome::Success => ApplicationRequestOutcome::Success,
             FunctionRunOutcome::Failure(failure_reason) => {
-                GraphInvocationOutcome::Failure(failure_reason.into())
+                ApplicationRequestOutcome::Failure(failure_reason.into())
             }
-            FunctionRunOutcome::Unknown => GraphInvocationOutcome::Unknown,
+            FunctionRunOutcome::Unknown => ApplicationRequestOutcome::Unknown,
         }
     }
 }
 
-impl Display for GraphInvocationOutcome {
+impl Display for ApplicationRequestOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphInvocationOutcome::Unknown => write!(f, "Unknown"),
-            GraphInvocationOutcome::Success => write!(f, "Success"),
-            GraphInvocationOutcome::Failure(reason) => {
+            ApplicationRequestOutcome::Unknown => write!(f, "Unknown"),
+            ApplicationRequestOutcome::Success => write!(f, "Success"),
+            ApplicationRequestOutcome::Failure(reason) => {
                 write!(f, "Failure (")?;
                 reason.fmt(f)?;
                 write!(f, ")")
@@ -842,7 +843,7 @@ impl From<FunctionRunFailureReason> for ApplicationInvocationFailureReason {
             FunctionRunFailureReason::InvocationError => {
                 ApplicationInvocationFailureReason::InvocationError
             }
-            FunctionRunFailureReason::TaskCancelled => {
+            FunctionRunFailureReason::FunctionRunCancelled => {
                 ApplicationInvocationFailureReason::InternalError
             }
             FunctionRunFailureReason::FunctionExecutorTerminated => {
@@ -869,7 +870,7 @@ pub struct ApplicationInvocationCtx {
     pub request_id: String,
     #[serde(default)]
     #[builder(default)]
-    pub outcome: Option<GraphInvocationOutcome>,
+    pub outcome: Option<ApplicationRequestOutcome>,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
@@ -970,10 +971,10 @@ pub enum FunctionRunFailureReason {
     InvocationError,
     // Server removed the task allocation from Executor desired state.
     // The task allocation didn't finish before the removal.
-    TaskCancelled,
+    FunctionRunCancelled,
     // Function Executor terminated - can't run the task allocation on it anymore.
     FunctionExecutorTerminated,
-    // Task cannot be scheduled given its constraints.
+    // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
 }
 
@@ -985,7 +986,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::FunctionError => "FunctionError",
             FunctionRunFailureReason::FunctionTimeout => "FunctionTimeout",
             FunctionRunFailureReason::InvocationError => "InvocationError",
-            FunctionRunFailureReason::TaskCancelled => "TaskCancelled",
+            FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
         };
@@ -1005,15 +1006,15 @@ impl FunctionRunFailureReason {
         // they fail the invocation permanently.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError
-                | FunctionRunFailureReason::FunctionError
-                | FunctionRunFailureReason::FunctionTimeout
-                | FunctionRunFailureReason::TaskCancelled
-                | FunctionRunFailureReason::FunctionExecutorTerminated
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout |
+                FunctionRunFailureReason::FunctionRunCancelled |
+                FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
 
-    pub fn should_count_against_task_retry_attempts(self) -> bool {
+    pub fn should_count_against_function_run_retry_attempts(self) -> bool {
         // Explicit platform decisions and provable infrastructure
         // failures don't count against retry attempts; everything
         // else counts against retry attempts.
@@ -1022,25 +1023,25 @@ impl FunctionRunFailureReason {
         // with long lasting internal problems.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError
-                | FunctionRunFailureReason::FunctionError
-                | FunctionRunFailureReason::FunctionTimeout
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout
         )
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct RunningTaskStatus {
+pub struct RunningFunctionRunStatus {
     pub allocation_id: AllocationId,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum FunctionRunStatus {
-    /// Task is waiting for execution
+    /// Function run is waiting for execution
     Pending,
-    /// Task is running
-    Running(RunningTaskStatus),
-    /// Task is completed
+    /// Function run is running
+    Running(RunningFunctionRunStatus),
+    /// Function run is completed
     Completed,
 }
 
@@ -1406,7 +1407,7 @@ impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout
             }
             FunctionExecutorTerminationReason::FunctionCancelled => {
-                FunctionRunFailureReason::TaskCancelled
+                FunctionRunFailureReason::FunctionRunCancelled
             }
             FunctionExecutorTerminationReason::DesiredStateRemoved => {
                 FunctionRunFailureReason::FunctionExecutorTerminated
@@ -1430,17 +1431,14 @@ impl FunctionAllowlist {
     pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace)
-            && self
-                .application_name
+            .is_none_or(|ns| ns == &function_executor.namespace) &&
+            self.application_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.application_name)
-            && self
-                .function
+                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
+            self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
     }
@@ -1448,17 +1446,14 @@ impl FunctionAllowlist {
     pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_run.namespace)
-            && self
-                .application_name
+            .is_none_or(|ns| ns == &function_run.namespace) &&
+            self.application_name
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_run.application)
-            && self
-                .function
+                .is_none_or(|cg_name| cg_name == &function_run.application) &&
+            self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_run.name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &function_run.name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_run.application_version)
     }
@@ -1575,8 +1570,8 @@ impl Eq for FunctionExecutorServerMetadata {}
 
 impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.executor_id == other.executor_id
-            && self.function_executor.id == other.function_executor.id
+        self.executor_id == other.executor_id &&
+            self.function_executor.id == other.function_executor.id
     }
 }
 
@@ -1659,21 +1654,21 @@ pub struct InvokeApplicationEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TaskFinalizedEvent {
+pub struct FunctionRunFinalizedEvent {
     pub namespace: String,
     pub application: String,
     pub function: String,
     pub invocation_id: String,
-    pub task_id: TaskId,
+    pub function_run_id: FunctionRunId,
     pub executor_id: ExecutorId,
 }
 
-impl fmt::Display for TaskFinalizedEvent {
+impl fmt::Display for FunctionRunFinalizedEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TaskFinishedEvent(namespace: {}, application: {}, function: {}, task_id: {})",
-            self.namespace, self.application, self.function, self.task_id,
+            "FunctionRunFinalizedEvent(namespace: {}, application: {}, function: {}, invocation_id: {}, function_run_id: {}, executor_id: {})",
+            self.namespace, self.application, self.function, self.invocation_id, self.function_run_id, self.executor_id,
         )
     }
 }
@@ -1738,13 +1733,13 @@ impl fmt::Display for ChangeType {
             ChangeType::InvokeApplication(ev) => {
                 write!(
                     f,
-                    "InvokeComputeGraph ns: {}, invocation: {}, application: {}",
+                    "InvokeApplication ns: {}, invocation: {}, application: {}",
                     ev.namespace, ev.invocation_id, ev.application
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
-                "TaskOutputsIngested ns: {}, invocation: {}, application: {}, task: {}",
+                "AllocationOutputsIngested ns: {}, invocation: {}, application: {}, function_run: {}",
                 ev.namespace, ev.invocation_id, ev.application, ev.function_call_id,
             ),
             ChangeType::TombstoneApplication(ev) => write!(
@@ -1866,7 +1861,9 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::test_function, Application, ApplicationVersion,
+        test_objects::tests::test_function,
+        Application,
+        ApplicationVersion,
         ApplicationVersionString,
     };
 

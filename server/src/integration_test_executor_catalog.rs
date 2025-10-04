@@ -12,7 +12,9 @@ mod tests {
             ApplicationState,
         },
         state_store::requests::{
-            CreateOrUpdateComputeGraphRequest, RequestPayload, StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
         testing::TestService,
     };
@@ -298,7 +300,10 @@ mod tests {
     #[tokio::test]
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
-            FunctionResources, GPUResources, GPU_MODEL_NVIDIA_A10, GPU_MODEL_NVIDIA_H100_80GB,
+            FunctionResources,
+            GPUResources,
+            GPU_MODEL_NVIDIA_A10,
+            GPU_MODEL_NVIDIA_H100_80GB,
         };
 
         // Single catalog entry with specific capacities

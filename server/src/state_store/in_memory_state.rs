@@ -14,16 +14,33 @@ use tracing::{debug, error, warn};
 
 use crate::{
     data_model::{
-        Allocation, Application, ApplicationInvocationCtx, ApplicationState, ApplicationVersion,
-        ApplicationVersionString, DataPayload, ExecutorId, ExecutorMetadata,
-        ExecutorServerMetadata, FunctionExecutorId, FunctionExecutorResources,
-        FunctionExecutorServerMetadata, FunctionExecutorState, FunctionResources, FunctionRun,
-        FunctionRunStatus, FunctionURI, Namespace, NamespaceBuilder,
+        Allocation,
+        Application,
+        ApplicationInvocationCtx,
+        ApplicationState,
+        ApplicationVersion,
+        ApplicationVersionString,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorServerMetadata,
+        FunctionExecutorId,
+        FunctionExecutorResources,
+        FunctionExecutorServerMetadata,
+        FunctionExecutorState,
+        FunctionResources,
+        FunctionRun,
+        FunctionRunStatus,
+        FunctionURI,
+        Namespace,
+        NamespaceBuilder,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
-        requests::RequestPayload, scanner::StateReader, state_machine::IndexifyObjectsColumns,
+        requests::RequestPayload,
+        scanner::StateReader,
+        state_machine::IndexifyObjectsColumns,
         ExecutorCatalog,
     },
     utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
@@ -463,7 +480,7 @@ impl InMemoryState {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
-        let task_pending_latency = meter
+        let function_run_pending_latency = meter
             .f64_histogram("indexify.function_run_pending_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
@@ -576,7 +593,7 @@ impl InMemoryState {
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
             // metrics
-            function_run_pending_latency: task_pending_latency,
+            function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
         };
@@ -1059,8 +1076,8 @@ impl InMemoryState {
         if let Some(function_executors) = function_executors {
             for function_executor_kv in function_executors.iter() {
                 let function_executor = function_executor_kv.1;
-                if function_executor.function_executor.state == FunctionExecutorState::Pending
-                    || function_executor.function_executor.state == FunctionExecutorState::Unknown
+                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
+                    function_executor.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
@@ -1080,8 +1097,8 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if (allocation_count as u32)
-                    < capacity_threshold * function_executor.function_executor.max_concurrency
+                if (allocation_count as u32) <
+                    capacity_threshold * function_executor.function_executor.max_concurrency
                 {
                     candidates.push(function_executor.clone());
                 }
@@ -1247,8 +1264,8 @@ impl InMemoryState {
                     let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe)
-                                && fe.version == latest_cg_version
+                            if allowlist_entry.matches_function_executor(fe) &&
+                                fe.version == latest_cg_version
                             {
                                 found_allowlist_match = true;
                                 break;
@@ -1307,8 +1324,8 @@ impl InMemoryState {
             .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.function_name
-                    && v.application_version == fe_meta.function_executor.version
+                v.name == fe_meta.function_executor.function_name &&
+                    v.application_version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1498,10 +1515,21 @@ mod tests {
 
     use crate::{
         data_model::{
-            ApplicationVersionString, ComputeOp, ExecutorId, FunctionCall, FunctionCallId,
-            FunctionExecutorBuilder, FunctionExecutorId, FunctionExecutorResources,
-            FunctionExecutorServerMetadata, FunctionExecutorState, FunctionRun, FunctionRunBuilder,
-            FunctionRunFailureReason, FunctionRunOutcome, FunctionRunStatus,
+            ApplicationVersionString,
+            ComputeOp,
+            ExecutorId,
+            FunctionCall,
+            FunctionCallId,
+            FunctionExecutorBuilder,
+            FunctionExecutorId,
+            FunctionExecutorResources,
+            FunctionExecutorServerMetadata,
+            FunctionExecutorState,
+            FunctionRun,
+            FunctionRunBuilder,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
+            FunctionRunStatus,
         },
         in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
@@ -1678,9 +1706,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|")
-                    && function_run.name == "test-function"
-                    && function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "test-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1724,9 +1752,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|")
-                    && function_run.name == "different-function"
-                    && function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|") &&
+                    function_run.name == "different-function" &&
+                    function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();

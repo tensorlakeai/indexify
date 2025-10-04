@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
-use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
+use invocation_events::{RequestFinishedEvent, RequestStateChangeEvent};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
@@ -92,7 +92,7 @@ pub struct IndexifyState {
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
     pub state_change_id_seq: Arc<AtomicU64>,
-    pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
+    pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub change_events_tx: tokio::sync::watch::Sender<()>,
@@ -153,7 +153,7 @@ impl IndexifyState {
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
-            task_event_tx,
+            function_run_event_tx: task_event_tx,
             gc_tx,
             gc_rx,
             metrics: state_store_metrics,
@@ -315,14 +315,14 @@ impl IndexifyState {
     }
 
     async fn handle_invocation_state_changes(&self, update_request: &StateMachineUpdateRequest) {
-        if self.task_event_tx.receiver_count() == 0 {
+        if self.function_run_event_tx.receiver_count() == 0 {
             return;
         }
         match &update_request.payload {
             RequestPayload::InvokeComputeGraph(request) => {
                 let _ = self
-                    .task_event_tx
-                    .send(InvocationStateChangeEvent::RequestStarted(
+                    .function_run_event_tx
+                    .send(RequestStateChangeEvent::RequestStarted(
                         RequestStartedEvent {
                             request_id: request.ctx.request_id.clone(),
                         },
@@ -330,24 +330,23 @@ impl IndexifyState {
             }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
-                    let ev =
-                        InvocationStateChangeEvent::from_task_finished(allocation_output.clone());
-                    let _ = self.task_event_tx.send(ev);
+                    let ev = RequestStateChangeEvent::from_task_finished(allocation_output.clone());
+                    let _ = self.function_run_event_tx.send(ev);
                 }
             }
             RequestPayload::SchedulerUpdate((sched_update, _)) => {
                 for allocation in &sched_update.new_allocations {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::TaskAssigned(
-                            invocation_events::TaskAssigned {
+                    let _ = self.function_run_event_tx.send(
+                        RequestStateChangeEvent::FunctionRunAssigned(
+                            invocation_events::FunctionRunAssigned {
                                 request_id: allocation.invocation_id.clone(),
                                 fn_name: allocation.function.clone(),
                                 task_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
                             },
-                        ));
+                        ),
+                    );
                 }
 
                 for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
@@ -359,28 +358,26 @@ impl IndexifyState {
                         let function_run =
                             ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                         if let Some(function_run) = function_run {
-                            let _ =
-                                self.task_event_tx
-                                    .send(InvocationStateChangeEvent::TaskCreated(
-                                        invocation_events::TaskCreated {
-                                            request_id: function_run.request_id.clone(),
-                                            fn_name: function_run.name.clone(),
-                                            task_id: function_run.id.to_string(),
-                                        },
-                                    ));
+                            let _ = self.function_run_event_tx.send(
+                                RequestStateChangeEvent::FunctionRunCreated(
+                                    invocation_events::FunctionRunCreated {
+                                        request_id: function_run.request_id.clone(),
+                                        fn_name: function_run.name.clone(),
+                                        task_id: function_run.id.to_string(),
+                                    },
+                                ),
+                            );
                         }
                     }
                 }
 
                 for invocation_ctx in sched_update.updated_invocations_states.values() {
                     if invocation_ctx.outcome.is_some() {
-                        let _ =
-                            self.task_event_tx
-                                .send(InvocationStateChangeEvent::RequestFinished(
-                                    RequestFinishedEvent {
-                                        request_id: invocation_ctx.request_id.clone(),
-                                    },
-                                ));
+                        let _ = self.function_run_event_tx.send(
+                            RequestStateChangeEvent::RequestFinished(RequestFinishedEvent {
+                                request_id: invocation_ctx.request_id.clone(),
+                            }),
+                        );
                     }
                 }
             }
@@ -392,8 +389,8 @@ impl IndexifyState {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
     }
 
-    pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
-        self.task_event_tx.subscribe()
+    pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
+        self.function_run_event_tx.subscribe()
     }
 }
 

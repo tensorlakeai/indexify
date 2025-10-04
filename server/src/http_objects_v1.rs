@@ -9,17 +9,17 @@ use crate::{
         ApplicationBuilder,
         ApplicationInvocationCtx,
         ApplicationInvocationFailureReason,
-        GraphInvocationOutcome,
+        ApplicationRequestOutcome,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
         DataPayload,
+        FunctionRunOutcome,
+        FunctionRunStatus,
         GraphVersion,
         IndexifyAPIError,
         RequestError,
-        TaskOutcome,
-        TaskStatus,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -172,8 +172,8 @@ pub struct FunctionRun {
     pub function_name: String,
     pub application: String,
     pub namespace: String,
-    pub status: TaskStatus,
-    pub outcome: Option<TaskOutcome>,
+    pub status: FunctionRunStatus,
+    pub outcome: Option<FunctionRunOutcome>,
     pub application_version: GraphVersion,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
@@ -220,12 +220,12 @@ pub enum RequestOutcome {
     Failure(RequestFailureReason),
 }
 
-impl From<GraphInvocationOutcome> for RequestOutcome {
-    fn from(outcome: GraphInvocationOutcome) -> Self {
+impl From<ApplicationRequestOutcome> for RequestOutcome {
+    fn from(outcome: ApplicationRequestOutcome) -> Self {
         match outcome {
-            GraphInvocationOutcome::Unknown => RequestOutcome::Undefined,
-            GraphInvocationOutcome::Success => RequestOutcome::Success,
-            GraphInvocationOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
+            ApplicationRequestOutcome::Unknown => RequestOutcome::Undefined,
+            ApplicationRequestOutcome::Success => RequestOutcome::Success,
+            ApplicationRequestOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
         }
     }
 }
@@ -319,7 +319,7 @@ pub struct Allocation {
     pub executor_id: String,
     pub function_executor_id: String,
     pub created_at: u128,
-    pub outcome: TaskOutcome,
+    pub outcome: FunctionRunOutcome,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }

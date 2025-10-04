@@ -3,19 +3,19 @@ use serde::{Deserialize, Serialize};
 use crate::{data_model::FunctionRunOutcome, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum InvocationStateChangeEvent {
+pub enum RequestStateChangeEvent {
     RequestStarted(RequestStartedEvent),
-    TaskCreated(TaskCreated),
-    TaskAssigned(TaskAssigned),
-    TaskCompleted(TaskCompleted),
-    TaskMatchedCache(TaskMatchedCache),
+    FunctionRunCreated(FunctionRunCreated),
+    FunctionRunAssigned(FunctionRunAssigned),
+    FunctionRunCompleted(FunctionRunCompleted),
+    FunctionRunMatchedCache(FunctionRunMatchedCache),
     RequestCreated(RequestCreatedEvent),
     RequestFinished(RequestFinishedEvent),
 }
 
-impl InvocationStateChangeEvent {
+impl RequestStateChangeEvent {
     pub fn from_task_finished(event: AllocationOutput) -> Self {
-        Self::TaskCompleted(TaskCompleted {
+        Self::FunctionRunCompleted(FunctionRunCompleted {
             request_id: event.invocation_id,
             fn_name: event.allocation.function,
             task_id: event.allocation.function_call_id.to_string(),
@@ -26,30 +26,28 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::RequestStarted(RequestStartedEvent {
-                request_id: id,
-                ..
+            RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+                request_id: id, ..
             }) => id.clone(),
-            InvocationStateChangeEvent::RequestCreated(RequestCreatedEvent {
-                request_id: id,
-                ..
+            RequestStateChangeEvent::RequestCreated(RequestCreatedEvent {
+                request_id: id, ..
             }) => id.clone(),
-            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent {
-                request_id: id,
-            }) => id.clone(),
-            InvocationStateChangeEvent::TaskCreated(TaskCreated {
+            RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id }) => {
+                id.clone()
+            }
+            RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskAssigned(TaskAssigned {
+            RequestStateChangeEvent::FunctionRunAssigned(FunctionRunAssigned {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskCompleted(TaskCompleted {
+            RequestStateChangeEvent::FunctionRunCompleted(FunctionRunCompleted {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
+            RequestStateChangeEvent::FunctionRunMatchedCache(FunctionRunMatchedCache {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
@@ -72,14 +70,14 @@ pub struct RequestStartedEvent {
     pub request_id: String,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TaskCreated {
+pub struct FunctionRunCreated {
     pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TaskAssigned {
+pub struct FunctionRunAssigned {
     pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
@@ -89,33 +87,33 @@ pub struct TaskAssigned {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum TaskOutcomeSummary {
+pub enum FunctionRunOutcomeSummary {
     Unknown,
     Success,
     Failure,
 }
 
-impl From<&FunctionRunOutcome> for TaskOutcomeSummary {
+impl From<&FunctionRunOutcome> for FunctionRunOutcomeSummary {
     fn from(outcome: &FunctionRunOutcome) -> Self {
         match outcome {
-            FunctionRunOutcome::Unknown => TaskOutcomeSummary::Unknown,
-            FunctionRunOutcome::Success => TaskOutcomeSummary::Success,
-            FunctionRunOutcome::Failure(_) => TaskOutcomeSummary::Failure,
+            FunctionRunOutcome::Unknown => FunctionRunOutcomeSummary::Unknown,
+            FunctionRunOutcome::Success => FunctionRunOutcomeSummary::Success,
+            FunctionRunOutcome::Failure(_) => FunctionRunOutcomeSummary::Failure,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TaskCompleted {
+pub struct FunctionRunCompleted {
     pub request_id: String,
     pub fn_name: String,
     pub task_id: String,
     pub allocation_id: String,
-    pub outcome: TaskOutcomeSummary,
+    pub outcome: FunctionRunOutcomeSummary,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TaskMatchedCache {
+pub struct FunctionRunMatchedCache {
     pub request_id: String,
     pub fn_name: String,
     pub task_id: String,

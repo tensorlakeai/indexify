@@ -3,8 +3,13 @@ use tracing::{debug, info_span, warn};
 
 use crate::{
     data_model::{
-        AllocationBuilder, ApplicationInvocationCtx, FunctionRun, FunctionRunFailureReason,
-        FunctionRunOutcome, FunctionRunStatus, RunningTaskStatus,
+        AllocationBuilder,
+        ApplicationInvocationCtx,
+        FunctionRun,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        RunningFunctionRunStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
@@ -14,12 +19,12 @@ use crate::{
     },
 };
 
-pub struct TaskAllocationProcessor<'a> {
+pub struct FunctionRunProcessor<'a> {
     clock: u64,
     fe_manager: &'a FunctionExecutorManager,
 }
 
-impl<'a> TaskAllocationProcessor<'a> {
+impl<'a> FunctionRunProcessor<'a> {
     pub fn new(clock: u64, fe_manager: &'a FunctionExecutorManager) -> Self {
         Self { clock, fe_manager }
     }
@@ -78,7 +83,7 @@ impl<'a> TaskAllocationProcessor<'a> {
 
                             // Add the failed function run to the update
                             ctx.outcome = Some(
-                                crate::data_model::GraphInvocationOutcome::Failure(
+                                crate::data_model::ApplicationRequestOutcome::Failure(
                                     crate::data_model::ApplicationInvocationFailureReason::ConstraintUnsatisfiable
                                 )
                             );
@@ -140,7 +145,7 @@ impl<'a> TaskAllocationProcessor<'a> {
         debug!(allocation_id = %allocation.id, "created allocation");
 
         let mut updated_function_run = function_run.clone();
-        updated_function_run.status = FunctionRunStatus::Running(RunningTaskStatus {
+        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
             allocation_id: allocation.id.clone(),
         });
 

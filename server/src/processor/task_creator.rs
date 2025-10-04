@@ -9,12 +9,23 @@ use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent, ApplicationInvocationCtx, ApplicationInvocationError,
-        ApplicationInvocationFailureReason, ComputeOp, FunctionArgs, FunctionCall, FunctionCallId,
-        FunctionRun, FunctionRunOutcome, FunctionRunStatus, GraphInvocationOutcome, InputArgs,
-        ReduceOperation, RunningTaskStatus,
+        AllocationOutputIngestedEvent,
+        ApplicationInvocationCtx,
+        ApplicationInvocationError,
+        ApplicationInvocationFailureReason,
+        ApplicationRequestOutcome,
+        ComputeOp,
+        FunctionArgs,
+        FunctionCall,
+        FunctionCallId,
+        FunctionRun,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        InputArgs,
+        ReduceOperation,
+        RunningFunctionRunStatus,
     },
-    processor::task_policy::TaskRetryPolicy,
+    processor::task_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -22,12 +33,12 @@ use crate::{
     },
 };
 
-pub struct TaskCreator {
+pub struct FunctionRunCreator {
     indexify_state: Arc<IndexifyState>,
     clock: u64,
 }
 
-impl TaskCreator {
+impl FunctionRunCreator {
     pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
         Self {
             indexify_state,
@@ -36,7 +47,7 @@ impl TaskCreator {
     }
 }
 
-impl TaskCreator {
+impl FunctionRunCreator {
     #[tracing::instrument(skip(self, in_memory_state, alloc_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,
@@ -97,8 +108,8 @@ impl TaskCreator {
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
         // on FE termination and alloc output ingestion paths.
-        if function_run.status
-            != FunctionRunStatus::Running(RunningTaskStatus {
+        if function_run.status !=
+            FunctionRunStatus::Running(RunningFunctionRunStatus {
                 allocation_id: allocation.id.clone(),
             })
         {
@@ -131,7 +142,11 @@ impl TaskCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        TaskRetryPolicy::handle_allocation_outcome(&mut function_run, &allocation, &cg_version);
+        FunctionRunRetryPolicy::handle_allocation_outcome(
+            &mut function_run,
+            &allocation,
+            &cg_version,
+        );
         scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
 
         in_memory_state.update_state(
@@ -154,7 +169,8 @@ impl TaskCreator {
                     payload: invocation_error_payload.clone(),
                 });
             }
-            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(failure_reason.into()));
+            invocation_ctx.outcome =
+                Some(ApplicationRequestOutcome::Failure(failure_reason.into()));
             let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
             return Ok(scheduler_update);
@@ -179,7 +195,7 @@ impl TaskCreator {
                             request_id = invocation_ctx.request_id,
                             "reducer collection is empty"
                         );
-                        invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
+                        invocation_ctx.outcome = Some(ApplicationRequestOutcome::Failure(
                             ApplicationInvocationFailureReason::FunctionError,
                         ));
                         return Ok(scheduler_update);
@@ -191,7 +207,7 @@ impl TaskCreator {
                             request_id = invocation_ctx.request_id,
                             "reducer collection has < 2 items"
                         );
-                        invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
+                        invocation_ctx.outcome = Some(ApplicationRequestOutcome::Failure(
                             ApplicationInvocationFailureReason::FunctionError,
                         ));
                         return Ok(scheduler_update);
@@ -252,7 +268,7 @@ impl TaskCreator {
                 .values()
                 .all(|function_run| matches!(function_run.status, FunctionRunStatus::Completed));
             if all_function_runs_finished {
-                invocation_ctx.outcome = Some(GraphInvocationOutcome::Success);
+                invocation_ctx.outcome = Some(ApplicationRequestOutcome::Success);
                 scheduler_update.add_invocation_state(&invocation_ctx);
                 return Ok(scheduler_update);
             }

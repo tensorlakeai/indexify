@@ -11,9 +11,9 @@ use crate::data_model::{
 
 /// Determines task retry policy based on failure reasons and retry
 /// configuration
-pub struct TaskRetryPolicy;
+pub struct FunctionRunRetryPolicy;
 
-impl TaskRetryPolicy {
+impl FunctionRunRetryPolicy {
     /// Determines if a task should be retried based on an allocation failure
     /// reason, updating the task accordingly.
     fn handle_allocation_failure(
@@ -21,10 +21,10 @@ impl TaskRetryPolicy {
         alloc_failure_reason: FunctionRunFailureReason,
         application_version: &ApplicationVersion,
     ) {
-        let uses_attempt = alloc_failure_reason.should_count_against_task_retry_attempts();
+        let uses_attempt = alloc_failure_reason.should_count_against_function_run_retry_attempts();
 
         if_chain! {
-            if let Some(max_retries) = application_version.task_max_retries(run);
+            if let Some(max_retries) = application_version.function_run_max_retries(run);
             if alloc_failure_reason.is_retriable();
         if run.attempt_number < max_retries || !uses_attempt;
             then {

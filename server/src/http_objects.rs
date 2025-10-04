@@ -533,18 +533,18 @@ pub struct CreateNamespaceResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum TaskOutcome {
+pub enum FunctionRunOutcome {
     Undefined,
     Success,
     Failure,
 }
 
-impl From<data_model::FunctionRunOutcome> for TaskOutcome {
+impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
     fn from(outcome: data_model::FunctionRunOutcome) -> Self {
         match outcome {
-            data_model::FunctionRunOutcome::Unknown => TaskOutcome::Undefined,
-            data_model::FunctionRunOutcome::Success => TaskOutcome::Success,
-            data_model::FunctionRunOutcome::Failure(_) => TaskOutcome::Failure,
+            data_model::FunctionRunOutcome::Unknown => FunctionRunOutcome::Undefined,
+            data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
+            data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
         }
     }
 }
@@ -565,18 +565,18 @@ impl From<GraphVersion> for data_model::ApplicationVersionString {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum TaskStatus {
+pub enum FunctionRunStatus {
     Pending,
     Running,
     Completed,
 }
 
-impl From<data_model::FunctionRunStatus> for TaskStatus {
+impl From<data_model::FunctionRunStatus> for FunctionRunStatus {
     fn from(status: data_model::FunctionRunStatus) -> Self {
         match status {
-            data_model::FunctionRunStatus::Pending => TaskStatus::Pending,
-            data_model::FunctionRunStatus::Running(_) => TaskStatus::Running,
-            data_model::FunctionRunStatus::Completed => TaskStatus::Completed,
+            data_model::FunctionRunStatus::Pending => FunctionRunStatus::Pending,
+            data_model::FunctionRunStatus::Running(_) => FunctionRunStatus::Running,
+            data_model::FunctionRunStatus::Completed => FunctionRunStatus::Completed,
         }
     }
 }
@@ -810,7 +810,7 @@ pub struct Allocation {
     pub task_id: String,
     pub invocation_id: String,
     pub created_at: u128,
-    pub outcome: TaskOutcome,
+    pub outcome: FunctionRunOutcome,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }

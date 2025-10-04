@@ -215,7 +215,7 @@ impl TestService {
 
 // Declarative macros for task state assertions
 #[macro_export]
-macro_rules! assert_task_counts {
+macro_rules! assert_function_run_counts {
     ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
         let all_function_runs = $test_srv.get_all_function_runs().await?;
         let allocated_tasks = $test_srv.get_allocated_tasks().await?;
@@ -278,7 +278,7 @@ macro_rules! assert_executor_state {
     }};
 }
 
-pub struct FinalizeTaskArgs {
+pub struct FinalizeFunctionRunArgs {
     pub task_outcome: FunctionRunOutcome,
     pub allocation_key: String,
     pub graph_updates: Option<GraphUpdates>,
@@ -306,13 +306,13 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
     )
 }
 
-impl FinalizeTaskArgs {
+impl FinalizeFunctionRunArgs {
     pub fn new(
         allocation_key: String,
         graph_updates: Option<GraphUpdates>,
         data_payload: Option<DataPayload>,
-    ) -> FinalizeTaskArgs {
-        FinalizeTaskArgs {
+    ) -> FinalizeFunctionRunArgs {
+        FinalizeFunctionRunArgs {
             task_outcome: FunctionRunOutcome::Success,
             allocation_key,
             graph_updates,
@@ -320,7 +320,10 @@ impl FinalizeTaskArgs {
         }
     }
 
-    pub fn task_outcome(mut self, task_outcome: FunctionRunOutcome) -> FinalizeTaskArgs {
+    pub fn function_run_outcome(
+        mut self,
+        task_outcome: FunctionRunOutcome,
+    ) -> FinalizeFunctionRunArgs {
         self.task_outcome = task_outcome;
         self
     }
@@ -475,7 +478,7 @@ impl TestExecutor<'_> {
     pub async fn finalize_task(
         &self,
         task_allocation: &TaskAllocation,
-        args: FinalizeTaskArgs,
+        args: FinalizeFunctionRunArgs,
     ) -> Result<()> {
         let mut allocation = self
             .test_service

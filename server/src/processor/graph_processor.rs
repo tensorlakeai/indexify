@@ -8,7 +8,7 @@ use tracing::{debug, error, info, trace};
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
     metrics::{low_latency_boundaries, Timer},
-    processor::{function_executor_manager, task_allocator::TaskAllocationProcessor, task_creator},
+    processor::{function_executor_manager, task_allocator::FunctionRunProcessor, task_creator},
     state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
@@ -237,10 +237,11 @@ impl GraphProcessor {
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut indexes_guard = indexes.write().await;
         let clock = indexes_guard.clock;
-        let task_creator = task_creator::TaskCreator::new(self.indexify_state.clone(), clock);
+        let task_creator =
+            task_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
-        let task_allocator = TaskAllocationProcessor::new(clock, &fe_manager);
+        let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
 
         let req = match &state_change.change_type {
             ChangeType::InvokeApplication(_) => {

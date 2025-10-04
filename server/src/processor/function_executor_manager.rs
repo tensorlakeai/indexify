@@ -20,9 +20,9 @@ use crate::{
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
-        RunningTaskStatus,
+        RunningFunctionRunStatus,
     },
-    processor::{targets, task_policy::TaskRetryPolicy},
+    processor::{targets, task_policy::FunctionRunRetryPolicy},
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -345,7 +345,7 @@ impl FunctionExecutorManager {
                 // running this alloc. This is because we handle allocation
                 // failures on FE termination and alloc output ingestion paths.
                 if function_run.status !=
-                    FunctionRunStatus::Running(RunningTaskStatus {
+                    FunctionRunStatus::Running(RunningFunctionRunStatus {
                         allocation_id: alloc.id.clone(),
                     })
                 {
@@ -359,7 +359,7 @@ impl FunctionExecutorManager {
                             if blame_alloc_ids.contains(&alloc.id.to_string()) {
                                 let mut updated_alloc = *alloc.clone();
                                 updated_alloc.outcome = FunctionRunOutcome::Failure((*termination_reason).into());
-                                TaskRetryPolicy::handle_allocation_outcome(
+                                FunctionRunRetryPolicy::handle_allocation_outcome(
                                     &mut function_run,
                                     &updated_alloc,
                                     application_version,

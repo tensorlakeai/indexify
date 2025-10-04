@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod tests {
+
     use anyhow::Result;
 
     use crate::{
         assert_executor_state,
-        assert_task_counts,
+        assert_function_run_counts,
         data_model::{
             test_objects::tests::{
                 mock_executor_metadata,
@@ -20,7 +21,7 @@ mod tests {
         },
         service::Service,
         state_store::test_state_store,
-        testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
+        testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -34,7 +35,7 @@ mod tests {
         test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Register executor in dev mode - task should be allocated
         let executor = test_srv
@@ -42,7 +43,7 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
@@ -52,17 +53,17 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(
+                FinalizeFunctionRunArgs::new(
                     allocation_key_from_proto(task_allocation),
                     Some(mock_updates()),
                     None,
                 )
-                .task_outcome(FunctionRunOutcome::Success),
+                .function_run_outcome(FunctionRunOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
 
         Ok(())
     }
@@ -76,7 +77,7 @@ mod tests {
         test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Register executor with non-dev mode and specific allowlist
         let mut executor_meta = mock_executor_metadata(TEST_EXECUTOR_ID.into());
@@ -90,7 +91,7 @@ mod tests {
         let executor = test_srv.create_executor(executor_meta).await?;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
@@ -100,19 +101,19 @@ mod tests {
         executor
             .finalize_task(
                 task_allocation,
-                FinalizeTaskArgs::new(
+                FinalizeFunctionRunArgs::new(
                     allocation_key_from_proto(task_allocation),
                     Some(mock_updates()),
                     None,
                 )
-                .task_outcome(FunctionRunOutcome::Success),
+                .function_run_outcome(FunctionRunOutcome::Success),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // Tasks for fn_b and fn_c should be created but unallocated since they're not
         // in allowlist
-        assert_task_counts!(test_srv, total: 3, allocated: 0, pending: 2, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 0, pending: 2, completed_success: 1);
 
         assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 0); // Still has fn_a executor, no tasks allocated
 
@@ -135,8 +136,8 @@ mod tests {
         let executor1 = test_srv.create_executor(executor1_meta).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Task should be allocated to the first executor
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        // Function run should be allocated to the first executor
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // Register second executor
         let executor2 = test_srv
@@ -153,7 +154,7 @@ mod tests {
         executor1.deregister().await?;
         test_srv.process_all_state_changes().await?;
 
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         assert_executor_state!(executor2, num_func_executors: 1, num_allocated_tasks: 1);
 
@@ -162,7 +163,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Task should be unallocated
-        assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         Ok(())
     }
@@ -183,7 +184,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify initial state - fn_a task should be allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 1);
 
@@ -194,18 +195,18 @@ mod tests {
             executor
                 .finalize_task(
                     task_allocation,
-                    FinalizeTaskArgs::new(
+                    FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
                         Some(mock_updates()),
                         None,
                     )
-                    .task_outcome(FunctionRunOutcome::Success),
+                    .function_run_outcome(FunctionRunOutcome::Success),
                 )
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
 
-        assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
 
         assert_executor_state!(executor, num_func_executors: 3, num_allocated_tasks: 2); // Should have fn_a, fn_b, fn_c and fn_b, fn_c tasks
 
@@ -232,7 +233,7 @@ mod tests {
         }
 
         // Should still have fn_b and fn_c tasks allocated
-        assert_task_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
 
         // The FE for fn_a should be removed
         let executor_server_state = executor.get_executor_server_state().await?;
@@ -249,7 +250,7 @@ mod tests {
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
-        assert!(task_failure_reason.should_count_against_task_retry_attempts());
+        assert!(task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
@@ -312,7 +313,7 @@ mod tests {
 
         // check for completion
         {
-            assert_task_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
+            assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -463,7 +464,7 @@ mod tests {
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
-        assert!(!task_failure_reason.should_count_against_task_retry_attempts());
+        assert!(!task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
@@ -479,7 +480,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // make sure the task is allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // track the attempt number
         let attempt_number: u32 = 0;
@@ -516,7 +517,7 @@ mod tests {
         }
 
         // make sure the task is still allocated
-        assert_task_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
     }
