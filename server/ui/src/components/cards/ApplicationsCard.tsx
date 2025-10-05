@@ -83,8 +83,8 @@ export function ApplicationsCard({
               {Object.keys(application.functions).length > 0 ? (
                 <>
                   <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
-                    {Object.values(application.functions).map((func) => (
-                      <li key={func.name}>{func.name} </li>
+                    {Object.values(application.functions).map((func, index) => (
+                      <li key={func.name + '_' + index}>{func.name} </li>
                     ))}
                   </ul>
                 </>
@@ -100,8 +100,8 @@ export function ApplicationsCard({
               {Object.keys(application.tags).length > 0 ? (
                 <>
                   <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
-                    {Object.values(application.tags).map((tag) => (
-                      <li key={tag}>{tag} </li>
+                    {Object.values(application.tags).map((tag, index) => (
+                      <li key={tag + '_' + index}>{tag} </li>
                     ))}
                   </ul>
                 </>
@@ -117,9 +117,11 @@ export function ApplicationsCard({
               {Object.keys(application.entrypoint).length > 0 ? (
                 <>
                   <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
-                    {Object.values(application.entrypoint).map((entry) => (
-                      <li key={entry}>{entry} </li>
-                    ))}
+                    {Object.values(application.entrypoint).map(
+                      (entry, index) => (
+                        <li key={entry + '_' + index}>{entry} </li>
+                      )
+                    )}
                   </ul>
                 </>
               ) : (
@@ -159,7 +161,7 @@ export function ApplicationsCard({
     if (!localApplications.length)
       return (
         <Alert variant="outlined" severity="info" sx={{ my: 2 }}>
-          No Graphs Found
+          No Applications Found
         </Alert>
       )
 
