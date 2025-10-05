@@ -40,6 +40,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::InvokeComputeGraph(request) => {
                 state_changes::invoke_compute_graph(state_change_id_seq, request)
             }
+            RequestPayload::InvokeFunction(request) => {
+                state_changes::invoke_function(state_change_id_seq, request)
+            }
             RequestPayload::TombstoneComputeGraph(request) => {
                 state_changes::tombstone_compute_graph(state_change_id_seq, request)
             }

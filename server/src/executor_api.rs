@@ -3,7 +3,14 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{collections::HashMap, hash::{DefaultHasher, Hasher}, pin::Pin, sync::Arc, time::Instant, vec};
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hasher},
+    pin::Pin,
+    sync::Arc,
+    time::Instant,
+    vec,
+};
 
 use anyhow::Result;
 use executor_api_pb::{
@@ -23,7 +30,6 @@ use executor_api_pb::{
     ReportExecutorStateResponse,
     TaskAllocation,
 };
-use sha2::Sha256;
 use tokio::sync::{
     broadcast::error::RecvError,
     watch::{self, Receiver, Sender},
@@ -35,7 +41,21 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
-        self, Allocation, DataPayload, DataPayloadBuilder, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionAllowlist, FunctionCall, FunctionCallId, FunctionExecutorBuilder, FunctionExecutorId, GPUResources, GraphInvocationCtxBuilder, GraphVersion, StateChange, TaskFailureReason, TaskOutcome
+        self,
+        Allocation,
+        DataPayload,
+        DataPayloadBuilder,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorMetadataBuilder,
+        FunctionAllowlist,
+        FunctionCallId,
+        FunctionExecutorBuilder,
+        FunctionExecutorId,
+        GPUResources,
+        GraphVersion,
+        TaskFailureReason,
+        TaskOutcome,
     },
     executor_api::executor_api_pb::{
         FunctionCallRequest,
@@ -46,13 +66,17 @@ use crate::{
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
-            AllocationOutput, GraphUpdates, InvokeComputeGraphRequest, InvokeFunctionRequest, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest
+            AllocationOutput,
+            GraphUpdates,
+            InvokeFunctionRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
         },
         IndexifyState,
     },
-    utils::get_epoch_time_in_ms,
 };
 
 impl TryFrom<AllowedFunction> for FunctionAllowlist {
@@ -902,9 +926,9 @@ impl ExecutorApi for ExecutorAPIService {
         let parent_request_id = req
             .parent_request_id
             .ok_or(Status::invalid_argument("parent request id is required"))?;
-        let source_function_call_id = req
-            .source_function_call_id
-            .ok_or(Status::invalid_argument("source function call id is required"))?;
+        let source_function_call_id = req.source_function_call_id.ok_or(
+            Status::invalid_argument("source function call id is required"),
+        )?;
 
         let mut hasher = DefaultHasher::new();
         hasher.write(parent_request_id.as_bytes());
@@ -957,7 +981,7 @@ impl ExecutorApi for ExecutorAPIService {
                             let update = serde_json::to_string(&ev)
                                 .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
                             yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
-                            if let InvocationStateChangeEvent::RequestFinished(_) = ev { return; }
+                            if let RequestStateChangeEvent::RequestFinished(_) = ev { return; }
                         }
                     }
                     Err(RecvError::Lagged(_num)) => {
@@ -965,7 +989,7 @@ impl ExecutorApi for ExecutorAPIService {
                         match reader.invocation_ctx(ns.as_str(), app.as_str(), &request_id) {
                             Ok(Some(context)) => {
                                 if context.outcome.is_some() {
-                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: request_id.clone() }))
+                                    let update = serde_json::to_string(&RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: request_id.clone() }))
                                         .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
                                     yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
                                     return;

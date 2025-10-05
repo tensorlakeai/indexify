@@ -21,7 +21,7 @@ use crate::{
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        invocation_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
@@ -30,7 +30,7 @@ use crate::{
 // New shared function for creating SSE streams
 async fn create_invocation_progress_stream(
     id: String,
-    mut rx: Receiver<InvocationStateChangeEvent>,
+    mut rx: Receiver<RequestStateChangeEvent>,
     state: &RouteState,
     namespace: String,
     compute_graph: String,
@@ -44,7 +44,7 @@ async fn create_invocation_progress_stream(
             Ok(Some(invocation)) => {
                 if invocation.outcome.is_some() {
                     yield Event::default().json_data(
-                        InvocationStateChangeEvent::RequestFinished(
+                        RequestStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
                                 request_id: id.clone()
                             }
@@ -74,7 +74,7 @@ async fn create_invocation_progress_stream(
                     if ev.invocation_id() == id {
                         yield Event::default().json_data(ev.clone());
 
-                        if let InvocationStateChangeEvent::RequestFinished(_) = ev {
+                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
                             return;
                         }
                     }
@@ -93,7 +93,7 @@ async fn create_invocation_progress_stream(
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
                                 yield Event::default().json_data(
-                                    InvocationStateChangeEvent::RequestFinished(
+                                    RequestStateChangeEvent::RequestFinished(
                                         RequestFinishedEvent {
                                             request_id: id.clone()
                                         }
@@ -151,47 +151,26 @@ pub async fn invoke_default_api_with_object_v1(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    do_invoke_api_with_object_v1(namespace, application, None, state, headers, body).await
-}
-
-/// Make a request to a particular api function of a workflow
-#[utoipa::path(
-    post,
-    path = "/v1/namespaces/{namespace}/applications/{application}/{api_function}",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "request successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
-    ),
-)]
-pub async fn invoke_api_with_object_v1(
-    Path((namespace, application, api_function)): Path<(String, String, String)>,
-    State(state): State<RouteState>,
-    headers: HeaderMap,
-    body: Body,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    do_invoke_api_with_object_v1(
-        namespace,
-        application,
-        Some(api_function),
-        state,
-        headers,
-        body,
-    )
-    .await
+    do_invoke_api_with_object_v1(namespace, application, state, headers, body).await
 }
 
 async fn do_invoke_api_with_object_v1(
     namespace: String,
-    application: String,
-    api_function: Option<String>,
+    application_name: String,
     state: RouteState,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.invocations, &[]);
+    let application = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &application_name)
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
+        .ok_or(IndexifyAPIError::bad_request(&format!(
+            "compute graph {} not found",
+            application_name.as_str()
+        )))?;
     let request_id = nanoid::nanoid!();
     let accept_header = headers
         .get("Accept")
@@ -229,32 +208,17 @@ async fn do_invoke_api_with_object_v1(
 
     state.metrics.invocation_bytes.add(data_payload.size, &[]);
 
-    let application = state
-        .indexify_state
-        .reader()
-        .get_compute_graph(&namespace, &application)
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
-        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
-
     if let ComputeGraphState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
     let function_call_id = FunctionCallId(request_id.clone());
 
-    let api_fn = if let Some(api_function) = api_function {
-        application
-            .nodes
-            .get(&api_function)
-            .ok_or(IndexifyAPIError::not_found(&format!(
-                "api function {api_function} not found",
-            )))?
-    } else {
-        &application.start_fn
-    };
-
-    let fn_call =
-        api_fn.create_function_call(function_call_id, vec![data_payload.clone()], Bytes::new());
+    let fn_call = application.start_fn.create_function_call(
+        function_call_id,
+        vec![data_payload.clone()],
+        Bytes::new(),
+    );
     let cg_version = state
         .indexify_state
         .in_memory_state
@@ -295,9 +259,6 @@ async fn do_invoke_api_with_object_v1(
         compute_graph_name: application.name.clone(),
         ctx: graph_invocation_ctx.clone(),
     });
-    if accept_header.contains("application/json") {
-        return return_request_id(&state, request.clone(), request_id.clone()).await;
-    }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
             &state,
@@ -308,9 +269,7 @@ async fn do_invoke_api_with_object_v1(
         )
         .await;
     }
-    Err(IndexifyAPIError::bad_request(
-        "accept header must be application/json or text/event-stream",
-    ))
+    return_request_id(&state, request.clone(), request_id.clone()).await
 }
 
 async fn return_request_id(

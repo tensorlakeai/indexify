@@ -3,7 +3,7 @@ pub mod filter;
 pub mod test_objects;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
@@ -864,8 +864,9 @@ pub struct GraphInvocationCtx {
     #[builder(default)]
     pub source_function_call_id: Option<FunctionCallId>,
     #[builder(default)]
-    pub child_function_calls: HashMap<String, GraphInvocationCtx>, /* Child Request ID -> Child
-                                                                    * GraphInvocationCtx */
+    pub parent_request_id: Option<String>,
+    #[builder(default)]
+    pub child_requests: HashSet<String>,
 }
 
 impl GraphInvocationCtxBuilder {

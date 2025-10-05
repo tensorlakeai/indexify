@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{data_model::TaskOutcome, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum InvocationStateChangeEvent {
+pub enum RequestStateChangeEvent {
     RequestStarted(RequestStartedEvent),
     TaskCreated(TaskCreated),
     TaskAssigned(TaskAssigned),
@@ -13,7 +13,7 @@ pub enum InvocationStateChangeEvent {
     RequestFinished(RequestFinishedEvent),
 }
 
-impl InvocationStateChangeEvent {
+impl RequestStateChangeEvent {
     pub fn from_task_finished(event: AllocationOutput) -> Self {
         Self::TaskCompleted(TaskCompleted {
             request_id: event.invocation_id,
@@ -26,30 +26,28 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::RequestStarted(RequestStartedEvent {
-                request_id: id,
-                ..
+            RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+                request_id: id, ..
             }) => id.clone(),
-            InvocationStateChangeEvent::RequestCreated(RequestCreatedEvent {
-                request_id: id,
-                ..
+            RequestStateChangeEvent::RequestCreated(RequestCreatedEvent {
+                request_id: id, ..
             }) => id.clone(),
-            InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent {
-                request_id: id,
-            }) => id.clone(),
-            InvocationStateChangeEvent::TaskCreated(TaskCreated {
+            RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id }) => {
+                id.clone()
+            }
+            RequestStateChangeEvent::TaskCreated(TaskCreated {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskAssigned(TaskAssigned {
+            RequestStateChangeEvent::TaskAssigned(TaskAssigned {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskCompleted(TaskCompleted {
+            RequestStateChangeEvent::TaskCompleted(TaskCompleted {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
-            InvocationStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
+            RequestStateChangeEvent::TaskMatchedCache(TaskMatchedCache {
                 request_id: invocation_id,
                 ..
             }) => invocation_id.clone(),
