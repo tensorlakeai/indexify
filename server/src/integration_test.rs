@@ -15,6 +15,7 @@ mod tests {
                 TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
+            ComputeGraphState,
             TaskFailureReason,
             TaskOutcome,
         },
@@ -22,9 +23,14 @@ mod tests {
         service::Service,
         state_store::{
             driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
-            requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+            requests::{
+                CreateOrUpdateComputeGraphRequest,
+                DeleteComputeGraphRequest,
+                RequestPayload,
+                StateMachineUpdateRequest,
+            },
             state_machine::IndexifyObjectsColumns,
-            test_state_store,
+            test_state_store::{self, invoke_application},
         },
         testing::{self, allocation_key_from_proto, FinalizeTaskArgs},
     };
@@ -863,6 +869,41 @@ mod tests {
 
         // Check if the compute graph was deleted
         assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_disabling_app() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // create the application
+        let mut app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        assert_eq!(ComputeGraphState::Active, app.state);
+
+        app.state = ComputeGraphState::Disabled {
+            reason: "disabled in test".to_string(),
+        };
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
+                    CreateOrUpdateComputeGraphRequest {
+                        namespace: app.namespace.clone(),
+                        compute_graph: app.clone(),
+                        upgrade_requests_to_current_version: true,
+                    },
+                )),
+            })
+            .await?;
+
+        let result = invoke_application(&indexify_state, &app).await;
+        let err = result.unwrap_err();
+        assert_eq!(
+            "Application is not enabled: disabled in test",
+            err.to_string()
+        );
 
         Ok(())
     }

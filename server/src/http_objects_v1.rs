@@ -42,6 +42,38 @@ impl From<data_model::EntryPointManifest> for EntryPointManifest {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
+pub enum ApplicationState {
+    #[default]
+    Active,
+    Disabled {
+        reason: String,
+    },
+}
+
+impl From<data_model::ComputeGraphState> for ApplicationState {
+    fn from(state: data_model::ComputeGraphState) -> Self {
+        match state {
+            data_model::ComputeGraphState::Active => ApplicationState::Active,
+            data_model::ComputeGraphState::Disabled { reason } => {
+                ApplicationState::Disabled { reason }
+            }
+        }
+    }
+}
+
+impl From<ApplicationState> for data_model::ComputeGraphState {
+    fn from(state: ApplicationState) -> Self {
+        match state {
+            ApplicationState::Active => data_model::ComputeGraphState::Active,
+            ApplicationState::Disabled { reason } => {
+                data_model::ComputeGraphState::Disabled { reason }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Application {
     pub name: String,
@@ -56,6 +88,10 @@ pub struct Application {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub entrypoint: EntryPointManifest,
+    // state is not something that a client should be able to set.
+    // It's managed by the "change-state" internal endpoint.
+    #[serde(default, skip_deserializing)]
+    state: ApplicationState,
 }
 
 impl Application {
@@ -101,7 +137,7 @@ impl Application {
             .nodes(nodes)
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
-            .state(data_model::ComputeGraphState::Active)
+            .state(self.state.into())
             .entrypoint(data_model::EntryPointManifest {
                 function_name: self.entrypoint.function_name,
                 input_serializer: self.entrypoint.input_serializer,
@@ -132,6 +168,7 @@ impl From<data_model::ComputeGraph> for Application {
             functions: nodes,
             created_at: compute_graph.created_at,
             tombstoned: compute_graph.tombstoned,
+            state: compute_graph.state.into(),
         }
     }
 }
