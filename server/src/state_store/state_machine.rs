@@ -86,8 +86,11 @@ pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Resu
             &application_key,
         )?
         .ok_or(anyhow::anyhow!("Application not found"))?;
-    let cg: Application = JsonEncoder::decode(&cg)?;
-    if cg.tombstoned {
+    let app: Application = JsonEncoder::decode(&cg)?;
+    if let Some(reason) = app.state.as_disabled() {
+        return Err(anyhow::anyhow!("Application is not enabled: {reason}"));
+    }
+    if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
     txn.put(

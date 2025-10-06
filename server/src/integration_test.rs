@@ -15,6 +15,7 @@ mod tests {
                 TEST_EXECUTOR_ID,
                 TEST_NAMESPACE,
             },
+            ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
         },
@@ -22,9 +23,14 @@ mod tests {
         service::Service,
         state_store::{
             driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
-            requests::{DeleteApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+            requests::{
+                CreateOrUpdateApplicationRequest,
+                DeleteApplicationRequest,
+                RequestPayload,
+                StateMachineUpdateRequest,
+            },
             state_machine::IndexifyObjectsColumns,
-            test_state_store,
+            test_state_store::{self, invoke_application},
         },
         testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
     };
@@ -68,7 +74,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Invoke a simple graph
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
 
         // Should have 1 unprocessed state - one task created event
         let unprocessed_state_changes = indexify_state
@@ -105,7 +111,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Invoke a simple graph
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // We should have an unallocated task
@@ -129,7 +135,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Invoke the app
-        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -242,7 +248,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register an executor
@@ -303,7 +309,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the app
-        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -448,7 +454,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the application
-        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -513,7 +519,7 @@ mod tests {
         Ok(())
     }
 
-    async fn test_task_retry_attempt_used(
+    async fn test_function_run_retry_attempt_used(
         reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
@@ -524,7 +530,7 @@ mod tests {
 
         // Invoke the app
         let request_id =
-            test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
+            test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -604,29 +610,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error() -> Result<()> {
-        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, TEST_FN_MAX_RETRIES)
-            .await
+        test_function_run_retry_attempt_used(
+            FunctionRunFailureReason::InternalError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(FunctionRunFailureReason::InternalError, 0).await
+        test_function_run_retry_attempt_used(FunctionRunFailureReason::InternalError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error() -> Result<()> {
-        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, TEST_FN_MAX_RETRIES)
-            .await
+        test_function_run_retry_attempt_used(
+            FunctionRunFailureReason::FunctionError,
+            TEST_FN_MAX_RETRIES,
+        )
+        .await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_error_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionError, 0).await
+        test_function_run_retry_attempt_used(FunctionRunFailureReason::FunctionError, 0).await
     }
 
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_function_timeout() -> Result<()> {
-        test_task_retry_attempt_used(
+        test_function_run_retry_attempt_used(
             FunctionRunFailureReason::FunctionTimeout,
             TEST_FN_MAX_RETRIES,
         )
@@ -634,11 +646,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
-        test_task_retry_attempt_used(FunctionRunFailureReason::FunctionTimeout, 0).await
+    async fn test_function_run_retry_attempt_used_on_function_timeout_no_retries() -> Result<()> {
+        test_function_run_retry_attempt_used(FunctionRunFailureReason::FunctionTimeout, 0).await
     }
 
-    async fn test_task_retry_attempt_not_used(
+    async fn test_function_run_retry_attempt_not_used(
         reason: FunctionRunFailureReason,
         max_retries: u32,
     ) -> Result<()> {
@@ -647,8 +659,8 @@ mod tests {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
-        // invoke the graph
-        test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
+        // invoke the application
+        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -709,8 +721,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_task_retry_attempt_not_used(
+    async fn test_function_run_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
+        test_function_run_retry_attempt_not_used(
             FunctionRunFailureReason::FunctionRunCancelled,
             TEST_FN_MAX_RETRIES,
         )
@@ -718,13 +730,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
-        test_task_retry_attempt_not_used(FunctionRunFailureReason::FunctionRunCancelled, 0).await
+    async fn test_function_run_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
+        test_function_run_retry_attempt_not_used(FunctionRunFailureReason::FunctionRunCancelled, 0)
+            .await
     }
 
     #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_function_executor_terminated() -> Result<()> {
-        test_task_retry_attempt_not_used(
+    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated() -> Result<()>
+    {
+        test_function_run_retry_attempt_not_used(
             FunctionRunFailureReason::FunctionExecutorTerminated,
             TEST_FN_MAX_RETRIES,
         )
@@ -732,10 +746,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_retry_attempt_not_used_on_function_executor_terminated_no_retries(
+    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries(
     ) -> Result<()> {
-        test_task_retry_attempt_not_used(FunctionRunFailureReason::FunctionExecutorTerminated, 0)
-            .await
+        test_function_run_retry_attempt_not_used(
+            FunctionRunFailureReason::FunctionExecutorTerminated,
+            0,
+        )
+        .await
     }
 
     #[tokio::test]
@@ -744,7 +761,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor1, task assigned to it
@@ -846,7 +863,7 @@ mod tests {
     async fn test_create_read_and_delete_application() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
-        let _ = test_state_store::with_simple_graph(&indexify_state).await;
+        let _ = test_state_store::with_simple_application(&indexify_state).await;
 
         let (applications, _) = test_srv
             .service
@@ -879,6 +896,41 @@ mod tests {
 
         // Check if the application was deleted
         assert!(!applications.iter().any(|cg| cg.name == "graph_A"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_disabling_app() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // create the application
+        let mut app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        assert_eq!(ApplicationState::Active, app.state);
+
+        app.state = ApplicationState::Disabled {
+            reason: "disabled in test".to_string(),
+        };
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                    CreateOrUpdateApplicationRequest {
+                        namespace: app.namespace.clone(),
+                        application: app.clone(),
+                        upgrade_requests_to_current_version: true,
+                    },
+                )),
+            })
+            .await?;
+
+        let result = invoke_application(&indexify_state, &app).await;
+        let err = result.unwrap_err();
+        assert_eq!(
+            "Application is not enabled: disabled in test",
+            err.to_string()
+        );
 
         Ok(())
     }

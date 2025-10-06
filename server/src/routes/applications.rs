@@ -106,6 +106,20 @@ pub async fn create_or_update_application(
         &put_result.sha256_hash,
         put_result.size_bytes,
     )?;
+
+    let existing_application = state
+        .indexify_state
+        .reader()
+        .get_application(&namespace, &application.name)
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    // Don't allow deploying disabled applications
+    if let Some(reason) = existing_application.and_then(|a| a.state.as_disabled()) {
+        return Err(IndexifyAPIError::bad_request(&format!(
+            "Application is not enabled: {reason}",
+        )));
+    }
+
     let executor_catalog = state
         .indexify_state
         .in_memory_state

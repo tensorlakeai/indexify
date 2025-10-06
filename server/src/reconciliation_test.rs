@@ -31,7 +31,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Create a task first (will be unallocated)
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
@@ -73,7 +73,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Create a task first (will be unallocated)
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
@@ -125,7 +125,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Create a task
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // Register first executor with no allowlist
@@ -173,7 +173,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // Create a task
-        test_state_store::with_simple_graph(&indexify_state).await;
+        test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // Register executor in dev mode
@@ -256,7 +256,7 @@ mod tests {
 
         // invoke the app
         let request_id =
-            test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
+            test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -469,7 +469,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
+        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor

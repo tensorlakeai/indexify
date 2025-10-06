@@ -23,6 +23,7 @@ import {
   Outlet,
   redirect,
   useLocation,
+  useNavigate,
   useParams,
 } from 'react-router-dom'
 import theme from '../theme'
@@ -53,13 +54,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 function Dashboard() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { namespace = 'default' } = useParams<{ namespace: string }>()
   const { namespaces } = useLoaderData() as RootLoaderData
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
     const newNamespace = event.target.value
-    const newPath = location.pathname.replace(/^\/[^/]+/, `/${newNamespace}`)
-    window.location.href = window.location.origin + '/ui' + newPath
+    navigate(`/${newNamespace}`)
   }
 
   const navItems: NavItem[] = [
@@ -143,8 +144,8 @@ function Dashboard() {
                     label="Namespace"
                     onChange={handleNamespaceChange}
                   >
-                    {namespaces.map((ns) => (
-                      <MenuItem key={ns.name} value={ns.name}>
+                    {namespaces.map((ns, index) => (
+                      <MenuItem key={ns.name + '_' + index} value={ns.name}>
                         {ns.name}
                       </MenuItem>
                     ))}

@@ -432,6 +432,15 @@ pub enum ApplicationState {
     },
 }
 
+impl ApplicationState {
+    pub fn as_disabled(&self) -> Option<String> {
+        match self {
+            ApplicationState::Active => None,
+            ApplicationState::Disabled { reason } => Some(reason.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApplicationEntryPoint {
     pub function_name: String,
@@ -500,6 +509,7 @@ impl Application {
         self.description = update.description;
         self.tags = update.tags;
         self.entrypoint = update.entrypoint;
+        self.state = update.state;
     }
 
     pub fn to_version(&self) -> Result<ApplicationVersion> {

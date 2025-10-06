@@ -4,7 +4,7 @@ use axum::{
     extract::{Multipart, Path, State},
     http::Response,
     response::{Html, IntoResponse},
-    routing::{get, post},
+    routing::{get, post, put},
     Json,
     Router,
 };
@@ -30,12 +30,17 @@ use crate::{
         StateChangesResponse,
         UnallocatedFunctionRuns,
     },
-    http_objects_v1,
+    http_objects_v1::{self, ApplicationState},
     indexify_ui::Assets as UiAssets,
     routes::routes_state::RouteState,
     state_store::{
         kv::{ReadContextData, WriteContextData},
-        requests::{NamespaceRequest, RequestPayload, StateMachineUpdateRequest},
+        requests::{
+            CreateOrUpdateApplicationRequest,
+            NamespaceRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+        },
     },
 };
 
@@ -120,6 +125,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{request_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/namespaces/{namespace}/applications/{application}/state",
+            put(change_application_state).with_state(route_state.clone()),
         )
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
@@ -502,4 +511,50 @@ async fn list_executor_catalog(
         .await
         .executor_catalog;
     Ok(Json(ExecutorCatalog::from(catalog)))
+}
+
+/// Update the application state
+#[utoipa::path(
+    get,
+    path = "/internal/namespaces/{namespace}/applications/{application}/state",
+    tag = "operations",
+    responses(
+        (status = 204, description = "Update the application state", body = ExecutorCatalog),
+        (status = 404, description = "Application not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+async fn change_application_state(
+    State(state): State<RouteState>,
+    Path((namespace, application)): Path<(String, String)>,
+    Json(app_state): Json<ApplicationState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let mut app = state
+        .indexify_state
+        .reader()
+        .get_application(&namespace, &application)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("Application not found"))?;
+
+    app.state = app_state.into();
+
+    let request = CreateOrUpdateApplicationRequest {
+        namespace,
+        application: app,
+        upgrade_requests_to_current_version: true,
+    };
+
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::CreateOrUpdateApplication(Box::new(request)),
+        })
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    Ok(Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(Body::empty())
+        .unwrap())
 }

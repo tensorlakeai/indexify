@@ -32,7 +32,7 @@ use crate::{
         StateChangesResponse,
         UnallocatedFunctionRuns,
     },
-    http_objects_v1::{self, Application, ApplicationsList, ApplicationRequests},
+    http_objects_v1::{self, Application, ApplicationRequests, ApplicationsList},
     routes::{
         applications::{self, create_or_update_application},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},

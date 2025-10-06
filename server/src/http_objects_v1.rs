@@ -35,6 +35,38 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
+pub enum ApplicationState {
+    #[default]
+    Active,
+    Disabled {
+        reason: String,
+    },
+}
+
+impl From<data_model::ApplicationState> for ApplicationState {
+    fn from(state: data_model::ApplicationState) -> Self {
+        match state {
+            data_model::ApplicationState::Active => ApplicationState::Active,
+            data_model::ApplicationState::Disabled { reason } => {
+                ApplicationState::Disabled { reason }
+            }
+        }
+    }
+}
+
+impl From<ApplicationState> for data_model::ApplicationState {
+    fn from(state: ApplicationState) -> Self {
+        match state {
+            ApplicationState::Active => data_model::ApplicationState::Active,
+            ApplicationState::Disabled { reason } => {
+                data_model::ApplicationState::Disabled { reason }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Application {
     pub name: String,
@@ -49,6 +81,10 @@ pub struct Application {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub entrypoint: EntryPointManifest,
+    // state is not something that a client should be able to set.
+    // It's managed by the "change-state" internal endpoint.
+    #[serde(default, skip_deserializing)]
+    state: ApplicationState,
 }
 
 impl Application {
@@ -93,7 +129,7 @@ impl Application {
             .functions(functions)
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
-            .state(data_model::ApplicationState::Active)
+            .state(self.state.into())
             .entrypoint(data_model::ApplicationEntryPoint {
                 function_name: self.entrypoint.function_name,
                 input_serializer: self.entrypoint.input_serializer,
@@ -102,7 +138,7 @@ impl Application {
             })
             .build()
             .map_err(|e| {
-                IndexifyAPIError::bad_request(&format!("Failed to create ComputeGraph: {e}"))
+                IndexifyAPIError::bad_request(&format!("Failed to create application: {e}"))
             })?;
         Ok(application)
     }
@@ -124,6 +160,7 @@ impl From<data_model::Application> for Application {
             functions: nodes,
             created_at: application.created_at,
             tombstoned: application.tombstoned,
+            state: application.state.into(),
         }
     }
 }
