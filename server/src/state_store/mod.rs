@@ -342,8 +342,8 @@ impl IndexifyState {
                         RequestStateChangeEvent::FunctionRunAssigned(
                             request_events::FunctionRunAssigned {
                                 request_id: allocation.request_id.clone(),
-                                fn_name: allocation.function.clone(),
-                                task_id: allocation.function_call_id.to_string(),
+                                function_name: allocation.function.clone(),
+                                function_run_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
                             },
@@ -361,8 +361,8 @@ impl IndexifyState {
                                 RequestStateChangeEvent::FunctionRunCreated(
                                     request_events::FunctionRunCreated {
                                         request_id: function_run.request_id.clone(),
-                                        fn_name: function_run.name.clone(),
-                                        task_id: function_run.id.to_string(),
+                                        function_name: function_run.name.clone(),
+                                        function_run_id: function_run.id.to_string(),
                                     },
                                 ),
                             );

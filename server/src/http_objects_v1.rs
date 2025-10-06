@@ -135,7 +135,7 @@ pub struct ApplicationsList {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ShallowGraphRequest {
+pub struct ShallowRequest {
     pub id: String,
     pub created_at: u128,
     pub outcome: Option<RequestOutcome>,
@@ -143,7 +143,7 @@ pub struct ShallowGraphRequest {
     pub application_version: String,
 }
 
-impl From<RequestCtx> for ShallowGraphRequest {
+impl From<RequestCtx> for ShallowRequest {
     fn from(ctx: RequestCtx) -> Self {
         Self {
             id: ctx.request_id.to_string(),
@@ -156,8 +156,8 @@ impl From<RequestCtx> for ShallowGraphRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GraphRequests {
-    pub requests: Vec<ShallowGraphRequest>,
+pub struct ApplicationRequests {
+    pub requests: Vec<ShallowRequest>,
     pub prev_cursor: Option<String>,
     pub next_cursor: Option<String>,
 }
@@ -165,7 +165,7 @@ pub struct GraphRequests {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FunctionRun {
     pub id: String,
-    pub function_name: String,
+    pub name: String,
     pub application: String,
     pub namespace: String,
     pub status: FunctionRunStatus,
@@ -182,7 +182,7 @@ impl FunctionRun {
     ) -> Self {
         Self {
             id: function_run.id.to_string(),
-            function_name: function_run.name,
+            name: function_run.name,
             application: function_run.application,
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),

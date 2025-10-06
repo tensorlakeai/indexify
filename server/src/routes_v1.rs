@@ -32,7 +32,7 @@ use crate::{
         StateChangesResponse,
         UnallocatedFunctionRuns,
     },
-    http_objects_v1::{self, Application, ApplicationsList, GraphRequests},
+    http_objects_v1::{self, Application, ApplicationsList, ApplicationRequests},
     routes::{
         applications::{self, create_or_update_application},
         download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
@@ -198,7 +198,7 @@ async fn namespace_middleware(
         ListParams
     ),
     responses(
-        (status = 200, description = "List Application requests", body = http_objects_v1::GraphRequests),
+        (status = 200, description = "List Application requests", body = http_objects_v1::ApplicationRequests),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
@@ -206,7 +206,7 @@ async fn list_requests(
     Path((namespace, application)): Path<(String, String)>,
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
-) -> Result<Json<GraphRequests>, IndexifyAPIError> {
+) -> Result<Json<ApplicationRequests>, IndexifyAPIError> {
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
@@ -234,7 +234,7 @@ async fn list_requests(
     let prev_cursor = prev_cursor.map(|c| BASE64_STANDARD.encode(c));
     let next_cursor = next_cursor.map(|c| BASE64_STANDARD.encode(c));
 
-    Ok(Json(GraphRequests {
+    Ok(Json(ApplicationRequests {
         requests,
         prev_cursor,
         next_cursor,

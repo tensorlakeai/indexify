@@ -187,7 +187,7 @@ class TestMetrics(unittest.TestCase):
             "allocation_completion_latency_seconds_sum",
             # allocation finalization
             "allocation_finalizations_total",
-            "tallocation_finalization_errors_total",
+            "allocation_finalization_errors_total",
             "allocation_finalization_latency_seconds_count",
             "allocation_finalization_latency_seconds_sum",
             # allocation scheduling

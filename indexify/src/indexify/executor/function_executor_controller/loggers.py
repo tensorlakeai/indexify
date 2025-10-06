@@ -25,24 +25,10 @@ def function_executor_logger(
             and function_executor_description.function.HasField("namespace")
             else None
         ),
-        # Keep legacy `graph` names in log tags until Server logs fully migrate to `application`.
-        graph=(
-            function_executor_description.function.application_name
-            if function_executor_description.HasField("function")
-            and function_executor_description.function.HasField("application_name")
-            else None
-        ),
         app=(
             function_executor_description.function.application_name
             if function_executor_description.HasField("function")
             and function_executor_description.function.HasField("application_name")
-            else None
-        ),
-        # Keep legacy `graph` names in log tags until Server logs fully migrate to `application`.
-        graph_version=(
-            function_executor_description.function.application_version
-            if function_executor_description.HasField("function")
-            and function_executor_description.function.HasField("application_version")
             else None
         ),
         app_version=(
@@ -99,8 +85,6 @@ def allocation_logger(alloc: Allocation, logger: Any) -> Any:
             if alloc.HasField("function") and alloc.function.HasField("function_name")
             else None
         ),
-        # Keep legacy `invocation` names in log tags until Server logs fully migrate to `request`.
-        invocation_id=(alloc.request_id if alloc.HasField("request_id") else None),
         request_id=(alloc.request_id if alloc.HasField("request_id") else None),
     )
 
@@ -110,12 +94,6 @@ def allocation_result_logger(alloc_result: AllocationResult, logger: Any) -> Any
 
     The function assumes that the alloc result might be invalid."""
     return logger.bind(
-        # Keep legacy `task_id` names in log tags until Server logs fully migrate to `fn_call_id`.
-        task_id=(
-            alloc_result.function_call_id
-            if alloc_result.HasField("function_call_id")
-            else None
-        ),
         fn_call_id=(
             alloc_result.function_call_id
             if alloc_result.HasField("function_call_id")
@@ -130,19 +108,6 @@ def allocation_result_logger(alloc_result: AllocationResult, logger: Any) -> Any
             alloc_result.function.namespace
             if alloc_result.HasField("function")
             and alloc_result.function.HasField("namespace")
-            else None
-        ),
-        # Keep legacy `graph` names in log tags until Server logs fully migrate to `application`.
-        graph=(
-            alloc_result.function.application_name
-            if alloc_result.HasField("function")
-            and alloc_result.function.HasField("application_name")
-            else None
-        ),
-        graph_version=(
-            alloc_result.function.application_version
-            if alloc_result.HasField("function")
-            and alloc_result.function.HasField("application_version")
             else None
         ),
         app=(
@@ -162,10 +127,6 @@ def allocation_result_logger(alloc_result: AllocationResult, logger: Any) -> Any
             if alloc_result.HasField("function")
             and alloc_result.function.HasField("function_name")
             else None
-        ),
-        # Keep legacy `invocation` names in log tags until Server logs fully migrate to `request`.
-        invocation_id=(
-            alloc_result.request_id if alloc_result.HasField("request_id") else None
         ),
         request_id=(
             alloc_result.request_id if alloc_result.HasField("request_id") else None

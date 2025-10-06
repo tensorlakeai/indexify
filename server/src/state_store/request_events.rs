@@ -17,7 +17,7 @@ impl RequestStateChangeEvent {
     pub fn from_finished_function_run(event: AllocationOutput) -> Self {
         Self::FunctionRunCompleted(FunctionRunCompleted {
             request_id: event.request_id,
-            fn_name: event.allocation.function,
+            function_name: event.allocation.function,
             function_run_id: event.allocation.function_call_id.to_string(),
             outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
@@ -71,15 +71,15 @@ pub struct RequestStartedEvent {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FunctionRunCreated {
     pub request_id: String,
-    pub fn_name: String,
-    pub task_id: String,
+    pub function_name: String,
+    pub function_run_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FunctionRunAssigned {
     pub request_id: String,
-    pub fn_name: String,
-    pub task_id: String,
+    pub function_name: String,
+    pub function_run_id: String,
     pub allocation_id: String,
     pub executor_id: String,
 }
@@ -105,7 +105,7 @@ impl From<&FunctionRunOutcome> for FunctionRunOutcomeSummary {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FunctionRunCompleted {
     pub request_id: String,
-    pub fn_name: String,
+    pub function_name: String,
     pub function_run_id: String,
     pub allocation_id: String,
     pub outcome: FunctionRunOutcomeSummary,
@@ -114,6 +114,6 @@ pub struct FunctionRunCompleted {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FunctionRunMatchedCache {
     pub request_id: String,
-    pub fn_name: String,
+    pub function_name: String,
     pub function_run_id: String,
 }
