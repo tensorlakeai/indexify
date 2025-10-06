@@ -197,6 +197,7 @@ message ExecutorUpdate {
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
     optional ExecutorUpdate executor_update = 2;
+    repeated string watch_request_statuses = 3;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
@@ -232,6 +233,7 @@ message GetDesiredExecutorStatesRequest {
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
     repeated TaskAllocation task_allocations = 2;
+    repeated RequestStatus request_statuses = 4;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
     optional uint64 clock = 3;
@@ -340,18 +342,35 @@ message FunctionCallRequest {
     optional string source_function_call_id = 5;
 }
 
-message FunctionCallResult {
-    oneof result {
-        DataPayload output = 1;
-        string exception = 2;
-    }
+message FunctionCallResponse {
+    optional string request_id = 1;
 }
 
-message FunctionCallResponse {
-    oneof event {
-        string update = 1;
-        FunctionCallResult result = 2;
-    }
+enum RequestFailureReason {
+    REQUEST_FAILURE_REASON_UNKNOWN = 0;
+    REQUEST_FAILURE_REASON_INTERNAL_ERROR = 1;
+    REQUEST_FAILURE_REASON_FUNCTION_ERROR = 2;
+    REQUEST_FAILURE_REASON_REQUEST_ERROR = 3;
+    REQUEST_FAILURE_REASON_NEXT_FUNCTION_NOT_FOUND = 4;
+    REQUEST_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE = 5;
+}
+
+enum RequestOutcome {
+    REQUEST_OUTCOME_UNKNOWN = 0;
+    REQUEST_OUTCOME_SUCCESS = 1;
+    REQUEST_OUTCOME_FAILURE = 2;
+}
+
+message RequestStatus {
+    optional string request_id = 1;
+    optional RequestOutcome outcome = 2;
+    optional RequestFailureReason failure_reason = 3;
+    optional DataPayload request_error = 4;
+    optional DataPayload output = 5;
+}
+
+message GetRequestStatusResponse {
+    repeated RequestStatus request_statuses = 1;
 }
 
 // Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
@@ -372,5 +391,5 @@ service ExecutorAPI {
 
     // Called by the user code to invoke a blocking function call.
     // returns a stream until the function call is completed.
-    rpc invoke_function(FunctionCallRequest) returns (stream FunctionCallResponse) {}
+    rpc invoke_function(FunctionCallRequest) returns (FunctionCallResponse) {}
 }

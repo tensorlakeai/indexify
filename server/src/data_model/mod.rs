@@ -1518,6 +1518,7 @@ pub struct ExecutorServerMetadata {
     pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     pub free_resources: HostResources,
     pub resource_claims: HashMap<FunctionExecutorId, FunctionExecutorResources>,
+    pub request_status_watches: Vec<String>,
 }
 
 impl Eq for ExecutorServerMetadata {}

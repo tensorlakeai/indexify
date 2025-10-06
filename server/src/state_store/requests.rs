@@ -221,6 +221,7 @@ pub struct UpsertExecutorRequest {
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
     state_changes: Vec<StateChange>,
+    pub request_status_watches: Vec<String>,
 }
 
 impl UpsertExecutorRequest {
@@ -236,6 +237,7 @@ impl UpsertExecutorRequest {
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
         indexify_state: Arc<IndexifyState>,
+        request_status_watches: Vec<String>,
     ) -> Result<Self> {
         let state_change_id_seq = indexify_state.state_change_id_seq();
         let mut state_changes = Vec::new();
@@ -258,6 +260,7 @@ impl UpsertExecutorRequest {
             allocation_outputs,
             state_changes,
             update_executor_state,
+            request_status_watches,
         })
     }
 }

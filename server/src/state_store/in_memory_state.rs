@@ -238,6 +238,8 @@ pub struct InMemoryState {
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
 
+    pub request_status_watches: im::HashMap<String, HashSet<ExecutorId>>,
+
     pub function_executors_by_fn_uri: im::HashMap<
         FunctionURI,
         im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
@@ -596,6 +598,7 @@ impl InMemoryState {
             function_run_pending_latency: task_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
+            request_status_watches: im::HashMap::new(),
         };
 
         Ok(in_memory_state)
@@ -878,7 +881,27 @@ impl InMemoryState {
                 for executor_id in &req.remove_executors {
                     self.executors.remove(executor_id);
                     self.allocations_by_executor.remove(executor_id);
-                    self.executor_states.remove(executor_id);
+                    let executor_state = self.executor_states.remove(executor_id);
+
+                    // See if this executor was watching any request statuses
+                    if let Some(executor_state) = executor_state {
+                        for request_status_watch in executor_state.request_status_watches {
+                            // If the executor was watching some request statues, remove the
+                            // executor from the set and if there are no
+                            // more watches left, then we can remove the request status watch
+                            self.request_status_watches
+                                .entry(request_status_watch.clone())
+                                .or_default()
+                                .remove(executor_id);
+                            if let Some(executors) =
+                                self.request_status_watches.get(&request_status_watch)
+                            {
+                                if executors.is_empty() {
+                                    self.request_status_watches.remove(&request_status_watch);
+                                }
+                            }
+                        }
+                    }
 
                     // Executor is removed
                     changed_executors.insert(executor_id.clone());
@@ -893,6 +916,12 @@ impl InMemoryState {
             RequestPayload::UpsertExecutor(req) => {
                 self.executors
                     .insert(req.executor.id.clone(), Box::new(req.executor.clone()));
+                for request_status_watch in &req.request_status_watches {
+                    self.request_status_watches
+                        .entry(request_status_watch.clone())
+                        .or_default()
+                        .insert(req.executor.id.clone());
+                }
                 if self.executor_states.get(&req.executor.id).is_none() {
                     self.executor_states.insert(
                         req.executor.id.clone(),
@@ -901,6 +930,7 @@ impl InMemoryState {
                             function_executors: HashMap::new(),
                             resource_claims: HashMap::new(),
                             free_resources: req.executor.host_resources.clone(),
+                            request_status_watches: req.request_status_watches.clone(),
                         }),
                     );
                 }
@@ -1418,6 +1448,7 @@ impl InMemoryState {
             allocation_completion_latency: self.allocation_completion_latency.clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
+            request_status_watches: self.request_status_watches.clone(),
         }))
     }
 
@@ -1505,6 +1536,7 @@ mod test_helpers {
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
                 function_runs: im::OrdMap::new(),
                 unallocated_function_runs: im::OrdSet::new(),
+                request_status_watches: im::HashMap::new(),
             }
         }
     }

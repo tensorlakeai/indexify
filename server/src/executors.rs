@@ -1,11 +1,4 @@
-use std::{
-    cmp::Ordering,
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    sync::Arc,
-    time::Duration,
-    vec,
-};
+use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
 use priority_queue::PriorityQueue;
@@ -32,7 +25,6 @@ use crate::{
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     state_store::{
-        in_memory_state::DesiredStateFunctionExecutor,
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
         IndexifyState,
     },
@@ -76,11 +68,6 @@ struct ExecutorRuntimeData {
     pub last_state_hash: String,
     /// Clock value when the state was last updated
     pub last_executor_clock: u64,
-    /// Hash of the function executors' desired states (used for
-    /// get_executor_state optimization)
-    pub function_executors_hash: String,
-    /// Clock value when the function executors state was last updated
-    pub desired_server_clock: u64,
 }
 
 impl ExecutorRuntimeData {
@@ -89,15 +76,7 @@ impl ExecutorRuntimeData {
         Self {
             last_state_hash: state_hash,
             last_executor_clock: clock,
-            function_executors_hash: String::new(),
-            desired_server_clock: clock,
         }
-    }
-
-    /// Update the function executors state hash and clock
-    pub fn update_function_executors_state(&mut self, hash: String, clock: u64) {
-        self.function_executors_hash = hash;
-        self.desired_server_clock = clock;
     }
 
     /// Update the overall state hash and clock
@@ -372,8 +351,6 @@ impl ExecutorManager {
             .read()
             .await
             .desired_state(executor_id);
-        let current_fe_hash =
-            compute_function_executors_hash(&desired_executor_state.function_executors);
         let mut function_executors_pb = vec![];
         let mut task_allocations = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
@@ -518,15 +495,11 @@ impl ExecutorManager {
             }
         }
 
-        if let Some(runtime_data) = self.runtime_data.write().await.get_mut(executor_id) {
-            runtime_data
-                .update_function_executors_state(current_fe_hash, desired_executor_state.clock);
-        }
-
         DesiredExecutorState {
             function_executors: function_executors_pb,
             task_allocations,
             clock: Some(desired_executor_state.clock),
+            request_statuses: vec![],
         }
     }
 
@@ -603,35 +576,6 @@ impl ExecutorManager {
     }
 }
 
-/// Helper function to compute a hash of function executors' desired states
-fn compute_function_executors_hash(
-    function_executors: &[Box<DesiredStateFunctionExecutor>],
-) -> String {
-    let mut hasher = DefaultHasher::new();
-
-    // Sort function executors by ID to ensure consistent hashing
-    let mut sorted_executors = function_executors.iter().collect::<Vec<_>>();
-    sorted_executors.sort_by(|a, b| {
-        a.function_executor
-            .function_executor
-            .id
-            .get()
-            .cmp(b.function_executor.function_executor.id.get())
-    });
-
-    // Hash each function executor's ID and desired state
-    for fe in sorted_executors {
-        fe.function_executor
-            .function_executor
-            .id
-            .get()
-            .hash(&mut hasher);
-        fe.function_executor.desired_state.hash(&mut hasher);
-    }
-
-    format!("{:x}", hasher.finish())
-}
-
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -660,6 +604,7 @@ mod tests {
             vec![],
             update_executor_state,
             test_srv.service.indexify_state.clone(),
+            vec![],
         )?;
 
         let sm_req = StateMachineUpdateRequest {

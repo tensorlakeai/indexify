@@ -344,6 +344,7 @@ impl TestExecutor<'_> {
             vec![],
             update_executor_state,
             self.test_service.service.indexify_state.clone(),
+            vec![],
         )?;
 
         let sm_req = StateMachineUpdateRequest {
@@ -502,6 +503,7 @@ impl TestExecutor<'_> {
             vec![ingest_task_outputs_request],
             false,
             self.test_service.service.indexify_state.clone(),
+            vec![],
         )?;
 
         self.test_service
