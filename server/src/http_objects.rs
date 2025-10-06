@@ -147,7 +147,7 @@ pub struct GPUResources {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct NodeResources {
+pub struct FunctionResources {
     pub cpus: f64,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
@@ -155,8 +155,8 @@ pub struct NodeResources {
     pub gpu_configs: Vec<GPUResources>,
 }
 
-impl From<NodeResources> for data_model::FunctionResources {
-    fn from(value: NodeResources) -> Self {
+impl From<FunctionResources> for data_model::FunctionResources {
+    fn from(value: FunctionResources) -> Self {
         data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
@@ -173,9 +173,9 @@ impl From<NodeResources> for data_model::FunctionResources {
     }
 }
 
-impl From<data_model::FunctionResources> for NodeResources {
-    fn from(value: data_model::FunctionResources) -> NodeResources {
-        NodeResources {
+impl From<data_model::FunctionResources> for FunctionResources {
+    fn from(value: data_model::FunctionResources) -> FunctionResources {
+        FunctionResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
@@ -191,7 +191,7 @@ impl From<data_model::FunctionResources> for NodeResources {
     }
 }
 
-impl Default for NodeResources {
+impl Default for FunctionResources {
     fn default() -> Self {
         data_model::FunctionResources::default().into()
     }
@@ -334,7 +334,7 @@ pub struct ApplicationFunction {
     #[serde(default)]
     pub initialization_timeout_sec: TimeoutSeconds,
     pub timeout_sec: TimeoutSeconds,
-    pub resources: NodeResources,
+    pub resources: FunctionResources,
     pub retry_policy: NodeRetryPolicy,
     pub cache_key: Option<CacheKey>,
     #[serde(default)]
@@ -417,7 +417,7 @@ pub struct Function {
     #[serde(default, rename = "timeout_sec")]
     pub timeout: TimeoutSeconds,
     #[serde(default)]
-    pub resources: NodeResources,
+    pub resources: FunctionResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
     #[serde(rename = "cache_key")]
@@ -514,19 +514,6 @@ pub struct CreateNamespace {
     pub blob_storage_region: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QueryParams {
-    pub input_id: Option<String>,
-    pub on_graph_end: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GraphOutputNotification {
-    pub output_id: String,
-    pub application: String,
-    pub fn_name: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespaceResponse {
     pub name: Namespace,
@@ -546,21 +533,6 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
             data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
             data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
         }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ApplicationVersionString(pub String);
-
-impl From<data_model::ApplicationVersionString> for ApplicationVersionString {
-    fn from(version: data_model::ApplicationVersionString) -> Self {
-        Self(version.0)
-    }
-}
-
-impl From<ApplicationVersionString> for data_model::ApplicationVersionString {
-    fn from(version: ApplicationVersionString) -> Self {
-        Self(version.0)
     }
 }
 
@@ -618,13 +590,7 @@ pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
     pub function: Option<String>,
-
-    // Temporary fix to enable internal migration
-    // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older
-    // versions after all the invocations into them have been
-    // completed, and turn on new versions of the executor.
-    pub version: Option<ApplicationVersionString>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -710,7 +676,7 @@ pub fn from_data_model_executor_metadata(
             .iter()
             .map(|fn_uri| FunctionAllowlist {
                 namespace: fn_uri.namespace.clone(),
-                application: fn_uri.application_name.clone(),
+                application: fn_uri.application.clone(),
                 function: fn_uri.function.clone(),
                 version: fn_uri.version.clone().map(|v| v.into()),
             })
@@ -807,8 +773,8 @@ pub struct Allocation {
     pub function: String,
     pub executor_id: String,
     pub function_executor_id: String,
-    pub task_id: String,
-    pub invocation_id: String,
+    pub function_call_id: String,
+    pub request_id: String,
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
     pub attempt_number: u32,
@@ -824,8 +790,8 @@ impl From<data_model::Allocation> for Allocation {
             function: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
-            task_id: allocation.function_call_id.to_string(),
-            invocation_id: allocation.invocation_id.to_string(),
+            function_call_id: allocation.function_call_id.to_string(),
+            request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
@@ -842,8 +808,9 @@ pub struct StateChange {
     pub created_at: u64,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    pub invocation: Option<String>,
+    pub request: Option<String>,
 }
+
 impl From<data_model::StateChange> for StateChange {
     fn from(item: data_model::StateChange) -> Self {
         StateChange {
@@ -853,7 +820,7 @@ impl From<data_model::StateChange> for StateChange {
             created_at: item.created_at,
             namespace: item.namespace,
             application: item.application,
-            invocation: item.invocation,
+            request: item.request,
         }
     }
 }

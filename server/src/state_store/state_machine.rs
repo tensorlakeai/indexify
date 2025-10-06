@@ -12,19 +12,19 @@ use crate::{
     data_model::{
         Allocation,
         Application,
-        ApplicationInvocationCtx,
         ApplicationVersion,
         GcUrl,
         GcUrlBuilder,
         NamespaceBuilder,
+        RequestCtx,
         StateChange,
     },
     state_store::{
         driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
         requests::{
             AllocationOutput,
-            DeleteInvocationRequest,
-            InvokeComputeGraphRequest,
+            DeleteRequestRequest,
+            InvokeApplicationRequest,
             NamespaceRequest,
             SchedulerUpdateRequest,
         },
@@ -36,14 +36,14 @@ use crate::{
 pub enum IndexifyObjectsColumns {
     StateMachineMetadata, //  StateMachineMetadata
     Namespaces,           //  Namespaces
-    Applications,         //  Ns_ComputeGraphName -> ComputeGraph
-    /// Compute graph versions
+    Applications,         //  Ns_ApplicationName -> Application
+    /// Application versions
     ///
     /// Keys:
-    /// - `<Ns>_<ComputeGraphName>_<Version> -> ComputeGraphVersion`
-    ApplicationVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
-    GraphInvocationCtx,   //  Ns_CG_IngestedId -> GraphInvocationCtx
-    GraphInvocationCtxSecondaryIndex, // NS_CG_InvocationId_CreatedAt -> empty
+    /// - `<Ns>_<ApplicationName>_<Version> -> ApplicationVersion`
+    ApplicationVersions, //  Ns_ApplicationName_Version -> ApplicationVersion
+    RequestCtx,           //  Ns_CG_RequestId -> RequestCtx
+    RequestCtxSecondaryIndex, // NS_CG_RequestId_CreatedAt -> empty
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -70,12 +70,12 @@ pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -
     Ok(())
 }
 
-pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> Result<()> {
+pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Result<()> {
     let span = info_span!(
-        "create_invocation",
+        "create_request",
         namespace = req.namespace,
-        application = req.application_name,
-        invocation_id = req.ctx.request_id
+        app = req.application_name,
+        request_id = req.ctx.request_id
     );
     let _guard = span.enter();
 
@@ -91,18 +91,18 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
     txn.put(
-        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
+        IndexifyObjectsColumns::RequestCtx.as_ref(),
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
     )?;
     txn.put(
-        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+        IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
         req.ctx.secondary_index_key(),
         [],
     )?;
 
     info!(
-        "created invocation: namespace: {}, application: {}",
+        "created request: namespace: {}, app: {}",
         req.namespace, req.application_name
     );
 
@@ -119,39 +119,38 @@ pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> R
     Ok(())
 }
 
-pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest) -> Result<()> {
+pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
     let span = info_span!(
-        "delete_invocation",
+        "delete_request",
         namespace = req.namespace,
-        application = req.application,
-        invocation_id = req.invocation_id,
+        app = req.application,
+        request_id = req.request_id,
     );
     let _guard = span.enter();
 
-    info!("Deleting invocation",);
+    info!("Deleting request",);
 
-    // Check if the invocation was deleted before the task completes
-    let invocation_ctx_key =
-        ApplicationInvocationCtx::key_from(&req.namespace, &req.application, &req.invocation_id);
-    let invocation_ctx = txn
+    // Check if the request was deleted before the task completes
+    let request_ctx_key = RequestCtx::key_from(&req.namespace, &req.application, &req.request_id);
+    let request_ctx = txn
         .get(
-            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-            &invocation_ctx_key,
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            &request_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {e:?}"))?;
-    let invocation_ctx = match invocation_ctx {
-        Some(v) => JsonEncoder::decode::<ApplicationInvocationCtx>(&v)?,
+        .map_err(|e| anyhow!("failed to get request: {e:?}"))?;
+    let request_ctx = match request_ctx {
+        Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
         None => {
             info!(
-                invocation_ctx_key = &invocation_ctx_key,
-                invocation_id = &req.invocation_id,
-                "Invocation to delete not found"
+                request_ctx_key = &request_ctx_key,
+                request_id = &req.request_id,
+                "Request to delete not found"
             );
             return Ok(());
         }
     };
     let mut payload_urls: HashSet<String> = HashSet::new();
-    for (_, function_run) in invocation_ctx.function_runs.iter() {
+    for (_, function_run) in request_ctx.function_runs.iter() {
         for input_arg in function_run.input_args.iter() {
             payload_urls.insert(input_arg.data_payload.path.clone());
         }
@@ -172,20 +171,17 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
         )?;
     }
 
-    let allocation_prefix = Allocation::key_prefix_from_invocation(
-        &req.namespace,
-        &req.application,
-        &req.invocation_id,
-    );
-    // delete all allocations for this invocation
+    let allocation_prefix =
+        Allocation::key_prefix_from_request(&req.namespace, &req.application, &req.request_id);
+    // delete all allocations for this request
     let cf = IndexifyObjectsColumns::Allocations.as_ref();
     for iter in txn.iter(cf, allocation_prefix.as_bytes(), Default::default()) {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<Allocation>(&value)?;
-        if value.invocation_id == req.invocation_id {
+        if value.request_id == req.request_id {
             info!(
                 allocation_id = %value.id,
-                function_call_id = value.function_call_id.to_string(),
+                fn_call_id = value.function_call_id.to_string(),
                 "fn" = value.function,
                 "deleting allocation",
             );
@@ -193,77 +189,71 @@ pub(crate) fn delete_invocation(txn: &Transaction, req: &DeleteInvocationRequest
         }
     }
 
-    // Delete Graph Invocation Context
+    // Delete Request Context
     delete_cf_prefix(
         txn,
-        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-        invocation_ctx_key.as_bytes(),
+        IndexifyObjectsColumns::RequestCtx.as_ref(),
+        request_ctx_key.as_bytes(),
     )?;
 
-    // Delete Graph Invocation Context Secondary Index
+    // Delete Request Context Secondary Index
     txn.delete(
-        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
-        invocation_ctx.secondary_index_key(),
+        IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
+        request_ctx.secondary_index_key(),
     )?;
 
     Ok(())
 }
 
-fn update_graph_invocations_for_cg(txn: &Transaction, application: &Application) -> Result<()> {
-    let cg_prefix = ApplicationInvocationCtx::key_prefix_for_application(
-        &application.namespace,
-        &application.name,
-    );
+fn update_requests_for_application(txn: &Transaction, application: &Application) -> Result<()> {
+    let cg_prefix =
+        RequestCtx::key_prefix_for_application(&application.namespace, &application.name);
 
     let span = info_span!(
-        "update_graph_invocations_for_cg",
+        "update_requests_for_application",
         namespace = application.namespace,
-        application = application.name,
-        application_version = application.version.0,
+        app = application.name,
+        app_version = application.version,
     );
     let _guard = span.enter();
 
     let iter = txn.iter(
-        IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
+        IndexifyObjectsColumns::RequestCtx.as_ref(),
         cg_prefix.as_bytes(),
         Default::default(),
     );
 
-    let mut graph_invocation_ctx_to_update = HashMap::new();
+    let mut request_ctx_to_update = HashMap::new();
     for kv in iter {
         let (key, val) = kv?;
-        let mut request_ctx: ApplicationInvocationCtx = JsonEncoder::decode(&val)?;
+        let mut request_ctx: RequestCtx = JsonEncoder::decode(&val)?;
         if request_ctx.application_version != application.version && request_ctx.outcome.is_none() {
             info!(
-                invocation_id = request_ctx.request_id,
-                "updating request_ctx for invocation id: {} from version: {} to version: {}",
+                request_id = request_ctx.request_id,
+                app_version = request_ctx.application_version,
+                "updating request_ctx for request id: {} from version: {} to version: {}",
                 request_ctx.request_id,
-                request_ctx.application_version.0,
-                application.version.0
+                request_ctx.application_version,
+                application.version
             );
             request_ctx.application_version = application.version.clone();
             for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
-                if function_run.application_version != application.version &&
-                    function_run.outcome.is_none()
-                {
-                    function_run.application_version = application.version.clone();
+                if function_run.version != application.version && function_run.outcome.is_none() {
+                    function_run.version = application.version.clone();
                     request_ctx
                         .function_runs
                         .insert(function_run.id.clone(), function_run.clone());
                 }
             }
-            graph_invocation_ctx_to_update.insert(key, request_ctx);
+            request_ctx_to_update.insert(key, request_ctx);
         }
     }
-    info!(
-        "upgrading request ctxs: {}",
-        graph_invocation_ctx_to_update.len()
-    );
-    for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
-        let serialized_task = JsonEncoder::encode(&graph_invocation_ctx)?;
+    info!("upgrading request ctxs: {}", request_ctx_to_update.len());
+    for (request_id, request_ctx) in request_ctx_to_update {
+        let serialized_task = JsonEncoder::encode(&request_ctx)?;
         txn.put(
-            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-            &invocation_id,
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            &request_id,
             &serialized_task,
         )?;
     }
@@ -273,19 +263,19 @@ fn update_graph_invocations_for_cg(txn: &Transaction, application: &Application)
 pub(crate) fn create_or_update_application(
     txn: &Transaction,
     application: Application,
-    upgrade_existing_tasks_to_current_version: bool,
+    upgrade_existing_function_runs_to_current_version: bool,
 ) -> Result<()> {
     let span = info_span!(
         "create_or_update_application",
         namespace = application.namespace,
-        application = application.name,
-        application_version = application.version.0,
+        app = application.name,
+        app_version = application.version,
     );
     let _guard = span.enter();
 
     info!(
-        "creating application: ns: {} name: {}, upgrade invocations: {}",
-        application.namespace, application.name, upgrade_existing_tasks_to_current_version
+        "creating application: ns: {} name: {}, upgrade requests: {}",
+        application.namespace, application.name, upgrade_existing_function_runs_to_current_version
     );
     let existing_application = txn
         .get(
@@ -306,7 +296,7 @@ pub(crate) fn create_or_update_application(
     }?;
     info!(
         "new application version: {}",
-        &new_application_version.version.0
+        &new_application_version.version
     );
     let serialized_application_version = JsonEncoder::encode(&new_application_version)?;
     txn.put(
@@ -322,13 +312,13 @@ pub(crate) fn create_or_update_application(
         &serialized_application,
     )?;
 
-    if upgrade_existing_tasks_to_current_version {
-        update_graph_invocations_for_cg(txn, &application)?;
+    if upgrade_existing_function_runs_to_current_version {
+        update_requests_for_application(txn, &application)?;
     }
 
     info!(
         "finished creating application namespace: {} name: {}, version: {}",
-        application.namespace, application.name, application.version.0
+        application.namespace, application.name, application.version
     );
     Ok(())
 }
@@ -346,11 +336,7 @@ fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
 }
 
 pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
-    let span = info_span!(
-        "delete_application",
-        namespace = namespace,
-        application = name
-    );
+    let span = info_span!("delete_application", namespace = namespace, app = name);
     let _guard = span.enter();
 
     info!(
@@ -362,22 +348,21 @@ pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Res
         Application::key_from(namespace, name).as_bytes(),
     )?;
 
-    let graph_invocation_prefix =
-        ApplicationInvocationCtx::key_prefix_for_application(namespace, name);
+    let request_prefix = RequestCtx::key_prefix_for_application(namespace, name);
 
     for iter in txn.iter(
-        &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-        graph_invocation_prefix.as_bytes(),
+        &IndexifyObjectsColumns::RequestCtx.as_ref(),
+        request_prefix.as_bytes(),
         Default::default(),
     ) {
         let (_key, value) = iter?;
-        let value = JsonEncoder::decode::<ApplicationInvocationCtx>(&value)?;
-        delete_invocation(
+        let value = JsonEncoder::decode::<RequestCtx>(&value)?;
+        delete_request(
             txn,
-            &DeleteInvocationRequest {
+            &DeleteRequestRequest {
                 namespace: value.namespace,
                 application: value.application_name,
-                invocation_id: value.request_id,
+                request_id: value.request_id,
             },
         )?;
     }
@@ -424,10 +409,10 @@ pub(crate) fn handle_scheduler_update(
     for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
-            application = alloc.application,
-            invocation_id = alloc.invocation_id,
+            app = alloc.application,
+            request_id = alloc.request_id,
             "fn" = alloc.function,
-            task_id = alloc.function_call_id.to_string(),
+            fn_call_id = alloc.function_call_id.to_string(),
             allocation_id = %alloc.id,
             fn_executor_id = alloc.target.function_executor_id.get(),
             executor_id = alloc.target.executor_id.get(),
@@ -441,26 +426,26 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    for invocation_ctx in request.updated_invocations_states.values() {
-        if invocation_ctx.outcome.is_some() {
+    for request_ctx in request.updated_request_states.values() {
+        if request_ctx.outcome.is_some() {
             info!(
-                invocation_id = invocation_ctx.request_id.to_string(),
-                namespace = invocation_ctx.namespace,
-                application = invocation_ctx.application_name,
-                outcome = invocation_ctx
+                request_id = request_ctx.request_id.to_string(),
+                namespace = request_ctx.namespace,
+                app = request_ctx.application_name,
+                outcome = request_ctx
                     .outcome
                     .as_ref()
                     .map(|o| o.to_string())
                     .unwrap_or_default(),
                 duration_sec =
-                    get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
-                "invocation completed"
+                    get_elapsed_time(request_ctx.created_at.into(), TimeUnit::Milliseconds),
+                "request completed"
             );
         }
-        let serialized_graph_ctx = JsonEncoder::encode(&invocation_ctx)?;
+        let serialized_graph_ctx = JsonEncoder::encode(&request_ctx)?;
         txn.put(
-            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-            invocation_ctx.key(),
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            request_ctx.key(),
             &serialized_graph_ctx,
         )?;
     }
@@ -470,15 +455,15 @@ pub(crate) fn handle_scheduler_update(
 
 /// Check if an allocation output can be updated in the state store.
 /// Returns true if the following conditions are met:
-/// - The compute graph exists.
-/// - The invocation exists and is not completed.
+/// - The app exists.
+/// - The request exists and is not completed.
 /// - The allocation exists and is not terminal.
 /// - The allocation output is not already set.
 ///
 /// If any of these conditions are not met, it returns false.
 ///
-/// This is used to ensure that we do not update outputs for tasks that have
-/// already completed or for which the compute graph or invocation has been
+/// This is used to ensure that we do not update outputs for function runs that
+/// have already completed or for which the compute graph or request has been
 /// deleted.
 pub fn can_allocation_output_be_updated(
     db: Arc<RocksDBDriver>,
@@ -487,10 +472,10 @@ pub fn can_allocation_output_be_updated(
     let span = info_span!(
         "can_allocation_output_be_updated",
         namespace = &req.allocation.namespace,
-        application = &req.allocation.application,
-        invocation_id = &req.invocation_id,
+        app = &req.allocation.application,
+        request_id = &req.request_id,
         "fn" = &req.allocation.function,
-        task_id = req.allocation.function_call_id.to_string(),
+        fn_call_id = req.allocation.function_call_id.to_string(),
     );
     let _guard = span.enter();
 
@@ -509,28 +494,28 @@ pub fn can_allocation_output_be_updated(
         return Ok(false);
     }
 
-    // Check if the invocation was deleted before the task completes
-    let invocation_ctx_key = ApplicationInvocationCtx::key_from(
+    // Check if the request was deleted before the task completes
+    let request_ctx_key = RequestCtx::key_from(
         &req.allocation.namespace,
         &req.allocation.application,
-        &req.invocation_id,
+        &req.request_id,
     );
-    let invocation = db
+    let request = db
         .get(
-            IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-            &invocation_ctx_key,
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            &request_ctx_key,
         )
-        .map_err(|e| anyhow!("failed to get invocation: {e}"))?;
-    let invocation = match invocation {
-        Some(v) => JsonEncoder::decode::<ApplicationInvocationCtx>(&v)?,
+        .map_err(|e| anyhow!("failed to get request: {e}"))?;
+    let request = match request {
+        Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
         None => {
-            info!("Invocation not found: {}", &req.invocation_id);
+            info!("Request not found: {}", &req.request_id);
             return Ok(false);
         }
     };
-    // Skip finalize task if it's invocation is already completed
-    if invocation.outcome.is_some() {
-        warn!("Invocation already completed, skipping setting outputs");
+    // Skip finalize task if it's request is already completed
+    if request.outcome.is_some() {
+        warn!("Request already completed, skipping setting outputs");
         return Ok(false);
     }
 

@@ -6,8 +6,8 @@ use crate::{
     data_model::test_objects::tests::{self, mock_request_ctx, TEST_NAMESPACE},
     state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest,
-            InvokeComputeGraphRequest,
+            CreateOrUpdateApplicationRequest,
+            InvokeApplicationRequest,
             RequestPayload,
             StateMachineUpdateRequest,
         },
@@ -31,30 +31,30 @@ impl TestStateStore {
     }
 }
 
-pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries: u32) -> String {
-    let cg = tests::mock_graph_with_retries(max_retries);
-    let cg_request = CreateOrUpdateComputeGraphRequest {
+pub async fn with_simple_retry_app(indexify_state: &IndexifyState, max_retries: u32) -> String {
+    let cg = tests::mock_app_with_retries(max_retries);
+    let cg_request = CreateOrUpdateApplicationRequest {
         namespace: TEST_NAMESPACE.to_string(),
         application: cg.clone(),
         upgrade_requests_to_current_version: true,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(cg_request)),
+            payload: RequestPayload::CreateOrUpdateApplication(Box::new(cg_request)),
         })
         .await
         .unwrap();
     let ctx = mock_request_ctx(TEST_NAMESPACE, &cg);
     let request_id = ctx.request_id.clone();
 
-    let request = InvokeComputeGraphRequest {
+    let request = InvokeApplicationRequest {
         namespace: TEST_NAMESPACE.to_string(),
         application_name: cg.name.clone(),
         ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::InvokeComputeGraph(request),
+            payload: RequestPayload::InvokeApplication(request),
         })
         .await
         .unwrap();
@@ -62,5 +62,5 @@ pub async fn with_simple_retry_graph(indexify_state: &IndexifyState, max_retries
 }
 
 pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
-    with_simple_retry_graph(indexify_state, 0).await
+    with_simple_retry_app(indexify_state, 0).await
 }

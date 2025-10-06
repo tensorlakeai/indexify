@@ -14,8 +14,8 @@ use crate::{
     http_objects_v1,
     routes::routes_state::RouteState,
     state_store::requests::{
-        CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
+        CreateOrUpdateApplicationRequest,
+        DeleteApplicationRequest,
         RequestPayload,
         StateMachineUpdateRequest,
     },
@@ -119,12 +119,12 @@ pub async fn create_or_update_application(
     let name = application.name.clone();
 
     info!(
-        "creating compute graph {}, upgrade existing tasks and invocations: {}",
+        "creating application {}, upgrade existing function runs and requests: {}",
         name,
         upgrade_requests_to_current_version.unwrap_or(false)
     );
     let request =
-        RequestPayload::CreateOrUpdateComputeGraph(Box::new(CreateOrUpdateComputeGraphRequest {
+        RequestPayload::CreateOrUpdateApplication(Box::new(CreateOrUpdateApplicationRequest {
             namespace,
             application,
             upgrade_requests_to_current_version: upgrade_requests_to_current_version
@@ -154,7 +154,7 @@ pub async fn delete_application(
     Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+    let request = RequestPayload::TombstoneApplication(DeleteApplicationRequest {
         namespace,
         name: application.clone(),
     });

@@ -17,7 +17,6 @@ use crate::{
     http_objects::{
         from_data_model_executor_metadata,
         Allocation,
-        ApplicationVersionString,
         CacheKey,
         CreateNamespace,
         ExecutorCatalog,
@@ -61,7 +60,6 @@ use crate::{
                 Function,
                 ExecutorMetadata,
                 FunctionRunOutcome,
-                ApplicationVersionString,
                 Allocation,
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
@@ -116,11 +114,11 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(list_executor_catalog).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{invocation_id}/ctx/{name}",
+            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{request_id}/ctx/{name}",
             post(set_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{invocation_id}/ctx/{name}",
+            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{request_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .route("/ui", get(ui_index_handler))
@@ -343,22 +341,18 @@ async fn get_unversioned_code(
 }
 
 async fn get_versioned_code(
-    Path((namespace, application, version)): Path<(
-        String,
-        String,
-        Option<ApplicationVersionString>,
-    )>,
+    Path((namespace, application, version)): Path<(String, String, Option<String>)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     if let Some(version) = version {
         info!(
             "getting code for application {} version {}",
-            application, version.0
+            application, version
         );
         let application_version = state
             .indexify_state
             .reader()
-            .get_application_version(&namespace, &application, &version.into())
+            .get_application_version(&namespace, &application, &version)
             .map_err(IndexifyAPIError::internal_error)?;
 
         let application_version = application_version
@@ -410,14 +404,14 @@ async fn get_versioned_code(
 }
 
 async fn set_ctx_state_key(
-    Path((namespace, application, invocation_id, key)): Path<(String, String, String, String)>,
+    Path((namespace, application, request_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
     mut values: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut request: WriteContextData = WriteContextData {
         namespace,
         application,
-        invocation_id,
+        request_id,
         key,
         value: vec![],
     };
@@ -459,7 +453,7 @@ async fn set_ctx_state_key(
 }
 
 async fn get_ctx_state_key(
-    Path((namespace, application, invocation_id, key)): Path<(String, String, String, String)>,
+    Path((namespace, application, request_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
     let value = state
@@ -467,7 +461,7 @@ async fn get_ctx_state_key(
         .get_ctx_state_key(ReadContextData {
             namespace,
             application,
-            invocation_id,
+            request_id,
             key,
         })
         .await

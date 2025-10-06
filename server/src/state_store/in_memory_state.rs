@@ -16,10 +16,8 @@ use crate::{
     data_model::{
         Allocation,
         Application,
-        ApplicationInvocationCtx,
         ApplicationState,
         ApplicationVersion,
-        ApplicationVersionString,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -34,6 +32,7 @@ use crate::{
         FunctionURI,
         Namespace,
         NamespaceBuilder,
+        RequestCtx,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
@@ -48,11 +47,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    ComputeGraphVersionNotFound {
+    ApplicationVersionNotFound {
         version: String,
         function_name: String,
     },
-    ComputeFunctionNotFound {
+    FunctionNotFound {
         version: String,
         function_name: String,
     },
@@ -66,11 +65,11 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::ComputeGraphVersionNotFound { version, .. } => {
-                write!(f, "Compute graph version not found: {version}")
+            Error::ApplicationVersionNotFound { version, .. } => {
+                write!(f, "Application version not found: {version}")
             }
-            Error::ComputeFunctionNotFound { function_name, .. } => {
-                write!(f, "Compute function not found: {function_name}")
+            Error::FunctionNotFound { function_name, .. } => {
+                write!(f, "Function not found: {function_name}")
             }
             Error::ConstraintUnsatisfiable { reason, .. } => reason.fmt(f),
         }
@@ -82,16 +81,16 @@ impl std::error::Error for Error {}
 impl Error {
     pub fn version(&self) -> &str {
         match self {
-            Error::ComputeGraphVersionNotFound { version, .. } => version,
-            Error::ComputeFunctionNotFound { version, .. } => version,
+            Error::ApplicationVersionNotFound { version, .. } => version,
+            Error::FunctionNotFound { version, .. } => version,
             Error::ConstraintUnsatisfiable { version, .. } => version,
         }
     }
 
     pub fn function_name(&self) -> &str {
         match self {
-            Error::ComputeGraphVersionNotFound { function_name, .. } => function_name,
-            Error::ComputeFunctionNotFound { function_name, .. } => function_name,
+            Error::ApplicationVersionNotFound { function_name, .. } => function_name,
+            Error::FunctionNotFound { function_name, .. } => function_name,
             Error::ConstraintUnsatisfiable { function_name, .. } => function_name,
         }
     }
@@ -185,8 +184,8 @@ impl From<&String> for RequestCtxKey {
     }
 }
 
-impl From<&ApplicationInvocationCtx> for RequestCtxKey {
-    fn from(ctx: &ApplicationInvocationCtx) -> Self {
+impl From<&RequestCtx> for RequestCtxKey {
+    fn from(ctx: &RequestCtx) -> Self {
         RequestCtxKey(ctx.key())
     }
 }
@@ -254,8 +253,8 @@ pub struct InMemoryState {
     // Function Run Key -> Function Run
     pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
-    // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<RequestCtxKey, Box<ApplicationInvocationCtx>>,
+    // Request Context
+    pub request_ctx: im::OrdMap<RequestCtxKey, Box<RequestCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
@@ -271,9 +270,9 @@ pub struct InMemoryState {
 pub struct InMemoryMetrics {
     pub unallocated_function_runs: ObservableGauge<u64>,
     pub active_function_runs_gauge: ObservableGauge<u64>,
-    pub active_invocations_gauge: ObservableGauge<u64>,
+    pub active_request_gauge: ObservableGauge<u64>,
     pub active_allocations_gauge: ObservableGauge<u64>,
-    pub max_invocation_age_gauge: ObservableGauge<f64>,
+    pub max_request_age_gauge: ObservableGauge<f64>,
     pub max_function_run_age_gauge: ObservableGauge<f64>,
 }
 
@@ -317,7 +316,7 @@ impl InMemoryMetrics {
                             .function_runs
                             .iter()
                             // Filter out terminal function runs since they stick around until their
-                            // invocation is completed.
+                            // request is completed.
                             .filter(|(_k, function_run)| function_run.outcome.is_some())
                             .count() as u64;
                         // Lock is automatically dropped at the end of this block
@@ -329,18 +328,18 @@ impl InMemoryMetrics {
                 .build()
         };
 
-        let active_invocations_gauge = {
+        let active_requests_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("indexify.active_invocations_gauge")
-                .with_description("Number of active invocations, reported from in_memory_state")
+                .u64_observable_gauge("indexify.active_requests_gauge")
+                .with_description("Number of active requests, reported from in_memory_state")
                 .with_callback(move |observer| {
                     if let Ok(state) = state_clone.try_read() {
-                        let invocation_count = state.invocation_ctx.len() as u64;
+                        let requests_count = state.request_ctx.len() as u64;
                         // Lock is automatically dropped at the end of this block
-                        observer.observe(invocation_count, &[]);
+                        observer.observe(requests_count, &[]);
                     } else {
-                        debug!("Failed to acquire read lock for active_invocations metric");
+                        debug!("Failed to acquire read lock for active_requests metric");
                     }
                 })
                 .build()
@@ -377,28 +376,28 @@ impl InMemoryMetrics {
                 .build()
         };
 
-        // Add max invocation age metric
-        let max_invocation_age_gauge = {
+        // Add max request age metric
+        let max_request_age_gauge = {
             let state_clone = state.clone();
             meter
-                .f64_observable_gauge("indexify.max_invocation_age")
+                .f64_observable_gauge("indexify.max_request_age")
                 .with_unit("s")
-                .with_description("Maximum age of any non-completed invocation in seconds")
+                .with_description("Maximum age of any non-completed request in seconds")
                 .with_callback(move |observer| {
                     // Clone data within a minimal scope to auto-drop the lock immediately
-                    let invocation_ctx = {
+                    let request_ctx = {
                         if let Ok(state) = state_clone.try_read() {
-                            Some(state.invocation_ctx.clone())
+                            Some(state.request_ctx.clone())
                         } else {
-                            debug!("Failed to acquire read lock for invocation_ctx metric");
+                            debug!("Failed to acquire read lock for request_ctx metric");
                             None
                         }
                     };
 
-                    let max_age = match invocation_ctx {
-                        Some(invocation_ctx) => {
-                            // Find the oldest non-completed invocation
-                            invocation_ctx
+                    let max_age = match request_ctx {
+                        Some(request_ctx) => {
+                            // Find the oldest non-completed request
+                            request_ctx
                                 .values()
                                 .filter(|inv| inv.outcome.is_none())
                                 .map(|inv| {
@@ -408,7 +407,7 @@ impl InMemoryMetrics {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
-                                                // non-completed invocations
+                                                // non-completed request
                         }
                         None => 0.0,
                     };
@@ -467,9 +466,9 @@ impl InMemoryMetrics {
         Self {
             unallocated_function_runs: unallocated_function_runs_gauge,
             active_function_runs_gauge,
-            active_invocations_gauge,
+            active_request_gauge: active_requests_gauge,
             active_allocations_gauge,
-            max_invocation_age_gauge,
+            max_request_age_gauge,
             max_function_run_age_gauge,
         }
     }
@@ -551,22 +550,22 @@ impl InMemoryState {
             }
         }
 
-        let mut invocation_ctx = im::OrdMap::new();
+        let mut request_ctx = im::OrdMap::new();
         {
-            let all_graph_invocation_ctx: Vec<(String, ApplicationInvocationCtx)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
-            for (_id, ctx) in all_graph_invocation_ctx {
-                // Do not cache completed invocations
+            let all_app_request_ctx: Vec<(String, RequestCtx)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)?;
+            for (_id, ctx) in all_app_request_ctx {
+                // Do not cache completed requests
                 if ctx.outcome.is_some() {
                     continue;
                 }
-                invocation_ctx.insert(ctx.key().into(), Box::new(ctx));
+                request_ctx.insert(ctx.key().into(), Box::new(ctx));
             }
         }
 
         let mut function_runs = im::OrdMap::new();
         let mut unallocated_function_runs = im::OrdSet::new();
-        for ctx in invocation_ctx.values() {
+        for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
                 if function_run.outcome.is_some() {
                     continue;
@@ -586,7 +585,7 @@ impl InMemoryState {
             executors: im::HashMap::new(),
             function_runs,
             unallocated_function_runs,
-            invocation_ctx,
+            request_ctx,
             allocations_by_executor,
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
@@ -614,8 +613,8 @@ impl InMemoryState {
         let mut changed_executors = HashSet::new();
 
         match state_machine_update_request {
-            RequestPayload::InvokeComputeGraph(req) => {
-                self.invocation_ctx
+            RequestPayload::InvokeApplication(req) => {
+                self.request_ctx
                     .insert(req.ctx.key().into(), Box::new(req.ctx.clone()));
                 for function_run in req.ctx.function_runs.values() {
                     self.function_runs
@@ -643,7 +642,7 @@ impl InMemoryState {
                     ),
                 );
             }
-            RequestPayload::CreateOrUpdateComputeGraph(req) => {
+            RequestPayload::CreateOrUpdateApplication(req) => {
                 self.applications
                     .insert(req.application.key(), Box::new(req.application.clone()));
                 let req_version = req.application.to_version()?;
@@ -655,31 +654,30 @@ impl InMemoryState {
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
                 if req.upgrade_requests_to_current_version {
-                    // Update invocation ctxs and function runs
+                    // Update request ctxs and function runs
                     {
-                        let mut invocation_ctx_to_update = vec![];
-                        let invocation_ctx_key_prefix =
-                            ApplicationInvocationCtx::key_prefix_for_application(
-                                &req.namespace,
-                                &req.application.name,
-                            );
-                        self.invocation_ctx
+                        let mut request_ctx_to_update = vec![];
+                        let request_ctx_key_prefix = RequestCtx::key_prefix_for_application(
+                            &req.namespace,
+                            &req.application.name,
+                        );
+                        self.request_ctx
                             .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
-                                invocation_ctx_key_prefix.clone().into()..,
+                                request_ctx_key_prefix.clone().into()..,
                             )
-                            .take_while(|(k, _v)| k.0.starts_with(&invocation_ctx_key_prefix))
+                            .take_while(|(k, _v)| k.0.starts_with(&request_ctx_key_prefix))
                             .for_each(|(_k, v)| {
                                 let mut ctx = v.clone();
                                 ctx.application_version = version.clone();
-                                invocation_ctx_to_update.push(ctx);
+                                request_ctx_to_update.push(ctx);
                             });
 
-                        for ctx in invocation_ctx_to_update.iter_mut() {
+                        for ctx in request_ctx_to_update.iter_mut() {
                             for (_function_call_id, function_run) in
                                 ctx.function_runs.clone().iter_mut()
                             {
-                                if function_run.application_version != version {
-                                    function_run.application_version = version.clone();
+                                if function_run.version != version {
+                                    function_run.version = version.clone();
                                     ctx.function_runs
                                         .insert(function_run.id.clone(), function_run.clone());
                                 }
@@ -691,21 +689,21 @@ impl InMemoryState {
                             }
                         }
 
-                        for ctx in invocation_ctx_to_update {
-                            self.invocation_ctx.insert(ctx.key().into(), ctx);
+                        for ctx in request_ctx_to_update {
+                            self.request_ctx.insert(ctx.key().into(), ctx);
                         }
                     }
                 }
             }
-            RequestPayload::DeleteInvocationRequest((req, _)) => {
-                self.delete_invocation(&req.namespace, &req.application, &req.invocation_id);
+            RequestPayload::DeleteRequestRequest((req, _)) => {
+                self.delete_request(&req.namespace, &req.application, &req.request_id);
             }
-            RequestPayload::DeleteComputeGraphRequest((req, _)) => {
-                // Remove compute graph
+            RequestPayload::DeleteApplicationRequest((req, _)) => {
+                // Remove app
                 let key = Application::key_from(&req.namespace, &req.name);
                 self.applications.remove(&key);
 
-                // Remove compute graph versions
+                // Remove app versions
                 {
                     let version_key_prefix =
                         ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
@@ -720,33 +718,30 @@ impl InMemoryState {
                     }
                 }
 
-                // Remove invocation contexts
+                // Remove request contexts
                 {
-                    let invocation_key_prefix =
-                        ApplicationInvocationCtx::key_prefix_for_application(
-                            &req.namespace,
-                            &req.name,
-                        );
-                    let invocations_to_remove = self
-                        .invocation_ctx
+                    let request_key_prefix =
+                        RequestCtx::key_prefix_for_application(&req.namespace, &req.name);
+                    let requests_to_remove = self
+                        .request_ctx
                         .range::<std::ops::RangeFrom<RequestCtxKey>, RequestCtxKey>(
-                            invocation_key_prefix.clone().into()..,
+                            request_key_prefix.clone().into()..,
                         )
-                        .take_while(|(k, _v)| k.0.starts_with(&invocation_key_prefix))
+                        .take_while(|(k, _v)| k.0.starts_with(&request_key_prefix))
                         .map(|(_k, v)| v.request_id.clone())
                         .collect::<Vec<String>>();
-                    for k in invocations_to_remove {
-                        self.delete_invocation(&req.namespace, &req.name, &k);
+                    for k in requests_to_remove {
+                        self.delete_request(&req.namespace, &req.name, &k);
                     }
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
-                        let Some(ctx) = req.updated_invocations_states.get(ctx_key).cloned() else {
+                        let Some(ctx) = req.updated_request_states.get(ctx_key).cloned() else {
                             error!(
                                 ctx_key = ctx_key.clone(),
-                                "invocation ctx not found for updated function runs"
+                                "request ctx not found for updated function runs"
                             );
                             continue;
                         };
@@ -754,7 +749,7 @@ impl InMemoryState {
                         else {
                             error!(
                                 ctx_key = ctx_key.clone(),
-                                function_call_id = function_call_id.clone().to_string(),
+                                fn_call_id = function_call_id.clone().to_string(),
                                 "function run not found for updated function runs"
                             );
                             continue;
@@ -770,17 +765,17 @@ impl InMemoryState {
                             .insert(function_run.clone().into(), Box::new(function_run.clone()));
                     }
                 }
-                for (key, invocation_ctx) in &req.updated_invocations_states {
-                    // Remove tasks for invocation ctx if completed
-                    if invocation_ctx.outcome.is_some() {
-                        self.delete_invocation(
-                            &invocation_ctx.namespace,
-                            &invocation_ctx.application_name,
-                            &invocation_ctx.request_id,
+                for (key, request_ctx) in &req.updated_request_states {
+                    // Remove function runs for request ctx if completed
+                    if request_ctx.outcome.is_some() {
+                        self.delete_request(
+                            &request_ctx.namespace,
+                            &request_ctx.application_name,
+                            &request_ctx.request_id,
                         );
                     } else {
-                        self.invocation_ctx
-                            .insert(key.clone().into(), Box::new(invocation_ctx.clone()));
+                        self.request_ctx
+                            .insert(key.clone().into(), Box::new(request_ctx.clone()));
                     }
                 }
 
@@ -839,12 +834,12 @@ impl InMemoryState {
                     } else {
                         error!(
                             namespace = &allocation.namespace,
-                            application = &allocation.application,
+                            app = &allocation.application,
                             "fn" = &allocation.function,
                             executor_id = allocation.target.executor_id.get(),
                             allocation_id = %allocation.id,
-                            invocation_id = &allocation.invocation_id,
-                            task_id = allocation.function_call_id.to_string(),
+                            request_id = &allocation.request_id,
+                            fn_call_id = allocation.function_call_id.to_string(),
                             "function run not found for new allocation"
                         );
                     }
@@ -982,16 +977,16 @@ impl InMemoryState {
             .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.application_version,
+                &function_run.version,
             ))
             .ok_or(anyhow!(
-                "compute graph version: {} not found",
-                function_run.application_version
+                "application version: {} not found",
+                function_run.version
             ))?;
         let function = application
-            .nodes
+            .functions
             .get(&function_run.name)
-            .ok_or(anyhow!("compute function: {} not found", function_run.name))?;
+            .ok_or(anyhow!("function: {} not found", function_run.name))?;
         Ok(function.resources.clone())
     }
 
@@ -1004,14 +999,14 @@ impl InMemoryState {
             .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.application_version,
+                &function_run.version,
             ))
-            .ok_or_else(|| Error::ComputeGraphVersionNotFound {
-                version: function_run.application_version.0.clone(),
+            .ok_or_else(|| Error::ApplicationVersionNotFound {
+                version: function_run.version.clone(),
                 function_name: function_run.name.clone(),
             })?;
 
-        // Check to see whether the compute graph state is marked as
+        // Check to see whether the app state is marked as
         // active; if not, we do not schedule its tasks, even if there
         // are executors that could handle this particular task.
         if let ApplicationState::Disabled { reason } = &application.state {
@@ -1023,12 +1018,13 @@ impl InMemoryState {
             .into());
         }
 
-        let function = application.nodes.get(&function_run.name).ok_or_else(|| {
-            Error::ComputeFunctionNotFound {
-                version: function_run.application_version.0.clone(),
+        let function = application
+            .functions
+            .get(&function_run.name)
+            .ok_or_else(|| Error::FunctionNotFound {
+                version: function_run.version.clone(),
                 function_name: function_run.name.clone(),
-            }
-        })?;
+            })?;
 
         let mut candidates = Vec::new();
 
@@ -1133,14 +1129,14 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &ApplicationVersionString,
+        version: &str,
     ) -> Option<FunctionResources> {
         let cg_version = self
             .application_versions
             .get(&ApplicationVersion::key_from(ns, cg, version))
             .cloned()?;
         cg_version
-            .nodes
+            .functions
             .get(fn_name)
             .map(|node| node.resources.clone())
     }
@@ -1150,26 +1146,25 @@ impl InMemoryState {
         ns: &str,
         cg: &str,
         fn_name: &str,
-        version: &ApplicationVersionString,
+        version: &str,
     ) -> Option<u32> {
         let cg_version = self
             .application_versions
             .get(&ApplicationVersion::key_from(ns, cg, version))
             .cloned()?;
         cg_version
-            .nodes
+            .functions
             .get(fn_name)
             .map(|node| node.max_concurrency)
     }
 
-    pub fn delete_invocation(&mut self, namespace: &str, application: &str, invocation_id: &str) {
-        // Remove invocation ctx
-        self.invocation_ctx.remove(
-            &ApplicationInvocationCtx::key_from(namespace, application, invocation_id).into(),
-        );
+    pub fn delete_request(&mut self, namespace: &str, application: &str, request_id: &str) {
+        // Remove request ctx
+        self.request_ctx
+            .remove(&RequestCtx::key_from(namespace, application, request_id).into());
 
         // Remove tasks
-        let key_prefix = FunctionRun::key_prefix_for_request(namespace, application, invocation_id);
+        let key_prefix = FunctionRun::key_prefix_for_request(namespace, application, request_id);
         let mut function_runs_to_remove = Vec::new();
         self.function_runs
             .range(FunctionRunKey(key_prefix.clone())..)
@@ -1325,7 +1320,7 @@ impl InMemoryState {
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
                 v.name == fe_meta.function_executor.function_name &&
-                    v.application_version == fe_meta.function_executor.version
+                    v.version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1362,7 +1357,7 @@ impl InMemoryState {
             else {
                 continue;
             };
-            let Some(cg_node) = cg_version.nodes.get(&fe.function_name) else {
+            let Some(cg_node) = cg_version.functions.get(&fe.function_name) else {
                 continue;
             };
             function_executors.push(Box::new(DesiredStateFunctionExecutor {
@@ -1406,7 +1401,7 @@ impl InMemoryState {
             applications: self.applications.clone(),
             application_versions: self.application_versions.clone(),
             executors: self.executors.clone(),
-            invocation_ctx: self.invocation_ctx.clone(),
+            request_ctx: self.request_ctx.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
@@ -1425,7 +1420,7 @@ impl InMemoryState {
         &'a self,
         namespace: &str,
         application_name: &str,
-        version: &ApplicationVersionString,
+        version: &str,
     ) -> Option<&'a Box<ApplicationVersion>> {
         self.application_versions
             .get(&ApplicationVersion::key_from(
@@ -1436,8 +1431,8 @@ impl InMemoryState {
             .or_else(|| {
                 error!(
                     namespace = namespace,
-                    application_name = application_name,
-                    version = version.0,
+                    app = application_name,
+                    app_version = version,
                     "application version not found",
                 );
                 None
@@ -1453,12 +1448,12 @@ impl InMemoryState {
             .get(&function_run.key_application_version(&function_run.application))
             .or_else(|| {
                 error!(
-                    task_id = function_run.id.to_string(),
-                    invocation_id = function_run.request_id.to_string(),
+                    fn_call_id = function_run.id.to_string(),
+                    request_id = function_run.request_id.to_string(),
                     namespace = function_run.namespace,
-                    application = function_run.application,
+                    app = function_run.application,
                     "fn" = function_run.name,
-                    application_version = function_run.application_version.0,
+                    app_version = function_run.version,
                     "application version not found",
                 );
                 None
@@ -1497,7 +1492,7 @@ mod test_helpers {
                 executor_states: im::HashMap::new(),
                 function_executors_by_fn_uri: im::HashMap::new(),
                 allocations_by_executor: im::HashMap::new(),
-                invocation_ctx: im::OrdMap::new(),
+                request_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
                 function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
@@ -1515,7 +1510,6 @@ mod tests {
 
     use crate::{
         data_model::{
-            ApplicationVersionString,
             ComputeOp,
             ExecutorId,
             FunctionCall,
@@ -1570,7 +1564,7 @@ mod tests {
                 .namespace(namespace.to_string())
                 .application(application.to_string())
                 .name(function.to_string())
-                .application_version(ApplicationVersionString("1.0".to_string()))
+                .version("1.0".to_string())
                 .compute_op(ComputeOp::FunctionCall(FunctionCall {
                     inputs: vec![],
                     function_call_id: FunctionCallId(format!(
@@ -1596,7 +1590,7 @@ mod tests {
             .namespace("test-namespace".to_string())
             .application_name("test-graph".to_string())
             .function_name("test-function".to_string())
-            .version(ApplicationVersionString("1.0".to_string()))
+            .version("1.0".to_string())
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,
@@ -1726,7 +1720,7 @@ mod tests {
             .namespace("test-namespace".to_string())
             .application_name("test-graph".to_string())
             .function_name("different-function".to_string())
-            .version(ApplicationVersionString("1.0".to_string()))
+            .version("1.0".to_string())
             .state(FunctionExecutorState::Running)
             .resources(FunctionExecutorResources {
                 cpu_ms_per_sec: 1000,

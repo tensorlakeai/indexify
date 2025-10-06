@@ -4,11 +4,11 @@ use tracing::{debug, info_span, warn};
 use crate::{
     data_model::{
         AllocationBuilder,
-        ApplicationInvocationCtx,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        RequestCtx,
         RunningFunctionRunStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
@@ -40,7 +40,7 @@ impl<'a> FunctionRunProcessor<'a> {
 
         for function_run in function_runs {
             let Some(mut ctx) = in_memory_state
-                .invocation_ctx
+                .request_ctx
                 .get(&function_run.clone().into())
                 .cloned()
             else {
@@ -57,17 +57,17 @@ impl<'a> FunctionRunProcessor<'a> {
                         err.downcast_ref::<state_store::in_memory_state::Error>()
                     {
                         warn!(
-                            function_call_id = function_run.id.to_string(),
+                            fn_call_id = function_run.id.to_string(),
                             namespace = function_run.namespace,
-                            application = function_run.application,
-                            application_version = state_store_error.version(),
-                            "fb" = state_store_error.function_name(),
+                            app = function_run.application,
+                            app_version = state_store_error.version(),
+                            "fn" = state_store_error.function_name(),
                             error = %state_store_error,
                             "Unable to allocate task"
                         );
 
                         // Check if this is a ConstraintUnsatisfiable error; if it is, we want to
-                        // fail the task and invocation.
+                        // fail the function run and request.
                         //
                         // TODO: Turn this into a check at server startup.
                         if matches!(
@@ -82,11 +82,9 @@ impl<'a> FunctionRunProcessor<'a> {
                             ));
 
                             // Add the failed function run to the update
-                            ctx.outcome = Some(
-                                crate::data_model::ApplicationRequestOutcome::Failure(
-                                    crate::data_model::ApplicationInvocationFailureReason::ConstraintUnsatisfiable
-                                )
-                            );
+                            ctx.outcome = Some(crate::data_model::RequestOutcome::Failure(
+                                crate::data_model::RequestFailureReason::ConstraintUnsatisfiable,
+                            ));
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
                         }
 
@@ -105,16 +103,16 @@ impl<'a> FunctionRunProcessor<'a> {
         &self,
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
-        ctx: &mut ApplicationInvocationCtx,
+        ctx: &mut RequestCtx,
     ) -> Result<SchedulerUpdateRequest> {
         let span = info_span!(
             "create_allocation",
             namespace = function_run.namespace,
-            function_call_id = function_run.id.to_string(),
+            fn_call_id = function_run.id.to_string(),
             request_id = function_run.request_id,
-            application = function_run.application,
+            app = function_run.application,
             "fn" = function_run.name,
-            application_version = function_run.application_version.to_string(),
+            app_version = function_run.version.to_string(),
         );
         let _guard = span.enter();
 
@@ -133,7 +131,7 @@ impl<'a> FunctionRunProcessor<'a> {
             .namespace(function_run.namespace.clone())
             .application(function_run.application.clone())
             .function(function_run.name.clone())
-            .invocation_id(function_run.request_id.clone())
+            .request_id(function_run.request_id.clone())
             .function_call_id(function_run.id.clone())
             .call_metadata(function_run.call_metadata.clone())
             .input_args(function_run.input_args.clone())

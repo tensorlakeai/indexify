@@ -10,11 +10,10 @@ use crate::{
     data_model::{
         Allocation,
         Application,
-        ApplicationInvocationCtx,
         ApplicationVersion,
-        ApplicationVersionString,
         GcUrl,
         Namespace,
+        RequestCtx,
         StateChange,
         UnprocessedStateChanges,
     },
@@ -269,19 +268,15 @@ impl StateReader {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn list_invocations(
+    pub fn list_requests(
         &self,
         namespace: &str,
         application: &str,
         cursor: Option<&[u8]>,
         limit: usize,
         direction: Option<CursorDirection>,
-    ) -> Result<(
-        Vec<ApplicationInvocationCtx>,
-        Option<Vec<u8>>,
-        Option<Vec<u8>>,
-    )> {
-        let kvs = &[KeyValue::new("op", "list_invocations")];
+    ) -> Result<(Vec<RequestCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_requests")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let key_prefix = [namespace.as_bytes(), b"|", application.as_bytes(), b"|"].concat();
 
@@ -300,19 +295,17 @@ impl StateReader {
             .build()?;
 
         let range = self.db.get_key_range(
-            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+            IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
             range_options,
         )?;
 
         // Process the collected keys
-        let mut invocation_prefixes = range
+        let mut request_prefixes = range
             .items
             .iter()
-            .flat_map(|key| {
-                ApplicationInvocationCtx::get_invocation_id_from_secondary_index_key(key)
-            })
-            .map(|invocation_id| {
-                ApplicationInvocationCtx::key_from(namespace, application, &invocation_id)
+            .flat_map(|key| RequestCtx::get_request_id_from_secondary_index_key(key))
+            .map(|request_id| {
+                RequestCtx::key_from(namespace, application, &request_id)
                     .as_bytes()
                     .to_vec()
             })
@@ -320,16 +313,16 @@ impl StateReader {
 
         if range.direction.is_backward() {
             // We keep the ordering the same even if we traverse in the opposite direction
-            invocation_prefixes.reverse();
+            request_prefixes.reverse();
         }
 
-        let invocations = self.get_rows_from_cf_multi_key::<ApplicationInvocationCtx>(
-            invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
-            IndexifyObjectsColumns::GraphInvocationCtx,
+        let requests = self.get_rows_from_cf_multi_key::<RequestCtx>(
+            request_prefixes.iter().map(|v| v.as_slice()).collect(),
+            IndexifyObjectsColumns::RequestCtx,
         )?;
 
         Ok((
-            invocations,
+            requests,
             range.prev_cursor.map(|c| c.to_vec()),
             range.next_cursor.map(|c| c.to_vec()),
         ))
@@ -366,7 +359,7 @@ impl StateReader {
         &self,
         namespace: &str,
         name: &str,
-        version: &ApplicationVersionString,
+        version: &str,
     ) -> Result<Option<ApplicationVersion>> {
         let kvs = &[KeyValue::new("op", "get_application_version")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -379,7 +372,7 @@ impl StateReader {
         }
 
         debug!(
-            "Falling back to compute graph to get version for graph {}",
+            "Falling back to application to get version for application {}",
             name
         );
         let application = self.get_application(namespace, name)?;
@@ -397,16 +390,16 @@ impl StateReader {
         Ok(allocation)
     }
 
-    pub fn get_allocations_by_invocation(
+    pub fn get_allocations_by_request_id(
         &self,
         namespace: &str,
         application: &str,
-        invocation_id: &str,
+        request_id: &str,
     ) -> Result<Vec<Allocation>> {
-        let kvs = &[KeyValue::new("op", "get_allocations_by_task_id")];
+        let kvs = &[KeyValue::new("op", "get_allocations_by_request_id")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let prefix = Allocation::key_prefix_from_invocation(namespace, application, invocation_id);
+        let prefix = Allocation::key_prefix_from_request(namespace, application, request_id);
 
         let (allocations, _) = self.get_rows_from_cf_with_limits::<Allocation>(
             prefix.as_bytes(),
@@ -417,24 +410,24 @@ impl StateReader {
         Ok(allocations)
     }
 
-    pub fn invocation_ctx(
+    pub fn request_ctx(
         &self,
         namespace: &str,
         application: &str,
-        invocation_id: &str,
-    ) -> Result<Option<ApplicationInvocationCtx>> {
-        let kvs = &[KeyValue::new("op", "invocation_ctx")];
+        request_id: &str,
+    ) -> Result<Option<RequestCtx>> {
+        let kvs = &[KeyValue::new("op", "request_ctx")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
-        let key = ApplicationInvocationCtx::key_from(namespace, application, invocation_id);
+        let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
+        let key = RequestCtx::key_from(namespace, application, request_id);
         let value = self.db.get(cf, &key)?;
         if value.is_none() {
             return Ok(None);
         }
-        let invocation_ctx: ApplicationInvocationCtx = JsonEncoder::decode(&value.unwrap())
-            .map_err(|e| anyhow!("unable to decode invocation ctx: {e}"))?;
-        Ok(Some(invocation_ctx))
+        let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
+            .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
+        Ok(Some(request_ctx))
     }
 }
 #[cfg(test)]

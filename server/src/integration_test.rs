@@ -22,7 +22,7 @@ mod tests {
         service::Service,
         state_store::{
             driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
-            requests::{DeleteComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+            requests::{DeleteApplicationRequest, RequestPayload, StateMachineUpdateRequest},
             state_machine::IndexifyObjectsColumns,
             test_state_store,
         },
@@ -124,12 +124,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_simple_graph_completion() -> Result<()> {
+    async fn test_simple_app_request_completion() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
-        // invoke the graph
-        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        // Invoke the app
+        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -141,13 +141,13 @@ mod tests {
         // finalize the starting node task
         {
             let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.task_allocations.len(), 1,);
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            assert_eq!(desired_state.allocations.len(), 1,);
+            let allocation = desired_state.allocations.first().unwrap();
             executor
-                .finalize_task(
-                    task_allocation,
+                .finalize_allocation(
+                    allocation,
                     FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
+                        allocation_key_from_proto(allocation),
                         Some(mock_updates()),
                         None,
                     )
@@ -163,14 +163,14 @@ mod tests {
         // finalize tasks for fn_b and fn_c
         {
             let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.task_allocations.len(), 2,);
+            assert_eq!(desired_state.allocations.len(), 2,);
 
-            for task_allocation in desired_state.task_allocations {
+            for allocation in desired_state.allocations {
                 executor
-                    .finalize_task(
-                        &task_allocation,
+                    .finalize_allocation(
+                        &allocation,
                         FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&task_allocation),
+                            allocation_key_from_proto(&allocation),
                             None,
                             Some(mock_data_payload()),
                         )
@@ -184,9 +184,9 @@ mod tests {
         // finalize task for fn_d
         {
             let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            let task_allocation = desired_state.allocations.first().unwrap();
             executor
-                .finalize_task(
+                .finalize_allocation(
                     task_allocation,
                     FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
@@ -204,7 +204,7 @@ mod tests {
         {
             let function_runs = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
                 .unwrap()
                 .unwrap()
                 .function_runs
@@ -220,17 +220,17 @@ mod tests {
 
             let desired_state = executor.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
-                "expected all tasks to be finalized: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations.is_empty(),
+                "expected all allocations to be finalized: {:#?}",
+                desired_state.allocations
             );
 
-            let invocation = indexify_state
+            let request_ctx = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
                 .unwrap();
 
-            assert!(invocation.outcome.is_some());
+            assert!(request_ctx.outcome.is_some());
         }
 
         Ok(())
@@ -254,10 +254,10 @@ mod tests {
 
         {
             let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.task_allocations.len(), 1,);
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            assert_eq!(desired_state.allocations.len(), 1,);
+            let task_allocation = desired_state.allocations.first().unwrap();
             executor
-                .finalize_task(
+                .finalize_allocation(
                     task_allocation,
                     FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
@@ -274,7 +274,7 @@ mod tests {
         // delete the graph...
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
                     namespace: TEST_NAMESPACE.to_string(),
                     name: "graph_A".to_string(),
                 }),
@@ -298,12 +298,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graph_deletion_after_completion() -> Result<()> {
+    async fn test_application_deletion_after_completion() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
-        // invoke the graph
-        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        // invoke the app
+        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -316,14 +316,14 @@ mod tests {
         {
             let desired_state = executor.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 1,
                 "Executor tasks: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            let task_allocation = desired_state.allocations.first().unwrap();
             executor
-                .finalize_task(
+                .finalize_allocation(
                     task_allocation,
                     FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
@@ -339,22 +339,22 @@ mod tests {
             assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
         }
 
-        // finalize the remaining tasks
+        // finalize the remaining allocs
         {
             let desired_state = executor.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 2,
-                "fn_b and fn_c tasks: {:#?}",
-                desired_state.task_allocations
+                "fn_b and fn_c allocations: {:#?}",
+                desired_state.allocations
             );
 
-            for task_allocation in desired_state.task_allocations {
+            for allocation in desired_state.allocations {
                 executor
-                    .finalize_task(
-                        &task_allocation,
+                    .finalize_allocation(
+                        &allocation,
                         FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&task_allocation),
+                            allocation_key_from_proto(&allocation),
                             None,
                             Some(mock_data_payload()),
                         )
@@ -367,9 +367,9 @@ mod tests {
         }
         {
             let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            let task_allocation = desired_state.allocations.first().unwrap();
             executor
-                .finalize_task(
+                .finalize_allocation(
                     task_allocation,
                     FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
@@ -386,7 +386,7 @@ mod tests {
         {
             let function_runs = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
                 .unwrap()
                 .unwrap()
                 .function_runs
@@ -402,24 +402,24 @@ mod tests {
 
             let desired_state = executor.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
+                desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
-            let invocation = indexify_state
+            let request_ctx = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
                 .unwrap();
 
-            assert!(invocation.outcome.is_some());
+            assert!(request_ctx.outcome.is_some());
         }
 
         // Delete graph and expect everything to be deleted
         {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                    payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         name: "graph_A".to_string(),
                     }),
@@ -443,12 +443,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graph_failure_on_invocation_error() -> Result<()> {
+    async fn test_app_failure_on_request_error() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
-        // invoke the graph
-        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        // invoke the application
+        let request_id = test_state_store::with_simple_graph(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -462,28 +462,28 @@ mod tests {
             // first, verify the executor state and task states
             let desired_state = executor.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 1,
                 "{:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
             assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            let allocation = desired_state.allocations.first().unwrap();
 
-            // NB InvocationError is a user request for a permanent failure.
+            // NB RequestError is a user request for a permanent failure.
             executor
-                .finalize_task(
-                    task_allocation,
+                .finalize_allocation(
+                    allocation,
                     FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
+                        allocation_key_from_proto(allocation),
                         None,
                         None,
                         //"fn_b".to_string(),
                     )
                     .function_run_outcome(FunctionRunOutcome::Failure(
-                        FunctionRunFailureReason::InvocationError,
+                        FunctionRunFailureReason::RequestError,
                     )),
                 )
                 .await?;
@@ -497,17 +497,17 @@ mod tests {
 
             let desired_state = executor.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
+                desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
-            let invocation = indexify_state
+            let request_ctx = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
                 .unwrap();
 
-            assert!(invocation.outcome.is_some());
+            assert!(request_ctx.outcome.is_some());
         }
 
         Ok(())
@@ -522,9 +522,9 @@ mod tests {
         let test_srv = testing::TestService::new().await?;
         let Service { indexify_state, .. } = test_srv.service.clone();
 
-        // invoke the graph
-        let invocation_id =
-            test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
+        // Invoke the app
+        let request_id =
+            test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -548,10 +548,10 @@ mod tests {
             // finalize the starting node task with our retryable failure (using an attempt)
             {
                 let desired_state = executor.desired_state().await;
-                let task_allocation = desired_state.task_allocations.first().unwrap();
+                let task_allocation = desired_state.allocations.first().unwrap();
 
                 executor
-                    .finalize_task(
+                    .finalize_allocation(
                         task_allocation,
                         FinalizeFunctionRunArgs::new(
                             allocation_key_from_proto(task_allocation),
@@ -586,17 +586,17 @@ mod tests {
 
             let desired_state = executor.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
-                "expected all tasks to be finalized: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations.is_empty(),
+                "expected all allocations to be finalized: {:#?}",
+                desired_state.allocations
             );
 
-            let invocation = indexify_state
+            let request_ctx = indexify_state
                 .reader()
-                .invocation_ctx(TEST_NAMESPACE, "graph_A", &invocation_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
                 .unwrap();
 
-            assert!(invocation.outcome.is_some());
+            assert!(request_ctx.outcome.is_some());
         }
 
         Ok(())
@@ -648,7 +648,7 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // invoke the graph
-        test_state_store::with_simple_retry_graph(&indexify_state, max_retries).await;
+        test_state_store::with_simple_retry_app(&indexify_state, max_retries).await;
         test_srv.process_all_state_changes().await?;
 
         // register executor
@@ -674,10 +674,10 @@ mod tests {
         // attempt)
         {
             let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.task_allocations.first().unwrap();
+            let task_allocation = desired_state.allocations.first().unwrap();
 
             executor
-                .finalize_task(
+                .finalize_allocation(
                     task_allocation,
                     FinalizeFunctionRunArgs::new(
                         allocation_key_from_proto(task_allocation),
@@ -756,10 +756,10 @@ mod tests {
 
             let desired_state = executor1.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 1,
                 "Executor tasks: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
             executor1
@@ -774,9 +774,9 @@ mod tests {
 
             let desired_state = executor2.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
+                desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
             executor2
@@ -800,16 +800,16 @@ mod tests {
             assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
             let desired_state = executor1.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 1,
                 "Executor1 tasks: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
             let desired_state = executor2.desired_state().await;
             assert!(
-                desired_state.task_allocations.is_empty(),
+                desired_state.allocations.is_empty(),
                 "Executor2 tasks: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
             // advance time past the EXECUTOR_TIMEOUT to trigger executor1 timeout
@@ -829,10 +829,10 @@ mod tests {
             // verify that the tasks are reassigned to executor2
             let desired_state = executor2.desired_state().await;
             assert_eq!(
-                desired_state.task_allocations.len(),
+                desired_state.allocations.len(),
                 1,
                 "Executor2 tasks: {:#?}",
-                desired_state.task_allocations
+                desired_state.allocations
             );
 
             // resume time
@@ -861,7 +861,7 @@ mod tests {
         // Delete the application graph
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
                     namespace: TEST_NAMESPACE.to_string(),
                     name: "graph_A".to_string(),
                 }),

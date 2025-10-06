@@ -132,7 +132,7 @@ pub struct Allocation {
     pub namespace: String,
     pub application: String,
     pub function: String,
-    pub invocation_id: String,
+    pub request_id: String,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
@@ -163,21 +163,17 @@ impl Allocation {
         Allocation::key_from(
             &self.namespace,
             &self.application,
-            &self.invocation_id,
+            &self.request_id,
             &self.id,
         )
     }
 
-    pub fn key_from(namespace: &str, application: &str, invocation_id: &str, id: &str) -> String {
-        format!("{namespace}|{application}|{invocation_id}|{id}",)
+    pub fn key_from(namespace: &str, application: &str, request_id: &str, id: &str) -> String {
+        format!("{namespace}|{application}|{request_id}|{id}",)
     }
 
-    pub fn key_prefix_from_invocation(
-        namespace: &str,
-        application: &str,
-        invocation_id: &str,
-    ) -> String {
-        format!("{namespace}|{application}|{invocation_id}|")
+    pub fn key_prefix_from_request(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}|{application}|{request_id}|")
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -238,7 +234,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub application: String,
     pub name: String,
-    pub application_version: ApplicationVersionString,
+    pub version: String,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
     // Function call which output will be used as output of this function run
@@ -271,10 +267,7 @@ impl FunctionRunBuilder {
 
 impl FunctionRun {
     pub fn key_application_version(&self, application_name: &str) -> String {
-        format!(
-            "{}|{}|{}",
-            self.namespace, application_name, self.application_version.0,
-        )
+        format!("{}|{}|{}", self.namespace, application_name, self.version,)
     }
 
     pub fn key(&self) -> String {
@@ -422,36 +415,6 @@ impl Function {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct ApplicationVersionString(pub String);
-
-impl Default for ApplicationVersionString {
-    fn default() -> Self {
-        Self("1".to_string())
-    }
-}
-
-impl From<&str> for ApplicationVersionString {
-    fn from(item: &str) -> Self {
-        ApplicationVersionString(item.to_string())
-    }
-}
-
-impl Display for ApplicationVersionString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
-pub struct ImageVersion(pub u32);
-
-impl Default for ImageVersion {
-    fn default() -> Self {
-        Self(1)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParameterMetadata {
     pub name: String,
@@ -470,7 +433,7 @@ pub enum ApplicationState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EntryPointManifest {
+pub struct ApplicationEntryPoint {
     pub function_name: String,
     pub input_serializer: String,
     pub output_serializer: String,
@@ -489,16 +452,15 @@ pub struct Application {
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
-    pub version: ApplicationVersionString,
+    pub version: String,
     pub code: DataPayload,
-    pub start_fn: Function,
-    pub nodes: HashMap<String, Function>,
+    pub functions: HashMap<String, Function>,
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
     #[builder(default)]
     vector_clock: VectorClock,
-    pub entrypoint: EntryPointManifest,
+    pub entrypoint: ApplicationEntryPoint,
 }
 
 impl ApplicationBuilder {
@@ -534,8 +496,7 @@ impl Application {
 
         self.version = update.version;
         self.code = update.code;
-        self.start_fn = update.start_fn;
-        self.nodes = update.nodes.clone();
+        self.functions = update.functions.clone();
         self.description = update.description;
         self.tags = update.tags;
         self.entrypoint = update.entrypoint;
@@ -544,12 +505,12 @@ impl Application {
     pub fn to_version(&self) -> Result<ApplicationVersion> {
         ApplicationVersionBuilder::default()
             .namespace(self.namespace.clone())
-            .application_name(self.name.clone())
+            .name(self.name.clone())
             .created_at(self.created_at)
             .version(self.version.clone())
             .code(self.code.clone())
-            .start_fn(self.start_fn.clone())
-            .nodes(self.nodes.clone())
+            .entrypoint(self.entrypoint.clone())
+            .functions(self.functions.clone())
             .state(self.state.clone())
             .build()
             .map_err(Into::into)
@@ -559,7 +520,7 @@ impl Application {
         &self,
         executor_catalog: &crate::state_store::ExecutorCatalog,
     ) -> Result<()> {
-        for node in self.nodes.values() {
+        for node in self.functions.values() {
             let mut has_cpu = false;
             let mut has_mem = false;
             let mut has_disk = false;
@@ -641,13 +602,13 @@ impl Application {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct ApplicationVersion {
     pub namespace: String,
-    pub application_name: String,
+    pub name: String,
     pub created_at: u64,
-    pub version: ApplicationVersionString,
+    pub version: String,
     pub code: DataPayload,
-    pub start_fn: Function,
+    pub entrypoint: ApplicationEntryPoint,
     #[builder(default)]
-    pub nodes: HashMap<String, Function>,
+    pub functions: HashMap<String, Function>,
     #[builder(default)]
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -673,8 +634,8 @@ impl ApplicationVersion {
         FunctionRunBuilder::default()
             .id(fn_call.function_call_id.clone())
             .namespace(self.namespace.clone())
-            .application(self.application_name.clone())
-            .application_version(self.version.clone())
+            .application(self.name.clone())
+            .version(self.version.clone())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 function_call_id: fn_call.function_call_id.clone(),
                 inputs: fn_call.inputs.clone(),
@@ -694,15 +655,11 @@ impl ApplicationVersion {
     }
 
     pub fn key(&self) -> String {
-        ApplicationVersion::key_from(&self.namespace, &self.application_name, &self.version)
+        ApplicationVersion::key_from(&self.namespace, &self.name, &self.version)
     }
 
-    pub fn key_from(
-        namespace: &str,
-        application_name: &str,
-        version: &ApplicationVersionString,
-    ) -> String {
-        format!("{}|{}|{}", namespace, application_name, version.0)
+    pub fn key_from(namespace: &str, application_name: &str, version: &str) -> String {
+        format!("{}|{}|{}", namespace, application_name, version)
     }
 
     pub fn key_prefix_from(namespace: &str, name: &str) -> String {
@@ -710,7 +667,7 @@ impl ApplicationVersion {
     }
 
     pub fn function_run_max_retries(&self, task: &FunctionRun) -> Option<u32> {
-        self.nodes
+        self.functions
             .get(&task.name)
             .map(|node| node.retry_policy.max_retries)
     }
@@ -745,42 +702,36 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FunctionRunDiagnostics {
-    pub stdout: Option<DataPayload>,
-    pub stderr: Option<DataPayload>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ApplicationRequestOutcome {
+pub enum RequestOutcome {
     Unknown,
     Success,
-    Failure(ApplicationInvocationFailureReason),
+    Failure(RequestFailureReason),
 }
 
-impl Default for ApplicationRequestOutcome {
+impl Default for RequestOutcome {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<FunctionRunOutcome> for ApplicationRequestOutcome {
+impl From<FunctionRunOutcome> for RequestOutcome {
     fn from(outcome: FunctionRunOutcome) -> Self {
         match outcome {
-            FunctionRunOutcome::Success => ApplicationRequestOutcome::Success,
+            FunctionRunOutcome::Success => RequestOutcome::Success,
             FunctionRunOutcome::Failure(failure_reason) => {
-                ApplicationRequestOutcome::Failure(failure_reason.into())
+                RequestOutcome::Failure(failure_reason.into())
             }
-            FunctionRunOutcome::Unknown => ApplicationRequestOutcome::Unknown,
+            FunctionRunOutcome::Unknown => RequestOutcome::Unknown,
         }
     }
 }
 
-impl Display for ApplicationRequestOutcome {
+impl Display for RequestOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ApplicationRequestOutcome::Unknown => write!(f, "Unknown"),
-            ApplicationRequestOutcome::Success => write!(f, "Success"),
-            ApplicationRequestOutcome::Failure(reason) => {
+            RequestOutcome::Unknown => write!(f, "Unknown"),
+            RequestOutcome::Success => write!(f, "Success"),
+            RequestOutcome::Failure(reason) => {
                 write!(f, "Failure (")?;
                 reason.fmt(f)?;
                 write!(f, ")")
@@ -790,91 +741,76 @@ impl Display for ApplicationRequestOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ApplicationInvocationFailureReason {
-    // Used when invocation didn't finish yet and when invocation finished successfully
+pub enum RequestFailureReason {
+    // Used when request didn't finish yet and when request finished successfully
     Unknown,
     // Internal error on Executor aka platform error.
     InternalError,
     // Clear function code failure typically by raising an exception from the function code.
     FunctionError,
-    // Function code raised InvocationError to mark the invocation as permanently failed.
-    InvocationError,
-    // Next function is not found in the graph (while routing).
-    NextFunctionNotFound,
+    // Function code raised RequestError to mark the request as permanently failed.
+    RequestError,
     // A graph function cannot be scheduled given the specified constraints.
     ConstraintUnsatisfiable,
 }
 
-impl Display for ApplicationInvocationFailureReason {
+impl Display for RequestFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_val = match self {
-            ApplicationInvocationFailureReason::Unknown => "Unknown",
-            ApplicationInvocationFailureReason::InternalError => "InternalError",
-            ApplicationInvocationFailureReason::FunctionError => "FunctionError",
-            ApplicationInvocationFailureReason::InvocationError => "InvocationError",
-            ApplicationInvocationFailureReason::NextFunctionNotFound => "NextFunctionNotFound",
-            ApplicationInvocationFailureReason::ConstraintUnsatisfiable => {
-                "ConstraintUnsatisfiable"
-            }
+            RequestFailureReason::Unknown => "Unknown",
+            RequestFailureReason::InternalError => "InternalError",
+            RequestFailureReason::FunctionError => "FunctionError",
+            RequestFailureReason::RequestError => "RequestError",
+            RequestFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
         };
         write!(f, "{str_val}")
     }
 }
 
-impl Default for ApplicationInvocationFailureReason {
+impl Default for RequestFailureReason {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<FunctionRunFailureReason> for ApplicationInvocationFailureReason {
+impl From<FunctionRunFailureReason> for RequestFailureReason {
     fn from(failure_reason: FunctionRunFailureReason) -> Self {
         match failure_reason {
-            FunctionRunFailureReason::Unknown => ApplicationInvocationFailureReason::Unknown,
-            FunctionRunFailureReason::InternalError => {
-                ApplicationInvocationFailureReason::InternalError
-            }
-            FunctionRunFailureReason::FunctionError => {
-                ApplicationInvocationFailureReason::FunctionError
-            }
-            FunctionRunFailureReason::FunctionTimeout => {
-                ApplicationInvocationFailureReason::FunctionError
-            }
-            FunctionRunFailureReason::InvocationError => {
-                ApplicationInvocationFailureReason::InvocationError
-            }
-            FunctionRunFailureReason::FunctionRunCancelled => {
-                ApplicationInvocationFailureReason::InternalError
-            }
+            FunctionRunFailureReason::Unknown => RequestFailureReason::Unknown,
+            FunctionRunFailureReason::InternalError => RequestFailureReason::InternalError,
+            FunctionRunFailureReason::FunctionError => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
+            FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::InternalError,
             FunctionRunFailureReason::FunctionExecutorTerminated => {
-                ApplicationInvocationFailureReason::InternalError
+                RequestFailureReason::InternalError
             }
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
-                ApplicationInvocationFailureReason::ConstraintUnsatisfiable
+                RequestFailureReason::ConstraintUnsatisfiable
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct ApplicationInvocationError {
+pub struct RequestError {
     pub function_name: String,
     pub payload: DataPayload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct ApplicationInvocationCtx {
+pub struct RequestCtx {
     pub namespace: String,
     pub application_name: String,
-    pub application_version: ApplicationVersionString,
+    pub application_version: String,
     pub request_id: String,
     #[serde(default)]
     #[builder(default)]
-    pub outcome: Option<ApplicationRequestOutcome>,
+    pub outcome: Option<RequestOutcome>,
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
-    pub request_error: Option<ApplicationInvocationError>,
+    pub request_error: Option<RequestError>,
     #[builder(default)]
     vector_clock: VectorClock,
 
@@ -883,24 +819,24 @@ pub struct ApplicationInvocationCtx {
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
 
     #[builder(default)]
-    pub child_function_calls: HashMap<String, ApplicationInvocationCtx>, /* Child Request ID ->
-                                                                          * Child
-                                                                          * GraphInvocationCtx */
+    pub child_function_calls: HashMap<String, RequestCtx>, /* Child Request ID ->
+                                                            * Child
+                                                            * RequestCtx */
 }
 
-impl ApplicationInvocationCtxBuilder {
+impl RequestCtxBuilder {
     fn default_created_at(&self) -> u64 {
         get_epoch_time_in_ms()
     }
 }
 
-impl Linearizable for ApplicationInvocationCtx {
+impl Linearizable for RequestCtx {
     fn vector_clock(&self) -> VectorClock {
         self.vector_clock.clone()
     }
 }
 
-impl ApplicationInvocationCtx {
+impl RequestCtx {
     pub fn key(&self) -> String {
         format!(
             "{}|{}|{}",
@@ -920,7 +856,7 @@ impl ApplicationInvocationCtx {
         key
     }
 
-    pub fn get_invocation_id_from_secondary_index_key(key: &[u8]) -> Option<String> {
+    pub fn get_request_id_from_secondary_index_key(key: &[u8]) -> Option<String> {
         key.split(|&b| b == b'|')
             .nth(3)
             .map(|s| String::from_utf8_lossy(s).into_owned())
@@ -967,8 +903,8 @@ pub enum FunctionRunFailureReason {
     FunctionError,
     // Function code run time exceeded its configured timeout.
     FunctionTimeout,
-    // Function code raised InvocationError to mark the invocation as permanently failed.
-    InvocationError,
+    // Function code raised RequestError to mark the request as permanently failed.
+    RequestError,
     // Server removed the task allocation from Executor desired state.
     // The task allocation didn't finish before the removal.
     FunctionRunCancelled,
@@ -985,7 +921,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::InternalError => "InternalError",
             FunctionRunFailureReason::FunctionError => "FunctionError",
             FunctionRunFailureReason::FunctionTimeout => "FunctionTimeout",
-            FunctionRunFailureReason::InvocationError => "InvocationError",
+            FunctionRunFailureReason::RequestError => "RequestError",
             FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
@@ -1002,8 +938,8 @@ impl Default for FunctionRunFailureReason {
 
 impl FunctionRunFailureReason {
     pub fn is_retriable(&self) -> bool {
-        // InvocationError and RetryLimitExceeded are not retriable;
-        // they fail the invocation permanently.
+        // RequestError and RetryLimitExceeded are not retriable;
+        // they fail the request permanently.
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1071,8 +1007,8 @@ fn default_executor_ver() -> String {
 pub struct FunctionURI {
     pub namespace: String,
     pub application: String,
-    pub fn_name: String,
-    pub version: ApplicationVersionString,
+    pub function: String,
+    pub version: String,
 }
 
 impl From<FunctionExecutorServerMetadata> for FunctionURI {
@@ -1080,7 +1016,7 @@ impl From<FunctionExecutorServerMetadata> for FunctionURI {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
             application: fe_meta.function_executor.application_name.clone(),
-            fn_name: fe_meta.function_executor.function_name.clone(),
+            function: fe_meta.function_executor.function_name.clone(),
             version: fe_meta.function_executor.version.clone(),
         }
     }
@@ -1097,7 +1033,7 @@ impl From<&FunctionExecutor> for FunctionURI {
         FunctionURI {
             namespace: fe.namespace.clone(),
             application: fe.application_name.clone(),
-            fn_name: fe.function_name.clone(),
+            function: fe.function_name.clone(),
             version: fe.version.clone(),
         }
     }
@@ -1108,8 +1044,8 @@ impl From<&FunctionRun> for FunctionURI {
         FunctionURI {
             namespace: function_run.namespace.clone(),
             application: function_run.application.clone(),
-            fn_name: function_run.name.clone(),
-            version: function_run.application_version.clone(),
+            function: function_run.name.clone(),
+            version: function_run.version.clone(),
         }
     }
 }
@@ -1119,7 +1055,7 @@ impl Display for FunctionURI {
         write!(
             f,
             "{}|{}|{}|{}",
-            self.namespace, self.application, self.fn_name, self.version
+            self.namespace, self.application, self.function, self.version
         )
     }
 }
@@ -1422,9 +1358,9 @@ impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
-    pub application_name: Option<String>,
+    pub application: Option<String>,
     pub function: Option<String>,
-    pub version: Option<ApplicationVersionString>,
+    pub version: Option<String>,
 }
 
 impl FunctionAllowlist {
@@ -1432,7 +1368,7 @@ impl FunctionAllowlist {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.application_name
+            self.application
                 .as_ref()
                 .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
             self.function
@@ -1447,7 +1383,7 @@ impl FunctionAllowlist {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_run.namespace) &&
-            self.application_name
+            self.application
                 .as_ref()
                 .is_none_or(|cg_name| cg_name == &function_run.application) &&
             self.function
@@ -1455,7 +1391,7 @@ impl FunctionAllowlist {
                 .is_none_or(|fn_name| fn_name == &function_run.name) &&
             self.version
                 .as_ref()
-                .is_none_or(|version| version == &function_run.application_version)
+                .is_none_or(|version| version == &function_run.version)
     }
 }
 
@@ -1494,7 +1430,7 @@ pub struct FunctionExecutor {
     pub namespace: String,
     pub application_name: String,
     pub function_name: String,
-    pub version: ApplicationVersionString,
+    pub version: String,
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
@@ -1648,7 +1584,7 @@ impl ExecutorMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct InvokeApplicationEvent {
-    pub invocation_id: String,
+    pub request_id: String,
     pub namespace: String,
     pub application: String,
 }
@@ -1658,7 +1594,7 @@ pub struct FunctionRunFinalizedEvent {
     pub namespace: String,
     pub application: String,
     pub function: String,
-    pub invocation_id: String,
+    pub request_id: String,
     pub function_run_id: FunctionRunId,
     pub executor_id: ExecutorId,
 }
@@ -1667,8 +1603,8 @@ impl fmt::Display for FunctionRunFinalizedEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "FunctionRunFinalizedEvent(namespace: {}, application: {}, function: {}, invocation_id: {}, function_run_id: {}, executor_id: {})",
-            self.namespace, self.application, self.function, self.invocation_id, self.function_run_id, self.executor_id,
+            "FunctionRunFinalizedEvent(namespace: {}, app: {}, fn: {}, request_id: {}, fn_call_id: {}, executor_id: {})",
+            self.namespace, self.application, self.function, self.request_id, self.function_run_id, self.executor_id,
         )
     }
 }
@@ -1686,7 +1622,7 @@ pub struct AllocationOutputIngestedEvent {
     pub namespace: String,
     pub application: String,
     pub function: String,
-    pub invocation_id: String,
+    pub request_id: String,
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
@@ -1706,10 +1642,10 @@ pub struct TombstoneApplicationEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TombstoneInvocationEvent {
+pub struct TombstoneRequestEvent {
     pub namespace: String,
     pub application: String,
-    pub invocation_id: String,
+    pub request_id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -1722,7 +1658,7 @@ pub enum ChangeType {
     InvokeApplication(InvokeApplicationEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
     TombstoneApplication(TombstoneApplicationEvent),
-    TombstoneInvocation(TombstoneInvocationEvent),
+    TombstoneRequest(TombstoneRequestEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
 }
@@ -1733,18 +1669,18 @@ impl fmt::Display for ChangeType {
             ChangeType::InvokeApplication(ev) => {
                 write!(
                     f,
-                    "InvokeApplication ns: {}, invocation: {}, application: {}",
-                    ev.namespace, ev.invocation_id, ev.application
+                    "InvokeApplication namespace: {}, request_id: {}, app: {}",
+                    ev.namespace, ev.request_id, ev.application
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(
                 f,
-                "AllocationOutputsIngested ns: {}, invocation: {}, application: {}, function_run: {}",
-                ev.namespace, ev.invocation_id, ev.application, ev.function_call_id,
+                "AllocationOutputsIngested namespace: {}, request_id: {}, app: {}, fn_call_id: {}",
+                ev.namespace, ev.request_id, ev.application, ev.function_call_id,
             ),
             ChangeType::TombstoneApplication(ev) => write!(
                 f,
-                "TombstoneApplication ns: {}, application: {}",
+                "TombstoneApplication namespace: {}, app: {}",
                 ev.namespace, ev.application
             ),
             ChangeType::ExecutorUpserted(e) => {
@@ -1753,10 +1689,10 @@ impl fmt::Display for ChangeType {
             ChangeType::TombStoneExecutor(ev) => {
                 write!(f, "TombStoneExecutor, executor_id: {}", ev.executor_id)
             }
-            ChangeType::TombstoneInvocation(ev) => write!(
+            ChangeType::TombstoneRequest(ev) => write!(
                 f,
-                "TombstoneInvocation, ns: {}, application: {}, invocation_id: {}",
-                ev.namespace, ev.application, ev.invocation_id
+                "TombstoneRequest, namespace: {}, app: {}, request_id: {}",
+                ev.namespace, ev.application, ev.request_id
             ),
         }
     }
@@ -1799,7 +1735,7 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    pub invocation: Option<String>,
+    pub request: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
 }
@@ -1860,12 +1796,7 @@ mod tests {
     use mock_instant::global::MockClock;
 
     use super::*;
-    use crate::data_model::{
-        test_objects::tests::test_function,
-        Application,
-        ApplicationVersion,
-        ApplicationVersionString,
-    };
+    use crate::data_model::{test_objects::tests::test_function, Application, ApplicationVersion};
 
     #[test]
     fn test_application_update() {
@@ -1881,12 +1812,12 @@ mod tests {
             .description("description1".to_string())
             .tags(HashMap::new())
             .state(ApplicationState::Active)
-            .nodes(HashMap::from([
+            .functions(HashMap::from([
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_b".to_string(), fn_b.clone()),
                 ("fn_c".to_string(), fn_c.clone()),
             ]))
-            .version(crate::data_model::ApplicationVersionString::from("1"))
+            .version("1".to_string())
             .code(DataPayload {
                 id: "code_id".to_string(),
                 path: "cgc_path".to_string(),
@@ -1897,8 +1828,7 @@ mod tests {
                 offset: 0,
             })
             .created_at(5)
-            .start_fn(fn_a.clone())
-            .entrypoint(EntryPointManifest {
+            .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
@@ -1925,15 +1855,15 @@ mod tests {
             TestCase {
                 description: "version update",
                 update: Application {
-                    version: crate::data_model::ApplicationVersionString::from("100"),   // different
+                    version: "100".to_string(),   // different
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: crate::data_model::ApplicationVersionString::from("100"),
+                    version: "100".to_string(),
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("100"),
+                    version: "100".to_string(),
                     ..original_version.clone()
                 },
             },
@@ -1942,16 +1872,16 @@ mod tests {
                 update: Application {
                     namespace: "namespace2".to_string(),         // different
                     name: "graph2".to_string(),                  // different
-                    version: crate::data_model::ApplicationVersionString::from("100"),   // different
+                    version: "100".to_string(),   // different
                     created_at: 10,                              // different
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: crate::data_model::ApplicationVersionString::from("100"),
+                    version: "100".to_string(),
                     ..original_application.clone()
                 },
                 expected_version:ApplicationVersion {
-                    version: ApplicationVersionString::from("100"),
+                    version: "100".to_string(),
                     ..original_version.clone()
                 },
             },
@@ -1959,7 +1889,7 @@ mod tests {
             TestCase {
                 description: "changing code with version change should change code",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
+                    version: "2".to_string(), // different
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_application.code.clone()
@@ -1967,7 +1897,7 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"), // different
+                    version: "2".to_string(), // different
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_application.code.clone()
@@ -1975,7 +1905,7 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
+                    version: "2".to_string(),
                     code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_application.code.clone()
@@ -1987,34 +1917,49 @@ mod tests {
             TestCase {
                 description: "changing edges with version change should change edges",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
+                    version: "2".to_string(), // different
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"),
+                    version: "2".to_string(),
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
+                    version: "2".to_string(),
                     ..original_version.clone()
                 },
             },
             // start_fn.
             TestCase {
-                description: "changing start function with version change should change start function",
+                description: "changing start function with entrypoint change should change start function",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
-                    start_fn: fn_b.clone(), // different
+                    version: "2".to_string(), // different
+                    entrypoint: ApplicationEntryPoint {
+                        function_name: "fn_b".to_string(), // different
+                        input_serializer: "json".to_string(),
+                        output_serializer: "json".to_string(),
+                        output_type_hints_base64: "".to_string(),
+                    },
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"),
-                    start_fn: fn_b.clone(),
+                    version: "2".to_string(),
+                    entrypoint: ApplicationEntryPoint {
+                        function_name: "fn_b".to_string(), // different
+                        input_serializer: "json".to_string(),
+                        output_serializer: "json".to_string(),
+                        output_type_hints_base64: "".to_string(),
+                    },
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
-                    start_fn: fn_b.clone(),
+                    version: "2".to_string(),
+                    entrypoint: ApplicationEntryPoint {
+                        function_name: "fn_b".to_string(), // different
+                        input_serializer: "json".to_string(),
+                        output_serializer: "json".to_string(),
+                        output_type_hints_base64: "".to_string(),
+                    },
                     ..original_version.clone()
                 },
             },
@@ -2022,8 +1967,8 @@ mod tests {
             TestCase {
                 description: "adding a node with version change should add node",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
-                    nodes: HashMap::from([
+                    version: "2".to_string(), // different
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2032,8 +1977,8 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2042,8 +1987,8 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2056,8 +2001,8 @@ mod tests {
             TestCase {
                 description: "removing a node with version change should remove the node",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
-                    nodes: HashMap::from([
+                    version: "2".to_string(), // different
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                         // "fn_c" removed
@@ -2065,16 +2010,16 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                     ]),
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), fn_a.clone()),
                         ("fn_b".to_string(), fn_b.clone()),
                     ]),
@@ -2085,8 +2030,8 @@ mod tests {
             TestCase {
                 description: "changing a node's image with version change should update the image and version",
                 update: Application {
-                    version: ApplicationVersionString::from("2"), // different
-                    nodes: HashMap::from([
+                    version: "2".to_string(), // different
+                    functions: HashMap::from([
                         ("fn_a".to_string(), test_function("fn_a", 0)), // different
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2094,8 +2039,8 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_graph: Application {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), test_function("fn_a", 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2103,8 +2048,8 @@ mod tests {
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
-                    version: ApplicationVersionString::from("2"),
-                    nodes: HashMap::from([
+                    version: "2".to_string(),
+                    functions: HashMap::from([
                         ("fn_a".to_string(), test_function("fn_a",  0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
@@ -2143,7 +2088,7 @@ mod tests {
             .namespace("test-ns".to_string())
             .application("graph".to_string())
             .function("fn".to_string())
-            .invocation_id("invoc-1".to_string())
+            .request_id("invoc-1".to_string())
             .function_call_id("task-1".into())
             .input_args(vec![InputArgs {
                 function_call_id: None,
@@ -2166,7 +2111,7 @@ mod tests {
         assert_eq!(allocation.namespace, "test-ns");
         assert_eq!(allocation.application, "graph");
         assert_eq!(allocation.function, "fn");
-        assert_eq!(allocation.invocation_id, "invoc-1");
+        assert_eq!(allocation.request_id, "invoc-1");
         assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
         assert_eq!(
@@ -2186,10 +2131,7 @@ mod tests {
         assert!(json.contains(&format!("\"namespace\":\"{}\"", allocation.namespace)));
         assert!(json.contains(&format!("\"application\":\"{}\"", allocation.application)));
         assert!(json.contains(&format!("\"function\":\"{}\"", allocation.function)));
-        assert!(json.contains(&format!(
-            "\"invocation_id\":\"{}\"",
-            allocation.invocation_id
-        )));
+        assert!(json.contains(&format!("\"request_id\":\"{}\"", allocation.request_id)));
         assert!(json.contains(&format!(
             "\"function_call_id\":\"{}\"",
             allocation.function_call_id
@@ -2208,13 +2150,13 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_invocation_ctx_builder_build_success() {
+    fn test_graph_request_ctx_builder_build_success() {
         MockClock::set_system_time(Duration::from_nanos(9999999999999999));
 
         let namespace = "test-ns".to_string();
         let application_name = "graph".to_string();
-        let invocation_id = "invoc-1".to_string();
-        let application_version = ApplicationVersionString::from("42");
+        let request_id = "invoc-1".to_string();
+        let application_version = "42".to_string();
 
         // Minimal Application for the builder
         let fn_a = test_function("fn_a", 0);
@@ -2225,7 +2167,7 @@ mod tests {
             .description("desc".to_string())
             .tags(HashMap::new())
             .state(ApplicationState::Active)
-            .nodes(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
+            .functions(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
             .version(application_version.clone())
             .code(DataPayload {
                 id: "code_id".to_string(),
@@ -2237,8 +2179,7 @@ mod tests {
                 sha256_hash: "hash".to_string(),
             })
             .created_at(123)
-            .start_fn(fn_a.clone())
-            .entrypoint(EntryPointManifest {
+            .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
@@ -2247,19 +2188,19 @@ mod tests {
             .build()
             .unwrap();
 
-        let ctx = ApplicationInvocationCtxBuilder::default()
+        let ctx = RequestCtxBuilder::default()
             .namespace(namespace.clone())
             .application_name(application_name.clone())
-            .request_id(invocation_id.clone())
+            .request_id(request_id.clone())
             .function_calls(HashMap::new())
             .function_runs(HashMap::new())
             .application_version(application_version.clone())
             .build()
-            .expect("GraphInvocationCtx should build successfully");
+            .expect("RequestCtxBuilder should build successfully");
 
         assert_eq!(ctx.namespace, namespace);
         assert_eq!(ctx.application_name, application_name);
-        assert_eq!(ctx.request_id, invocation_id);
+        assert_eq!(ctx.request_id, request_id);
         assert_eq!(ctx.application_version, application_version);
         assert_eq!(ctx.outcome, None);
         assert!(ctx.request_error.is_none());
@@ -2277,8 +2218,7 @@ mod tests {
         );
 
         // Check JSON serialization
-        let json =
-            serde_json::to_string(&ctx).expect("Should serialize GraphInvocationCtx to JSON");
+        let json = serde_json::to_string(&ctx).expect("Should serialize RequestCtx to JSON");
         assert!(json.contains(&format!("\"namespace\":\"{}\"", ctx.namespace)));
         assert!(json.contains(&format!(
             "\"application_name\":\"{}\"",
@@ -2301,7 +2241,7 @@ mod tests {
         let namespace = "test-ns".to_string();
         let application_name = "graph".to_string();
         let function_name = "fn".to_string();
-        let version = ApplicationVersionString::from("1");
+        let version = "1".to_string();
         let state = FunctionExecutorState::Running;
         let resources = FunctionExecutorResources {
             cpu_ms_per_sec: 2000,
@@ -2371,9 +2311,9 @@ mod tests {
         let executor_version = "0.2.17".to_string();
         let function_allowlist = Some(vec![FunctionAllowlist {
             namespace: Some("ns".to_string()),
-            application_name: Some("graph".to_string()),
+            application: Some("graph".to_string()),
             function: Some("fn".to_string()),
-            version: Some(ApplicationVersionString::from("1")),
+            version: Some("1".to_string()),
         }]);
         let addr = "127.0.0.1:8080".to_string();
         let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
@@ -2385,7 +2325,7 @@ mod tests {
                 .namespace("ns".to_string())
                 .application_name("graph".to_string())
                 .function_name("fn".to_string())
-                .version(ApplicationVersionString::from("1"))
+                .version("1".to_string())
                 .state(FunctionExecutorState::Running)
                 .resources(FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,

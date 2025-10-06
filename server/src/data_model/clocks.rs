@@ -229,7 +229,7 @@ mod tests {
             .namespace("test-ns".to_string())
             .application("application".to_string())
             .function("fn".to_string())
-            .invocation_id("invoc-1".to_string())
+            .request_id("invoc-1".to_string())
             .function_call_id("task-1".into())
             .input_args(vec![])
             .call_metadata(Bytes::new())

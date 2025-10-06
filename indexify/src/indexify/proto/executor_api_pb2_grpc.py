@@ -30,7 +30,7 @@ if _version_not_supported:
 
 
 class ExecutorAPIStub(object):
-    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
@@ -65,7 +65,7 @@ class ExecutorAPIStub(object):
 
 
 class ExecutorAPIServicer(object):
-    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
@@ -128,7 +128,7 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
 
 # This class is part of an EXPERIMENTAL API.
 class ExecutorAPI(object):
-    """Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy

@@ -1,16 +1,16 @@
+from .allocation_output import AllocationOutput
 from .function_executor_controller import FunctionExecutorController
-from .loggers import function_executor_logger, task_allocation_logger
+from .loggers import allocation_logger, function_executor_logger
 from .message_validators import (
+    validate_allocation,
     validate_function_executor_description,
-    validate_task_allocation,
 )
-from .task_allocation_output import TaskAllocationOutput
 
 __all__ = [
     "function_executor_logger",
-    "task_allocation_logger",
+    "allocation_logger",
     "validate_function_executor_description",
-    "validate_task_allocation",
+    "validate_allocation",
     "FunctionExecutorController",
-    "TaskAllocationOutput",
+    "AllocationOutput",
 ]

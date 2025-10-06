@@ -1,17 +1,17 @@
 import asyncio
 from dataclasses import dataclass
 
-from indexify.proto.executor_api_pb2 import TaskAllocation
+from indexify.proto.executor_api_pb2 import Allocation
 
-from .task_allocation_input import TaskAllocationInput
-from .task_allocation_output import TaskAllocationOutput
+from .allocation_input import AllocationInput
+from .allocation_output import AllocationOutput
 
 
 @dataclass
-class TaskAllocationInfo:
-    """Object used to track a task allocation during its full lifecycle in the FunctionExecutorController."""
+class AllocationInfo:
+    """Object used to track a allocation during its full lifecycle in the FunctionExecutorController."""
 
-    allocation: TaskAllocation
+    allocation: Allocation
     # Timeout in ms for running customer code.
     allocation_timeout_ms: int
     # time.monotonic() timestamp
@@ -23,8 +23,8 @@ class TaskAllocationInfo:
     # aio task that is currently executing a lifecycle step of this task.
     aio_task: asyncio.Task | None = None
     # Input of the function if task allocation was prepared successfully.
-    input: TaskAllocationInput | None = None
+    input: AllocationInput | None = None
     # Output of the task allocation, always set when the allocation is completed.
-    output: TaskAllocationOutput | None = None
+    output: AllocationOutput | None = None
     # True if the task allocation is fully completed and was added to state reporter.
     is_completed: bool = False

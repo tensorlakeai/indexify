@@ -12,7 +12,7 @@ mod tests {
             ApplicationState,
         },
         state_store::requests::{
-            CreateOrUpdateComputeGraphRequest,
+            CreateOrUpdateApplicationRequest,
             RequestPayload,
             StateMachineUpdateRequest,
         },
@@ -51,20 +51,24 @@ mod tests {
         }]);
 
         // Apply the unsatisfiable placement constraints to all functions
-        for function in application.nodes.values_mut() {
+        for function in application.functions.values_mut() {
             function.placement_constraints = unsat_constraint.clone();
         }
-        application.start_fn.placement_constraints = unsat_constraint.clone();
+        application
+            .functions
+            .get_mut("fn_a")
+            .unwrap()
+            .placement_constraints = unsat_constraint.clone();
 
         // Step 3: Persist the compute graph
-        let cg_request = CreateOrUpdateComputeGraphRequest {
+        let cg_request = CreateOrUpdateApplicationRequest {
             namespace: TEST_NAMESPACE.to_string(),
             application: application.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(cg_request)),
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(cg_request)),
             })
             .await?;
 
@@ -72,7 +76,7 @@ mod tests {
         test_srv
             .service
             .graph_processor
-            .validate_graph_constraints()
+            .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -106,20 +110,24 @@ mod tests {
         }]);
 
         // Apply the satisfiable placement constraints to all functions
-        for function in set_application.nodes.values_mut() {
+        for function in set_application.functions.values_mut() {
             function.placement_constraints = sat_constraint.clone();
         }
-        set_application.start_fn.placement_constraints = sat_constraint.clone();
+        set_application
+            .functions
+            .get_mut("fn_a")
+            .unwrap()
+            .placement_constraints = sat_constraint.clone();
 
         // Step 7: Persist the satisfiable compute graph
-        let sat_cg_request = CreateOrUpdateComputeGraphRequest {
+        let sat_cg_request = CreateOrUpdateApplicationRequest {
             namespace: TEST_NAMESPACE.to_string(),
             application: set_application.clone(),
             upgrade_requests_to_current_version: true,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(sat_cg_request)),
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(sat_cg_request)),
             })
             .await?;
 
@@ -127,7 +135,7 @@ mod tests {
         test_srv
             .service
             .graph_processor
-            .validate_graph_constraints()
+            .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -148,7 +156,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_validate_graph_constraints_multiple_graphs() -> Result<()> {
+    async fn test_validate_app_constraints_multiple_graphs() -> Result<()> {
         // Step 1: Create an executor catalog entry with label foo=bar
         let mut labels = HashMap::new();
         labels.insert("foo".to_string(), "bar".to_string());
@@ -180,10 +188,14 @@ mod tests {
             value: "bar".to_string(),
             operator: Operator::Eq,
         }]);
-        for function in app_valid_constraints.nodes.values_mut() {
+        for function in app_valid_constraints.functions.values_mut() {
             function.placement_constraints = sat_constraint.clone();
         }
-        app_valid_constraints.start_fn.placement_constraints = sat_constraint.clone();
+        app_valid_constraints
+            .functions
+            .get_mut("fn_a")
+            .unwrap()
+            .placement_constraints = sat_constraint.clone();
 
         // Build graph with unsatisfiable constraints (foo==baz)
         let mut app_invalid_baz = test_objects::mock_application();
@@ -194,10 +206,14 @@ mod tests {
             value: "baz".to_string(),
             operator: Operator::Eq,
         }]);
-        for function in app_invalid_baz.nodes.values_mut() {
+        for function in app_invalid_baz.functions.values_mut() {
             function.placement_constraints = bad_constraint_baz.clone();
         }
-        app_invalid_baz.start_fn.placement_constraints = bad_constraint_baz.clone();
+        app_invalid_baz
+            .functions
+            .get_mut("fn_a")
+            .unwrap()
+            .placement_constraints = bad_constraint_baz.clone();
 
         // Build graph with another unsatisfiable constraint (foo==qux)
         let mut app_invalid_qux = test_objects::mock_application();
@@ -208,10 +224,14 @@ mod tests {
             value: "qux".to_string(),
             operator: Operator::Eq,
         }]);
-        for function in app_invalid_qux.nodes.values_mut() {
+        for function in app_invalid_qux.functions.values_mut() {
             function.placement_constraints = bad_constraint_qux.clone();
         }
-        app_invalid_qux.start_fn.placement_constraints = bad_constraint_qux.clone();
+        app_invalid_qux
+            .functions
+            .get_mut("fn_a")
+            .unwrap()
+            .placement_constraints = bad_constraint_qux.clone();
 
         // Persist all graphs
         for application in [
@@ -222,8 +242,8 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
-                        CreateOrUpdateComputeGraphRequest {
+                    payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                        CreateOrUpdateApplicationRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             application,
                             upgrade_requests_to_current_version: true,
@@ -237,7 +257,7 @@ mod tests {
         test_srv
             .service
             .graph_processor
-            .validate_graph_constraints()
+            .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -324,10 +344,10 @@ mod tests {
             let mut g = test_objects::mock_application();
             g.name = name.to_string();
             g.state = ApplicationState::Active;
-            for node in g.nodes.values_mut() {
+            for node in g.functions.values_mut() {
                 node.resources = resources.clone();
             }
-            g.start_fn.resources = resources;
+            g.functions.get_mut("fn_a").unwrap().resources = resources;
             g
         };
 
@@ -411,8 +431,8 @@ mod tests {
         ] {
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
-                        CreateOrUpdateComputeGraphRequest {
+                    payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                        CreateOrUpdateApplicationRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             application,
                             upgrade_requests_to_current_version: true,
@@ -426,7 +446,7 @@ mod tests {
         test_srv
             .service
             .graph_processor
-            .validate_graph_constraints()
+            .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
 

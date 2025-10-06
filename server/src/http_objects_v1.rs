@@ -4,17 +4,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{
-        self,
-        ApplicationBuilder,
-        ApplicationInvocationCtx,
-        ApplicationInvocationFailureReason,
-        ApplicationRequestOutcome,
-    },
+    data_model::{self, ApplicationBuilder, RequestCtx},
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
-        ApplicationVersionString,
         DataPayload,
         FunctionRunOutcome,
         FunctionRunStatus,
@@ -32,8 +25,8 @@ pub struct EntryPointManifest {
     pub output_type_hints_base64: String,
 }
 
-impl From<data_model::EntryPointManifest> for EntryPointManifest {
-    fn from(entrypoint: data_model::EntryPointManifest) -> Self {
+impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
+    fn from(entrypoint: data_model::ApplicationEntryPoint) -> Self {
         Self {
             function_name: entrypoint.function_name,
             input_serializer: entrypoint.input_serializer,
@@ -50,7 +43,7 @@ pub struct Application {
     // This is not supplied by the client, do we need this here?
     #[serde(default)]
     pub tombstoned: bool,
-    pub version: ApplicationVersionString,
+    pub version: String,
     pub tags: HashMap<String, String>,
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
@@ -65,7 +58,7 @@ impl Application {
         sha256_hash: &str,
         size: u64,
     ) -> Result<data_model::Application, IndexifyAPIError> {
-        let mut nodes = HashMap::new();
+        let mut functions = HashMap::new();
         for (name, node) in self.functions {
             node.validate()?;
             let converted_node: data_model::Function = node.try_into().map_err(|e| {
@@ -73,9 +66,9 @@ impl Application {
                     "Invalid placement constraints in function '{name}': {e}"
                 ))
             })?;
-            nodes.insert(name, converted_node);
+            functions.insert(name, converted_node);
         }
-        let Some(start_fn) = nodes.get(&self.entrypoint.function_name) else {
+        let Some(_start_fn) = functions.get(&self.entrypoint.function_name) else {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Entry point function '{}' not found",
                 self.entrypoint.function_name
@@ -86,9 +79,8 @@ impl Application {
             .name(self.name)
             .namespace(self.namespace)
             .description(self.description)
-            .start_fn(start_fn.clone())
             .tags(self.tags)
-            .version(self.version.into())
+            .version(self.version)
             .code(data_model::DataPayload {
                 id: nanoid::nanoid!(),
                 metadata_size: 0,
@@ -98,11 +90,11 @@ impl Application {
                 size,
                 path: code_path.to_string(),
             })
-            .nodes(nodes)
+            .functions(functions)
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
             .state(data_model::ApplicationState::Active)
-            .entrypoint(data_model::EntryPointManifest {
+            .entrypoint(data_model::ApplicationEntryPoint {
                 function_name: self.entrypoint.function_name,
                 input_serializer: self.entrypoint.input_serializer,
                 output_serializer: self.entrypoint.output_serializer,
@@ -119,7 +111,7 @@ impl Application {
 impl From<data_model::Application> for Application {
     fn from(application: data_model::Application) -> Self {
         let mut nodes = HashMap::new();
-        for (k, v) in application.nodes.into_iter() {
+        for (k, v) in application.functions.into_iter() {
             nodes.insert(k, v.into());
         }
         Self {
@@ -151,8 +143,8 @@ pub struct ShallowGraphRequest {
     pub application_version: String,
 }
 
-impl From<ApplicationInvocationCtx> for ShallowGraphRequest {
-    fn from(ctx: ApplicationInvocationCtx) -> Self {
+impl From<RequestCtx> for ShallowGraphRequest {
+    fn from(ctx: RequestCtx) -> Self {
         Self {
             id: ctx.request_id.to_string(),
             created_at: ctx.created_at.into(),
@@ -178,7 +170,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub status: FunctionRunStatus,
     pub outcome: Option<FunctionRunOutcome>,
-    pub application_version: ApplicationVersionString,
+    pub application_version: String,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
 }
@@ -195,7 +187,7 @@ impl FunctionRun {
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             status: function_run.status.into(),
-            application_version: function_run.application_version.into(),
+            application_version: function_run.version.into(),
             allocations,
             created_at: function_run.creation_time_ns,
         }
@@ -224,12 +216,12 @@ pub enum RequestOutcome {
     Failure(RequestFailureReason),
 }
 
-impl From<ApplicationRequestOutcome> for RequestOutcome {
-    fn from(outcome: ApplicationRequestOutcome) -> Self {
+impl From<data_model::RequestOutcome> for RequestOutcome {
+    fn from(outcome: data_model::RequestOutcome) -> Self {
         match outcome {
-            ApplicationRequestOutcome::Unknown => RequestOutcome::Undefined,
-            ApplicationRequestOutcome::Success => RequestOutcome::Success,
-            ApplicationRequestOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
+            data_model::RequestOutcome::Unknown => RequestOutcome::Undefined,
+            data_model::RequestOutcome::Success => RequestOutcome::Success,
+            data_model::RequestOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
         }
     }
 }
@@ -241,27 +233,17 @@ pub enum RequestFailureReason {
     InternalError,
     FunctionError,
     RequestError,
-    NextFunctionNotFound,
     ConstraintUnsatisfiable,
 }
 
-impl From<ApplicationInvocationFailureReason> for RequestFailureReason {
-    fn from(failure_reason: ApplicationInvocationFailureReason) -> Self {
+impl From<data_model::RequestFailureReason> for RequestFailureReason {
+    fn from(failure_reason: data_model::RequestFailureReason) -> Self {
         match failure_reason {
-            ApplicationInvocationFailureReason::Unknown => RequestFailureReason::Unknown,
-            ApplicationInvocationFailureReason::InternalError => {
-                RequestFailureReason::InternalError
-            }
-            ApplicationInvocationFailureReason::FunctionError => {
-                RequestFailureReason::FunctionError
-            }
-            ApplicationInvocationFailureReason::InvocationError => {
-                RequestFailureReason::RequestError
-            }
-            ApplicationInvocationFailureReason::NextFunctionNotFound => {
-                RequestFailureReason::NextFunctionNotFound
-            }
-            ApplicationInvocationFailureReason::ConstraintUnsatisfiable => {
+            data_model::RequestFailureReason::Unknown => RequestFailureReason::Unknown,
+            data_model::RequestFailureReason::InternalError => RequestFailureReason::InternalError,
+            data_model::RequestFailureReason::FunctionError => RequestFailureReason::FunctionError,
+            data_model::RequestFailureReason::RequestError => RequestFailureReason::RequestError,
+            data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
         }
@@ -281,9 +263,9 @@ pub struct Request {
 
 impl Request {
     pub fn build(
-        ctx: ApplicationInvocationCtx,
+        ctx: RequestCtx,
         output: Option<DataPayload>,
-        invocation_error: Option<RequestError>,
+        request_error: Option<RequestError>,
         allocations: Vec<data_model::Allocation>,
     ) -> Self {
         let mut allocs_by_function_call_id: HashMap<String, Vec<Allocation>> = HashMap::new();
@@ -307,9 +289,9 @@ impl Request {
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
-            application_version: ctx.application_version.0,
+            application_version: ctx.application_version.to_string(),
             created_at: ctx.created_at.into(),
-            request_error: invocation_error,
+            request_error,
             output,
             function_runs,
         }

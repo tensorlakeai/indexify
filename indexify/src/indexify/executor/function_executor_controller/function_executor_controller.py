@@ -37,6 +37,7 @@ from indexify.executor.function_executor.server.function_executor_server_factory
 )
 from indexify.executor.state_reporter import ExecutorStateReporter
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     AllocationResult,
     DataPayload,
     DataPayloadEncoding,
@@ -50,10 +51,12 @@ from indexify.proto.executor_api_pb2 import (
     FunctionExecutorTerminationReason,
     FunctionRef,
     ReduceOp,
-    TaskAllocation,
 )
 
-from .completed_task_allocation_metrics import emit_completed_task_allocation_metrics
+from .allocation_info import AllocationInfo
+from .allocation_input import AllocationInput
+from .allocation_output import AllocationOutput
+from .completed_allocation_metrics import emit_completed_allocation_metrics
 from .create_function_executor import create_function_executor
 from .debug_event_loop import (
     debug_print_adding_event,
@@ -61,18 +64,18 @@ from .debug_event_loop import (
     debug_print_processing_event,
 )
 from .events import (
+    AllocationExecutionFinished,
+    AllocationFinalizationFinished,
+    AllocationPreparationFinished,
     BaseEvent,
     EventType,
     FunctionExecutorCreated,
     FunctionExecutorTerminated,
-    ScheduleTaskAllocationExecution,
+    ScheduleAllocationExecution,
     ShutdownInitiated,
-    TaskAllocationExecutionFinished,
-    TaskAllocationFinalizationFinished,
-    TaskAllocationPreparationFinished,
 )
-from .finalize_task_allocation import finalize_task_allocation
-from .loggers import function_executor_logger, task_allocation_logger
+from .finalize_allocation import finalize_allocation
+from .loggers import allocation_logger, function_executor_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED,
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_RUNNING,
@@ -80,18 +83,15 @@ from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATED,
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_TERMINATING,
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_UNKNOWN,
+    metric_allocations_fetched,
     metric_control_loop_handle_event_latency,
     metric_function_executors_with_state,
-    metric_runnable_task_allocations,
-    metric_runnable_task_allocations_per_function_name,
-    metric_schedule_task_allocation_latency,
-    metric_task_allocations_fetched,
+    metric_runnable_allocations,
+    metric_runnable_allocations_per_function_name,
+    metric_schedule_allocation_latency,
 )
-from .prepare_task_allocation import prepare_task_allocation
-from .run_task_allocation import run_task_allocation_on_function_executor
-from .task_allocation_info import TaskAllocationInfo
-from .task_allocation_input import TaskAllocationInput
-from .task_allocation_output import TaskAllocationOutput
+from .prepare_allocation import prepare_allocation
+from .run_allocation import run_allocation_on_function_executor
 from .terminate_function_executor import terminate_function_executor
 
 
@@ -157,92 +157,92 @@ class FunctionExecutorController:
         self._control_loop_aio_task: asyncio.Task | None = None
         # aio tasks spawned by the control loop.
         self._running_aio_tasks: List[asyncio.Task] = []
-        # All task allocations assigned to FE, Allocation ID -> TaskAllocationInfo.
-        self._task_allocations: Dict[str, TaskAllocationInfo] = {}
-        # Task allocation prepared for execution on FE.
-        self._runnable_task_allocations: List[TaskAllocationInfo] = []
-        # Task allocations currently running on the FE.
-        self._running_task_allocations: List[TaskAllocationInfo] = []
+        # All allocations assigned to FE, Allocation ID -> AllocationInfo.
+        self._allocations: Dict[str, AllocationInfo] = {}
+        # Allocations prepared for execution on FE.
+        self._runnable_allocations: List[AllocationInfo] = []
+        # Allocations currently running on the FE.
+        self._running_allocations: List[AllocationInfo] = []
 
     def function_executor_id(self) -> str:
         return self._fe_description.id
 
-    def add_task_allocation(self, task_allocation: TaskAllocation) -> None:
-        """Adds a task allocation to the Function Executor.
+    def add_allocation(self, allocation: Allocation) -> None:
+        """Adds an allocation to the Function Executor.
 
         Not blocking. Never raises exceptions.
         """
-        logger = task_allocation_logger(task_allocation, self._logger)
-        if self.has_task_allocation(task_allocation.allocation_id):
+        logger = allocation_logger(allocation, self._logger)
+        if self.has_allocation(allocation.allocation_id):
             logger.warning(
-                "attempted to add already added task allocation to Function Executor",
+                "attempted to add already added allocation to Function Executor",
             )
             return
 
-        metric_task_allocations_fetched.inc()
-        alloc_info: TaskAllocationInfo = TaskAllocationInfo(
-            allocation=task_allocation,
+        metric_allocations_fetched.inc()
+        alloc_info: AllocationInfo = AllocationInfo(
+            allocation=allocation,
             allocation_timeout_ms=self._fe_description.allocation_timeout_ms,
             start_time=time.monotonic(),
         )
-        self._task_allocations[task_allocation.allocation_id] = alloc_info
-        next_aio = prepare_task_allocation(
+        self._allocations[allocation.allocation_id] = alloc_info
+        next_aio = prepare_allocation(
             alloc_info=alloc_info,
             blob_store=self._blob_store,
             logger=logger,
         )
-        self._spawn_aio_for_task_alloc(
+        self._spawn_aio_for_allocation(
             aio=next_aio,
             alloc_info=alloc_info,
-            on_exception=TaskAllocationPreparationFinished(
+            on_exception=AllocationPreparationFinished(
                 alloc_info=alloc_info, is_success=False
             ),
         )
 
-    def has_task_allocation(self, task_allocation_id: str) -> bool:
-        """Checks if the Function Executor has a task allocation with the given ID.
+    def has_allocation(self, allocation_id: str) -> bool:
+        """Checks if the Function Executor has an allocation with the given ID.
 
         Not blocking. Never raises exceptions.
         """
-        return task_allocation_id in self._task_allocations
+        return allocation_id in self._allocations
 
-    def task_allocation_ids(self) -> List[str]:
-        """Returns the list of task allocation IDs known to the Function Executor.
+    def allocation_ids(self) -> List[str]:
+        """Returns the list of allocation IDs known to the Function Executor.
 
         Not blocking. Never raises exceptions.
         """
-        return list(self._task_allocations.keys())
+        return list(self._allocations.keys())
 
-    def remove_task_allocation(self, task_allocation_id: str) -> None:
-        """Removes the task allocation from the Function Executor.
+    def remove_allocation(self, allocation_id: str) -> None:
+        """Removes the allocation from the Function Executor.
 
-        Cancels the task allocation if it's in progress. Just removes the task allocation if it was already
+        Cancels the allocation if it's in progress. Just removes the allocation if it was already
         completed. The cancellation is asynchronous and might take a while to complete.
-        Until the cancellation is complete, the task won't be removed from the Function Executor.
+        Until the cancellation is complete, the allocation won't be removed from the Function Executor.
         Not blocking. Never raises exceptions.
         """
-        if not self.has_task_allocation(task_allocation_id):
+        if not self.has_allocation(allocation_id):
             self._logger.warning(
-                "attempted to cancel a task allocation that is not known to the Function Executor",
-                task_id=task_allocation_id,
+                "attempted to cancel an allocation that is not known to the Function Executor",
+                allocation_id=allocation_id,
             )
             return
 
-        alloc_info: TaskAllocationInfo = self._task_allocations.pop(task_allocation_id)
+        alloc_info: AllocationInfo = self._allocations.pop(allocation_id)
         if alloc_info.is_completed:
-            return  # Server processed the completed task outputs, we can forget it now.
+            return  # Server processed the completed alloc outputs, we can forget it now.
 
-        # Task cancellation is required as the task is not completed yet.
-        logger = task_allocation_logger(alloc_info.allocation, self._logger)
+        # Alloc cancellation is required as the alloc is not completed yet.
+        logger = allocation_logger(alloc_info.allocation, self._logger)
         alloc_info.is_cancelled = True
         logger.info(
-            "cancelling task allocation",
+            "cancelling allocation",
         )
         if alloc_info.aio_task is not None:
             alloc_info.aio_task.cancel()
 
     def startup(self) -> None:
-        """Starts up the Function Executor and prepares it to run tasks.
+        """Starts up the Function Executor and prepares it to run allocations.
 
         Not blocking. Never raises exceptions."""
         if self._internal_state != _FE_CONTROLLER_STATE.NOT_STARTED:
@@ -284,7 +284,7 @@ class FunctionExecutorController:
     async def shutdown(self) -> None:
         """Shutsdown the Function Executor and frees all of its resources.
 
-        No task outcomes and outputs are getting reported to Server after this call.
+        No alloc outcomes and outputs are getting reported to Server after this call.
         Doesn't raise any exceptions. Blocks until the shutdown is complete. Idempotent.
         """
         self._add_event(ShutdownInitiated(), source="shutdown")
@@ -382,14 +382,14 @@ class FunctionExecutorController:
             return self._handle_event_function_executor_created(event)
         elif event.event_type == EventType.FUNCTION_EXECUTOR_TERMINATED:
             return self._handle_event_function_executor_terminated(event)
-        elif event.event_type == EventType.TASK_ALLOCATION_PREPARATION_FINISHED:
-            return self._handle_event_task_allocation_preparation_finished(event)
-        elif event.event_type == EventType.SCHEDULE_TASK_ALLOCATION_EXECUTION:
-            return self._handle_event_schedule_task_allocation_execution(event)
-        elif event.event_type == EventType.TASK_ALLOCATION_EXECUTION_FINISHED:
-            return self._handle_event_task_allocation_execution_finished(event)
-        elif event.event_type == EventType.TASK_ALLOCATION_FINALIZATION_FINISHED:
-            return self._handle_event_task_allocation_finalization_finished(event)
+        elif event.event_type == EventType.ALLOCATION_PREPARATION_FINISHED:
+            return self._handle_event_allocation_preparation_finished(event)
+        elif event.event_type == EventType.SCHEDULE_ALLOCATION_EXECUTION:
+            return self._handle_event_schedule_allocation_execution(event)
+        elif event.event_type == EventType.ALLOCATION_EXECUTION_FINISHED:
+            return self._handle_event_allocation_execution_finished(event)
+        elif event.event_type == EventType.ALLOCATION_FINALIZATION_FINISHED:
+            return self._handle_event_allocation_finalization_finished(event)
 
         self._logger.warning(
             "unexpected event type received", event_type=event.event_type.name
@@ -403,17 +403,17 @@ class FunctionExecutorController:
         self._events.append(event)
         self._event_added.set()
 
-    def _spawn_aio_for_task_alloc(
+    def _spawn_aio_for_allocation(
         self,
         aio: Coroutine[Any, Any, BaseEvent],
-        alloc_info: TaskAllocationInfo,
+        alloc_info: AllocationInfo,
         on_exception: BaseEvent,
     ) -> None:
         self._spawn_aio(
             aio=aio,
             alloc_info=alloc_info,
             on_exception=on_exception,
-            logger=task_allocation_logger(alloc_info.allocation, self._logger),
+            logger=allocation_logger(alloc_info.allocation, self._logger),
         )
 
     def _spawn_aio_for_fe(
@@ -429,7 +429,7 @@ class FunctionExecutorController:
     def _spawn_aio(
         self,
         aio: Coroutine[Any, Any, BaseEvent],
-        alloc_info: TaskAllocationInfo | None,
+        alloc_info: AllocationInfo | None,
         on_exception: BaseEvent,
         logger: Any,
     ) -> None:
@@ -490,27 +490,23 @@ class FunctionExecutorController:
         Doesn't raise any exceptions. Doesn't block.
         """
         if event.function_executor is None:
-            # Server needs to increment attempts counter for all the tasks that were pending while FE was starting up.
+            # Server needs to increment attempts counter for all the allocs that were pending while FE was starting up.
             # This prevents infinite retries if FEs consistently fail to start up.
             # The allocations we marked here also need to not used FE terminated failure reason in their outputs
             # because FE terminated means that the allocation wasn't the cause of the FE termination.
             allocation_ids_caused_termination: List[str] = []
-            for alloc_info in self._task_allocations.values():
-                task_alloc_logger = task_allocation_logger(
-                    alloc_info.allocation, self._logger
-                )
-                task_alloc_logger.info(
-                    "marking task allocation failed on function executor startup failure"
+            for alloc_info in self._allocations.values():
+                alloc_logger = allocation_logger(alloc_info.allocation, self._logger)
+                alloc_logger.info(
+                    "marking allocation failed on function executor startup failure"
                 )
                 allocation_ids_caused_termination.append(
                     alloc_info.allocation.allocation_id
                 )
-                alloc_info.output = (
-                    TaskAllocationOutput.function_executor_startup_failed(
-                        allocation=alloc_info.allocation,
-                        fe_termination_reason=event.fe_termination_reason,
-                        logger=task_alloc_logger,
-                    )
+                alloc_info.output = AllocationOutput.function_executor_startup_failed(
+                    allocation=alloc_info.allocation,
+                    fe_termination_reason=event.fe_termination_reason,
+                    logger=alloc_logger,
                 )
             self._start_termination(
                 fe_termination_reason=event.fe_termination_reason,
@@ -529,7 +525,7 @@ class FunctionExecutorController:
         # Health checker starts after FE creation and gets automatically stopped on FE destroy.
         self._fe.health_checker().start(self._health_check_failed_callback)
         self._add_event(
-            ScheduleTaskAllocationExecution(),
+            ScheduleAllocationExecution(),
             source="_handle_event_function_executor_created",
         )
 
@@ -557,9 +553,9 @@ class FunctionExecutorController:
         )
         self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATED)
 
-        # Invoke the scheduler so it can fail runnable tasks with FE Terminated error.
+        # Invoke the scheduler so it can fail runnable allocs with FE Terminated error.
         self._add_event(
-            ScheduleTaskAllocationExecution(),
+            ScheduleAllocationExecution(),
             source="_handle_event_function_executor_destroyed",
         )
 
@@ -573,55 +569,55 @@ class FunctionExecutorController:
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
             allocation_ids_caused_termination=[
                 alloc_info.allocation.allocation_id
-                for alloc_info in self._running_task_allocations
+                for alloc_info in self._running_allocations
             ],
         )
 
-    def _handle_event_task_allocation_preparation_finished(
-        self, event: TaskAllocationPreparationFinished
+    def _handle_event_allocation_preparation_finished(
+        self, event: AllocationPreparationFinished
     ) -> None:
-        """Handles the task allocation preparation finished event.
+        """Handles the allocation preparation finished event.
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        alloc_info: TaskAllocationInfo = event.alloc_info
+        alloc_info: AllocationInfo = event.alloc_info
 
         if alloc_info.is_cancelled:
-            alloc_info.output = TaskAllocationOutput.task_allocation_cancelled(
+            alloc_info.output = AllocationOutput.allocation_cancelled(
                 allocation=alloc_info.allocation,
                 # Task alloc was never executed
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_allocation_finalization(alloc_info)
+            self._start_allocation_finalization(alloc_info)
             return
 
         if not event.is_success:
-            # Failed to prepare the task alloc inputs.
-            alloc_info.output = TaskAllocationOutput.internal_error(
+            # Failed to prepare the alloc inputs.
+            alloc_info.output = AllocationOutput.internal_error(
                 allocation=alloc_info.allocation,
-                # Task alloc was never executed
+                # Alloc was never executed
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_allocation_finalization(alloc_info)
+            self._start_allocation_finalization(alloc_info)
             return
 
         alloc_info.prepared_time = time.monotonic()
-        metric_runnable_task_allocations.inc()
-        metric_runnable_task_allocations_per_function_name.labels(
+        metric_runnable_allocations.inc()
+        metric_runnable_allocations_per_function_name.labels(
             alloc_info.allocation.function.function_name
         ).inc()
-        self._runnable_task_allocations.append(alloc_info)
+        self._runnable_allocations.append(alloc_info)
         self._add_event(
-            ScheduleTaskAllocationExecution(),
-            source="_handle_event_task_allocation_preparation_finished",
+            ScheduleAllocationExecution(),
+            source="_handle_event_allocation_preparation_finished",
         )
 
-    def _handle_event_schedule_task_allocation_execution(
-        self, event: ScheduleTaskAllocationExecution
+    def _handle_event_schedule_allocation_execution(
+        self, event: ScheduleAllocationExecution
     ) -> None:
-        if len(self._runnable_task_allocations) == 0:
+        if len(self._runnable_allocations) == 0:
             return
 
         if self._internal_state not in [
@@ -629,86 +625,85 @@ class FunctionExecutorController:
             _FE_CONTROLLER_STATE.TERMINATING,
             _FE_CONTROLLER_STATE.TERMINATED,
         ]:
-            return  # Can't progress runnable tasks in the current state.
+            return  # Can't progress runnable allocs in the current state.
 
         if (
             self._internal_state == _FE_CONTROLLER_STATE.RUNNING
-            and len(self._running_task_allocations)
-            == self._fe_description.max_concurrency
+            and len(self._running_allocations) == self._fe_description.max_concurrency
         ):
             return
 
-        # Take the next task alloc from head to get FIFO order and improve fairness.
-        alloc_info: TaskAllocationInfo = self._pop_runnable_task_allocation()
+        # Take the next alloc from head to get FIFO order and improve fairness.
+        alloc_info: AllocationInfo = self._pop_runnable_allocation()
         # Re-invoke the scheduler later to process the next runnable task if this one can't run on FE.
         self._add_event(
-            ScheduleTaskAllocationExecution(),
-            source="_handle_event_schedule_task_allocation_execution",
+            ScheduleAllocationExecution(),
+            source="_handle_event_schedule_allocation_execution",
         )
 
         if alloc_info.is_cancelled:
-            alloc_info.output = TaskAllocationOutput.task_allocation_cancelled(
+            alloc_info.output = AllocationOutput.allocation_cancelled(
                 allocation=alloc_info.allocation,
-                # Task alloc was never executed
+                # Alloc was never executed
                 execution_start_time=None,
                 execution_end_time=None,
             )
-            self._start_task_allocation_finalization(alloc_info)
+            self._start_allocation_finalization(alloc_info)
         elif self._internal_state in [
             _FE_CONTROLLER_STATE.TERMINATING,
             _FE_CONTROLLER_STATE.TERMINATED,
         ]:
             # The output could be set already by FE startup failure handler.
             if alloc_info.output is None:
-                alloc_info.output = TaskAllocationOutput.function_executor_terminated(
+                alloc_info.output = AllocationOutput.function_executor_terminated(
                     alloc_info.allocation
                 )
-            self._start_task_allocation_finalization(alloc_info)
+            self._start_allocation_finalization(alloc_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
-            self._running_task_allocations.append(alloc_info)
-            next_aio = run_task_allocation_on_function_executor(
+            self._running_allocations.append(alloc_info)
+            next_aio = run_allocation_on_function_executor(
                 alloc_info=alloc_info,
                 function_executor=self._fe,
-                logger=task_allocation_logger(alloc_info.allocation, self._logger),
+                logger=allocation_logger(alloc_info.allocation, self._logger),
             )
-            self._spawn_aio_for_task_alloc(
+            self._spawn_aio_for_allocation(
                 aio=next_aio,
                 alloc_info=alloc_info,
-                on_exception=TaskAllocationExecutionFinished(
+                on_exception=AllocationExecutionFinished(
                     alloc_info=alloc_info,
                     function_executor_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR,
                 ),
             )
         else:
-            task_allocation_logger(alloc_info.allocation, self._logger).error(
-                "failed to schedule task allocation execution, this should never happen"
+            allocation_logger(alloc_info.allocation, self._logger).error(
+                "failed to schedule allocation execution, this should never happen"
             )
 
-    def _pop_runnable_task_allocation(self) -> TaskAllocationInfo:
-        alloc_info: TaskAllocationInfo = self._runnable_task_allocations.pop(0)
-        metric_schedule_task_allocation_latency.observe(
+    def _pop_runnable_allocation(self) -> AllocationInfo:
+        alloc_info: AllocationInfo = self._runnable_allocations.pop(0)
+        metric_schedule_allocation_latency.observe(
             time.monotonic() - alloc_info.prepared_time
         )
-        metric_runnable_task_allocations.dec()
-        metric_runnable_task_allocations_per_function_name.labels(
+        metric_runnable_allocations.dec()
+        metric_runnable_allocations_per_function_name.labels(
             alloc_info.allocation.function.function_name
         ).dec()
         return alloc_info
 
-    def _handle_event_task_allocation_execution_finished(
-        self, event: TaskAllocationExecutionFinished
+    def _handle_event_allocation_execution_finished(
+        self, event: AllocationExecutionFinished
     ) -> None:
-        """Handles the task allocation execution finished event.
+        """Handles the allocation execution finished event.
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        alloc_info: TaskAllocationInfo = event.alloc_info
-        self._running_task_allocations.remove(alloc_info)
+        alloc_info: AllocationInfo = event.alloc_info
+        self._running_allocations.remove(alloc_info)
 
         if event.function_executor_termination_reason is None:
             self._add_event(
-                ScheduleTaskAllocationExecution(),
-                source="_handle_event_task_allocation_execution_finished",
+                ScheduleAllocationExecution(),
+                source="_handle_event_allocation_execution_finished",
             )
         else:
             self._start_termination(
@@ -717,64 +712,62 @@ class FunctionExecutorController:
             )
 
         if alloc_info.output is None:
-            # `run_task_on_function_executor` guarantees that the output is set in
-            # all cases including task cancellations. If this didn't happen then some
+            # `run_allocation_on_function_executor` guarantees that the output is set in
+            # all cases including allocation cancellations. If this didn't happen then some
             # internal error occurred in our code.
-            alloc_info.output = TaskAllocationOutput.internal_error(
+            alloc_info.output = AllocationOutput.internal_error(
                 allocation=alloc_info.allocation,
                 execution_start_time=None,
                 execution_end_time=None,
             )
 
-        self._start_task_allocation_finalization(alloc_info)
+        self._start_allocation_finalization(alloc_info)
 
-    def _start_task_allocation_finalization(
-        self, alloc_info: TaskAllocationInfo
-    ) -> None:
-        """Starts finalization for the given task allocation.
+    def _start_allocation_finalization(self, alloc_info: AllocationInfo) -> None:
+        """Starts finalization for the given allocation.
 
         Doesn't raise any exceptions. Doesn't block.
         alloc_info.output should not be None.
         """
-        next_aio = finalize_task_allocation(
-            task_alloc=alloc_info,
+        next_aio = finalize_allocation(
+            alloc_info=alloc_info,
             blob_store=self._blob_store,
-            logger=task_allocation_logger(alloc_info.allocation, self._logger),
+            logger=allocation_logger(alloc_info.allocation, self._logger),
         )
-        self._spawn_aio_for_task_alloc(
+        self._spawn_aio_for_allocation(
             aio=next_aio,
             alloc_info=alloc_info,
-            on_exception=TaskAllocationFinalizationFinished(
+            on_exception=AllocationFinalizationFinished(
                 alloc_info=alloc_info, is_success=False
             ),
         )
 
-    def _handle_event_task_allocation_finalization_finished(
-        self, event: TaskAllocationFinalizationFinished
+    def _handle_event_allocation_finalization_finished(
+        self, event: AllocationFinalizationFinished
     ) -> None:
-        """Handles the task allocation finalization finished event.
+        """Handles the allocation finalization finished event.
 
         Doesn't raise any exceptions. Doesn't block.
         """
-        alloc_info: TaskAllocationInfo = event.alloc_info
+        alloc_info: AllocationInfo = event.alloc_info
         if not event.is_success:
-            original_task_output: TaskAllocationOutput = (
+            original_alloc_output: AllocationOutput = (
                 alloc_info.output
             )  # Never None here
-            alloc_info.output = TaskAllocationOutput.internal_error(
+            alloc_info.output = AllocationOutput.internal_error(
                 allocation=alloc_info.allocation,
-                execution_start_time=original_task_output.execution_start_time,
-                execution_end_time=original_task_output.execution_end_time,
+                execution_start_time=original_alloc_output.execution_start_time,
+                execution_end_time=original_alloc_output.execution_end_time,
             )
 
-        logger: Any = task_allocation_logger(alloc_info.allocation, self._logger)
-        # Ignore task cancellation as it's technically finished at this point.
+        logger: Any = allocation_logger(alloc_info.allocation, self._logger)
+        # Ignore alloc cancellation as it's technically finished at this point.
         alloc_info.is_completed = True
-        emit_completed_task_allocation_metrics(
+        emit_completed_allocation_metrics(
             alloc_info=alloc_info,
             logger=logger,
         )
-        # Reconciler will call .remove_task_allocation() once Server signals that it processed this update.
+        # Reconciler will call .remove_allocation() once Server signals that it processed this update.
         self._state_reporter.add_completed_allocation_result(
             _to_alloc_result_proto(alloc_info, logger)
         )
@@ -793,7 +786,7 @@ class FunctionExecutorController:
             _FE_CONTROLLER_STATE.TERMINATING,
             _FE_CONTROLLER_STATE.TERMINATED,
         ]:
-            # _start_termination() can be called multiple times, e.g. by each failed task alloc
+            # _start_termination() can be called multiple times, e.g. by each failed alloc
             # when the FE is unhealthy. Dedup the calls to keep state machine consistent.
             return
 
@@ -821,7 +814,7 @@ class FunctionExecutorController:
         The control loop must exit immediately after this method returns.
         Doesn't raise any exceptions.
 
-        Server needs to wait until all the task allocations its interested in got their outcomes reported
+        Server needs to wait until all the allocations its interested in got their outcomes reported
         before calling the FE shutdown as we don't report anything on FE shutdown.
         """
         self._logger.info("function executor controller shutdown initiated")
@@ -900,14 +893,12 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_alloc_result_proto(
-    alloc_info: TaskAllocationInfo, logger: Any
-) -> AllocationResult:
-    allocation: TaskAllocation = alloc_info.allocation
-    # Might be None if the task wasn't prepared successfully.
-    input: TaskAllocationInput | None = alloc_info.input
-    # Never None here as we're completing the task here.
-    output: TaskAllocationOutput | None = alloc_info.output
+def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> AllocationResult:
+    allocation: Allocation = alloc_info.allocation
+    # Might be None if the alloc wasn't prepared successfully.
+    input: AllocationInput | None = alloc_info.input
+    # Never None here as we're completing the alloc here.
+    output: AllocationOutput | None = alloc_info.output
 
     execution_duration_ms: int | None = None
     if (
@@ -953,7 +944,7 @@ def _to_alloc_result_proto(
             application_version=allocation.function.application_version,
         ),
         allocation_id=allocation.allocation_id,
-        task_id=allocation.task_id,
+        function_call_id=allocation.function_call_id,
         request_id=allocation.request_id,
         outcome_code=output.outcome_code,
         failure_reason=output.failure_reason,

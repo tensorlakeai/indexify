@@ -10,7 +10,6 @@ use crate::{
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         Allocation,
-        ApplicationInvocationCtx,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
@@ -19,15 +18,16 @@ use crate::{
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
+        RequestCtx,
     },
-    executor_api::executor_api_pb::TaskAllocation,
+    executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
     state_store::{
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
-            GraphUpdates,
             RequestPayload,
+            RequestUpdates,
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
@@ -132,9 +132,7 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<ApplicationInvocationCtx>(
-                IndexifyObjectsColumns::GraphInvocationCtx,
-            )
+            .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
             .unwrap()
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
@@ -269,7 +267,7 @@ macro_rules! assert_executor_state {
         );
 
         // Check task allocation count
-        let tasks_count = desired_state.task_allocations.len();
+        let tasks_count = desired_state.allocations.len();
         assert_eq!(
             $num_allocated_tasks, tasks_count,
             "tasks: expected {}, got {}",
@@ -281,11 +279,11 @@ macro_rules! assert_executor_state {
 pub struct FinalizeFunctionRunArgs {
     pub task_outcome: FunctionRunOutcome,
     pub allocation_key: String,
-    pub graph_updates: Option<GraphUpdates>,
+    pub graph_updates: Option<RequestUpdates>,
     pub data_payload: Option<DataPayload>,
 }
 
-pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
+pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
     Allocation::key_from(
         &allocation
             .function
@@ -309,7 +307,7 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
 impl FinalizeFunctionRunArgs {
     pub fn new(
         allocation_key: String,
-        graph_updates: Option<GraphUpdates>,
+        graph_updates: Option<RequestUpdates>,
         data_payload: Option<DataPayload>,
     ) -> FinalizeFunctionRunArgs {
         FinalizeFunctionRunArgs {
@@ -475,9 +473,9 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn finalize_task(
+    pub async fn finalize_allocation(
         &self,
-        task_allocation: &TaskAllocation,
+        allocation_pb: &AllocationPb,
         args: FinalizeFunctionRunArgs,
     ) -> Result<()> {
         let mut allocation = self
@@ -493,12 +491,12 @@ impl TestExecutor<'_> {
 
         let ingest_task_outputs_request = AllocationOutput {
             request_exception: None,
-            graph_updates: args.graph_updates.clone().map(|g| GraphUpdates {
-                graph_updates: g.graph_updates,
+            graph_updates: args.graph_updates.clone().map(|g| RequestUpdates {
+                request_updates: g.request_updates,
                 output_function_call_id: g.output_function_call_id,
             }),
             executor_id: self.executor_id.clone(),
-            invocation_id: task_allocation.request_id.clone().unwrap(),
+            request_id: allocation_pb.request_id.clone().unwrap(),
             data_payload: args.data_payload,
             allocation,
         };

@@ -9,16 +9,16 @@ mod tests {
     use crate::{
         data_model::{
             test_objects::tests::{mock_application, mock_function_call, TEST_NAMESPACE},
-            ApplicationInvocationCtxBuilder,
             DataPayload,
             InputArgs,
+            RequestCtxBuilder,
         },
         service::Service,
         state_store::{
             driver::Writer,
             requests::{
-                CreateOrUpdateComputeGraphRequest,
-                DeleteComputeGraphRequest,
+                CreateOrUpdateApplicationRequest,
+                DeleteApplicationRequest,
                 RequestPayload,
                 StateMachineUpdateRequest,
             },
@@ -54,8 +54,8 @@ mod tests {
 
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
-                        CreateOrUpdateComputeGraphRequest {
+                    payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                        CreateOrUpdateApplicationRequest {
                             namespace: TEST_NAMESPACE.to_string(),
                             application: application.clone(),
                             upgrade_requests_to_current_version: false,
@@ -96,13 +96,13 @@ mod tests {
                 }],
                 &request_id,
             )?;
-            let graph_ctx = ApplicationInvocationCtxBuilder::default()
+            let request_ctx = RequestCtxBuilder::default()
                 .request_id(request_id)
                 .application_name(application.name.clone())
                 .namespace(TEST_NAMESPACE.to_string())
                 .application_version(application.version.clone())
-                .outcome(Some(crate::data_model::ApplicationRequestOutcome::Failure(
-                    crate::data_model::ApplicationInvocationFailureReason::InternalError,
+                .outcome(Some(crate::data_model::RequestOutcome::Failure(
+                    crate::data_model::RequestFailureReason::InternalError,
                 )))
                 .function_runs(HashMap::from([(
                     mock_function_run.id.clone(),
@@ -115,9 +115,9 @@ mod tests {
                 .build()?;
 
             indexify_state.db.put(
-                &IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
-                graph_ctx.key().as_bytes(),
-                &JsonEncoder::encode(&graph_ctx)?,
+                &IndexifyObjectsColumns::RequestCtx.as_ref(),
+                request_ctx.key().as_bytes(),
+                &JsonEncoder::encode(&request_ctx)?,
             )?;
 
             blob_storage_registry
@@ -133,8 +133,8 @@ mod tests {
 
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteComputeGraphRequest((
-                    DeleteComputeGraphRequest {
+                payload: RequestPayload::DeleteApplicationRequest((
+                    DeleteApplicationRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         name: application.name.clone(),
                     },

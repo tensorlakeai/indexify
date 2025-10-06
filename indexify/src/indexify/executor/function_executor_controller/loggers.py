@@ -1,9 +1,9 @@
 from typing import Any
 
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     AllocationResult,
     FunctionExecutorDescription,
-    TaskAllocation,
 )
 
 
@@ -60,10 +60,10 @@ def function_executor_logger(
     )
 
 
-def task_allocation_logger(alloc: TaskAllocation, logger: Any) -> Any:
-    """Returns a logger for the given TaskAllocation.
+def allocation_logger(alloc: Allocation, logger: Any) -> Any:
+    """Returns a logger for the given Allocation.
 
-    Doesn't assume that the supplied TaskAllocation is valid.
+    Doesn't assume that the supplied Allocation is valid.
     """
     return logger.bind(
         allocation_id=(
@@ -74,23 +74,12 @@ def task_allocation_logger(alloc: TaskAllocation, logger: Any) -> Any:
             if alloc.HasField("function_executor_id")
             else None
         ),
-        task_id=alloc.task_id if alloc.HasField("task_id") else None,
+        fn_call_id=(
+            alloc.function_call_id if alloc.HasField("function_call_id") else None
+        ),
         namespace=(
             alloc.function.namespace
             if alloc.HasField("function") and alloc.function.HasField("namespace")
-            else None
-        ),
-        # Keep legacy `graph` names in log tags until Server logs fully migrate to `application`.
-        graph=(
-            alloc.function.application_name
-            if alloc.HasField("function")
-            and alloc.function.HasField("application_name")
-            else None
-        ),
-        graph_version=(
-            alloc.function.application_version
-            if alloc.HasField("function")
-            and alloc.function.HasField("application_version")
             else None
         ),
         app=(
@@ -121,7 +110,17 @@ def allocation_result_logger(alloc_result: AllocationResult, logger: Any) -> Any
 
     The function assumes that the alloc result might be invalid."""
     return logger.bind(
-        task_id=alloc_result.task_id if alloc_result.HasField("task_id") else None,
+        # Keep legacy `task_id` names in log tags until Server logs fully migrate to `fn_call_id`.
+        task_id=(
+            alloc_result.function_call_id
+            if alloc_result.HasField("function_call_id")
+            else None
+        ),
+        fn_call_id=(
+            alloc_result.function_call_id
+            if alloc_result.HasField("function_call_id")
+            else None
+        ),
         allocation_id=(
             alloc_result.allocation_id
             if alloc_result.HasField("allocation_id")

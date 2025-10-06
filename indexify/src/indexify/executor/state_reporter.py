@@ -280,7 +280,7 @@ def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
     try:
         for alloc_result in update.allocation_results:
             allocation_result_logger(alloc_result, logger).info(
-                "reporting task allocation outcome",
+                "reporting allocation outcome",
                 outcome_code=AllocationOutcomeCode.Name(alloc_result.outcome_code),
                 failure_reason=(
                     AllocationFailureReason.Name(alloc_result.failure_reason)

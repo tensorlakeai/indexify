@@ -9,8 +9,8 @@ use axum::{
     Router,
 };
 use base64::prelude::*;
-use download::download_invocation_error;
-use invoke::{invoke_api_with_object_v1, invoke_default_api_with_object_v1};
+use download::download_request_error;
+use invoke::invoke_application_with_object_v1;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -18,7 +18,6 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     http_objects::{
         Allocation,
-        ApplicationVersionString,
         CacheKey,
         CreateNamespace,
         CursorDirection,
@@ -43,7 +42,7 @@ use crate::{
     state_store::{
         self,
         requests::{
-            DeleteInvocationRequest,
+            DeleteRequestRequest,
             NamespaceRequest,
             RequestPayload,
             StateMachineUpdateRequest,
@@ -54,8 +53,7 @@ use crate::{
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            invoke::invoke_default_api_with_object_v1,
-            invoke::invoke_api_with_object_v1,
+            invoke::invoke_application_with_object_v1,
             list_requests,
             find_request,
             applications::create_or_update_application,
@@ -78,7 +76,6 @@ use crate::{
                 ApplicationsList,
                 ExecutorMetadata,
                 FunctionRunOutcome,
-                ApplicationVersionString,
                 Allocation,
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
@@ -124,11 +121,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}",
-            post(invoke_default_api_with_object_v1).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/{api_function}",
-            post(invoke_api_with_object_v1).with_state(route_state.clone()),
+            post(invoke_application_with_object_v1).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests",
@@ -205,7 +198,7 @@ async fn namespace_middleware(
         ListParams
     ),
     responses(
-        (status = 200, description = "List Graph Invocations", body = http_objects_v1::GraphRequests),
+        (status = 200, description = "List Application requests", body = http_objects_v1::GraphRequests),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
@@ -222,10 +215,10 @@ async fn list_requests(
         Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
         None => None,
     };
-    let (invocation_ctxs, prev_cursor, next_cursor) = state
+    let (request_ctxs, prev_cursor, next_cursor) = state
         .indexify_state
         .reader()
-        .list_invocations(
+        .list_requests(
             &namespace,
             &application,
             cursor.as_deref(),
@@ -234,8 +227,8 @@ async fn list_requests(
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let mut requests = vec![];
-    for invocation_ctx in invocation_ctxs {
-        let shallow_request = invocation_ctx.clone().into();
+    for request_ctx in request_ctxs {
+        let shallow_request = request_ctx.clone().into();
         requests.push(shallow_request);
     }
     let prev_cursor = prev_cursor.map(|c| BASE64_STANDARD.encode(c));
@@ -260,37 +253,36 @@ async fn list_requests(
     ),
 )]
 async fn find_request(
-    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<http_objects_v1::Request>, IndexifyAPIError> {
-    let invocation_ctx = state
+    let request_ctx = state
         .indexify_state
         .reader()
-        .invocation_ctx(&namespace, &application, &invocation_id)
+        .request_ctx(&namespace, &application, &request_id)
         .map_err(IndexifyAPIError::internal_error)?
-        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
 
-    let function_run = invocation_ctx
+    let function_run = request_ctx
         .function_runs
-        .get(&invocation_id.as_str().into())
+        .get(&request_id.as_str().into())
         .ok_or(IndexifyAPIError::not_found("function run not found"))?
         .clone();
 
     let allocations = state
         .indexify_state
         .reader()
-        .get_allocations_by_invocation(&namespace, &application, &invocation_id)
+        .get_allocations_by_request_id(&namespace, &application, &request_id)
         .map_err(IndexifyAPIError::internal_error)?;
 
     let output = function_run.output.clone().map(|output| output.into());
-    let invocation_error = download_invocation_error(
-        invocation_ctx.request_error.clone(),
+    let request_error = download_request_error(
+        request_ctx.request_error.clone(),
         &state.blob_storage.get_blob_store(&namespace),
     )
     .await?;
 
-    let request =
-        http_objects_v1::Request::build(invocation_ctx, output, invocation_error, allocations);
+    let request = http_objects_v1::Request::build(request_ctx, output, request_error, allocations);
 
     Ok(Json(request))
 }
@@ -308,13 +300,13 @@ async fn find_request(
 )]
 #[axum::debug_handler]
 async fn delete_request(
-    Path((namespace, application, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::TombstoneInvocation(DeleteInvocationRequest {
+    let request = RequestPayload::TombstoneRequest(DeleteRequestRequest {
         namespace,
         application,
-        invocation_id,
+        request_id,
     });
     let req = StateMachineUpdateRequest { payload: request };
 

@@ -9,7 +9,6 @@ use crate::{
     data_model::{
         Allocation,
         Application,
-        ApplicationInvocationCtx,
         ComputeOp,
         DataPayload,
         ExecutorId,
@@ -21,6 +20,7 @@ use crate::{
         FunctionRun,
         GcUrl,
         HostResources,
+        RequestCtx,
         StateChange,
     },
     state_store::{state_changes, IndexifyState},
@@ -37,14 +37,14 @@ impl StateMachineUpdateRequest {
         state_change_id_seq: &AtomicU64,
     ) -> anyhow::Result<Vec<StateChange>> {
         match &self.payload {
-            RequestPayload::InvokeComputeGraph(request) => {
+            RequestPayload::InvokeApplication(request) => {
                 state_changes::invoke_application(state_change_id_seq, request)
             }
-            RequestPayload::TombstoneComputeGraph(request) => {
+            RequestPayload::TombstoneApplication(request) => {
                 state_changes::tombstone_application(state_change_id_seq, request)
             }
-            RequestPayload::TombstoneInvocation(request) => {
-                state_changes::tombstone_invocation(state_change_id_seq, request)
+            RequestPayload::TombstoneRequest(request) => {
+                state_changes::tombstone_request(state_change_id_seq, request)
             }
             RequestPayload::DeregisterExecutor(request) => {
                 state_changes::tombstone_executor(state_change_id_seq, request)
@@ -58,17 +58,17 @@ impl StateMachineUpdateRequest {
 
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
-    InvokeComputeGraph(InvokeComputeGraphRequest),
+    InvokeApplication(InvokeApplicationRequest),
     CreateNameSpace(NamespaceRequest),
-    CreateOrUpdateComputeGraph(Box<CreateOrUpdateComputeGraphRequest>),
-    TombstoneComputeGraph(DeleteComputeGraphRequest),
-    TombstoneInvocation(DeleteInvocationRequest),
+    CreateOrUpdateApplication(Box<CreateOrUpdateApplicationRequest>),
+    TombstoneApplication(DeleteApplicationRequest),
+    TombstoneRequest(DeleteRequestRequest),
     SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
     UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<GcUrl>),
-    DeleteComputeGraphRequest((DeleteComputeGraphRequest, Vec<StateChange>)),
-    DeleteInvocationRequest((DeleteInvocationRequest, Vec<StateChange>)),
+    DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
+    DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     ProcessStateChanges(Vec<StateChange>),
 }
 
@@ -76,8 +76,7 @@ pub enum RequestPayload {
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
-    pub cached_task_keys: HashMap<String, DataPayload>,
-    pub updated_invocations_states: HashMap<String, ApplicationInvocationCtx>,
+    pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
@@ -95,9 +94,8 @@ impl SchedulerUpdateRequest {
                 .or_default()
                 .extend(function_run_ids);
         }
-        self.cached_task_keys.extend(other.cached_task_keys);
-        self.updated_invocations_states
-            .extend(other.updated_invocations_states);
+        self.updated_request_states
+            .extend(other.updated_request_states);
         self.state_changes.extend(other.state_changes);
 
         self.remove_executors.extend(other.remove_executors);
@@ -109,44 +107,36 @@ impl SchedulerUpdateRequest {
             .extend(other.updated_executor_resources);
     }
 
-    pub fn add_function_run(
-        &mut self,
-        function_run: FunctionRun,
-        invocation_ctx: &mut ApplicationInvocationCtx,
-    ) {
-        invocation_ctx
+    pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {
+        request_ctx
             .function_runs
             .insert(function_run.id.clone(), function_run.clone());
         self.updated_function_runs
-            .entry(invocation_ctx.key())
+            .entry(request_ctx.key())
             .or_default()
             .insert(function_run.id.clone());
-        self.updated_invocations_states
-            .insert(invocation_ctx.key(), invocation_ctx.clone());
+        self.updated_request_states
+            .insert(request_ctx.key(), request_ctx.clone());
     }
 
-    pub fn add_invocation_state(&mut self, invocation_ctx: &ApplicationInvocationCtx) {
-        self.updated_invocations_states
-            .insert(invocation_ctx.key(), invocation_ctx.clone());
+    pub fn add_request_state(&mut self, request_ctx: &RequestCtx) {
+        self.updated_request_states
+            .insert(request_ctx.key(), request_ctx.clone());
     }
 
-    pub fn add_function_call(
-        &mut self,
-        function_call: FunctionCall,
-        invocation_ctx: &mut ApplicationInvocationCtx,
-    ) {
-        invocation_ctx.function_calls.insert(
+    pub fn add_function_call(&mut self, function_call: FunctionCall, request_ctx: &mut RequestCtx) {
+        request_ctx.function_calls.insert(
             function_call.function_call_id.clone(),
             function_call.clone(),
         );
-        self.updated_invocations_states
-            .insert(invocation_ctx.key(), invocation_ctx.clone());
+        self.updated_request_states
+            .insert(request_ctx.key(), request_ctx.clone());
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct GraphUpdates {
-    pub graph_updates: Vec<ComputeOp>,
+pub struct RequestUpdates {
+    pub request_updates: Vec<ComputeOp>,
     // The function call id which is the root of the call graph of the functions
     // calls
     pub output_function_call_id: FunctionCallId,
@@ -154,19 +144,19 @@ pub struct GraphUpdates {
 
 #[derive(Debug, Clone)]
 pub struct AllocationOutput {
-    pub invocation_id: String,
+    pub request_id: String,
     pub allocation: Allocation,
     pub data_payload: Option<DataPayload>,
     pub executor_id: ExecutorId,
     pub request_exception: Option<DataPayload>,
-    pub graph_updates: Option<GraphUpdates>,
+    pub graph_updates: Option<RequestUpdates>,
 }
 
 #[derive(Debug, Clone)]
-pub struct InvokeComputeGraphRequest {
+pub struct InvokeApplicationRequest {
     pub namespace: String,
     pub application_name: String,
-    pub ctx: ApplicationInvocationCtx,
+    pub ctx: RequestCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -177,23 +167,23 @@ pub struct NamespaceRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateOrUpdateComputeGraphRequest {
+pub struct CreateOrUpdateApplicationRequest {
     pub namespace: String,
     pub application: Application,
     pub upgrade_requests_to_current_version: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct DeleteComputeGraphRequest {
+pub struct DeleteApplicationRequest {
     pub namespace: String,
     pub name: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct DeleteInvocationRequest {
+pub struct DeleteRequestRequest {
     pub namespace: String,
     pub application: String,
-    pub invocation_id: String,
+    pub request_id: String,
 }
 
 /// Request to upsert an executor, including its metadata and diagnostics.

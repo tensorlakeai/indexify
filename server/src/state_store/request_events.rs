@@ -14,17 +14,17 @@ pub enum RequestStateChangeEvent {
 }
 
 impl RequestStateChangeEvent {
-    pub fn from_task_finished(event: AllocationOutput) -> Self {
+    pub fn from_finished_function_run(event: AllocationOutput) -> Self {
         Self::FunctionRunCompleted(FunctionRunCompleted {
-            request_id: event.invocation_id,
+            request_id: event.request_id,
             fn_name: event.allocation.function,
-            task_id: event.allocation.function_call_id.to_string(),
+            function_run_id: event.allocation.function_call_id.to_string(),
             outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
         })
     }
 
-    pub fn invocation_id(&self) -> String {
+    pub fn request_id(&self) -> String {
         match self {
             RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
                 request_id: id, ..
@@ -36,21 +36,20 @@ impl RequestStateChangeEvent {
                 id.clone()
             }
             RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
-                request_id: invocation_id,
-                ..
-            }) => invocation_id.clone(),
+                request_id, ..
+            }) => request_id.clone(),
             RequestStateChangeEvent::FunctionRunAssigned(FunctionRunAssigned {
-                request_id: invocation_id,
+                request_id,
                 ..
-            }) => invocation_id.clone(),
+            }) => request_id.clone(),
             RequestStateChangeEvent::FunctionRunCompleted(FunctionRunCompleted {
-                request_id: invocation_id,
+                request_id,
                 ..
-            }) => invocation_id.clone(),
+            }) => request_id.clone(),
             RequestStateChangeEvent::FunctionRunMatchedCache(FunctionRunMatchedCache {
-                request_id: invocation_id,
+                request_id,
                 ..
-            }) => invocation_id.clone(),
+            }) => request_id.clone(),
         }
     }
 }
@@ -107,7 +106,7 @@ impl From<&FunctionRunOutcome> for FunctionRunOutcomeSummary {
 pub struct FunctionRunCompleted {
     pub request_id: String,
     pub fn_name: String,
-    pub task_id: String,
+    pub function_run_id: String,
     pub allocation_id: String,
     pub outcome: FunctionRunOutcomeSummary,
 }
@@ -116,5 +115,5 @@ pub struct FunctionRunCompleted {
 pub struct FunctionRunMatchedCache {
     pub request_id: String,
     pub fn_name: String,
-    pub task_id: String,
+    pub function_run_id: String,
 }

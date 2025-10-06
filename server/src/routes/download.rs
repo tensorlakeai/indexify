@@ -10,24 +10,24 @@ use hyper::StatusCode;
 use super::routes_state::RouteState;
 use crate::{
     blob_store::BlobStorage,
-    data_model::{ApplicationInvocationError, DataPayload, FunctionCallId},
+    data_model::{self, FunctionCallId},
     http_objects::{IndexifyAPIError, RequestError},
 };
 
-pub async fn download_invocation_error(
-    invocation_error: Option<ApplicationInvocationError>,
+pub async fn download_request_error(
+    request_error: Option<data_model::RequestError>,
     blob_storage: &BlobStorage,
 ) -> Result<Option<RequestError>, IndexifyAPIError> {
-    let Some(invocation_error) = invocation_error else {
+    let Some(request_error) = request_error else {
         return Ok(None);
     };
 
     let storage_reader = blob_storage
         .get(
-            &invocation_error.payload.path,
+            &request_error.payload.path,
             Some(
-                invocation_error.payload.offset..
-                    invocation_error.payload.offset + invocation_error.payload.size,
+                request_error.payload.offset..
+                    request_error.payload.offset + request_error.payload.size,
             ),
         )
         .await
@@ -38,19 +38,15 @@ pub async fn download_invocation_error(
         .try_concat()
         .await
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "Failed to read invocation error payload: {e}",
-            ))
+            IndexifyAPIError::internal_error(anyhow!("Failed to read request error payload: {e}",))
         })?;
 
     let message = String::from_utf8(bytes).map_err(|e| {
-        IndexifyAPIError::internal_error(anyhow!(
-            "Invocation error payload is not valid UTF-8: {e}",
-        ))
+        IndexifyAPIError::internal_error(anyhow!("Request error payload is not valid UTF-8: {e}",))
     })?;
 
     Ok(Some(RequestError {
-        function_name: invocation_error.function_name,
+        function_name: request_error.function_name,
         message,
     }))
 }
@@ -73,11 +69,9 @@ pub async fn v1_download_fn_output_payload(
     let ctx = state
         .indexify_state
         .reader()
-        .invocation_ctx(&namespace, &application, &request_id)
+        .request_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
-            IndexifyAPIError::internal_error(
-                anyhow!("failed to get graph invocation context: {e}",),
-            )
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
         })?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
     let fn_run = ctx
@@ -112,11 +106,9 @@ pub async fn v1_download_fn_output_payload_simple(
     let ctx = state
         .indexify_state
         .reader()
-        .invocation_ctx(&namespace, &application, &request_id)
+        .request_ctx(&namespace, &application, &request_id)
         .map_err(|e| {
-            IndexifyAPIError::internal_error(
-                anyhow!("failed to get graph invocation context: {e}",),
-            )
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
         })?
         .ok_or(IndexifyAPIError::not_found("request context not found"))?;
 
@@ -135,7 +127,7 @@ pub async fn v1_download_fn_output_payload_simple(
 }
 
 async fn stream_data_payload(
-    payload: &DataPayload,
+    payload: &data_model::DataPayload,
     blob_storage: &BlobStorage,
     encoding: &str,
 ) -> Result<Response<Body>, IndexifyAPIError> {

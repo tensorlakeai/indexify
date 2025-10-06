@@ -8,12 +8,16 @@ use tracing::{debug, error, info, trace};
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
     metrics::{low_latency_boundaries, Timer},
-    processor::{function_executor_manager, task_allocator::FunctionRunProcessor, task_creator},
+    processor::{
+        function_executor_manager,
+        function_run_creator,
+        function_run_processor::FunctionRunProcessor,
+    },
     state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            DeleteInvocationRequest,
+            CreateOrUpdateApplicationRequest,
+            DeleteApplicationRequest,
+            DeleteRequestRequest,
             RequestPayload,
             StateMachineUpdateRequest,
         },
@@ -22,14 +26,14 @@ use crate::{
     utils::{get_elapsed_time, TimeUnit},
 };
 
-pub struct GraphProcessor {
+pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
     pub queue_size: u32,
 }
 
-impl GraphProcessor {
+impl ApplicationProcessor {
     pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
@@ -55,7 +59,7 @@ impl GraphProcessor {
         }
     }
 
-    pub async fn validate_graph_constraints(&self) -> Result<()> {
+    pub async fn validate_app_constraints(&self) -> Result<()> {
         let updated_applications = {
             let in_memory_state = self.indexify_state.in_memory_state.read().await;
             let executor_catalog = &in_memory_state.executor_catalog;
@@ -63,7 +67,7 @@ impl GraphProcessor {
                 let target_state = if application.can_be_scheduled(executor_catalog).is_ok() {
                         ApplicationState::Active
                 } else {
-                        ApplicationState::Disabled{reason: "The compute graph contains functions that have unsatisfiable placement constraints".to_string()}
+                        ApplicationState::Disabled{reason: "The application contains functions that have unsatisfiable placement constraints".to_string()}
                 };
 
                 if target_state != application.state {
@@ -80,8 +84,8 @@ impl GraphProcessor {
         for application in updated_applications {
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
-                        CreateOrUpdateComputeGraphRequest {
+                    payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                        CreateOrUpdateApplicationRequest {
                             namespace: application.namespace.clone(),
                             application,
                             upgrade_requests_to_current_version: true,
@@ -238,7 +242,7 @@ impl GraphProcessor {
         let mut indexes_guard = indexes.write().await;
         let clock = indexes_guard.clock;
         let task_creator =
-            task_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
+            function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
         let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
@@ -293,20 +297,20 @@ impl GraphProcessor {
                 }
             }
             ChangeType::TombstoneApplication(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteComputeGraphRequest((
-                    DeleteComputeGraphRequest {
+                payload: RequestPayload::DeleteApplicationRequest((
+                    DeleteApplicationRequest {
                         namespace: request.namespace.clone(),
                         name: request.application.clone(),
                     },
                     vec![state_change.clone()],
                 )),
             },
-            ChangeType::TombstoneInvocation(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteInvocationRequest((
-                    DeleteInvocationRequest {
+            ChangeType::TombstoneRequest(request) => StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteRequestRequest((
+                    DeleteRequestRequest {
                         namespace: request.namespace.clone(),
                         application: request.application.clone(),
-                        invocation_id: request.invocation_id.clone(),
+                        request_id: request.request_id.clone(),
                     },
                     vec![state_change.clone()],
                 )),

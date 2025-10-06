@@ -22,12 +22,12 @@ use crate::{
         blob_store_path_to_url,
         executor_api_pb::{
             self,
+            Allocation,
             DataPayload,
             DataPayloadEncoding,
             DesiredExecutorState,
             FunctionExecutorDescription,
             FunctionRef,
-            TaskAllocation,
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -375,7 +375,7 @@ impl ExecutorManager {
         let current_fe_hash =
             compute_function_executors_hash(&desired_executor_state.function_executors);
         let mut function_executors_pb = vec![];
-        let mut task_allocations = vec![];
+        let mut allocations_pb = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
             let blob_store_url_schema = self
                 .blob_store_registry
@@ -441,7 +441,7 @@ impl ExecutorManager {
                 application: Some(code_payload_pb),
                 allocation_timeout_ms: Some(
                     application_version
-                        .nodes
+                        .functions
                         .get(&fe.function_name)
                         .unwrap()
                         .timeout
@@ -496,9 +496,9 @@ impl ExecutorManager {
                     allocation.namespace,
                     allocation.application,
                     allocation.function,
-                    allocation.invocation_id,
+                    allocation.request_id,
                 );
-                let task_allocation_pb = TaskAllocation {
+                let allocation_pb = Allocation {
                     function: Some(FunctionRef {
                         namespace: Some(allocation.namespace.clone()),
                         application_name: Some(allocation.application.clone()),
@@ -507,14 +507,14 @@ impl ExecutorManager {
                     }),
                     function_executor_id: Some(fe_id.get().to_string()),
                     allocation_id: Some(allocation.id.to_string()),
-                    task_id: Some(allocation.function_call_id.to_string()),
-                    request_id: Some(allocation.invocation_id.to_string()),
+                    function_call_id: Some(allocation.function_call_id.to_string()),
+                    request_id: Some(allocation.request_id.to_string()),
                     args,
                     output_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
                     request_error_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
                     function_call_metadata: Some(allocation.call_metadata.clone().into()),
                 };
-                task_allocations.push(task_allocation_pb);
+                allocations_pb.push(allocation_pb);
             }
         }
 
@@ -525,7 +525,7 @@ impl ExecutorManager {
 
         DesiredExecutorState {
             function_executors: function_executors_pb,
-            task_allocations,
+            allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
         }
     }

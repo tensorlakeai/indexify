@@ -20,7 +20,7 @@ use crate::{
     executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
     executors::ExecutorManager,
     metrics::{self, init_provider},
-    processor::{gc::Gc, graph_processor::GraphProcessor},
+    processor::{application_processor::ApplicationProcessor, gc::Gc},
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
@@ -43,7 +43,7 @@ pub struct Service {
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
-    pub graph_processor: Arc<GraphProcessor>,
+    pub graph_processor: Arc<ApplicationProcessor>,
 }
 
 impl Service {
@@ -100,11 +100,11 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let graph_processor = Arc::new(GraphProcessor::new(
+        let graph_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
         ));
-        graph_processor.validate_graph_constraints().await?;
+        graph_processor.validate_app_constraints().await?;
         Ok(Self {
             config,
             shutdown_tx,
