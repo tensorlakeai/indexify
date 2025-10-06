@@ -38,6 +38,11 @@ export function stringToColor(input: string): string {
 
 // Returns the appropriate service URL based on environment
 export function getIndexifyServiceURL(): string {
+  // Allow override via environment variable (must start with REACT_APP_ for Create React App)
+  if (process.env.REACT_APP_INDEXIFY_URL) {
+    return process.env.REACT_APP_INDEXIFY_URL
+  }
+  
   return process.env.NODE_ENV === 'development'
     ? 'http://localhost:8900'
     : window.location.origin
