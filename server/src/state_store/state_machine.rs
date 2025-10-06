@@ -87,6 +87,9 @@ pub fn create_invocation(txn: &Transaction, req: &InvokeComputeGraphRequest) -> 
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+    if let Some(reason) = cg.state.as_disabled() {
+        return Err(anyhow::anyhow!("Application is not enabled: {reason}"));
+    }
     if cg.tombstoned {
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }

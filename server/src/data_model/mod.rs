@@ -463,6 +463,15 @@ pub enum ComputeGraphState {
     },
 }
 
+impl ComputeGraphState {
+    pub fn as_disabled(&self) -> Option<String> {
+        match self {
+            ComputeGraphState::Active => None,
+            ComputeGraphState::Disabled { reason } => Some(reason.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EntryPointManifest {
     pub function_name: String,
@@ -533,6 +542,7 @@ impl ComputeGraph {
         self.description = update.description;
         self.tags = update.tags;
         self.entrypoint = update.entrypoint;
+        self.state = update.state;
     }
 
     pub fn to_version(&self) -> Result<ComputeGraphVersion> {
