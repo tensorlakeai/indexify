@@ -18,8 +18,8 @@ import { useState } from 'react'
 import {
   Allocation,
   FunctionRun,
-  TaskOutcome,
-  TaskStatus,
+  FunctionRunOutcome,
+  FunctionRunStatus,
 } from '../../types/types'
 import { formatTimestamp, nanoSecondsToDate } from '../../utils/helpers'
 import CopyText from '../CopyText'
@@ -36,14 +36,14 @@ interface FunctionRunRowProps {
   functionRun: FunctionRun
 }
 
-const renderStatus = (status: TaskStatus) => {
+const renderStatus = (status: FunctionRunStatus) => {
   const statusConfig: Record<
-    TaskStatus,
+    FunctionRunStatus,
     { label: string; color: 'default' | 'info' | 'success' }
   > = {
-    pending: { label: 'Pending', color: 'default' },
-    running: { label: 'Running', color: 'info' },
-    completed: { label: 'Completed', color: 'success' },
+    Pending: { label: 'Pending', color: 'default' },
+    Running: { label: 'Running', color: 'info' },
+    Completed: { label: 'Completed', color: 'success' },
   }
 
   const config = statusConfig[status] || {
@@ -53,18 +53,18 @@ const renderStatus = (status: TaskStatus) => {
   return <Chip label={config.label} size="small" color={config.color} />
 }
 
-const renderOutcome = (outcome?: TaskOutcome) => {
+const renderOutcome = (outcome?: FunctionRunOutcome | null) => {
   if (!outcome) {
     return <Chip label="Unknown" size="small" color="default" />
   }
 
   const outcomeConfig: Record<
-    TaskOutcome,
+    FunctionRunOutcome,
     { label: string; color: 'success' | 'error' | 'default' }
   > = {
     Success: { label: 'Success', color: 'success' },
     Failure: { label: 'Failure', color: 'error' },
-    Unknown: { label: 'Unknown', color: 'default' },
+    Undefined: { label: 'Undefined', color: 'default' },
   }
 
   const config = outcomeConfig[outcome] || {
@@ -74,8 +74,8 @@ const renderOutcome = (outcome?: TaskOutcome) => {
   return <Chip label={config.label} size="small" color={config.color} />
 }
 
-const formatDuration = (durationMs: number | null): string => {
-  if (durationMs === null) return 'N/A'
+const formatDuration = (durationMs?: number | null): string => {
+  if (!durationMs) return 'N/A'
   if (durationMs < 1000) return `${durationMs}ms`
   return `${(durationMs / 1000).toFixed(2)}s`
 }
@@ -109,7 +109,7 @@ function FunctionRunRow({
             <CopyText text={functionRun.id} />
           </Box>
         </TableCell>
-        <TableCell>{functionRun.function_name}</TableCell>
+        <TableCell>{functionRun.name}</TableCell>
         <TableCell>{renderStatus(functionRun.status)}</TableCell>
         <TableCell>{renderOutcome(functionRun.outcome)}</TableCell>
         <TableCell>{nanoSecondsToDate(functionRun.created_at)}</TableCell>
