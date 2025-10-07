@@ -156,7 +156,7 @@ impl From<data_model::Application> for Application {
             description: application.description,
             tags: application.tags,
             entrypoint: application.entrypoint.into(),
-            version: application.version.into(),
+            version: application.version,
             functions: nodes,
             created_at: application.created_at,
             tombstoned: application.tombstoned,
@@ -224,7 +224,7 @@ impl FunctionRun {
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             status: function_run.status.into(),
-            application_version: function_run.version.into(),
+            application_version: function_run.version,
             allocations,
             created_at: function_run.creation_time_ns,
         }

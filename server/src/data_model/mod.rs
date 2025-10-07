@@ -669,17 +669,17 @@ impl ApplicationVersion {
     }
 
     pub fn key_from(namespace: &str, application_name: &str, version: &str) -> String {
-        format!("{}|{}|{}", namespace, application_name, version)
+        format!("{namespace}|{application_name}|{version}")
     }
 
     pub fn key_prefix_from(namespace: &str, name: &str) -> String {
         format!("{namespace}|{name}|")
     }
 
-    pub fn function_run_max_retries(&self, task: &FunctionRun) -> Option<u32> {
+    pub fn function_run_max_retries(&self, fn_run: &FunctionRun) -> Option<u32> {
         self.functions
-            .get(&task.name)
-            .map(|node| node.retry_policy.max_retries)
+            .get(&fn_run.name)
+            .map(|func| func.retry_policy.max_retries)
     }
 }
 

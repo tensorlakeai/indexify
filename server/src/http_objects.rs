@@ -678,7 +678,7 @@ pub fn from_data_model_executor_metadata(
                 namespace: fn_uri.namespace.clone(),
                 application: fn_uri.application.clone(),
                 function: fn_uri.function.clone(),
-                version: fn_uri.version.clone().map(|v| v.into()),
+                version: fn_uri.version.clone(),
             })
             .collect()
     });
