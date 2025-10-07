@@ -19,26 +19,23 @@ import ApplicationEntrypointTable from '../../components/tables/ApplicationEntry
 import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
 import ApplicationTagsTable from '../../components/tables/ApplicationTagsTable'
 import { GraphRequestsTable } from '../../components/tables/ShallowGraphRequestsTable'
-import type { ShallowGraphRequest } from '../../types/types'
+import type { ShallowRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import { ApplicationDetailsLoaderData } from './types'
 
 const ApplicationDetailsPage = () => {
-  const {
-    namespace,
-    application,
-    graphRequests: graphRequestsPayload,
-  } = useLoaderData() as ApplicationDetailsLoaderData
+  const { namespace, application, applicationRequests } =
+    useLoaderData() as ApplicationDetailsLoaderData
 
   const [shallowGraphRequests, setShallowGraphRequests] = useState<
-    ShallowGraphRequest[]
-  >(graphRequestsPayload.requests)
+    ShallowRequest[]
+  >(applicationRequests.requests)
   const [isLoading, setIsLoading] = useState(false)
   const [prevCursor, setPrevCursor] = useState<string | null>(
-    graphRequestsPayload.prev_cursor ? graphRequestsPayload.prev_cursor : null
+    applicationRequests.prev_cursor ? applicationRequests.prev_cursor : null
   )
   const [nextCursor, setNextCursor] = useState<string | null>(
-    graphRequestsPayload.next_cursor ? graphRequestsPayload.next_cursor : null
+    applicationRequests.next_cursor ? applicationRequests.next_cursor : null
   )
 
   const fetchInvocations = useCallback(
