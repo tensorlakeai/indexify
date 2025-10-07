@@ -11,14 +11,14 @@ import {
   Typography,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
-import { RequestOutcome, ShallowGraphRequest } from '../../types/types'
+import { RequestOutcome, ShallowRequest } from '../../types/types'
 import { formatTimestamp } from '../../utils/helpers'
 import CopyText from '../CopyText'
 
 interface GraphRequestTableProps {
   namespace: string
   applicationName: string
-  shallowGraphRequests: ShallowGraphRequest[]
+  shallowGraphRequests: ShallowRequest[]
 }
 
 export function GraphRequestsTable({
@@ -58,15 +58,6 @@ export function GraphRequestsTable({
                 </TableCell>
                 <TableCell>{formatTimestamp(request.created_at)}</TableCell>
                 <TableCell>{renderOutcome(request.outcome)}</TableCell>
-                {/* <TableCell>
-                  <IconButton
-                    onClick={() => handleDelete(request.id)}
-                    color="error"
-                    size="small"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell> */}
               </TableRow>
             ))}
           </TableBody>
@@ -78,7 +69,7 @@ export function GraphRequestsTable({
 
 export default GraphRequestsTable
 
-const renderOutcome = (outcome: RequestOutcome | undefined) => {
+const renderOutcome = (outcome: RequestOutcome | null | undefined) => {
   if (!outcome) {
     return <Chip label="Unknown" size="small" color="default" />
   }
