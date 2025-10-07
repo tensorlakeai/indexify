@@ -36,7 +36,7 @@ pub struct FunctionExecutorManager {
 
 /// Implements the policy around function executors: when to create
 /// them, when to terminate them, and the selection of function
-/// executors appropriate to a given task.
+/// executors appropriate to a given function run.
 impl FunctionExecutorManager {
     pub fn new(clock: u64, queue_size: u32) -> Self {
         Self { clock, queue_size }
@@ -82,7 +82,7 @@ impl FunctionExecutorManager {
         Ok(update)
     }
 
-    /// Creates a new function executor for the given task
+    /// Creates a new function executor for the given function run
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -103,7 +103,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         if candidates.is_empty() {
-            debug!(target: targets::SCHEDULER, "no candidates found for task, running vacuum");
+            debug!(target: targets::SCHEDULER, "no candidates found for function run, running vacuum");
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
@@ -279,7 +279,7 @@ impl FunctionExecutorManager {
         Ok(update)
     }
 
-    /// Removes function executors and handles associated task cleanup
+    /// Removes function executors and handles associated function run cleanup
     #[tracing::instrument(skip(
         self,
         in_memory_state,
@@ -306,8 +306,8 @@ impl FunctionExecutorManager {
             return Ok(update);
         }
 
-        let mut failed_tasks = 0;
-        // Handle allocations for FEs to be removed and update tasks
+        let mut failed_function_runs = 0;
+        // Handle allocations for FEs to be removed and update function runs
         for fe in function_executors_to_remove {
             info!(
                 target: targets::SCHEDULER,
@@ -341,9 +341,10 @@ impl FunctionExecutorManager {
                 else {
                     continue;
                 };
-                // Idempotency: we only act on this alloc's task if the task is currently
-                // running this alloc. This is because we handle allocation
-                // failures on FE termination and alloc output ingestion paths.
+                // Idempotency: we only act on this alloc's function run if the
+                // function run is currently running this alloc. This is because we
+                // handle allocation failures on FE termination and alloc output ingestion
+                // paths.
                 if function_run.status !=
                     FunctionRunStatus::Running(RunningFunctionRunStatus {
                         allocation_id: alloc.id.clone(),
@@ -366,17 +367,17 @@ impl FunctionExecutorManager {
                                 );
                             } else {
                                 // This allocation wasn't blamed for the FE termination,
-                                // retry without involving the task retry policy but still fail the alloc.
+                                // retry without involving the function run retry policy but still fail the alloc.
                                 function_run.status = FunctionRunStatus::Pending;
                             }
 
-                            // Count failed tasks for logging
+                            // Count failed function runs for logging
                             if function_run.status == FunctionRunStatus::Completed {
-                                failed_tasks += 1;
+                                failed_function_runs += 1;
                             }
                         }
                 else {
-                            // Could not get compute graph version, or function executor not terminated; set task to pending
+                            // Could not get compute graph version, or function executor not terminated; set function run to pending
                             function_run.status = FunctionRunStatus::Pending;
                         }
                     }
@@ -397,11 +398,13 @@ impl FunctionExecutorManager {
             }
         }
 
-        info!(
-            target: targets::SCHEDULER,
-            num_failed_allocations = failed_tasks,
-            "failed allocations on executor due to function executor terminations",
-        );
+        if failed_function_runs > 0 {
+            info!(
+                target: targets::SCHEDULER,
+                num_failed_allocations = failed_function_runs,
+                "failed allocations on executor due to function executor terminations",
+            );
+        }
 
         // Add function executors to remove list
         update
@@ -472,24 +475,24 @@ impl FunctionExecutorManager {
         )
     }
 
-    /// Selects or creates a function executor for the given task
+    /// Selects or creates a function executor for the given function run
     /// Returns the allocation target and any scheduler updates
-    #[tracing::instrument(skip(self, in_memory_state, task))]
+    #[tracing::instrument(skip(self, in_memory_state, function_run))]
     pub fn select_or_create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
-        task: &FunctionRun,
+        function_run: &FunctionRun,
     ) -> Result<(Option<AllocationTarget>, SchedulerUpdateRequest)> {
         let mut update = SchedulerUpdateRequest::default();
         let mut function_executors =
-            in_memory_state.candidate_function_executors(task, self.queue_size)?;
+            in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
 
         // If no function executors are available, create one
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            debug!(target: targets::SCHEDULER, "no function executors found for task, creating one");
-            let fe_update = self.create_function_executor(in_memory_state, task)?;
+            debug!(target: targets::SCHEDULER, "no function executors found for function run, creating one");
+            let fe_update = self.create_function_executor(in_memory_state, function_run)?;
             update.extend(fe_update);
             in_memory_state.update_state(
                 self.clock,
@@ -497,14 +500,14 @@ impl FunctionExecutorManager {
                 "function_executor_manager",
             )?;
             function_executors =
-                in_memory_state.candidate_function_executors(task, self.queue_size)?;
+                in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
         }
 
         debug!(
             target: targets::SCHEDULER,
             num_function_executors = function_executors.function_executors.len(),
             num_pending_function_executors = function_executors.num_pending_function_executors,
-            "found function executors for task",
+            "found function executors for function run",
         );
 
         // Select a function executor using the current policy (random selection)
