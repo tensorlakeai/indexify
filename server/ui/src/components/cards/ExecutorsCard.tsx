@@ -16,9 +16,10 @@ import { Box, Stack } from '@mui/system'
 import { ArrowDown2, ArrowUp2, InfoCircle, Setting4 } from 'iconsax-react'
 import { useState } from 'react'
 import { stateBackgroundColorMap, stateColorMap } from '../../theme'
-import { ExecutorMetadata } from '../../types/types'
+
 import DisplayResourceContent from './DisplayResourceContent'
 import { FunctionExecutorsContent } from './FunctionExecutorsContent'
+import { ExecutorMetadata } from '../../types/types'
 
 interface ExecutorsCardProps {
   executors: ExecutorMetadata[]
@@ -203,7 +204,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         </IconButton>
                       </TableCell>
                     </TableRow>
-                    <TableRow>
+                    {/* <TableRow>
                       <TableCell colSpan={2} sx={{ padding: 0 }}>
                         <Collapse
                           in={expandedRows[executor.id + '-allowlist']}
@@ -214,8 +215,8 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                             (functionAllowListEntry) => (
                               <TableRow
                                 key={
-                                  functionAllowListEntry.compute_fn +
-                                  functionAllowListEntry.compute_graph +
+                                  functionAllowListEntry.application +
+                                  functionAllowListEntry.function +
                                   functionAllowListEntry.namespace +
                                   '-allowlist'
                                 }
@@ -259,7 +260,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                           )}
                         </Collapse>
                       </TableCell>
-                    </TableRow>
+                    </TableRow> */}
                   </>
                 )}
 
