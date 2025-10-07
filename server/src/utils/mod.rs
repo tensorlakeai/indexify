@@ -4,7 +4,7 @@ use std::{
 };
 
 #[cfg(test)]
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures::Stream;
 use pin_project::{pin_project, pinned_drop};
 

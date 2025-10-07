@@ -7,7 +7,7 @@ use slatedb::{Db, DbBuilder};
 
 use crate::{
     blob_store::BlobStorage,
-    metrics::{kv_storage::Metrics, Timer},
+    metrics::{Timer, kv_storage::Metrics},
 };
 
 pub struct WriteContextData {

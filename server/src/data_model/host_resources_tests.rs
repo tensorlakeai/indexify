@@ -4,10 +4,10 @@ mod tests {
     use crate::data_model::{
         FunctionExecutorResources,
         FunctionResources,
-        GPUResources,
-        HostResources,
         GPU_MODEL_NVIDIA_A10,
         GPU_MODEL_NVIDIA_A100_40GB,
+        GPUResources,
+        HostResources,
     };
 
     #[test]
@@ -114,13 +114,16 @@ mod tests {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
-                    gpu_configs: vec![GPUResources {
-                        count: 2,
-                        model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
-                    }, GPUResources {
-                        count: 1,
-                        model: GPU_MODEL_NVIDIA_A10.to_string(),
-                    }],
+                    gpu_configs: vec![
+                        GPUResources {
+                            count: 2,
+                            model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
+                        },
+                        GPUResources {
+                            count: 1,
+                            model: GPU_MODEL_NVIDIA_A10.to_string(),
+                        },
+                    ],
                 },
                 expected_can_handle: true,
             },
@@ -139,14 +142,16 @@ mod tests {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
-                    gpu_configs: vec![GPUResources {
-                        count: 4,
-                        model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
-                    },
-                    GPUResources {
-                        count: 2,
-                        model: GPU_MODEL_NVIDIA_A10.to_string(),
-                    }],
+                    gpu_configs: vec![
+                        GPUResources {
+                            count: 4,
+                            model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
+                        },
+                        GPUResources {
+                            count: 2,
+                            model: GPU_MODEL_NVIDIA_A10.to_string(),
+                        },
+                    ],
                 },
                 expected_can_handle: true,
             },
@@ -306,7 +311,7 @@ mod tests {
                     ephemeral_disk_mb: 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: None, // Error expected
+                expected_fe_resources: None,         // Error expected
                 expected_host_resources_after: None, // No change expected
             },
             Case {
@@ -323,7 +328,7 @@ mod tests {
                     ephemeral_disk_mb: 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: None, // Error expected
+                expected_fe_resources: None,         // Error expected
                 expected_host_resources_after: None, // No change expected
             },
             Case {
@@ -340,7 +345,7 @@ mod tests {
                     ephemeral_disk_mb: 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: None, // Error expected
+                expected_fe_resources: None,         // Error expected
                 expected_host_resources_after: None, // No change expected
             },
             Case {
@@ -358,13 +363,16 @@ mod tests {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
-                    gpu_configs: vec![GPUResources {
-                        count: 2,
-                        model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
-                    }, GPUResources {
-                        count: 1,
-                        model: GPU_MODEL_NVIDIA_A10.to_string(),
-                    }],
+                    gpu_configs: vec![
+                        GPUResources {
+                            count: 2,
+                            model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
+                        },
+                        GPUResources {
+                            count: 1,
+                            model: GPU_MODEL_NVIDIA_A10.to_string(),
+                        },
+                    ],
                 },
                 expected_fe_resources: Some(FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,
@@ -400,14 +408,16 @@ mod tests {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
-                    gpu_configs: vec![GPUResources {
-                        count: 4,
-                        model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
-                    },
-                    GPUResources {
-                        count: 2,
-                        model: GPU_MODEL_NVIDIA_A10.to_string(),
-                    }],
+                    gpu_configs: vec![
+                        GPUResources {
+                            count: 4,
+                            model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
+                        },
+                        GPUResources {
+                            count: 2,
+                            model: GPU_MODEL_NVIDIA_A10.to_string(),
+                        },
+                    ],
                 },
                 expected_fe_resources: Some(FunctionExecutorResources {
                     cpu_ms_per_sec: 2000,
@@ -481,7 +491,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }],
                 },
-                expected_fe_resources: None, // Error expected
+                expected_fe_resources: None,         // Error expected
                 expected_host_resources_after: None, // No change expected
             },
             Case {
@@ -504,7 +514,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }],
                 },
-                expected_fe_resources: None, // Error expected
+                expected_fe_resources: None,         // Error expected
                 expected_host_resources_after: None, // No change expected
             },
         ];
@@ -527,7 +537,8 @@ mod tests {
                     case.description
                 );
 
-                assert!(case.expected_host_resources_after.is_some(),
+                assert!(
+                    case.expected_host_resources_after.is_some(),
                     "expected_host_resources_after should be Some when consume_node_resources succeeds: {}",
                     case.description
                 );

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use nanoid::nanoid;
 use tracing::subscriber;
-use tracing_subscriber::{layer::SubscriberExt, Layer};
+use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 use crate::{
     blob_store::BlobStorageConfig,

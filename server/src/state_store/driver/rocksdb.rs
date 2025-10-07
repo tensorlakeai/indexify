@@ -11,7 +11,7 @@ use rocksdb::{
     TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, warn};
 
 use crate::{
@@ -336,7 +336,9 @@ impl Driver for RocksDBDriver {}
 /// and we should crash the server.
 fn unwrap_rocksdb_transaction<'db>(tx: &'db super::Transaction) -> &'db RocksDBTransaction<'db> {
     let super::Transaction::RocksDB(tx) = tx else {
-        panic!("tried to unwrap a RocksDBTransaction from a Transaction that was not created by the RocksDB driver: {tx:?}");
+        panic!(
+            "tried to unwrap a RocksDBTransaction from a Transaction that was not created by the RocksDB driver: {tx:?}"
+        );
     };
     tx
 }

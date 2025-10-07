@@ -7,7 +7,6 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
     Allocation,
     AllocationResult,
     AllowedFunction,
@@ -22,12 +21,13 @@ use executor_api_pb::{
     HostResources,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
+    executor_api_server::ExecutorApi,
 };
 use tokio::sync::{
     broadcast::error::RecvError,
     watch::{self, Receiver, Sender},
 };
-use tokio_stream::{wrappers::WatchStream, Stream};
+use tokio_stream::{Stream, wrappers::WatchStream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -59,6 +59,7 @@ use crate::{
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
+        IndexifyState,
         request_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
             AllocationOutput,
@@ -68,7 +69,6 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
-        IndexifyState,
     },
     utils::get_epoch_time_in_ms,
 };

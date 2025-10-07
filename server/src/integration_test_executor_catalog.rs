@@ -7,9 +7,9 @@ mod tests {
     use crate::{
         config::ExecutorCatalogEntry,
         data_model::{
+            ApplicationState,
             filter::{Expression, LabelsFilter, Operator},
             test_objects::tests::{self as test_objects, TEST_NAMESPACE},
-            ApplicationState,
         },
         state_store::requests::{
             CreateOrUpdateApplicationRequest,
@@ -321,9 +321,9 @@ mod tests {
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
             FunctionResources,
-            GPUResources,
             GPU_MODEL_NVIDIA_A10,
             GPU_MODEL_NVIDIA_H100_80GB,
+            GPUResources,
         };
 
         // Single catalog entry with specific capacities

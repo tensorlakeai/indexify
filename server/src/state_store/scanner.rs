@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
@@ -19,7 +19,7 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{rocksdb::RocksDBDriver, IterOptions, RangeOptionsBuilder, Reader},
+        driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,

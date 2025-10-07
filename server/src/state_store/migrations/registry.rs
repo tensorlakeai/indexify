@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use super::migration_trait::Migration;
 use crate::state_store::migrations::v1_fake_migration::V1FakeMigration;

@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use axum::{
+    Json,
+    Router,
     body::Body,
     extract::{Multipart, Path, State},
     http::Response,
     response::{Html, IntoResponse},
     routing::{get, post, put},
-    Json,
-    Router,
 };
 use hyper::StatusCode;
 use tracing::{error, info};
@@ -15,7 +15,6 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        from_data_model_executor_metadata,
         Allocation,
         CacheKey,
         CreateNamespace,
@@ -29,6 +28,7 @@ use crate::{
         NamespaceList,
         StateChangesResponse,
         UnallocatedFunctionRuns,
+        from_data_model_executor_metadata,
     },
     http_objects_v1::{self, ApplicationState},
     indexify_ui::Assets as UiAssets,

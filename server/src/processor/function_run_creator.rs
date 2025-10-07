@@ -27,9 +27,9 @@ use crate::{
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
+        IndexifyState,
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
-        IndexifyState,
     },
 };
 

@@ -1,14 +1,14 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Result};
-use rocksdb::{ColumnFamilyDescriptor, Options, DB};
+use anyhow::{Result, anyhow};
+use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde_json::Value;
 
 use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{rocksdb::RocksDBDriver, Reader, Transaction},
+        driver::{Reader, Transaction, rocksdb::RocksDBDriver},
         state_machine::IndexifyObjectsColumns,
     },
 };

@@ -72,8 +72,8 @@ where
 
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
 use opentelemetry_sdk::{
-    metrics::{PeriodicReader, SdkMeterProvider},
     Resource,
+    metrics::{PeriodicReader, SdkMeterProvider},
 };
 
 pub fn init_provider(
@@ -170,8 +170,8 @@ pub mod api_io_stats {
 }
 
 use opentelemetry::{
-    metrics::{Counter, Histogram},
     KeyValue,
+    metrics::{Counter, Histogram},
 };
 
 pub trait TimerUpdate {
@@ -302,25 +302,6 @@ pub mod kv_storage {
 
             Metrics { reads, writes }
         }
-    }
-}
-
-use std::fmt::Display;
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub struct FnMetricsId {
-    pub namespace: String,
-    pub application: String,
-    pub function: String,
-}
-
-impl Display for FnMetricsId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}/{}/{}",
-            self.namespace, self.application, self.function
-        )
     }
 }
 

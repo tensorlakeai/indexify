@@ -4,7 +4,7 @@ use crate::{
     blob_store,
     executors::ExecutorManager,
     metrics::api_io_stats,
-    state_store::{kv::KVS, IndexifyState},
+    state_store::{IndexifyState, kv::KVS},
 };
 
 #[derive(Clone)]

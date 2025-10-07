@@ -4,10 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use opentelemetry::{
-    metrics::{Histogram, ObservableGauge},
     KeyValue,
+    metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
@@ -37,12 +37,12 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
+        ExecutorCatalog,
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
-        ExecutorCatalog,
     },
-    utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
 #[derive(Debug, Clone)]
@@ -407,7 +407,7 @@ impl InMemoryMetrics {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
-                                                // non-completed request
+                            // non-completed request
                         }
                         None => 0.0,
                     };
@@ -452,7 +452,7 @@ impl InMemoryMetrics {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
-                                                // non-terminal tasks
+                            // non-terminal tasks
                         }
                         None => 0.0,
                     };
@@ -1270,7 +1270,10 @@ impl InMemoryState {
                     if !found_allowlist_match {
                         debug!(
                             "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
-                            fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                            fe.id.get(),
+                            executor_id.get(),
+                            fe.version,
+                            latest_cg_version
                         );
                         can_be_removed = true;
                     }

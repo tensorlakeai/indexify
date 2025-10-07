@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {

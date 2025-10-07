@@ -3,12 +3,12 @@ use std::{
     fs,
     path::PathBuf,
     sync::{
-        atomic::{self, AtomicU64},
         Arc,
+        atomic::{self, AtomicU64},
     },
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
 use opentelemetry::KeyValue;
 use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
@@ -16,7 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Writer},
+        driver::{Writer, rocksdb::RocksDBDriver},
         request_events::RequestStartedEvent,
     },
 };
@@ -293,10 +293,10 @@ impl IndexifyState {
             }
         }
 
-        if !new_state_changes.is_empty() {
-            if let Err(err) = self.change_events_tx.send(()) {
-                error!("failed to notify of state change event, ignoring: {err:?}",);
-            }
+        if !new_state_changes.is_empty() &&
+            let Err(err) = self.change_events_tx.send(())
+        {
+            error!("failed to notify of state change event, ignoring: {err:?}",);
         }
 
         self.handle_request_state_changes(&request).await;
@@ -400,18 +400,18 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::{
-            mock_application,
-            mock_data_payload,
-            mock_function_call,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-        },
         Application,
         InputArgs,
         Namespace,
         RequestCtxBuilder,
         StateChangeId,
+        test_objects::tests::{
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+            mock_application,
+            mock_data_payload,
+            mock_function_call,
+        },
     };
 
     #[tokio::test]
@@ -451,9 +451,11 @@ mod tests {
         // Check if the namespaces were created
         assert!(namespaces.iter().any(|ns| ns.name == "namespace1"));
         assert!(namespaces.iter().any(|ns| ns.name == "namespace2"));
-        assert!(namespaces
-            .iter()
-            .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string())));
+        assert!(
+            namespaces
+                .iter()
+                .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string()))
+        );
 
         Ok(())
     }

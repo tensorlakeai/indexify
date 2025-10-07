@@ -7,7 +7,7 @@ use std::{
 
 use tokio::{
     sync::watch,
-    time::{sleep_until, Instant, Sleep},
+    time::{Instant, Sleep, sleep_until},
 };
 
 pub struct DynamicSleepFuture {
