@@ -135,8 +135,7 @@ pub mod api_io_stats {
     #[derive(Debug)]
     pub struct Metrics {
         pub requests: Counter<u64>,
-        pub request_bytes: Counter<u64>,
-        pub fn_outputs: Counter<u64>,
+        pub request_input_bytes: Counter<u64>,
     }
 
     impl Default for Metrics {
@@ -150,20 +149,15 @@ pub mod api_io_stats {
             let meter = opentelemetry::global::meter("service-api");
             let requests = meter
                 .u64_counter("indexify.requests")
-                .with_description("number of requests")
+                .with_description("number of created requests")
                 .build();
-            let request_bytes = meter
-                .u64_counter("indexify.request_bytes")
-                .with_description("number of bytes ingested during requests")
-                .build();
-            let fn_outputs = meter
-                .u64_counter("indexify.fn_outputs")
-                .with_description("number of fn outputs")
+            let request_input_bytes = meter
+                .u64_counter("indexify.request_input_bytes")
+                .with_description("request input bytes ingested during request creations")
                 .build();
             Metrics {
                 requests,
-                request_bytes,
-                fn_outputs,
+                request_input_bytes,
             }
         }
     }

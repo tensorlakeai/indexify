@@ -57,7 +57,6 @@ use crate::{
         FunctionExecutorTerminationReason,
     },
     executors::ExecutorManager,
-    metrics::api_io_stats,
     state_store::{
         request_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
@@ -514,7 +513,6 @@ fn to_internal_compute_op(
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
-    api_metrics: Arc<api_io_stats::Metrics>,
     blob_storage_registry: Arc<BlobStorageRegistry>,
 }
 
@@ -522,13 +520,11 @@ impl ExecutorAPIService {
     pub fn new(
         indexify_state: Arc<IndexifyState>,
         executor_manager: Arc<ExecutorManager>,
-        api_metrics: Arc<api_io_stats::Metrics>,
         blob_storage_registry: Arc<BlobStorageRegistry>,
     ) -> Self {
         Self {
             indexify_state,
             executor_manager,
-            api_metrics,
             blob_storage_registry,
         }
     }
@@ -539,17 +535,16 @@ impl ExecutorAPIService {
         alloc_results: Vec<AllocationResult>,
     ) -> Result<Vec<AllocationOutput>> {
         let mut allocation_output_updates = Vec::new();
-        for task_result in alloc_results {
-            self.api_metrics.fn_outputs.add(1, &[]);
-            let function_ref = task_result
+        for alloc_result in alloc_results {
+            let function_ref = alloc_result
                 .function
                 .as_ref()
                 .ok_or(anyhow::anyhow!("function ref is required"))?;
             let allocation_key = data_model::Allocation::key_from(
                 function_ref.namespace(),
                 function_ref.application_name(),
-                task_result.request_id(),
-                task_result.allocation_id(),
+                alloc_result.request_id(),
+                alloc_result.allocation_id(),
             );
             let mut allocation = self
                 .indexify_state
@@ -558,17 +553,17 @@ impl ExecutorAPIService {
                 .map_err(|e| Status::internal(e.to_string()))?
                 .ok_or(anyhow::anyhow!("allocation not found"))?;
             let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
-                task_result.outcome_code.unwrap_or(0),
+                alloc_result.outcome_code.unwrap_or(0),
             )
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-            let failure_reason = task_result
+            let failure_reason = alloc_result
                 .failure_reason
                 .map(|reason| {
                     executor_api_pb::AllocationFailureReason::try_from(reason)
                         .map_err(|e| Status::invalid_argument(e.to_string()))
                 })
                 .transpose()?;
-            let execution_duration_ms = task_result.execution_duration_ms.unwrap_or(0);
+            let execution_duration_ms = alloc_result.execution_duration_ms.unwrap_or(0);
 
             let blob_storage_url_schema = self
                 .blob_storage_registry
@@ -580,7 +575,7 @@ impl ExecutorAPIService {
                 .get_url();
             let mut fn_output: Option<DataPayload> = None;
             let mut request_updates: Option<RequestUpdates> = None;
-            if let Some(return_value) = task_result.return_value.clone() {
+            if let Some(return_value) = alloc_result.return_value.clone() {
                 match return_value {
                     executor_api_pb::allocation_result::ReturnValue::Value(value) => {
                         fn_output = Some(prepare_data_payload(
@@ -611,7 +606,7 @@ impl ExecutorAPIService {
                 }
             }
 
-            let request_error_payload = match task_result.request_error.clone() {
+            let request_error_payload = match alloc_result.request_error.clone() {
                 Some(exception) => Some(prepare_data_payload(
                     exception,
                     &blob_storage_url_schema,
@@ -660,7 +655,7 @@ impl ExecutorAPIService {
 
             let request = AllocationOutput {
                 request_exception: request_error_payload,
-                request_id: task_result.request_id().to_string(),
+                request_id: alloc_result.request_id().to_string(),
                 executor_id: executor_id.clone(),
                 allocation,
                 data_payload: fn_output,

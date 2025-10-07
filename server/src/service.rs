@@ -188,7 +188,6 @@ impl Service {
                 .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
                     indexify_state,
                     executor_manager,
-                    api_metrics,
                     blog_storage_registry,
                 )))
                 .add_service(reflection_service)
