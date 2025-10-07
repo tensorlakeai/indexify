@@ -187,7 +187,11 @@ pub async fn invoke_application_with_object_v1(
         encoding,
     };
 
-    state.metrics.request_bytes.add(data_payload.size, &[]);
+    state
+        .metrics
+        .request_input_bytes
+        .add(data_payload.size, &[]);
+    state.metrics.requests.add(1, &[]);
 
     let application = state
         .indexify_state
@@ -214,7 +218,7 @@ pub async fn invoke_application_with_object_v1(
         vec![data_payload.clone()],
         Bytes::new(),
     );
-    let cg_version = state
+    let app_version = state
         .indexify_state
         .in_memory_state
         .read()
@@ -224,7 +228,7 @@ pub async fn invoke_application_with_object_v1(
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
         ))?;
-    let fn_run = cg_version
+    let fn_run = app_version
         .create_function_run(
             &fn_call,
             vec![InputArgs {
