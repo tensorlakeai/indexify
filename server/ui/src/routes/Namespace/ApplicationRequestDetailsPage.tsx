@@ -14,20 +14,20 @@ import { Link, useLoaderData } from 'react-router-dom'
 import CopyText from '../../components/CopyText'
 import CopyTextPopover from '../../components/CopyTextPopover'
 import FunctionRunsTable from '../../components/tables/FunctionRunsTable'
-import { GraphRequest, RequestOutcome } from '../../types/types'
+import { Request, RequestOutcome } from '../../types/types'
 import { formatTimestamp } from '../../utils/helpers'
 
-const GraphRequestDetailsPage = () => {
-  const { namespace, application, requestId, graphRequest } =
+const ApplicationRequestDetailsPage = () => {
+  const { namespace, application, requestId, applicationRequest } =
     useLoaderData() as {
       indexifyServiceURL: string
       requestId: string
       application: string
       namespace: string
-      graphRequest: GraphRequest
+      applicationRequest: Request
     }
 
-  const renderOutcome = (outcome: RequestOutcome | undefined) => {
+  const renderOutcome = (outcome: RequestOutcome | null | undefined) => {
     if (!outcome) {
       return <Chip label="Unknown" size="small" color="default" />
     }
@@ -117,8 +117,10 @@ const GraphRequestDetailsPage = () => {
                   Request ID
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body1">{graphRequest.id}</Typography>
-                  <CopyText text={graphRequest.id} />
+                  <Typography variant="body1">
+                    {applicationRequest.id}
+                  </Typography>
+                  <CopyText text={applicationRequest.id} />
                 </Box>
               </Grid>
 
@@ -131,7 +133,7 @@ const GraphRequestDetailsPage = () => {
                   Application Version
                 </Typography>
                 <Typography variant="body1">
-                  {graphRequest.application_version}
+                  {applicationRequest.application_version}
                 </Typography>
               </Grid>
 
@@ -144,7 +146,7 @@ const GraphRequestDetailsPage = () => {
                   Created At
                 </Typography>
                 <Typography variant="body1">
-                  {formatTimestamp(graphRequest.created_at)}
+                  {formatTimestamp(applicationRequest.created_at)}
                 </Typography>
               </Grid>
 
@@ -156,10 +158,10 @@ const GraphRequestDetailsPage = () => {
                 >
                   Outcome
                 </Typography>
-                {renderOutcome(graphRequest.outcome)}
+                {renderOutcome(applicationRequest.outcome)}
               </Grid>
 
-              {graphRequest.output && (
+              {applicationRequest.output && (
                 <Grid item xs={12}>
                   <Typography
                     variant="subtitle2"
@@ -176,7 +178,7 @@ const GraphRequestDetailsPage = () => {
                             ID
                           </Typography>
                           <Typography variant="body2">
-                            {graphRequest.output.id}
+                            {applicationRequest.output.id}
                           </Typography>
                         </Grid>
                         <Grid item xs={6} md={4}>
@@ -184,7 +186,7 @@ const GraphRequestDetailsPage = () => {
                             Size
                           </Typography>
                           <Typography variant="body2">
-                            {graphRequest.output.size} bytes
+                            {applicationRequest.output.size} bytes
                           </Typography>
                         </Grid>
                         <Grid item xs={12} md={4}>
@@ -199,10 +201,15 @@ const GraphRequestDetailsPage = () => {
                                 fontSize: '0.75rem',
                               }}
                             >
-                              {graphRequest.output.sha256_hash.substring(0, 16)}
+                              {applicationRequest.output.sha256_hash.substring(
+                                0,
+                                16
+                              )}
                               ...
                             </Typography>
-                            <CopyText text={graphRequest.output.sha256_hash} />
+                            <CopyText
+                              text={applicationRequest.output.sha256_hash}
+                            />
                           </Box>
                         </Grid>
                         <Grid item xs={12}>
@@ -219,9 +226,9 @@ const GraphRequestDetailsPage = () => {
                                 flex: 1,
                               }}
                             >
-                              {graphRequest.output.path}
+                              {applicationRequest.output.path}
                             </Typography>
-                            <CopyText text={graphRequest.output.path} />
+                            <CopyText text={applicationRequest.output.path} />
                           </Box>
                         </Grid>
                       </Grid>
@@ -230,7 +237,7 @@ const GraphRequestDetailsPage = () => {
                 </Grid>
               )}
 
-              {graphRequest.request_error && (
+              {applicationRequest.request_error && (
                 <Grid item xs={12}>
                   <Typography
                     variant="subtitle2"
@@ -248,10 +255,11 @@ const GraphRequestDetailsPage = () => {
                   >
                     <CardContent>
                       <Typography variant="subtitle2" gutterBottom>
-                        Function: {graphRequest.request_error.function_name}
+                        Function:{' '}
+                        {applicationRequest.request_error.function_name}
                       </Typography>
                       <Typography variant="body2">
-                        {graphRequest.request_error.message}
+                        {applicationRequest.request_error.message}
                       </Typography>
                     </CardContent>
                   </Card>
@@ -264,11 +272,11 @@ const GraphRequestDetailsPage = () => {
         <FunctionRunsTable
           namespace={namespace}
           applicationName={application}
-          functionRuns={graphRequest.function_runs}
+          functionRuns={applicationRequest.function_runs}
         />
       </Box>
     </Stack>
   )
 }
 
-export default GraphRequestDetailsPage
+export default ApplicationRequestDetailsPage

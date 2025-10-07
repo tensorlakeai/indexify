@@ -1,9 +1,9 @@
 import { IndexifyClient } from 'getindexify'
 import {
   Application,
+  ApplicationRequests,
   ApplicationsList,
   ExecutorMetadata,
-  GraphRequests,
   Namespace,
 } from '../../types/types'
 
@@ -18,13 +18,7 @@ export interface ApplicationsListLoaderData extends NamespaceLoaderData {
 
 export interface ApplicationDetailsLoaderData extends NamespaceLoaderData {
   application: Application
-  graphRequests: GraphRequests
-}
-
-export interface IndividualInvocationLoaderData extends NamespaceLoaderData {
-  indexifyServiceURL: string
-  invocationId: string
-  computeGraph: string
+  applicationRequests: ApplicationRequests
 }
 
 export interface ExecutorsLoaderData {

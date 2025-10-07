@@ -14,17 +14,17 @@ import { IndexifyClient } from 'getindexify'
 import { ErrorPage } from './error-page'
 import {
   ApplicationDetailsPage,
+  ApplicationRequestDetailsPage,
   ApplicationsListPage,
-  GraphRequestDetailsPage,
 } from './routes/Namespace'
 import ExecutorsPage from './routes/Namespace/ExecutorsPage'
 import Root from './routes/root'
 import { getIndexifyServiceURL } from './utils/helpers'
 import {
+  ApplicationRequestDetailsPageLoader,
   ApplicationsDetailsPageLoader,
   ApplicationsListPageLoader,
   ExecutorsPageLoader,
-  GraphRequestDetailsPageLoader,
 } from './utils/loaders'
 
 function RedirectToComputeGraphs() {
@@ -88,8 +88,8 @@ const router = createBrowserRouter(
         },
         {
           path: '/:namespace/applications/:application/requests/:request-id',
-          element: <GraphRequestDetailsPage />,
-          loader: GraphRequestDetailsPageLoader,
+          element: <ApplicationRequestDetailsPage />,
+          loader: ApplicationRequestDetailsPageLoader,
           errorElement: <ErrorPage />,
         },
         {

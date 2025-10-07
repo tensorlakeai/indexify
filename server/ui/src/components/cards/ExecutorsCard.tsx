@@ -16,9 +16,10 @@ import { Box, Stack } from '@mui/system'
 import { ArrowDown2, ArrowUp2, InfoCircle, Setting4 } from 'iconsax-react'
 import { useState } from 'react'
 import { stateBackgroundColorMap, stateColorMap } from '../../theme'
-import { ExecutorMetadata } from '../../types/types'
+
 import DisplayResourceContent from './DisplayResourceContent'
 import { FunctionExecutorsContent } from './FunctionExecutorsContent'
+import { ExecutorMetadata } from '../../types/types'
 
 interface ExecutorsCardProps {
   executors: ExecutorMetadata[]
@@ -203,63 +204,60 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         </IconButton>
                       </TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={2} sx={{ padding: 0 }}>
-                        <Collapse
-                          in={expandedRows[executor.id + '-allowlist']}
-                          timeout="auto"
-                          unmountOnExit
-                        >
-                          {executor.function_allowlist.map(
-                            (functionAllowListEntry) => (
-                              <TableRow
-                                key={
-                                  functionAllowListEntry.compute_fn +
-                                  functionAllowListEntry.compute_graph +
-                                  functionAllowListEntry.namespace +
-                                  '-allowlist'
-                                }
-                              >
-                                <TableCell
-                                  colSpan={1}
-                                  sx={{
-                                    verticalAlign: 'top',
-                                    fontSize: '0.90rem',
-                                  }}
-                                >
-                                  <p>
-                                    <strong>Namespace:</strong>{' '}
-                                    {functionAllowListEntry.namespace}
-                                  </p>
-                                  <p>
-                                    <strong>Compute Function:</strong>{' '}
-                                    {functionAllowListEntry.compute_fn}
-                                  </p>
-                                </TableCell>
-                                <TableCell
-                                  colSpan={1}
-                                  sx={{
-                                    verticalAlign: 'top',
-                                    fontSize: '0.90rem',
-                                  }}
-                                >
-                                  <p>
-                                    <strong>Compute Graph:</strong>{' '}
-                                    {functionAllowListEntry.compute_graph}
-                                  </p>
-                                  <p>
-                                    <strong>Version:</strong>{' '}
-                                    {functionAllowListEntry.version
-                                      ? functionAllowListEntry.version
-                                      : '-'}
-                                  </p>
-                                </TableCell>
-                              </TableRow>
-                            )
-                          )}
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
+
+                    {Array.isArray(executor.function_allowlist) &&
+                      executor.function_allowlist.length > 0 && (
+                        <TableRow>
+                          <TableCell colSpan={2} sx={{ padding: 0 }}>
+                            <Collapse
+                              in={expandedRows[executor.id + '-allowlist']}
+                              timeout="auto"
+                              unmountOnExit
+                            >
+                              {executor.function_allowlist.map(
+                                (functionAllowListEntry, index) => (
+                                  <TableRow key={`allowlist-${index}`}>
+                                    <TableCell
+                                      colSpan={1}
+                                      sx={{
+                                        verticalAlign: 'top',
+                                        fontSize: '0.90rem',
+                                      }}
+                                    >
+                                      <p>
+                                        <strong>Namespace:</strong>{' '}
+                                        {functionAllowListEntry.namespace}
+                                      </p>
+                                      <p>
+                                        <strong>Compute Function:</strong>{' '}
+                                        {functionAllowListEntry.application}
+                                      </p>
+                                    </TableCell>
+                                    <TableCell
+                                      colSpan={1}
+                                      sx={{
+                                        verticalAlign: 'top',
+                                        fontSize: '0.90rem',
+                                      }}
+                                    >
+                                      <p>
+                                        <strong>Compute Graph:</strong>{' '}
+                                        {functionAllowListEntry.function}
+                                      </p>
+                                      <p>
+                                        <strong>Version:</strong>{' '}
+                                        {functionAllowListEntry.version
+                                          ? functionAllowListEntry.version
+                                          : '-'}
+                                      </p>
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              )}
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      )}
                   </>
                 )}
 

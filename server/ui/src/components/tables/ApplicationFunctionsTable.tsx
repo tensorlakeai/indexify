@@ -12,9 +12,9 @@ import {
 } from '@mui/material'
 import {
   ApplicationFunction,
-  NodeResources,
+  FunctionResources,
   NodeRetryPolicy,
-  Parameter,
+  ParameterMetadata,
   PlacementConstraints,
 } from '../../types/types'
 import CopyText from '../CopyText'
@@ -32,9 +32,9 @@ interface RowData {
   max_concurrency: number
   return_type?: string
   timeout_sec: number
-  parameters: Parameter[]
+  parameters: ParameterMetadata[]
   placement_constraints: PlacementConstraints
-  resources: NodeResources
+  resources: FunctionResources
   retry_policy: NodeRetryPolicy
 }
 
@@ -63,12 +63,12 @@ const TABLE_HEADERS = [
   { key: 'timeout_sec', label: 'Timeout (sec)' },
 ] as const
 
-const formatDataType = (dataType: any): string => {
+const formatDataType = (dataType: unknown): string => {
   if (typeof dataType === 'string') {
     return dataType
   }
 
-  if (typeof dataType === 'object' && dataType !== null) {
+  if (dataType !== null && typeof dataType === 'object' && 'type' in dataType) {
     if (dataType.type) {
       return String(dataType.type)
     }
@@ -81,7 +81,7 @@ const formatDataType = (dataType: any): string => {
 function ApplicationFunctionsTable({
   applicationFunctions,
 }: ApplicationFunctionsTableProps) {
-  const renderParameters = (parameters: Parameter[]) => {
+  const renderParameters = (parameters: ParameterMetadata[]) => {
     if (!parameters || parameters.length === 0) return 'None'
     return (
       <Box>
@@ -93,7 +93,7 @@ function ApplicationFunctionsTable({
             }`}
             size="small"
             sx={{ mr: 0.5, mb: 0.5 }}
-            title={param.description}
+            title={param?.description ? param.description : 'No description'}
           />
         ))}
       </Box>
@@ -121,7 +121,7 @@ function ApplicationFunctionsTable({
     )
   }
 
-  const renderResources = (resources: NodeResources) => {
+  const renderResources = (resources: FunctionResources) => {
     return (
       <Box>
         <Typography variant="caption" display="block">
@@ -175,7 +175,7 @@ function ApplicationFunctionsTable({
       ? formatDataType(func.return_type)
       : undefined,
     timeout_sec: Number(func.timeout_sec),
-    parameters: func.parameters,
+    parameters: func.parameters || [],
     placement_constraints: func.placement_constraints,
     resources: func.resources,
     retry_policy: func.retry_policy,

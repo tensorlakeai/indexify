@@ -20,12 +20,11 @@ export function FunctionExecutorsContent({
             <strong>Namespace:</strong> {functionExecutor.namespace}
           </p>
           <p>
-            <strong>Compute Graph:</strong>{' '}
-            {functionExecutor.compute_graph_name}
+            <strong>Application Name:</strong>{' '}
+            {functionExecutor.application_name}
           </p>
           <p>
-            <strong>Compute Function Name:</strong>{' '}
-            {functionExecutor.compute_fn_name}
+            <strong>Function Name:</strong> {functionExecutor.function_name}
           </p>
         </TableCell>
         <TableCell
