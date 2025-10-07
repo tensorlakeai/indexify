@@ -3,9 +3,8 @@ import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
   Application,
+  ApplicationRequests,
   ApplicationsList,
-  GraphRequest,
-  GraphRequests,
 } from '../types/types'
 import { getIndexifyServiceURL } from './helpers'
 
@@ -70,21 +69,21 @@ export async function ApplicationsDetailsPageLoader({
     const applicationPayload = await apiGet<Application>(
       `/v1/namespaces/${namespace}/applications/${application}`
     )
-    const graphRequests = await apiGet<GraphRequests>(
+    const applicationRequests = await apiGet<ApplicationRequests>(
       `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
     )
     return {
       client,
       namespace,
       application: applicationPayload,
-      graphRequests,
+      applicationRequests,
     }
   } catch {
-    return { client, namespace, application: null, graphRequests: null }
+    return { client, namespace, application: null, applicationRequests: null }
   }
 }
 
-export async function GraphRequestDetailsPageLoader({
+export async function ApplicationRequestDetailsPageLoader({
   params,
 }: LoaderFunctionArgs) {
   const namespace = params.namespace || 'default'
@@ -93,11 +92,17 @@ export async function GraphRequestDetailsPageLoader({
   const client = createClient(namespace)
 
   try {
-    const graphRequest = await apiGet<GraphRequest>(
+    const applicationRequest = await apiGet<Request>(
       `/v1/namespaces/${namespace}/applications/${application}/requests/${requestId}`
     )
-    return { client, namespace, application, requestId, graphRequest }
+    return { client, namespace, application, requestId, applicationRequest }
   } catch {
-    return { client, namespace, application, requestId, graphRequest: null }
+    return {
+      client,
+      namespace,
+      application,
+      requestId,
+      applicationRequest: null,
+    }
   }
 }
