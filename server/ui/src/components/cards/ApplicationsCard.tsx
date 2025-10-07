@@ -1,13 +1,14 @@
 import DeleteIcon from '@mui/icons-material/Delete'
 import {
   Alert,
+  Box,
   Card,
   CardContent,
   Grid,
   IconButton,
+  Stack,
   Typography,
 } from '@mui/material'
-import { Box, Stack } from '@mui/system'
 import { IndexifyClient } from 'getindexify'
 import { Cpu, InfoCircle } from 'iconsax-react'
 import { useState } from 'react'

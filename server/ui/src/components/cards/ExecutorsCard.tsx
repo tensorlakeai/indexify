@@ -1,9 +1,11 @@
 import {
   Alert,
+  Box,
   Chip,
   Collapse,
   IconButton,
   Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -12,7 +14,6 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { Box, Stack } from '@mui/system'
 import { ArrowDown2, ArrowUp2, InfoCircle, Setting4 } from 'iconsax-react'
 import { useState } from 'react'
 import { stateBackgroundColorMap, stateColorMap } from '../../theme'

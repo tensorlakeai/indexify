@@ -1,5 +1,12 @@
-import { Alert, IconButton, Typography, Paper, Grid } from '@mui/material'
-import { Box, Stack } from '@mui/system'
+import {
+  Alert,
+  IconButton,
+  Typography,
+  Paper,
+  Grid,
+  Box,
+  Stack,
+} from '@mui/material'
 import { TableDocument, InfoCircle } from 'iconsax-react'
 import { formatTimestamp } from '../../utils/helpers'
 import { Namespace } from '../../types/types'
