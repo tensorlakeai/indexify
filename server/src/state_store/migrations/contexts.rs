@@ -241,7 +241,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
-        let cf_name = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
+        let cf_name = IndexifyObjectsColumns::RequestCtx.as_ref();
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new("default", Options::default()),
             ColumnFamilyDescriptor::new(cf_name, Options::default()),
@@ -261,7 +261,7 @@ mod tests {
         let key = b"test_key";
         let value = serde_json::to_vec(&test_json)?;
 
-        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
+        let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
         db.put(cf, key, &value)?;
 
         // Create migration context
@@ -269,7 +269,7 @@ mod tests {
         let ctx = MigrationContext::new(&db, &txn);
 
         // Test JSON operations
-        ctx._update_json(&IndexifyObjectsColumns::GraphInvocationCtx, key, |json| {
+        ctx._update_json(&IndexifyObjectsColumns::RequestCtx, key, |json| {
             // Rename field
             ctx.rename_json_field(json, "old_field", "new_field")?;
 
@@ -282,7 +282,7 @@ mod tests {
         txn.commit()?;
 
         // Verify changes
-        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
+        let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
         let updated_bytes = db.get(cf, key)?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 

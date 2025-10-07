@@ -7,27 +7,27 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     AllocationFailureReason,
     AllocationOutcomeCode,
     FunctionExecutorTerminationReason,
-    TaskAllocation,
 )
 
 
-class TaskAllocationMetrics:
-    """Metrics for a task allocation."""
+class AllocationMetrics:
+    """Metrics for an allocation."""
 
     def __init__(self, counters: Dict[str, int], timers: Dict[str, float]):
         self.counters = counters
         self.timers = timers
 
 
-class TaskAllocationOutput:
-    """Result of running a task allocation."""
+class AllocationOutput:
+    """Result of running an allocation."""
 
     def __init__(
         self,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         outcome_code: AllocationOutcomeCode,
         failure_reason: AllocationFailureReason | None = None,
         output_value: SerializedObjectInsideBLOB | None = None,
@@ -35,7 +35,7 @@ class TaskAllocationOutput:
         uploaded_function_outputs_blob: BLOB | None = None,
         request_error_output: SerializedObjectInsideBLOB | None = None,
         uploaded_request_error_blob: BLOB | None = None,
-        metrics: TaskAllocationMetrics | None = None,
+        metrics: AllocationMetrics | None = None,
         execution_start_time: float | None = None,
         execution_end_time: float | None = None,
     ):
@@ -54,12 +54,12 @@ class TaskAllocationOutput:
     @classmethod
     def internal_error(
         cls,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         execution_start_time: float | None,
         execution_end_time: float | None,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for an internal error."""
-        return TaskAllocationOutput(
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for an internal error."""
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR,
@@ -70,12 +70,12 @@ class TaskAllocationOutput:
     @classmethod
     def function_timeout(
         cls,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         execution_start_time: float | None,
         execution_end_time: float | None,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for a function timeout error."""
-        return TaskAllocationOutput(
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for a function timeout error."""
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
@@ -86,13 +86,13 @@ class TaskAllocationOutput:
     @classmethod
     def function_executor_unresponsive(
         cls,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         execution_start_time: float | None,
         execution_end_time: float | None,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for an unresponsive FE aka grey failure."""
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for an unresponsive FE aka grey failure."""
         # When FE is unresponsive we don't know exact cause of the failure.
-        return TaskAllocationOutput(
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             # Treat the grey failure as a function error and thus charge the customer.
@@ -103,17 +103,17 @@ class TaskAllocationOutput:
         )
 
     @classmethod
-    def task_allocation_cancelled(
+    def allocation_cancelled(
         cls,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         execution_start_time: float | None,
         execution_end_time: float | None,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for the case when task allocation didn't finish because its allocation was removed by Server."""
-        return TaskAllocationOutput(
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for the case when allocation didn't finish because its allocation was removed by Server."""
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
-            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_TASK_CANCELLED,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED,
             execution_start_time=execution_start_time,
             execution_end_time=execution_end_time,
         )
@@ -121,10 +121,10 @@ class TaskAllocationOutput:
     @classmethod
     def function_executor_terminated(
         cls,
-        allocation: TaskAllocation,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for the case when task allocation didn't run because its FE terminated."""
-        return TaskAllocationOutput(
+        allocation: Allocation,
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for the case when allocation didn't run because its FE terminated."""
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
@@ -133,12 +133,12 @@ class TaskAllocationOutput:
     @classmethod
     def function_executor_startup_failed(
         cls,
-        allocation: TaskAllocation,
+        allocation: Allocation,
         fe_termination_reason: FunctionExecutorTerminationReason,
         logger: Any,
-    ) -> "TaskAllocationOutput":
-        """Creates a TaskAllocationOutput for the case when we fail a task allocation that didn't run because its FE startup failed."""
-        return TaskAllocationOutput(
+    ) -> "AllocationOutput":
+        """Creates AllocationOutput for the case when we fail an allocation that didn't run because its FE startup failed."""
+        return AllocationOutput(
             allocation=allocation,
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=_fe_startup_failure_reason_to_alloc_failure_reason(

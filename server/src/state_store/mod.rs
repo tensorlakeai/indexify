@@ -10,8 +10,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
-use invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent};
 use opentelemetry::KeyValue;
+use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
@@ -25,7 +25,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{rocksdb::RocksDBDriver, Writer},
-        invocation_events::RequestStartedEvent,
+        request_events::RequestStartedEvent,
     },
 };
 
@@ -43,10 +43,10 @@ impl ExecutorCatalog {
 
 pub mod driver;
 pub mod in_memory_state;
-pub mod invocation_events;
 pub mod kv;
 pub mod migration_runner;
 pub mod migrations;
+pub mod request_events;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
@@ -92,7 +92,7 @@ pub struct IndexifyState {
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
     pub state_change_id_seq: Arc<AtomicU64>,
-    pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
+    pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub change_events_tx: tokio::sync::watch::Sender<()>,
@@ -153,7 +153,7 @@ impl IndexifyState {
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
-            task_event_tx,
+            function_run_event_tx: task_event_tx,
             gc_tx,
             gc_rx,
             metrics: state_store_metrics,
@@ -200,15 +200,15 @@ impl IndexifyState {
         let txn = self.db.transaction();
 
         match &request.payload {
-            RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
+            RequestPayload::InvokeApplication(invoke_application_request) => {
                 let _enter = span!(
                     tracing::Level::INFO,
-                    "invoke_compute_graph",
-                    namespace = invoke_compute_graph_request.namespace.clone(),
-                    invocation_id = invoke_compute_graph_request.ctx.request_id.clone(),
-                    graph = invoke_compute_graph_request.compute_graph_name.clone(),
+                    "invoke_application",
+                    namespace = invoke_application_request.namespace.clone(),
+                    request_id = invoke_application_request.ctx.request_id.clone(),
+                    app = invoke_application_request.application_name.clone(),
                 );
-                state_machine::create_invocation(&txn, invoke_compute_graph_request)?;
+                state_machine::create_request(&txn, invoke_application_request)?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
                 state_machine::handle_scheduler_update(&txn, request)?;
@@ -217,19 +217,19 @@ impl IndexifyState {
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
             }
-            RequestPayload::CreateOrUpdateComputeGraph(req) => {
-                state_machine::create_or_update_compute_graph(
+            RequestPayload::CreateOrUpdateApplication(req) => {
+                state_machine::create_or_update_application(
                     &txn,
-                    req.compute_graph.clone(),
+                    req.application.clone(),
                     req.upgrade_requests_to_current_version,
                 )?;
             }
-            RequestPayload::DeleteComputeGraphRequest((request, processed_state_changes)) => {
-                state_machine::delete_compute_graph(&txn, &request.namespace, &request.name)?;
+            RequestPayload::DeleteApplicationRequest((request, processed_state_changes)) => {
+                state_machine::delete_application(&txn, &request.namespace, &request.name)?;
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
-            RequestPayload::DeleteInvocationRequest((request, processed_state_changes)) => {
-                state_machine::delete_invocation(&txn, request)?;
+            RequestPayload::DeleteRequestRequest((request, processed_state_changes)) => {
+                state_machine::delete_request(&txn, request)?;
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -299,14 +299,14 @@ impl IndexifyState {
             }
         }
 
-        self.handle_invocation_state_changes(&request).await;
+        self.handle_request_state_changes(&request).await;
 
         // This needs to be after the transaction is committed because if the gc
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteComputeGraphRequest(_) |
-            RequestPayload::DeleteInvocationRequest(_) => {
+            RequestPayload::DeleteApplicationRequest(_) |
+            RequestPayload::DeleteRequestRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -314,15 +314,15 @@ impl IndexifyState {
         Ok(())
     }
 
-    async fn handle_invocation_state_changes(&self, update_request: &StateMachineUpdateRequest) {
-        if self.task_event_tx.receiver_count() == 0 {
+    async fn handle_request_state_changes(&self, update_request: &StateMachineUpdateRequest) {
+        if self.function_run_event_tx.receiver_count() == 0 {
             return;
         }
         match &update_request.payload {
-            RequestPayload::InvokeComputeGraph(request) => {
+            RequestPayload::InvokeApplication(request) => {
                 let _ = self
-                    .task_event_tx
-                    .send(InvocationStateChangeEvent::RequestStarted(
+                    .function_run_event_tx
+                    .send(RequestStateChangeEvent::RequestStarted(
                         RequestStartedEvent {
                             request_id: request.ctx.request_id.clone(),
                         },
@@ -330,57 +330,53 @@ impl IndexifyState {
             }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
-                    let ev =
-                        InvocationStateChangeEvent::from_task_finished(allocation_output.clone());
-                    let _ = self.task_event_tx.send(ev);
+                    let ev = RequestStateChangeEvent::from_finished_function_run(
+                        allocation_output.clone(),
+                    );
+                    let _ = self.function_run_event_tx.send(ev);
                 }
             }
             RequestPayload::SchedulerUpdate((sched_update, _)) => {
                 for allocation in &sched_update.new_allocations {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::TaskAssigned(
-                            invocation_events::TaskAssigned {
-                                request_id: allocation.invocation_id.clone(),
-                                fn_name: allocation.compute_fn.clone(),
-                                task_id: allocation.function_call_id.to_string(),
+                    let _ = self.function_run_event_tx.send(
+                        RequestStateChangeEvent::FunctionRunAssigned(
+                            request_events::FunctionRunAssigned {
+                                request_id: allocation.request_id.clone(),
+                                function_name: allocation.function.clone(),
+                                function_run_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
                             },
-                        ));
+                        ),
+                    );
                 }
 
                 for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                     for function_call_id in function_call_ids {
-                        let ctx = sched_update
-                            .updated_invocations_states
-                            .get(ctx_key)
-                            .cloned();
+                        let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
                         let function_run =
                             ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                         if let Some(function_run) = function_run {
-                            let _ =
-                                self.task_event_tx
-                                    .send(InvocationStateChangeEvent::TaskCreated(
-                                        invocation_events::TaskCreated {
-                                            request_id: function_run.request_id.clone(),
-                                            fn_name: function_run.name.clone(),
-                                            task_id: function_run.id.to_string(),
-                                        },
-                                    ));
+                            let _ = self.function_run_event_tx.send(
+                                RequestStateChangeEvent::FunctionRunCreated(
+                                    request_events::FunctionRunCreated {
+                                        request_id: function_run.request_id.clone(),
+                                        function_name: function_run.name.clone(),
+                                        function_run_id: function_run.id.to_string(),
+                                    },
+                                ),
+                            );
                         }
                     }
                 }
 
-                for invocation_ctx in sched_update.updated_invocations_states.values() {
-                    if invocation_ctx.outcome.is_some() {
-                        let _ =
-                            self.task_event_tx
-                                .send(InvocationStateChangeEvent::RequestFinished(
-                                    RequestFinishedEvent {
-                                        request_id: invocation_ctx.request_id.clone(),
-                                    },
-                                ));
+                for request_ctx in sched_update.updated_request_states.values() {
+                    if request_ctx.outcome.is_some() {
+                        let _ = self.function_run_event_tx.send(
+                            RequestStateChangeEvent::RequestFinished(RequestFinishedEvent {
+                                request_id: request_ctx.request_id.clone(),
+                            }),
+                        );
                     }
                 }
             }
@@ -392,34 +388,29 @@ impl IndexifyState {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
     }
 
-    pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
-        self.task_event_tx.subscribe()
+    pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
+        self.function_run_event_tx.subscribe()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use requests::{
-        CreateOrUpdateComputeGraphRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
-    };
+    use requests::{CreateOrUpdateApplicationRequest, InvokeApplicationRequest, NamespaceRequest};
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         test_objects::tests::{
+            mock_application,
             mock_data_payload,
             mock_function_call,
-            mock_graph,
             TEST_EXECUTOR_ID,
             TEST_NAMESPACE,
         },
-        ComputeGraph,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
+        Application,
         InputArgs,
         Namespace,
+        RequestCtxBuilder,
         StateChangeId,
     };
 
@@ -472,29 +463,28 @@ mod tests {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
         // Create a compute graph and write it
-        let compute_graph = mock_graph();
-        _write_to_test_state_store(&indexify_state, compute_graph).await?;
+        let application = mock_application();
+        _write_to_test_state_store(&indexify_state, application).await?;
 
         // Read the compute graph
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+        let applications = _read_cgs_from_state_store(&indexify_state);
 
         // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+        assert!(applications.iter().any(|cg| cg.name == "graph_A"));
 
         for i in 2..4 {
             // Update the graph
-            let mut compute_graph = mock_graph();
-            compute_graph.version = GraphVersion(i.to_string());
+            let mut application = mock_application();
+            application.version = i.to_string();
 
-            _write_to_test_state_store(&indexify_state, compute_graph).await?;
+            _write_to_test_state_store(&indexify_state, application).await?;
 
             // Read it again
-            let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+            let application = _read_cgs_from_state_store(&indexify_state);
 
             // Verify the name is the same. Verify the version is different.
-            assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-            // println!("compute graph {:?}", compute_graphs[0]);
-            assert_eq!(compute_graphs[0].version, GraphVersion(i.to_string()));
+            assert!(application.iter().any(|cg| cg.name == "graph_A"));
+            assert_eq!(application[0].version, i.to_string());
         }
 
         Ok(())
@@ -504,7 +494,7 @@ mod tests {
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         let tx = indexify_state.db.transaction();
-        let function_run = tests::mock_graph()
+        let function_run = tests::mock_application()
             .to_version()
             .unwrap()
             .create_function_run(
@@ -516,9 +506,9 @@ mod tests {
                 "foo1",
             )?;
 
-        let ctx = GraphInvocationCtxBuilder::default()
+        let ctx = RequestCtxBuilder::default()
             .namespace("namespace1".to_string())
-            .compute_graph_name("cg1".to_string())
+            .application_name("cg1".to_string())
             .request_id("foo1".to_string())
             .function_calls(HashMap::from([(
                 function_run.id.clone(),
@@ -528,13 +518,13 @@ mod tests {
                 function_run.id.clone(),
                 function_run.clone(),
             )]))
-            .graph_version(GraphVersion("1".to_string()))
+            .application_version("1".to_string())
             .build()?;
-        let state_change_1 = state_changes::invoke_compute_graph(
+        let state_change_1 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
-            &InvokeComputeGraphRequest {
+            &InvokeApplicationRequest {
                 namespace: "namespace".to_string(),
-                compute_graph_name: "graph_A".to_string(),
+                application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
             },
         )
@@ -552,11 +542,11 @@ mod tests {
         tx.commit().unwrap();
 
         let tx = indexify_state.db.transaction();
-        let state_change_3 = state_changes::invoke_compute_graph(
+        let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
-            &InvokeComputeGraphRequest {
+            &InvokeApplicationRequest {
                 namespace: "namespace".to_string(),
-                compute_graph_name: "graph_A".to_string(),
+                application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
             },
         )
@@ -598,10 +588,10 @@ mod tests {
         let columns = vec![
             "StateMachineMetadata",
             "Namespaces",
-            "ComputeGraphs",
-            "ComputeGraphVersions",
-            "GraphInvocationCtx",
-            "GraphInvocationCtxSecondaryIndex",
+            "Applications",
+            "ApplicationVersions",
+            "RequestCtx",
+            "RequestCtxSecondaryIndex",
             "UnprocessedStateChanges",
             "Allocations",
             "GcUrls",
@@ -640,29 +630,29 @@ mod tests {
         Ok(())
     }
 
-    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<ComputeGraph> {
+    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<Application> {
         let reader = indexify_state.reader();
         let result = reader
-            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
+            .get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications)
             .unwrap();
-        let compute_graphs = result
+        let applications = result
             .iter()
             .map(|(_, cg)| cg.clone())
-            .collect::<Vec<ComputeGraph>>();
+            .collect::<Vec<Application>>();
 
-        compute_graphs
+        applications
     }
 
     async fn _write_to_test_state_store(
         indexify_state: &Arc<IndexifyState>,
-        compute_graph: ComputeGraph,
+        application: Application,
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateOrUpdateComputeGraph(Box::new(
-                    CreateOrUpdateComputeGraphRequest {
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                    CreateOrUpdateApplicationRequest {
                         namespace: TEST_NAMESPACE.to_string(),
-                        compute_graph: compute_graph.clone(),
+                        application: application.clone(),
                         upgrade_requests_to_current_version: false,
                     },
                 )),

@@ -4,22 +4,15 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{
-        self,
-        ComputeGraphBuilder,
-        GraphInvocationCtx,
-        GraphInvocationFailureReason,
-        GraphInvocationOutcome,
-    },
+    data_model::{self, ApplicationBuilder, RequestCtx},
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
         DataPayload,
-        GraphVersion,
+        FunctionRunOutcome,
+        FunctionRunStatus,
         IndexifyAPIError,
         RequestError,
-        TaskOutcome,
-        TaskStatus,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -32,8 +25,8 @@ pub struct EntryPointManifest {
     pub output_type_hints_base64: String,
 }
 
-impl From<data_model::EntryPointManifest> for EntryPointManifest {
-    fn from(entrypoint: data_model::EntryPointManifest) -> Self {
+impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
+    fn from(entrypoint: data_model::ApplicationEntryPoint) -> Self {
         Self {
             function_name: entrypoint.function_name,
             input_serializer: entrypoint.input_serializer,
@@ -52,23 +45,23 @@ pub enum ApplicationState {
     },
 }
 
-impl From<data_model::ComputeGraphState> for ApplicationState {
-    fn from(state: data_model::ComputeGraphState) -> Self {
+impl From<data_model::ApplicationState> for ApplicationState {
+    fn from(state: data_model::ApplicationState) -> Self {
         match state {
-            data_model::ComputeGraphState::Active => ApplicationState::Active,
-            data_model::ComputeGraphState::Disabled { reason } => {
+            data_model::ApplicationState::Active => ApplicationState::Active,
+            data_model::ApplicationState::Disabled { reason } => {
                 ApplicationState::Disabled { reason }
             }
         }
     }
 }
 
-impl From<ApplicationState> for data_model::ComputeGraphState {
+impl From<ApplicationState> for data_model::ApplicationState {
     fn from(state: ApplicationState) -> Self {
         match state {
-            ApplicationState::Active => data_model::ComputeGraphState::Active,
+            ApplicationState::Active => data_model::ApplicationState::Active,
             ApplicationState::Disabled { reason } => {
-                data_model::ComputeGraphState::Disabled { reason }
+                data_model::ApplicationState::Disabled { reason }
             }
         }
     }
@@ -82,7 +75,7 @@ pub struct Application {
     // This is not supplied by the client, do we need this here?
     #[serde(default)]
     pub tombstoned: bool,
-    pub version: GraphVersion,
+    pub version: String,
     pub tags: HashMap<String, String>,
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
@@ -100,31 +93,30 @@ impl Application {
         code_path: &str,
         sha256_hash: &str,
         size: u64,
-    ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
-        let mut nodes = HashMap::new();
+    ) -> Result<data_model::Application, IndexifyAPIError> {
+        let mut functions = HashMap::new();
         for (name, node) in self.functions {
             node.validate()?;
-            let converted_node: data_model::ComputeFn = node.try_into().map_err(|e| {
+            let converted_node: data_model::Function = node.try_into().map_err(|e| {
                 IndexifyAPIError::bad_request(&format!(
                     "Invalid placement constraints in function '{name}': {e}"
                 ))
             })?;
-            nodes.insert(name, converted_node);
+            functions.insert(name, converted_node);
         }
-        let Some(start_fn) = nodes.get(&self.entrypoint.function_name) else {
+        let Some(_start_fn) = functions.get(&self.entrypoint.function_name) else {
             return Err(IndexifyAPIError::bad_request(&format!(
                 "Entry point function '{}' not found",
                 self.entrypoint.function_name
             )));
         };
 
-        let compute_graph = ComputeGraphBuilder::default()
+        let application = ApplicationBuilder::default()
             .name(self.name)
             .namespace(self.namespace)
             .description(self.description)
-            .start_fn(start_fn.clone())
             .tags(self.tags)
-            .version(self.version.into())
+            .version(self.version)
             .code(data_model::DataPayload {
                 id: nanoid::nanoid!(),
                 metadata_size: 0,
@@ -134,11 +126,11 @@ impl Application {
                 size,
                 path: code_path.to_string(),
             })
-            .nodes(nodes)
+            .functions(functions)
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
             .state(self.state.into())
-            .entrypoint(data_model::EntryPointManifest {
+            .entrypoint(data_model::ApplicationEntryPoint {
                 function_name: self.entrypoint.function_name,
                 input_serializer: self.entrypoint.input_serializer,
                 output_serializer: self.entrypoint.output_serializer,
@@ -146,29 +138,29 @@ impl Application {
             })
             .build()
             .map_err(|e| {
-                IndexifyAPIError::bad_request(&format!("Failed to create ComputeGraph: {e}"))
+                IndexifyAPIError::bad_request(&format!("Failed to create application: {e}"))
             })?;
-        Ok(compute_graph)
+        Ok(application)
     }
 }
 
-impl From<data_model::ComputeGraph> for Application {
-    fn from(compute_graph: data_model::ComputeGraph) -> Self {
+impl From<data_model::Application> for Application {
+    fn from(application: data_model::Application) -> Self {
         let mut nodes = HashMap::new();
-        for (k, v) in compute_graph.nodes.into_iter() {
+        for (k, v) in application.functions.into_iter() {
             nodes.insert(k, v.into());
         }
         Self {
-            name: compute_graph.name,
-            namespace: compute_graph.namespace,
-            description: compute_graph.description,
-            tags: compute_graph.tags,
-            entrypoint: compute_graph.entrypoint.into(),
-            version: compute_graph.version.into(),
+            name: application.name,
+            namespace: application.namespace,
+            description: application.description,
+            tags: application.tags,
+            entrypoint: application.entrypoint.into(),
+            version: application.version,
             functions: nodes,
-            created_at: compute_graph.created_at,
-            tombstoned: compute_graph.tombstoned,
-            state: compute_graph.state.into(),
+            created_at: application.created_at,
+            tombstoned: application.tombstoned,
+            state: application.state.into(),
         }
     }
 }
@@ -180,7 +172,7 @@ pub struct ApplicationsList {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ShallowGraphRequest {
+pub struct ShallowRequest {
     pub id: String,
     pub created_at: u128,
     pub outcome: Option<RequestOutcome>,
@@ -188,21 +180,21 @@ pub struct ShallowGraphRequest {
     pub application_version: String,
 }
 
-impl From<GraphInvocationCtx> for ShallowGraphRequest {
-    fn from(ctx: GraphInvocationCtx) -> Self {
+impl From<RequestCtx> for ShallowRequest {
+    fn from(ctx: RequestCtx) -> Self {
         Self {
             id: ctx.request_id.to_string(),
             created_at: ctx.created_at.into(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             function_runs_count: ctx.function_runs.len(),
-            application_version: ctx.graph_version.to_string(),
+            application_version: ctx.application_version.to_string(),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GraphRequests {
-    pub requests: Vec<ShallowGraphRequest>,
+pub struct ApplicationRequests {
+    pub requests: Vec<ShallowRequest>,
     pub prev_cursor: Option<String>,
     pub next_cursor: Option<String>,
 }
@@ -210,10 +202,12 @@ pub struct GraphRequests {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FunctionRun {
     pub id: String,
-    pub function_name: String,
-    pub status: TaskStatus,
-    pub outcome: Option<TaskOutcome>,
-    pub application_version: GraphVersion,
+    pub name: String,
+    pub application: String,
+    pub namespace: String,
+    pub status: FunctionRunStatus,
+    pub outcome: Option<FunctionRunOutcome>,
+    pub application_version: String,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
 }
@@ -225,10 +219,12 @@ impl FunctionRun {
     ) -> Self {
         Self {
             id: function_run.id.to_string(),
-            function_name: function_run.name,
+            name: function_run.name,
+            application: function_run.application,
+            namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             status: function_run.status.into(),
-            application_version: function_run.graph_version.into(),
+            application_version: function_run.version,
             allocations,
             created_at: function_run.creation_time_ns,
         }
@@ -257,12 +253,12 @@ pub enum RequestOutcome {
     Failure(RequestFailureReason),
 }
 
-impl From<GraphInvocationOutcome> for RequestOutcome {
-    fn from(outcome: GraphInvocationOutcome) -> Self {
+impl From<data_model::RequestOutcome> for RequestOutcome {
+    fn from(outcome: data_model::RequestOutcome) -> Self {
         match outcome {
-            GraphInvocationOutcome::Unknown => RequestOutcome::Undefined,
-            GraphInvocationOutcome::Success => RequestOutcome::Success,
-            GraphInvocationOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
+            data_model::RequestOutcome::Unknown => RequestOutcome::Undefined,
+            data_model::RequestOutcome::Success => RequestOutcome::Success,
+            data_model::RequestOutcome::Failure(reason) => RequestOutcome::Failure(reason.into()),
         }
     }
 }
@@ -274,21 +270,17 @@ pub enum RequestFailureReason {
     InternalError,
     FunctionError,
     RequestError,
-    NextFunctionNotFound,
     ConstraintUnsatisfiable,
 }
 
-impl From<GraphInvocationFailureReason> for RequestFailureReason {
-    fn from(failure_reason: GraphInvocationFailureReason) -> Self {
+impl From<data_model::RequestFailureReason> for RequestFailureReason {
+    fn from(failure_reason: data_model::RequestFailureReason) -> Self {
         match failure_reason {
-            GraphInvocationFailureReason::Unknown => RequestFailureReason::Unknown,
-            GraphInvocationFailureReason::InternalError => RequestFailureReason::InternalError,
-            GraphInvocationFailureReason::FunctionError => RequestFailureReason::FunctionError,
-            GraphInvocationFailureReason::InvocationError => RequestFailureReason::RequestError,
-            GraphInvocationFailureReason::NextFunctionNotFound => {
-                RequestFailureReason::NextFunctionNotFound
-            }
-            GraphInvocationFailureReason::ConstraintUnsatisfiable => {
+            data_model::RequestFailureReason::Unknown => RequestFailureReason::Unknown,
+            data_model::RequestFailureReason::InternalError => RequestFailureReason::InternalError,
+            data_model::RequestFailureReason::FunctionError => RequestFailureReason::FunctionError,
+            data_model::RequestFailureReason::RequestError => RequestFailureReason::RequestError,
+            data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
         }
@@ -308,9 +300,9 @@ pub struct Request {
 
 impl Request {
     pub fn build(
-        ctx: GraphInvocationCtx,
+        ctx: RequestCtx,
         output: Option<DataPayload>,
-        invocation_error: Option<RequestError>,
+        request_error: Option<RequestError>,
         allocations: Vec<data_model::Allocation>,
     ) -> Self {
         let mut allocs_by_function_call_id: HashMap<String, Vec<Allocation>> = HashMap::new();
@@ -334,9 +326,9 @@ impl Request {
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
-            application_version: ctx.graph_version.0,
+            application_version: ctx.application_version.to_string(),
             created_at: ctx.created_at.into(),
-            request_error: invocation_error,
+            request_error,
             output,
             function_runs,
         }
@@ -350,7 +342,7 @@ pub struct Allocation {
     pub executor_id: String,
     pub function_executor_id: String,
     pub created_at: u128,
-    pub outcome: TaskOutcome,
+    pub outcome: FunctionRunOutcome,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
@@ -359,7 +351,7 @@ impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
         Self {
             id: allocation.id.to_string(),
-            function_name: allocation.compute_fn.to_string(),
+            function_name: allocation.function.to_string(),
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             created_at: allocation.created_at,

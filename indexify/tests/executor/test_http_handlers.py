@@ -101,12 +101,12 @@ class TestMetrics(unittest.TestCase):
             "application_downloads_from_cache_total",
             "application_download_latency_seconds_count",
             "application_download_latency_seconds_sum",
-            # task allocation preparation
-            "task_allocation_preparations_total",
-            "task_allocation_preparation_errors_total",
-            "task_allocation_preparation_latency_seconds_count",
-            "task_allocation_preparation_latency_seconds_sum",
-            "task_allocations_getting_prepared",
+            # allocation preparation
+            "allocation_preparations_total",
+            "allocation_preparation_errors_total",
+            "allocation_preparation_latency_seconds_count",
+            "allocation_preparation_latency_seconds_sum",
+            "allocations_getting_prepared",
             # FE health checker
             "function_executor_failed_health_checks_total",
             "function_executor_health_check_latency_seconds_count",
@@ -180,20 +180,20 @@ class TestMetrics(unittest.TestCase):
             # Executor
             "executor_info",
             "executor_state",
-            # Task allocation lifecycle steps
-            "task_allocations_fetched_total",
-            "task_allocations_completed_total",
-            "task_allocation_completion_latency_seconds_count",
-            "task_allocation_completion_latency_seconds_sum",
-            # Task allocation finalization
-            "task_allocation_finalizations_total",
-            "task_allocation_finalization_errors_total",
-            "task_allocation_finalization_latency_seconds_count",
-            "task_allocation_finalization_latency_seconds_sum",
-            # Task allocation scheduling
-            "schedule_task_allocation_latency_seconds_count",
-            "schedule_task_allocation_latency_seconds_sum",
-            "runnable_task_allocations",
+            # allocation lifecycle steps
+            "allocations_fetched_total",
+            "allocations_completed_total",
+            "allocation_completion_latency_seconds_count",
+            "allocation_completion_latency_seconds_sum",
+            # allocation finalization
+            "allocation_finalizations_total",
+            "allocation_finalization_errors_total",
+            "allocation_finalization_latency_seconds_count",
+            "allocation_finalization_latency_seconds_sum",
+            # allocation scheduling
+            "schedule_allocation_latency_seconds_count",
+            "schedule_allocation_latency_seconds_sum",
+            "runnable_allocations",
             # Run allocation RPC
             "function_executor_run_allocation_rpcs_in_progress",
             "function_executor_run_allocation_rpcs_total",
@@ -248,7 +248,7 @@ class TestMetrics(unittest.TestCase):
                     f"Unexpected executor state: {sample.labels['executor_state']}"
                 )
 
-    def test_expected_metrics_diff_after_successful_task_run(self):
+    def test_expected_metrics_diff_after_successful_function_run(self):
         # Force unique functions with random versions to ensure cold start because we check cold start metrics too.
         deploy_applications(__file__)
 
@@ -268,11 +268,11 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("application_download_errors_total", {}, 0.0),
             SampleSpec("application_downloads_from_cache_total", {}, 0.0),
             SampleSpec("application_download_latency_seconds_count", {}, 1.0),
-            # task allocation preparations
-            SampleSpec("task_allocation_preparations_total", {}, 1.0),
-            SampleSpec("task_allocation_preparation_errors_total", {}, 0.0),
-            SampleSpec("task_allocation_preparation_latency_seconds_count", {}, 1.0),
-            SampleSpec("task_allocations_getting_prepared", {}, 0.0),
+            # allocation preparations
+            SampleSpec("allocation_preparations_total", {}, 1.0),
+            SampleSpec("allocation_preparation_errors_total", {}, 0.0),
+            SampleSpec("allocation_preparation_latency_seconds_count", {}, 1.0),
+            SampleSpec("allocations_getting_prepared", {}, 0.0),
             # FE health checker
             SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
             # Request state client
@@ -351,44 +351,44 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
             SampleSpec("executor_state", {"executor_state": "shutting_down"}, 0.0),
-            # Task allocation lifecycle steps
-            SampleSpec("task_allocations_fetched_total", {}, 1.0),
+            # allocation lifecycle steps
+            SampleSpec("allocations_fetched_total", {}, 1.0),
             SampleSpec(
-                "task_allocations_completed_total",
+                "allocations_completed_total",
                 {"outcome_code": "all", "failure_reason": "all"},
                 1.0,
             ),
             SampleSpec(
-                "task_allocations_completed_total",
+                "allocations_completed_total",
                 {"outcome_code": "success", "failure_reason": "none"},
                 1.0,
             ),
             SampleSpec(
-                "task_allocations_completed_total",
+                "allocations_completed_total",
                 {"outcome_code": "failure", "failure_reason": "function_error"},
                 0.0,
             ),
             SampleSpec(
-                "task_allocations_completed_total",
+                "allocations_completed_total",
                 {"outcome_code": "failure", "failure_reason": "internal_error"},
                 0.0,
             ),
             SampleSpec(
-                "task_allocations_completed_total",
+                "allocations_completed_total",
                 {
                     "outcome_code": "failure",
                     "failure_reason": "function_executor_terminated",
                 },
                 0.0,
             ),
-            SampleSpec("task_allocation_completion_latency_seconds_count", {}, 1.0),
-            # Task allocation finalization
-            SampleSpec("task_allocation_finalizations_total", {}, 1.0),
-            SampleSpec("task_allocation_finalization_errors_total", {}, 0.0),
-            SampleSpec("task_allocation_finalization_latency_seconds_count", {}, 1.0),
-            # Task allocation scheduling
-            SampleSpec("schedule_task_allocation_latency_seconds_count", {}, 1.0),
-            SampleSpec("runnable_task_allocations", {}, 0.0),
+            SampleSpec("allocation_completion_latency_seconds_count", {}, 1.0),
+            # allocation finalization
+            SampleSpec("allocation_finalizations_total", {}, 1.0),
+            SampleSpec("allocation_finalization_errors_total", {}, 0.0),
+            SampleSpec("allocation_finalization_latency_seconds_count", {}, 1.0),
+            # allocation scheduling
+            SampleSpec("schedule_allocation_latency_seconds_count", {}, 1.0),
+            SampleSpec("runnable_allocations", {}, 0.0),
             # Run allocation RPC
             SampleSpec("function_executor_run_allocation_rpcs_in_progress", {}, 0.0),
             SampleSpec("function_executor_run_allocation_rpcs_total", {}, 1.0),
@@ -419,7 +419,7 @@ class TestMetrics(unittest.TestCase):
                 f"Sample {expected_diff.name} with labels {expected_diff.labels} has value diff {actual_value_diff}",
             )
 
-    def test_expected_metrics_after_successful_task_run(self):
+    def test_expected_metrics_after_successful_function_run(self):
         # Force unique functions with random versions to ensure cold start because we check cold start metrics too.
         deploy_applications(__file__)
 
@@ -431,9 +431,9 @@ class TestMetrics(unittest.TestCase):
 
         metrics: Dict[str, Metric] = fetch_metrics(self)
         expected_metrics: List[SampleSpec] = [
-            # Running a task allocation
+            # Running an allocation
             SampleSpec(
-                "runnable_task_allocations_per_function_name",
+                "runnable_allocations_per_function_name",
                 {"function_name": "successful_function_cold_start_2"},
                 0.0,
             ),

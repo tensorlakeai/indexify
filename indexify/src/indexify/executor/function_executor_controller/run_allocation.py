@@ -5,7 +5,9 @@ from typing import Any
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     BLOB,
-    Allocation,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    Allocation as FEAllocation,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationFailureReason as FEAllocationFailureReason,
@@ -29,30 +31,30 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     AllocationFailureReason,
     AllocationOutcomeCode,
     FunctionExecutorTerminationReason,
-    TaskAllocation,
 )
 
-from .events import TaskAllocationExecutionFinished
-from .metrics.run_task_allocation import (
+from .allocation_info import AllocationInfo
+from .allocation_output import AllocationMetrics, AllocationOutput
+from .events import AllocationExecutionFinished
+from .metrics.run_allocation import (
     metric_function_executor_run_allocation_rpc_errors,
     metric_function_executor_run_allocation_rpc_latency,
     metric_function_executor_run_allocation_rpcs,
     metric_function_executor_run_allocation_rpcs_in_progress,
 )
-from .task_allocation_info import TaskAllocationInfo
-from .task_allocation_output import TaskAllocationMetrics, TaskAllocationOutput
 
 _CREATE_ALLOCATION_TIMEOUT_SECS = 5
 _DELETE_ALLOCATION_TIMEOUT_SECS = 5
 
 
-async def run_task_allocation_on_function_executor(
-    alloc_info: TaskAllocationInfo, function_executor: FunctionExecutor, logger: Any
-) -> TaskAllocationExecutionFinished:
-    """Runs the task allocation on the Function Executor and sets alloc_info.output with the result.
+async def run_allocation_on_function_executor(
+    alloc_info: AllocationInfo, function_executor: FunctionExecutor, logger: Any
+) -> AllocationExecutionFinished:
+    """Runs the allocation on the Function Executor and sets alloc_info.output with the result.
 
     Doesn't raise any exceptions.
     """
@@ -60,25 +62,21 @@ async def run_task_allocation_on_function_executor(
 
     if alloc_info.input is None:
         logger.error(
-            "task allocation input is None, this should never happen",
+            "allocation input is None, this should never happen",
         )
-        alloc_info.output = TaskAllocationOutput.internal_error(
+        alloc_info.output = AllocationOutput.internal_error(
             allocation=alloc_info.allocation,
             execution_start_time=None,
             execution_end_time=None,
         )
-        return TaskAllocationExecutionFinished(
+        return AllocationExecutionFinished(
             alloc_info=alloc_info,
             function_executor_termination_reason=None,
         )
 
-    # // Input data for allocation execution (not returned when getting/listing allocations)
-    # optional FunctionInputs inputs = 4;
-    # // Result of allocation execution (not returned when getting/listing allocations)
-    # optional AllocationResult result = 5;
-    fe_alloc: Allocation = Allocation(
+    fe_alloc: FEAllocation = FEAllocation(
         request_id=alloc_info.allocation.request_id,
-        task_id=alloc_info.allocation.task_id,
+        function_call_id=alloc_info.allocation.function_call_id,
         allocation_id=alloc_info.allocation.allocation_id,
         inputs=alloc_info.input.function_inputs,
     )
@@ -90,14 +88,14 @@ async def run_task_allocation_on_function_executor(
 
     metric_function_executor_run_allocation_rpcs.inc()
     metric_function_executor_run_allocation_rpcs_in_progress.inc()
-    # Not None if the Function Executor should be terminated after running the task.
+    # Not None if the Function Executor should be terminated after running the alloc.
     function_executor_termination_reason: FunctionExecutorTerminationReason | None = (
         None
     )
 
     # NB: We start this timer before invoking the first RPC, since
-    # user code should be executing by the time the create_task() RPC
-    # returns, so not attributing the task management RPC overhead to
+    # user code should be executing by the time the create_allocation() RPC
+    # returns, so not attributing the allocation management RPC overhead to
     # the user would open a possibility for abuse. (This is somewhat
     # mitigated by the fact that these RPCs should have a very low
     # overhead.)
@@ -112,7 +110,7 @@ async def run_task_allocation_on_function_executor(
         alloc_result: AllocationResult = await _run_allocation_rpcs(
             fe_alloc, function_executor, timeout_sec
         )
-        alloc_info.output = _task_alloc_output_from_fe_result(
+        alloc_info.output = _allocation_output_from_fe_result(
             allocation=alloc_info.allocation,
             result=alloc_result,
             execution_start_time=execution_start_time,
@@ -125,7 +123,7 @@ async def run_task_allocation_on_function_executor(
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT
         )
-        alloc_info.output = TaskAllocationOutput.function_timeout(
+        alloc_info.output = AllocationOutput.function_timeout(
             allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
@@ -149,14 +147,14 @@ async def run_task_allocation_on_function_executor(
             # delete_allocation() RPC timeout; either suggests that the FE
             # is unhealthy.
             logger.error(
-                "task allocation management RPC execution deadline exceeded", exc_info=e
+                "allocation management RPC execution deadline exceeded", exc_info=e
             )
         else:
             # This is a status from an unsuccessful RPC; this
             # shouldn't happen, but we handle it.
-            logger.error("task allocation management RPC failed", exc_info=e)
+            logger.error("allocation management RPC failed", exc_info=e)
 
-        alloc_info.output = TaskAllocationOutput.function_executor_unresponsive(
+        alloc_info.output = AllocationOutput.function_executor_unresponsive(
             allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
@@ -167,7 +165,7 @@ async def run_task_allocation_on_function_executor(
         function_executor_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
         )
-        alloc_info.output = TaskAllocationOutput.task_allocation_cancelled(
+        alloc_info.output = AllocationOutput.allocation_cancelled(
             allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
@@ -178,10 +176,10 @@ async def run_task_allocation_on_function_executor(
         # This is an unexpected exception; we believe that this
         # indicates an internal error.
         logger.error(
-            "unexpected internal error during task allocation lifecycle RPC sequence",
+            "unexpected internal error during allocation lifecycle RPC sequence",
             exc_info=e,
         )
-        alloc_info.output = TaskAllocationOutput.internal_error(
+        alloc_info.output = AllocationOutput.internal_error(
             allocation=alloc_info.allocation,
             execution_start_time=execution_start_time,
             execution_end_time=time.monotonic(),
@@ -209,7 +207,7 @@ async def run_task_allocation_on_function_executor(
                     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
                 )
                 logger.error(
-                    "Function Executor health check failed after running task allocation, shutting down Function Executor",
+                    "Function Executor health check failed after running allocation, shutting down Function Executor",
                     health_check_fail_reason=result.reason,
                 )
         except asyncio.CancelledError:
@@ -219,7 +217,7 @@ async def run_task_allocation_on_function_executor(
 
     _log_alloc_execution_finished(output=alloc_info.output, logger=logger)
 
-    return TaskAllocationExecutionFinished(
+    return AllocationExecutionFinished(
         alloc_info=alloc_info,
         function_executor_termination_reason=function_executor_termination_reason,
     )
@@ -277,23 +275,23 @@ async def _run_allocation_rpcs(
             grpc.StatusCode.CANCELLED,
             None,
             None,
-            "Function Executor didn't return function/task alloc result",
+            "Function Executor didn't return allocation result",
         )
 
     return alloc_result
 
 
-def _task_alloc_output_from_fe_result(
-    allocation: TaskAllocation,
+def _allocation_output_from_fe_result(
+    allocation: Allocation,
     result: AllocationResult,
     execution_start_time: float,
     execution_end_time: float | None,
     logger: Any,
-) -> TaskAllocationOutput:
+) -> AllocationOutput:
     response_validator = MessageValidator(result)
     response_validator.required_field("outcome_code")
 
-    metrics = TaskAllocationMetrics(counters={}, timers={})
+    metrics = AllocationMetrics(counters={}, timers={})
     if result.HasField("metrics"):
         # Can be None if e.g. function failed.
         metrics.counters = dict(result.metrics.counters)
@@ -326,7 +324,7 @@ def _task_alloc_output_from_fe_result(
             )
         response_validator.required_field("uploaded_function_outputs_blob")
 
-    return TaskAllocationOutput(
+    return AllocationOutput(
         allocation=allocation,
         outcome_code=outcome_code,
         failure_reason=failure_reason,
@@ -343,9 +341,9 @@ def _task_alloc_output_from_fe_result(
     )
 
 
-def _log_alloc_execution_finished(output: TaskAllocationOutput, logger: Any) -> None:
+def _log_alloc_execution_finished(output: AllocationOutput, logger: Any) -> None:
     logger.info(
-        "finished running task allocation",
+        "finished running allocation",
         success=output.outcome_code
         == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS,
         outcome_code=AllocationOutcomeCode.Name(output.outcome_code),

@@ -83,7 +83,7 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
     // FE is being created.
     FUNCTION_EXECUTOR_STATUS_PENDING = 1;
-    // FE is running and ready to accept task allocations.
+    // FE is running and ready to accept allocations.
     FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
     // FE is terminated, all resources are freed.
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
@@ -144,7 +144,7 @@ message FunctionExecutorDescription {
     // Deprecated: most probably going to be removed once external FE logs ingestion pipeline gets implemented.
     optional string output_payload_uri_prefix = 7;
     optional uint32 max_concurrency = 8;
-    // Timeout for running task allocations on FE.
+    // Timeout for running allocations on FE.
     optional uint32 allocation_timeout_ms = 9;
 }
 
@@ -157,11 +157,11 @@ message FunctionExecutorState {
 
 enum ExecutorStatus {
     EXECUTOR_STATUS_UNKNOWN = 0;
-    // Executor is starting up, not ready to accept task allocations and FEs.
+    // Executor is starting up, not ready to accept allocations and FEs.
     EXECUTOR_STATUS_STARTING_UP = 1;
-    // Executor is ready to accept task allocations and FEs.
+    // Executor is ready to accept allocations and FEs.
     EXECUTOR_STATUS_RUNNING = 2;
-    // No new task allocations or FEs should be places on the Executor.
+    // No new allocations or FEs should be places on the Executor.
     EXECUTOR_STATUS_DRAINED = 3;
     // Executor is stopped, all resources are freed, all FEs are terminated.
     EXECUTOR_STATUS_STOPPED = 4;
@@ -203,11 +203,11 @@ message ReportExecutorStateRequest {
 message ReportExecutorStateResponse {
 }
 
-message TaskAllocation {
+message Allocation {
     // Version is not set in function ref.
     optional FunctionRef function = 1;
     optional string allocation_id = 2;
-    optional string task_id = 3;
+    optional string function_call_id = 3;
     optional string request_id = 4;
     repeated DataPayload args = 5;
     // URI prefix for the output payloads.
@@ -231,7 +231,7 @@ message GetDesiredExecutorStatesRequest {
 // Executor compares this state with its current state and make necessary changes to match the desired state.
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
-    repeated TaskAllocation task_allocations = 2;
+    repeated Allocation allocations = 2;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
     optional uint64 clock = 3;
@@ -255,9 +255,9 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
     // Function code raised RequestException to mark the request as permanently failed.
     ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
-    // Server removed the task allocation from Executor desired state. The task allocation didn't finish before the removal.
+    // Server removed the allocation from Executor desired state. The allocation didn't finish before the removal.
     ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
-    // Function Executor terminated - can't run the task allocation on it anymore.
+    // Function Executor terminated - can't run the allocation on it anymore.
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
 }
 
@@ -294,10 +294,10 @@ message ReduceOp {
     // as the id of the ReduceOp.
   optional string id = 1;
   // Contains at least two items.
-  repeated FunctionArg  collection = 2; 
-  optional FunctionRef reducer     = 3;
+  repeated FunctionArg collection = 2; 
+  optional FunctionRef reducer = 3;
   // This required metadata allows SDK to restore original function call from the arguments.
-  optional bytes call_metadata     = 4;
+  optional bytes call_metadata = 4;
 }
 
 message ExecutionPlanUpdates {
@@ -308,7 +308,7 @@ message ExecutionPlanUpdates {
 message AllocationResult {
     optional FunctionRef function = 1;
     optional string allocation_id = 2;
-    optional string task_id = 3;
+    optional string function_call_id = 3;
     optional string request_id = 4;
     optional AllocationOutcomeCode outcome_code = 5;
     optional AllocationFailureReason failure_reason = 6;
@@ -354,7 +354,7 @@ message FunctionCallResponse {
     }
 }
 
-// Internal API for scheduling and running task allocations on Executors. Executors are acting as clients of this API.
+// Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 //
 // Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy

@@ -448,11 +448,11 @@ class ReportExecutorStateResponse(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
-class TaskAllocation(_message.Message):
+class Allocation(_message.Message):
     __slots__ = (
         "function",
         "allocation_id",
-        "task_id",
+        "function_call_id",
         "request_id",
         "args",
         "output_payload_uri_prefix",
@@ -462,7 +462,7 @@ class TaskAllocation(_message.Message):
     )
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     ARGS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
@@ -471,7 +471,7 @@ class TaskAllocation(_message.Message):
     FUNCTION_CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
     function: FunctionRef
     allocation_id: str
-    task_id: str
+    function_call_id: str
     request_id: str
     args: _containers.RepeatedCompositeFieldContainer[DataPayload]
     output_payload_uri_prefix: str
@@ -482,7 +482,7 @@ class TaskAllocation(_message.Message):
         self,
         function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
-        task_id: _Optional[str] = ...,
+        function_call_id: _Optional[str] = ...,
         request_id: _Optional[str] = ...,
         args: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         output_payload_uri_prefix: _Optional[str] = ...,
@@ -498,21 +498,21 @@ class GetDesiredExecutorStatesRequest(_message.Message):
     def __init__(self, executor_id: _Optional[str] = ...) -> None: ...
 
 class DesiredExecutorState(_message.Message):
-    __slots__ = ("function_executors", "task_allocations", "clock")
+    __slots__ = ("function_executors", "allocations", "clock")
     FUNCTION_EXECUTORS_FIELD_NUMBER: _ClassVar[int]
-    TASK_ALLOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    ALLOCATIONS_FIELD_NUMBER: _ClassVar[int]
     CLOCK_FIELD_NUMBER: _ClassVar[int]
     function_executors: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorDescription
     ]
-    task_allocations: _containers.RepeatedCompositeFieldContainer[TaskAllocation]
+    allocations: _containers.RepeatedCompositeFieldContainer[Allocation]
     clock: int
     def __init__(
         self,
         function_executors: _Optional[
             _Iterable[_Union[FunctionExecutorDescription, _Mapping]]
         ] = ...,
-        task_allocations: _Optional[_Iterable[_Union[TaskAllocation, _Mapping]]] = ...,
+        allocations: _Optional[_Iterable[_Union[Allocation, _Mapping]]] = ...,
         clock: _Optional[int] = ...,
     ) -> None: ...
 
@@ -592,7 +592,7 @@ class AllocationResult(_message.Message):
     __slots__ = (
         "function",
         "allocation_id",
-        "task_id",
+        "function_call_id",
         "request_id",
         "outcome_code",
         "failure_reason",
@@ -603,7 +603,7 @@ class AllocationResult(_message.Message):
     )
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
-    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
     FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
@@ -613,7 +613,7 @@ class AllocationResult(_message.Message):
     EXECUTION_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     function: FunctionRef
     allocation_id: str
-    task_id: str
+    function_call_id: str
     request_id: str
     outcome_code: AllocationOutcomeCode
     failure_reason: AllocationFailureReason
@@ -625,7 +625,7 @@ class AllocationResult(_message.Message):
         self,
         function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
         allocation_id: _Optional[str] = ...,
-        task_id: _Optional[str] = ...,
+        function_call_id: _Optional[str] = ...,
         request_id: _Optional[str] = ...,
         outcome_code: _Optional[_Union[AllocationOutcomeCode, str]] = ...,
         failure_reason: _Optional[_Union[AllocationFailureReason, str]] = ...,

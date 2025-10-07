@@ -9,12 +9,11 @@ use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
         Allocation,
-        ComputeGraph,
-        ComputeGraphVersion,
+        Application,
+        ApplicationVersion,
         GcUrl,
-        GraphInvocationCtx,
-        GraphVersion,
         Namespace,
+        RequestCtx,
         StateChange,
         UnprocessedStateChanges,
     },
@@ -269,17 +268,17 @@ impl StateReader {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn list_invocations(
+    pub fn list_requests(
         &self,
         namespace: &str,
-        compute_graph: &str,
+        application: &str,
         cursor: Option<&[u8]>,
         limit: usize,
         direction: Option<CursorDirection>,
-    ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "list_invocations")];
+    ) -> Result<(Vec<RequestCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_requests")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes(), b"|"].concat();
+        let key_prefix = [namespace.as_bytes(), b"|", application.as_bytes(), b"|"].concat();
 
         let mut upper_bound = key_prefix.clone();
         upper_bound.extend(&get_epoch_time_in_ms().to_be_bytes());
@@ -296,17 +295,17 @@ impl StateReader {
             .build()?;
 
         let range = self.db.get_key_range(
-            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.as_ref(),
+            IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
             range_options,
         )?;
 
         // Process the collected keys
-        let mut invocation_prefixes = range
+        let mut request_prefixes = range
             .items
             .iter()
-            .flat_map(|key| GraphInvocationCtx::get_invocation_id_from_secondary_index_key(key))
-            .map(|invocation_id| {
-                GraphInvocationCtx::key_from(namespace, compute_graph, &invocation_id)
+            .flat_map(|key| RequestCtx::get_request_id_from_secondary_index_key(key))
+            .map(|request_id| {
+                RequestCtx::key_from(namespace, application, &request_id)
                     .as_bytes()
                     .to_vec()
             })
@@ -314,71 +313,71 @@ impl StateReader {
 
         if range.direction.is_backward() {
             // We keep the ordering the same even if we traverse in the opposite direction
-            invocation_prefixes.reverse();
+            request_prefixes.reverse();
         }
 
-        let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
-            invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
-            IndexifyObjectsColumns::GraphInvocationCtx,
+        let requests = self.get_rows_from_cf_multi_key::<RequestCtx>(
+            request_prefixes.iter().map(|v| v.as_slice()).collect(),
+            IndexifyObjectsColumns::RequestCtx,
         )?;
 
         Ok((
-            invocations,
+            requests,
             range.prev_cursor.map(|c| c.to_vec()),
             range.next_cursor.map(|c| c.to_vec()),
         ))
     }
 
-    pub fn list_compute_graphs(
+    pub fn list_applications(
         &self,
         namespace: &str,
         cursor: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<(Vec<ComputeGraph>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "list_compute_graphs")];
+    ) -> Result<(Vec<Application>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_applications")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let (compute_graphs, cursor) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
+        let (applications, cursor) = self.get_rows_from_cf_with_limits::<Application>(
             namespace.as_bytes(),
             cursor,
-            IndexifyObjectsColumns::ComputeGraphs,
+            IndexifyObjectsColumns::Applications,
             limit,
         )?;
-        Ok((compute_graphs, cursor))
+        Ok((applications, cursor))
     }
 
-    pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
-        let kvs = &[KeyValue::new("op", "get_compute_graph")];
+    pub fn get_application(&self, namespace: &str, name: &str) -> Result<Option<Application>> {
+        let kvs = &[KeyValue::new("op", "get_application")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = ComputeGraph::key_from(namespace, name);
-        let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
-        Ok(compute_graph)
+        let key = Application::key_from(namespace, name);
+        let application = self.get_from_cf(&IndexifyObjectsColumns::Applications, key)?;
+        Ok(application)
     }
 
-    pub fn get_compute_graph_version(
+    pub fn get_application_version(
         &self,
         namespace: &str,
         name: &str,
-        version: &GraphVersion,
-    ) -> Result<Option<ComputeGraphVersion>> {
-        let kvs = &[KeyValue::new("op", "get_compute_graph_version")];
+        version: &str,
+    ) -> Result<Option<ApplicationVersion>> {
+        let kvs = &[KeyValue::new("op", "get_application_version")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = ComputeGraphVersion::key_from(namespace, name, version);
-        let compute_graph_version =
-            self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphVersions, key)?;
-        if compute_graph_version.is_some() {
-            return Ok(compute_graph_version);
+        let key = ApplicationVersion::key_from(namespace, name, version);
+        let application_version =
+            self.get_from_cf(&IndexifyObjectsColumns::ApplicationVersions, key)?;
+        if application_version.is_some() {
+            return Ok(application_version);
         }
 
         debug!(
-            "Falling back to compute graph to get version for graph {}",
+            "Falling back to application to get version for application {}",
             name
         );
-        let compute_graph = self.get_compute_graph(namespace, name)?;
-        match compute_graph {
-            Some(compute_graph) => compute_graph.to_version().map(Some),
+        let application = self.get_application(namespace, name)?;
+        match application {
+            Some(application) => application.to_version().map(Some),
             None => Ok(None),
         }
     }
@@ -391,17 +390,16 @@ impl StateReader {
         Ok(allocation)
     }
 
-    pub fn get_allocations_by_invocation(
+    pub fn get_allocations_by_request_id(
         &self,
         namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
+        application: &str,
+        request_id: &str,
     ) -> Result<Vec<Allocation>> {
-        let kvs = &[KeyValue::new("op", "get_allocations_by_task_id")];
+        let kvs = &[KeyValue::new("op", "get_allocations_by_request_id")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let prefix =
-            Allocation::key_prefix_from_invocation(namespace, compute_graph, invocation_id);
+        let prefix = Allocation::key_prefix_from_request(namespace, application, request_id);
 
         let (allocations, _) = self.get_rows_from_cf_with_limits::<Allocation>(
             prefix.as_bytes(),
@@ -412,24 +410,24 @@ impl StateReader {
         Ok(allocations)
     }
 
-    pub fn invocation_ctx(
+    pub fn request_ctx(
         &self,
         namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-    ) -> Result<Option<GraphInvocationCtx>> {
-        let kvs = &[KeyValue::new("op", "invocation_ctx")];
+        application: &str,
+        request_id: &str,
+    ) -> Result<Option<RequestCtx>> {
+        let kvs = &[KeyValue::new("op", "request_ctx")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let cf = IndexifyObjectsColumns::GraphInvocationCtx.as_ref();
-        let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
+        let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
+        let key = RequestCtx::key_from(namespace, application, request_id);
         let value = self.db.get(cf, &key)?;
         if value.is_none() {
             return Ok(None);
         }
-        let invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&value.unwrap())
-            .map_err(|e| anyhow!("unable to decode invocation ctx: {e}"))?;
-        Ok(Some(invocation_ctx))
+        let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
+            .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
+        Ok(Some(request_ctx))
     }
 }
 #[cfg(test)]

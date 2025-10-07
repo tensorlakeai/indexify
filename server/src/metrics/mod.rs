@@ -134,8 +134,8 @@ pub mod api_io_stats {
 
     #[derive(Debug)]
     pub struct Metrics {
-        pub invocations: Counter<u64>,
-        pub invocation_bytes: Counter<u64>,
+        pub requests: Counter<u64>,
+        pub request_bytes: Counter<u64>,
         pub fn_outputs: Counter<u64>,
     }
 
@@ -148,21 +148,21 @@ pub mod api_io_stats {
     impl Metrics {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("service-api");
-            let invocations = meter
-                .u64_counter("indexify.invocations")
-                .with_description("number of invocations")
+            let requests = meter
+                .u64_counter("indexify.requests")
+                .with_description("number of requests")
                 .build();
-            let invocation_bytes = meter
-                .u64_counter("indexify.invocation_bytes")
-                .with_description("number of bytes ingested during invocations")
+            let request_bytes = meter
+                .u64_counter("indexify.request_bytes")
+                .with_description("number of bytes ingested during requests")
                 .build();
             let fn_outputs = meter
                 .u64_counter("indexify.fn_outputs")
                 .with_description("number of fn outputs")
                 .build();
             Metrics {
-                invocations,
-                invocation_bytes,
+                requests,
+                request_bytes,
                 fn_outputs,
             }
         }
@@ -310,8 +310,8 @@ use std::fmt::Display;
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct FnMetricsId {
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
 }
 
 impl Display for FnMetricsId {
@@ -319,7 +319,7 @@ impl Display for FnMetricsId {
         write!(
             f,
             "{}/{}/{}",
-            self.namespace, self.compute_graph, self.compute_fn
+            self.namespace, self.application, self.function
         )
     }
 }

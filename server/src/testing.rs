@@ -16,18 +16,18 @@ use crate::{
         FunctionExecutor,
         FunctionExecutorState,
         FunctionRun,
-        GraphInvocationCtx,
-        TaskOutcome,
-        TaskStatus,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        RequestCtx,
     },
-    executor_api::executor_api_pb::TaskAllocation,
+    executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
     state_store::{
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
-            GraphUpdates,
             RequestPayload,
+            RequestUpdates,
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
@@ -132,7 +132,7 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<GraphInvocationCtx>(IndexifyObjectsColumns::GraphInvocationCtx)
+            .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
             .unwrap()
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
@@ -146,7 +146,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let allocated_tasks = tasks
             .into_iter()
-            .filter(|t| matches!(t.status, TaskStatus::Running(_)))
+            .filter(|t| matches!(t.status, FunctionRunStatus::Running(_)))
             .collect::<Vec<_>>();
         Ok(allocated_tasks)
     }
@@ -155,7 +155,7 @@ impl TestService {
         let tasks = self.get_all_function_runs().await?;
         let pending_tasks = tasks
             .into_iter()
-            .filter(|t| t.status == TaskStatus::Pending)
+            .filter(|t| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         let pending_count = pending_tasks.len();
@@ -171,7 +171,7 @@ impl TestService {
 
         let pending_tasks_memory = pending_tasks_memory
             .iter()
-            .filter(|(_k, t)| t.status == TaskStatus::Pending)
+            .filter(|(_k, t)| t.status == FunctionRunStatus::Pending)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -203,7 +203,8 @@ impl TestService {
         let completed_success_tasks = function_runs
             .into_iter()
             .filter(|t| {
-                t.status == TaskStatus::Completed && t.outcome == Some(TaskOutcome::Success)
+                t.status == FunctionRunStatus::Completed &&
+                    t.outcome == Some(FunctionRunOutcome::Success)
             })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)
@@ -212,7 +213,7 @@ impl TestService {
 
 // Declarative macros for task state assertions
 #[macro_export]
-macro_rules! assert_task_counts {
+macro_rules! assert_function_run_counts {
     ($test_srv:expr, total: $total:expr, allocated: $allocated:expr, pending: $pending:expr, completed_success: $completed_success:expr) => {{
         let all_function_runs = $test_srv.get_all_function_runs().await?;
         let allocated_tasks = $test_srv.get_allocated_tasks().await?;
@@ -266,7 +267,7 @@ macro_rules! assert_executor_state {
         );
 
         // Check task allocation count
-        let tasks_count = desired_state.task_allocations.len();
+        let tasks_count = desired_state.allocations.len();
         assert_eq!(
             $num_allocated_tasks, tasks_count,
             "tasks: expected {}, got {}",
@@ -275,14 +276,14 @@ macro_rules! assert_executor_state {
     }};
 }
 
-pub struct FinalizeTaskArgs {
-    pub task_outcome: TaskOutcome,
+pub struct FinalizeFunctionRunArgs {
+    pub task_outcome: FunctionRunOutcome,
     pub allocation_key: String,
-    pub graph_updates: Option<GraphUpdates>,
+    pub graph_updates: Option<RequestUpdates>,
     pub data_payload: Option<DataPayload>,
 }
 
-pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
+pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
     Allocation::key_from(
         &allocation
             .function
@@ -303,21 +304,24 @@ pub fn allocation_key_from_proto(allocation: &TaskAllocation) -> String {
     )
 }
 
-impl FinalizeTaskArgs {
+impl FinalizeFunctionRunArgs {
     pub fn new(
         allocation_key: String,
-        graph_updates: Option<GraphUpdates>,
+        graph_updates: Option<RequestUpdates>,
         data_payload: Option<DataPayload>,
-    ) -> FinalizeTaskArgs {
-        FinalizeTaskArgs {
-            task_outcome: TaskOutcome::Success,
+    ) -> FinalizeFunctionRunArgs {
+        FinalizeFunctionRunArgs {
+            task_outcome: FunctionRunOutcome::Success,
             allocation_key,
             graph_updates,
             data_payload,
         }
     }
 
-    pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
+    pub fn function_run_outcome(
+        mut self,
+        task_outcome: FunctionRunOutcome,
+    ) -> FinalizeFunctionRunArgs {
         self.task_outcome = task_outcome;
         self
     }
@@ -469,10 +473,10 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn finalize_task(
+    pub async fn finalize_allocation(
         &self,
-        task_allocation: &TaskAllocation,
-        args: FinalizeTaskArgs,
+        allocation_pb: &AllocationPb,
+        args: FinalizeFunctionRunArgs,
     ) -> Result<()> {
         let mut allocation = self
             .test_service
@@ -487,12 +491,12 @@ impl TestExecutor<'_> {
 
         let ingest_task_outputs_request = AllocationOutput {
             request_exception: None,
-            graph_updates: args.graph_updates.clone().map(|g| GraphUpdates {
-                graph_updates: g.graph_updates,
+            graph_updates: args.graph_updates.clone().map(|g| RequestUpdates {
+                request_updates: g.request_updates,
                 output_function_call_id: g.output_function_call_id,
             }),
             executor_id: self.executor_id.clone(),
-            invocation_id: task_allocation.request_id.clone().unwrap(),
+            request_id: allocation_pb.request_id.clone().unwrap(),
             data_payload: args.data_payload,
             allocation,
         };

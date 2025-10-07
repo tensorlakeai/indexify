@@ -8,6 +8,7 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 use anyhow::Result;
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
+    Allocation,
     AllocationResult,
     AllowedFunction,
     DataPayload as DataPayloadPb,
@@ -21,7 +22,6 @@ use executor_api_pb::{
     HostResources,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
-    TaskAllocation,
 };
 use tokio::sync::{
     broadcast::error::RecvError,
@@ -35,7 +35,6 @@ use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
         self,
-        Allocation,
         DataPayload,
         DataPayloadBuilder,
         ExecutorId,
@@ -46,11 +45,10 @@ use crate::{
         FunctionCallId,
         FunctionExecutorBuilder,
         FunctionExecutorId,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GPUResources,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        TaskFailureReason,
-        TaskOutcome,
+        RequestCtxBuilder,
     },
     executor_api::executor_api_pb::{
         FunctionCallRequest,
@@ -61,12 +59,12 @@ use crate::{
     executors::ExecutorManager,
     metrics::api_io_stats,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
+        request_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
             AllocationOutput,
-            GraphUpdates,
-            InvokeComputeGraphRequest,
+            InvokeApplicationRequest,
             RequestPayload,
+            RequestUpdates,
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
@@ -79,12 +77,11 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
     type Error = anyhow::Error;
 
     fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
-        let version = allowed_function.application_version.map(GraphVersion);
         Ok(FunctionAllowlist {
             namespace: allowed_function.namespace,
-            compute_graph_name: allowed_function.application_name,
-            compute_fn_name: allowed_function.function_name,
-            version,
+            application: allowed_function.application_name,
+            function: allowed_function.function_name,
+            version: allowed_function.application_version.map(|v| v.to_string()),
         })
     }
 }
@@ -369,11 +366,11 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .namespace
             .clone()
             .ok_or(anyhow::anyhow!("namespace is required"))?;
-        let compute_graph_name = function_ref
+        let application_name = function_ref
             .application_name
             .clone()
             .ok_or(anyhow::anyhow!("application_name is required"))?;
-        let compute_fn_name = function_ref
+        let function_name = function_ref
             .function_name
             .clone()
             .ok_or(anyhow::anyhow!("function_name is required"))?;
@@ -408,9 +405,9 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         FunctionExecutorBuilder::default()
             .id(FunctionExecutorId::new(id.clone()))
             .namespace(namespace.clone())
-            .compute_graph_name(compute_graph_name.clone())
-            .compute_fn_name(compute_fn_name.clone())
-            .version(GraphVersion(version.clone()))
+            .application_name(application_name.clone())
+            .function_name(function_name.clone())
+            .version(version.clone())
             .state(state)
             .resources(resources)
             .max_concurrency(max_concurrency)
@@ -536,19 +533,19 @@ impl ExecutorAPIService {
         }
     }
 
-    pub async fn handle_task_outcomes(
+    async fn handle_allocation_results(
         &self,
         executor_id: ExecutorId,
-        task_results: Vec<AllocationResult>,
+        alloc_results: Vec<AllocationResult>,
     ) -> Result<Vec<AllocationOutput>> {
         let mut allocation_output_updates = Vec::new();
-        for task_result in task_results {
+        for task_result in alloc_results {
             self.api_metrics.fn_outputs.add(1, &[]);
             let function_ref = task_result
                 .function
                 .as_ref()
                 .ok_or(anyhow::anyhow!("function ref is required"))?;
-            let allocation_key = Allocation::key_from(
+            let allocation_key = data_model::Allocation::key_from(
                 function_ref.namespace(),
                 function_ref.application_name(),
                 task_result.request_id(),
@@ -582,7 +579,7 @@ impl ExecutorAPIService {
                 .get_blob_store(&allocation.namespace)
                 .get_url();
             let mut fn_output: Option<DataPayload> = None;
-            let mut graph_updates: Option<GraphUpdates> = None;
+            let mut request_updates: Option<RequestUpdates> = None;
             if let Some(return_value) = task_result.return_value.clone() {
                 match return_value {
                     executor_api_pb::allocation_result::ReturnValue::Value(value) => {
@@ -606,8 +603,8 @@ impl ExecutorAPIService {
                                 &blob_storage_url,
                             )?);
                         }
-                        graph_updates = Some(GraphUpdates {
-                            graph_updates: function_calls,
+                        request_updates = Some(RequestUpdates {
+                            request_updates: function_calls,
                             output_function_call_id,
                         });
                     }
@@ -626,48 +623,48 @@ impl ExecutorAPIService {
             let allocation_failure_reason = match failure_reason {
                 Some(reason) => match reason {
                     executor_api_pb::AllocationFailureReason::Unknown => {
-                        Some(TaskFailureReason::Unknown)
+                        Some(FunctionRunFailureReason::Unknown)
                     }
                     executor_api_pb::AllocationFailureReason::InternalError => {
-                        Some(TaskFailureReason::InternalError)
+                        Some(FunctionRunFailureReason::InternalError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionError => {
-                        Some(TaskFailureReason::FunctionError)
+                        Some(FunctionRunFailureReason::FunctionError)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionTimeout => {
-                        Some(TaskFailureReason::FunctionTimeout)
+                        Some(FunctionRunFailureReason::FunctionTimeout)
                     }
                     executor_api_pb::AllocationFailureReason::RequestError => {
-                        Some(TaskFailureReason::InvocationError)
+                        Some(FunctionRunFailureReason::RequestError)
                     }
                     executor_api_pb::AllocationFailureReason::AllocationCancelled => {
-                        Some(TaskFailureReason::TaskCancelled)
+                        Some(FunctionRunFailureReason::FunctionRunCancelled)
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
-                        Some(TaskFailureReason::FunctionExecutorTerminated)
+                        Some(FunctionRunFailureReason::FunctionExecutorTerminated)
                     }
                 },
                 None => None,
             };
             let task_outcome = match outcome_code {
-                executor_api_pb::AllocationOutcomeCode::Success => TaskOutcome::Success,
+                executor_api_pb::AllocationOutcomeCode::Success => FunctionRunOutcome::Success,
                 executor_api_pb::AllocationOutcomeCode::Failure => {
                     let failure_reason =
-                        allocation_failure_reason.unwrap_or(TaskFailureReason::Unknown);
-                    TaskOutcome::Failure(failure_reason)
+                        allocation_failure_reason.unwrap_or(FunctionRunFailureReason::Unknown);
+                    FunctionRunOutcome::Failure(failure_reason)
                 }
-                executor_api_pb::AllocationOutcomeCode::Unknown => TaskOutcome::Unknown,
+                executor_api_pb::AllocationOutcomeCode::Unknown => FunctionRunOutcome::Unknown,
             };
             allocation.outcome = task_outcome;
             allocation.execution_duration_ms = Some(execution_duration_ms);
 
             let request = AllocationOutput {
                 request_exception: request_error_payload,
-                invocation_id: task_result.request_id().to_string(),
+                request_id: task_result.request_id().to_string(),
                 executor_id: executor_id.clone(),
                 allocation,
                 data_payload: fn_output,
-                graph_updates,
+                graph_updates: request_updates,
             };
             allocation_output_updates.push(request);
         }
@@ -682,17 +679,17 @@ fn log_desired_executor_state_delta(
     debug!(?desired_state, "got desired state");
 
     let mut last_assignments: HashMap<String, String> = HashMap::default();
-    for ta in &last_sent_state.task_allocations {
+    for ta in &last_sent_state.allocations {
         if let (Some(fe_id), Some(alloc_id)) = (&ta.function_executor_id, &ta.allocation_id) {
             last_assignments.insert(fe_id.clone(), alloc_id.clone());
         }
     }
 
-    for TaskAllocation {
+    for Allocation {
         function_executor_id: fn_executor_id_option,
         allocation_id: allocation_id_option,
         ..
-    } in &desired_state.task_allocations
+    } in &desired_state.allocations
     {
         if let (Some(fn_executor_id), Some(allocation_id)) =
             (fn_executor_id_option, allocation_id_option)
@@ -819,7 +816,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let task_results = executor_update.allocation_results.clone();
         let allocation_outputs = self
-            .handle_task_outcomes(executor_id.clone(), task_results)
+            .handle_allocation_results(executor_id.clone(), task_results)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -886,7 +883,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         let (grpc_tx, grpc_rx) = watch::channel(Result::Ok(DesiredExecutorState {
             function_executors: vec![],
-            task_allocations: vec![],
+            allocations: vec![],
             clock: Some(0),
         }));
         tokio::spawn(executor_update_loop(
@@ -923,11 +920,11 @@ impl ExecutorApi for ExecutorAPIService {
             .parent_request_id
             .ok_or(Status::invalid_argument("parent request id is required"))?;
 
-        // Build the child function invocation context under the parent request
+        // Build the child function request context under the parent request
         let mut parent_request_ctx = self
             .indexify_state
             .reader()
-            .invocation_ctx(&namespace, &application, &parent_request_id)
+            .request_ctx(&namespace, &application, &parent_request_id)
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or(Status::not_found("parent request context not found"))?;
 
@@ -960,7 +957,11 @@ impl ExecutorApi for ExecutorAPIService {
         let function_run = self
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &application, &parent_request_ctx.graph_version)
+            .get_application_version(
+                &namespace,
+                &application,
+                &parent_request_ctx.application_version,
+            )
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or(Status::not_found("compute graph version not found"))?
             .create_function_run(
@@ -980,10 +981,10 @@ impl ExecutorApi for ExecutorAPIService {
             )
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        let request_ctx = RequestCtxBuilder::default()
             .namespace(namespace.to_string())
-            .compute_graph_name(application.to_string())
-            .graph_version(parent_request_ctx.graph_version.clone())
+            .application_name(application.to_string())
+            .application_version(parent_request_ctx.application_version.clone())
             .request_id(request_id.clone())
             .created_at(get_epoch_time_in_ms())
             .function_runs(HashMap::from([(function_run.id.clone(), function_run)]))
@@ -996,16 +997,16 @@ impl ExecutorApi for ExecutorAPIService {
 
         parent_request_ctx
             .child_function_calls
-            .insert(request_id.clone(), graph_invocation_ctx.clone());
+            .insert(request_id.clone(), request_ctx.clone());
 
-        let sm_request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        let sm_request = RequestPayload::InvokeApplication(InvokeApplicationRequest {
             namespace: namespace.clone(),
-            compute_graph_name: application.clone(),
+            application_name: application.clone(),
             ctx: parent_request_ctx.clone(),
         });
 
         // Open the broadcast stream before writing the request to avoid races
-        let mut rx = self.indexify_state.task_event_stream();
+        let mut rx = self.indexify_state.function_run_event_stream();
         self.indexify_state
             .write(StateMachineUpdateRequest {
                 payload: sm_request,
@@ -1022,19 +1023,19 @@ impl ExecutorApi for ExecutorAPIService {
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
-                        if ev.invocation_id() == id {
+                        if ev.request_id() == id {
                             let update = serde_json::to_string(&ev)
                                 .unwrap_or_else(|_| "{\"event\":\"Update\"}".to_string());
                             yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
-                            if let InvocationStateChangeEvent::RequestFinished(_) = ev { return; }
+                            if let RequestStateChangeEvent::RequestFinished(_) = ev { return; }
                         }
                     }
                     Err(RecvError::Lagged(_num)) => {
-                        // We lagged; check if the invocation already finished
-                        match reader.invocation_ctx(ns.as_str(), app.as_str(), &id) {
+                        // We lagged; check if the request already finished
+                        match reader.request_ctx(ns.as_str(), app.as_str(), &id) {
                             Ok(Some(context)) => {
                                 if context.outcome.is_some() {
-                                    let update = serde_json::to_string(&InvocationStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
+                                    let update = serde_json::to_string(&RequestStateChangeEvent::RequestFinished(RequestFinishedEvent { request_id: id.clone() }))
                                         .unwrap_or_else(|_| "{\"event\":\"RequestFinished\"}".to_string());
                                     yield FunctionCallResponse { event: Some(executor_api_pb::function_call_response::Event::Update(update)) };
                                     return;

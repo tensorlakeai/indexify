@@ -5,14 +5,14 @@ pub mod tests {
     use bytes::Bytes;
     use nanoid::nanoid;
 
-    use super::super::{ComputeFn, ComputeGraph};
+    use super::super::{Application, Function};
     use crate::{
         data_model::{
-            ComputeGraphBuilder,
-            ComputeGraphState,
+            ApplicationBuilder,
+            ApplicationEntryPoint,
+            ApplicationState,
             ComputeOp,
             DataPayload,
-            EntryPointManifest,
             ExecutorId,
             ExecutorMetadata,
             ExecutorMetadataBuilder,
@@ -20,18 +20,18 @@ pub mod tests {
             FunctionCall,
             FunctionCallId,
             FunctionRetryPolicy,
-            GraphInvocationCtx,
-            GraphInvocationCtxBuilder,
             InputArgs,
+            RequestCtx,
+            RequestCtxBuilder,
         },
-        state_store::requests::GraphUpdates,
+        state_store::requests::RequestUpdates,
         utils::get_epoch_time_in_ms,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
 
-    pub fn mock_updates() -> GraphUpdates {
+    pub fn mock_updates() -> RequestUpdates {
         let fn_b = mock_function_call_with_name(
             "fn_b",
             vec![FunctionArgs::DataPayload(mock_data_payload())],
@@ -52,14 +52,14 @@ pub mod tests {
             ComputeOp::FunctionCall(fn_c),
             ComputeOp::FunctionCall(fn_d.clone()),
         ];
-        GraphUpdates {
-            graph_updates: updates,
+        RequestUpdates {
+            request_updates: updates,
             output_function_call_id: fn_d.function_call_id,
         }
     }
 
-    pub fn test_compute_fn(name: &str, max_retries: u32) -> ComputeFn {
-        ComputeFn {
+    pub fn test_function(name: &str, max_retries: u32) -> Function {
+        Function {
             name: name.to_string(),
             description: format!("description {name}"),
             fn_name: name.to_string(),
@@ -84,23 +84,23 @@ pub mod tests {
         }
     }
 
-    pub fn mock_request_ctx(namespace: &str, compute_graph: &ComputeGraph) -> GraphInvocationCtx {
+    pub fn mock_request_ctx(namespace: &str, application: &Application) -> RequestCtx {
         let request_id = nanoid!();
         let fn_call = mock_function_call();
         let input_args = vec![InputArgs {
             function_call_id: None,
             data_payload: mock_data_payload(),
         }];
-        let fn_run = compute_graph
+        let fn_run = application
             .to_version()
             .unwrap()
             .create_function_run(&fn_call, input_args, &request_id)
             .unwrap();
-        GraphInvocationCtxBuilder::default()
+        RequestCtxBuilder::default()
             .namespace(namespace.to_string())
             .request_id(request_id)
-            .compute_graph_name(compute_graph.name.clone())
-            .graph_version(compute_graph.version.clone())
+            .application_name(application.name.clone())
+            .application_version(application.version.clone())
             .function_runs(HashMap::from([(fn_run.id.clone(), fn_run)]))
             .function_calls(HashMap::from([(fn_call.function_call_id.clone(), fn_call)]))
             .created_at(get_epoch_time_in_ms())
@@ -108,28 +108,28 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_graph_with_retries(max_retries: u32) -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a", max_retries);
-        let fn_b = test_compute_fn("fn_b", max_retries);
-        let fn_c = test_compute_fn("fn_c", max_retries);
-        let fn_d = test_compute_fn("fn_d", max_retries);
+    pub fn mock_app_with_retries(max_retries: u32) -> Application {
+        let fn_a = test_function("fn_a", max_retries);
+        let fn_b = test_function("fn_b", max_retries);
+        let fn_c = test_function("fn_c", max_retries);
+        let fn_d = test_function("fn_d", max_retries);
 
-        ComputeGraphBuilder::default()
+        ApplicationBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
-            .state(ComputeGraphState::Active)
+            .state(ApplicationState::Active)
             .name("graph_A".to_string())
             .tags(HashMap::from([
                 ("tag1".to_string(), "val1".to_string()),
                 ("tag2".to_string(), "val2".to_string()),
             ]))
             .tombstoned(false)
-            .nodes(HashMap::from([
+            .functions(HashMap::from([
                 ("fn_b".to_string(), fn_b),
                 ("fn_c".to_string(), fn_c),
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_d".to_string(), fn_d),
             ]))
-            .version(crate::data_model::GraphVersion::from("1"))
+            .version("1".to_string())
             .description("description graph_A".to_string())
             .code(DataPayload {
                 id: "code_id".to_string(),
@@ -141,8 +141,7 @@ pub mod tests {
                 sha256_hash: "hash123".to_string(),
             })
             .created_at(5)
-            .start_fn(fn_a)
-            .entrypoint(EntryPointManifest {
+            .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
@@ -152,8 +151,8 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_graph() -> ComputeGraph {
-        mock_graph_with_retries(0)
+    pub fn mock_application() -> Application {
+        mock_app_with_retries(0)
     }
 
     pub fn mock_function_call_with_name(fn_name: &str, inputs: Vec<FunctionArgs>) -> FunctionCall {

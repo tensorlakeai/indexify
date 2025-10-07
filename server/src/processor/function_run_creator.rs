@@ -15,17 +15,17 @@ use crate::{
         FunctionCall,
         FunctionCallId,
         FunctionRun,
-        GraphInvocationCtx,
-        GraphInvocationError,
-        GraphInvocationFailureReason,
-        GraphInvocationOutcome,
+        FunctionRunOutcome,
+        FunctionRunStatus,
         InputArgs,
         ReduceOperation,
-        RunningTaskStatus,
-        TaskOutcome,
-        TaskStatus,
+        RequestCtx,
+        RequestError,
+        RequestFailureReason,
+        RequestOutcome,
+        RunningFunctionRunStatus,
     },
-    processor::task_policy::TaskRetryPolicy,
+    processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -33,12 +33,12 @@ use crate::{
     },
 };
 
-pub struct TaskCreator {
+pub struct FunctionRunCreator {
     indexify_state: Arc<IndexifyState>,
     clock: u64,
 }
 
-impl TaskCreator {
+impl FunctionRunCreator {
     pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
         Self {
             indexify_state,
@@ -47,46 +47,46 @@ impl TaskCreator {
     }
 }
 
-impl TaskCreator {
+impl FunctionRunCreator {
     #[tracing::instrument(skip(self, in_memory_state, alloc_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,
         in_memory_state: &mut InMemoryState,
         alloc_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<SchedulerUpdateRequest> {
-        let Some(mut invocation_ctx) = in_memory_state
-            .invocation_ctx
+        let Some(mut request_ctx) = in_memory_state
+            .request_ctx
             .get(
-                &GraphInvocationCtx::key_from(
+                &RequestCtx::key_from(
                     &alloc_finished_event.namespace,
-                    &alloc_finished_event.compute_graph,
-                    &alloc_finished_event.invocation_id,
+                    &alloc_finished_event.application,
+                    &alloc_finished_event.request_id,
                 )
                 .into(),
             )
             .cloned()
         else {
-            trace!("no invocation ctx, stopping scheduling of child tasks");
+            trace!("no request ctx, stopping scheduling of child function runs");
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        if invocation_ctx.outcome.is_some() {
-            trace!("invocation already completed, stopping scheduling of child tasks");
+        if request_ctx.outcome.is_some() {
+            trace!("request already completed, stopping scheduling of child function runs");
             return Ok(SchedulerUpdateRequest::default());
         }
 
-        let Some(mut function_run) = invocation_ctx
+        let Some(mut function_run) = request_ctx
             .function_runs
             .get(&alloc_finished_event.function_call_id)
             .cloned()
         else {
             error!(
-                function_call_id = alloc_finished_event.function_call_id.to_string(),
-                invocation_id = alloc_finished_event.invocation_id,
+                fn_call_id = alloc_finished_event.function_call_id.to_string(),
+                request_id = alloc_finished_event.request_id,
                 namespace = alloc_finished_event.namespace,
-                graph = alloc_finished_event.compute_graph,
-                fn = alloc_finished_event.compute_fn,
-                "function run not found, stopping scheduling of child tasks",
+                app = alloc_finished_event.application,
+                fn = alloc_finished_event.function,
+                "function run not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
         };
@@ -100,7 +100,7 @@ impl TaskCreator {
         else {
             error!(
                 allocation_key = alloc_finished_event.allocation_key,
-                "allocation not found, stopping scheduling of child tasks",
+                "allocation not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
         };
@@ -109,7 +109,7 @@ impl TaskCreator {
         // running this alloc. This is because we handle allocation failures
         // on FE termination and alloc output ingestion paths.
         if function_run.status !=
-            TaskStatus::Running(RunningTaskStatus {
+            FunctionRunStatus::Running(RunningFunctionRunStatus {
                 allocation_id: allocation.id.clone(),
             })
         {
@@ -121,29 +121,33 @@ impl TaskCreator {
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
             function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
         }
-        scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
+        scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
         scheduler_update.extend(propagate_output_to_consumers(
-            &mut invocation_ctx,
+            &mut request_ctx,
             &function_run,
         )?);
 
         let Some(cg_version) = in_memory_state
-            .get_existing_compute_graph_version(&function_run)
+            .get_existing_application_version(&function_run)
             .cloned()
         else {
             warn!(
-                function_run.id = function_run.id.to_string(),
-                function_run.request_id = function_run.request_id,
-                function_run.namespace = function_run.namespace,
-                function_run.application = function_run.application,
-                function_run.graph_version = function_run.graph_version.0,
-                "compute graph version not found, stopping scheduling of child tasks",
+                fn_call_id = function_run.id.to_string(),
+                request_id = function_run.request_id,
+                namespace = function_run.namespace,
+                app = function_run.application,
+                app_version = function_run.version,
+                "application version not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        TaskRetryPolicy::handle_allocation_outcome(&mut function_run, &allocation, &cg_version);
-        scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
+        FunctionRunRetryPolicy::handle_allocation_outcome(
+            &mut function_run,
+            &allocation,
+            &cg_version,
+        );
+        scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
         in_memory_state.update_state(
             self.clock,
@@ -152,30 +156,30 @@ impl TaskCreator {
         )?;
 
         // If task is pending (being retried), return early
-        if function_run.status == TaskStatus::Pending {
+        if function_run.status == FunctionRunStatus::Pending {
             return Ok(scheduler_update);
         }
 
-        if let TaskOutcome::Failure(failure_reason) = allocation.outcome {
-            function_run.status = TaskStatus::Completed;
+        if let FunctionRunOutcome::Failure(failure_reason) = allocation.outcome {
+            function_run.status = FunctionRunStatus::Completed;
             function_run.outcome = Some(allocation.outcome);
-            if let Some(invocation_error_payload) = &alloc_finished_event.request_exception {
-                invocation_ctx.request_error = Some(GraphInvocationError {
+            if let Some(request_error_payload) = &alloc_finished_event.request_exception {
+                request_ctx.request_error = Some(RequestError {
                     function_name: function_run.name.clone(),
-                    payload: invocation_error_payload.clone(),
+                    payload: request_error_payload.clone(),
                 });
             }
-            invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(failure_reason.into()));
+            request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
             let mut scheduler_update = SchedulerUpdateRequest::default();
-            scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
+            scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
             return Ok(scheduler_update);
         }
 
-        // Update the invocation ctx with the new function calls
+        // Update the request ctx with the new function calls
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
             for function_call in &graph_updates.graph_updates {
                 if let ComputeOp::FunctionCall(function_call) = function_call {
-                    invocation_ctx.function_calls.insert(
+                    request_ctx.function_calls.insert(
                         function_call.function_call_id.clone(),
                         function_call.clone(),
                     );
@@ -187,31 +191,29 @@ impl TaskCreator {
                     let first_arg = reducer_collection.pop_front();
                     let Some(first_arg) = first_arg else {
                         error!(
-                            request_id = invocation_ctx.request_id,
+                            request_id = request_ctx.request_id,
                             "reducer collection is empty"
                         );
-                        invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
-                            GraphInvocationFailureReason::FunctionError,
-                        ));
+                        request_ctx.outcome =
+                            Some(RequestOutcome::Failure(RequestFailureReason::FunctionError));
                         return Ok(scheduler_update);
                     };
 
                     let second_arg = reducer_collection.pop_front();
                     let Some(second_arg) = second_arg else {
                         error!(
-                            request_id = invocation_ctx.request_id,
+                            request_id = request_ctx.request_id,
                             "reducer collection has < 2 items"
                         );
-                        invocation_ctx.outcome = Some(GraphInvocationOutcome::Failure(
-                            GraphInvocationFailureReason::FunctionError,
-                        ));
+                        request_ctx.outcome =
+                            Some(RequestOutcome::Failure(RequestFailureReason::FunctionError));
                         return Ok(scheduler_update);
                     };
 
                     let mut last_function_call =
                         create_function_call_from_reduce_op(reduce_op, first_arg, second_arg);
                     scheduler_update
-                        .add_function_call(last_function_call.clone(), &mut invocation_ctx);
+                        .add_function_call(last_function_call.clone(), &mut request_ctx);
                     // Ordering of arguments is important. When we reduce "a, b, c, d"
                     // we want to do reduce(reduce(reduce(a, b), c), d).
                     // So the reduce calls are in order of collection.
@@ -223,8 +225,7 @@ impl TaskCreator {
                             ),
                             arg,
                         );
-                        scheduler_update
-                            .add_function_call(function_call.clone(), &mut invocation_ctx);
+                        scheduler_update.add_function_call(function_call.clone(), &mut request_ctx);
                         last_function_call = function_call.clone();
                     }
                     // Change the function call ID of the last reducer function call to
@@ -232,39 +233,39 @@ impl TaskCreator {
                     // Alternatively, we could create a new reducer function run that
                     // consumes the output of the last function call using function_call_id
                     // field.
-                    invocation_ctx
+                    request_ctx
                         .function_calls
                         .remove(&last_function_call.function_call_id);
                     last_function_call.function_call_id = reduce_op.function_call_id.clone();
                     scheduler_update
-                        .add_function_call(last_function_call.clone(), &mut invocation_ctx);
+                        .add_function_call(last_function_call.clone(), &mut request_ctx);
                 }
             }
         }
 
         // At this point all new function calls are created but their new function runs
         // are not. If no new function runs need to be created and all existing
-        // function runs are completed then the invocation is completed
-        // successfully because if a function run failed earlier, the invocation
+        // function runs are completed then the request is completed
+        // successfully because if a function run failed earlier, the request
         // will be marked as failed already.
-        let function_call_ids = invocation_ctx
+        let function_call_ids = request_ctx
             .function_calls
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
-        let function_run_ids = invocation_ctx
+        let function_run_ids = request_ctx
             .function_runs
             .keys()
             .cloned()
             .collect::<HashSet<_>>();
         if function_call_ids.len() == function_run_ids.len() {
-            let all_function_runs_finished = invocation_ctx
+            let all_function_runs_finished = request_ctx
                 .function_runs
                 .values()
-                .all(|function_run| matches!(function_run.status, TaskStatus::Completed));
+                .all(|function_run| matches!(function_run.status, FunctionRunStatus::Completed));
             if all_function_runs_finished {
-                invocation_ctx.outcome = Some(GraphInvocationOutcome::Success);
-                scheduler_update.add_invocation_state(&invocation_ctx);
+                request_ctx.outcome = Some(RequestOutcome::Success);
+                scheduler_update.add_request_state(&request_ctx);
                 return Ok(scheduler_update);
             }
         }
@@ -276,10 +277,7 @@ impl TaskCreator {
             .cloned()
             .collect::<HashSet<_>>();
         for function_call_id in pending_function_calls {
-            let function_call = invocation_ctx
-                .function_calls
-                .get(&function_call_id)
-                .unwrap();
+            let function_call = request_ctx.function_calls.get(&function_call_id).unwrap();
             let mut input_args = vec![];
             let mut schedulable = true;
             for arg in function_call.inputs.clone() {
@@ -291,8 +289,7 @@ impl TaskCreator {
                         });
                     }
                     FunctionArgs::FunctionRunOutput(function_call_id) => {
-                        let Some(function_run) =
-                            invocation_ctx.function_runs.get(&function_call_id)
+                        let Some(function_run) = request_ctx.function_runs.get(&function_call_id)
                         else {
                             // Function run is not created yet - it's output can't be available.
                             schedulable = false;
@@ -316,9 +313,9 @@ impl TaskCreator {
                 continue;
             }
             let function_run = cg_version
-                .create_function_run(function_call, input_args, &invocation_ctx.request_id)
+                .create_function_run(function_call, input_args, &request_ctx.request_id)
                 .unwrap();
-            scheduler_update.add_function_run(function_run.clone(), &mut invocation_ctx);
+            scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
         }
 
         in_memory_state.update_state(
@@ -345,11 +342,11 @@ fn create_function_call_from_reduce_op(
 }
 
 fn propagate_output_to_consumers(
-    invocation_ctx: &mut GraphInvocationCtx,
+    request_ctx: &mut RequestCtx,
     function_run: &FunctionRun,
 ) -> Result<SchedulerUpdateRequest> {
     let mut scheduler_update = SchedulerUpdateRequest::default();
-    let invocation_ctx_key = invocation_ctx.key().clone();
+    let request_ctx_key = request_ctx.key().clone();
     if function_run.output.is_none() {
         return Ok(scheduler_update);
     }
@@ -358,7 +355,7 @@ fn propagate_output_to_consumers(
     while run_was_updated {
         run_was_updated = false;
         // 1. Go through all the function runs
-        for fn_run in invocation_ctx.function_runs.values_mut() {
+        for fn_run in request_ctx.function_runs.values_mut() {
             // 2. See if the function run is linked to a child function call for it's output
             if let Some(child_function_call_id) = &fn_run.child_function_call {
                 let Some(function_run_to_propagate) = finished_function_run.clone() else {
@@ -370,7 +367,7 @@ fn propagate_output_to_consumers(
                     fn_run.output = function_run_to_propagate.output.clone();
                     scheduler_update
                         .updated_function_runs
-                        .entry(invocation_ctx_key.clone())
+                        .entry(request_ctx_key.clone())
                         .or_insert(HashSet::new())
                         .insert(fn_run.id.clone());
                     // 4. Now that this function run has an output, figure out which

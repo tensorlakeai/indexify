@@ -147,7 +147,7 @@ pub struct GPUResources {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct NodeResources {
+pub struct FunctionResources {
     pub cpus: f64,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
@@ -155,8 +155,8 @@ pub struct NodeResources {
     pub gpu_configs: Vec<GPUResources>,
 }
 
-impl From<NodeResources> for data_model::FunctionResources {
-    fn from(value: NodeResources) -> Self {
+impl From<FunctionResources> for data_model::FunctionResources {
+    fn from(value: FunctionResources) -> Self {
         data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
@@ -173,9 +173,9 @@ impl From<NodeResources> for data_model::FunctionResources {
     }
 }
 
-impl From<data_model::FunctionResources> for NodeResources {
-    fn from(value: data_model::FunctionResources) -> NodeResources {
-        NodeResources {
+impl From<data_model::FunctionResources> for FunctionResources {
+    fn from(value: data_model::FunctionResources) -> FunctionResources {
+        FunctionResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
@@ -191,7 +191,7 @@ impl From<data_model::FunctionResources> for NodeResources {
     }
 }
 
-impl Default for NodeResources {
+impl Default for FunctionResources {
     fn default() -> Self {
         data_model::FunctionResources::default().into()
     }
@@ -334,7 +334,7 @@ pub struct ApplicationFunction {
     #[serde(default)]
     pub initialization_timeout_sec: TimeoutSeconds,
     pub timeout_sec: TimeoutSeconds,
-    pub resources: NodeResources,
+    pub resources: FunctionResources,
     pub retry_policy: NodeRetryPolicy,
     pub cache_key: Option<CacheKey>,
     #[serde(default)]
@@ -345,11 +345,11 @@ pub struct ApplicationFunction {
     pub max_concurrency: u32,
 }
 
-impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
+impl TryFrom<ApplicationFunction> for data_model::Function {
     type Error = anyhow::Error;
 
     fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
-        Ok(data_model::ComputeFn {
+        Ok(data_model::Function {
             name: val.name.clone(),
             fn_name: val.name.clone(),
             description: val.description.clone(),
@@ -369,8 +369,8 @@ impl TryFrom<ApplicationFunction> for data_model::ComputeFn {
     }
 }
 
-impl From<data_model::ComputeFn> for ApplicationFunction {
-    fn from(c: data_model::ComputeFn) -> Self {
+impl From<data_model::Function> for ApplicationFunction {
+    fn from(c: data_model::Function) -> Self {
         Self {
             name: c.name,
             description: c.description,
@@ -402,7 +402,7 @@ impl ApplicationFunction {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ComputeFn {
+pub struct Function {
     pub name: String,
     pub fn_name: String,
     pub description: String,
@@ -417,7 +417,7 @@ pub struct ComputeFn {
     #[serde(default, rename = "timeout_sec")]
     pub timeout: TimeoutSeconds,
     #[serde(default)]
-    pub resources: NodeResources,
+    pub resources: FunctionResources,
     #[serde(default)]
     pub retry_policy: NodeRetryPolicy,
     #[serde(rename = "cache_key")]
@@ -432,11 +432,11 @@ pub struct ComputeFn {
     pub max_concurrency: u32,
 }
 
-impl TryFrom<ComputeFn> for data_model::ComputeFn {
+impl TryFrom<Function> for data_model::Function {
     type Error = anyhow::Error;
 
-    fn try_from(val: ComputeFn) -> Result<Self, Self::Error> {
-        Ok(data_model::ComputeFn {
+    fn try_from(val: Function) -> Result<Self, Self::Error> {
+        Ok(data_model::Function {
             name: val.name.clone(),
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
@@ -456,8 +456,8 @@ impl TryFrom<ComputeFn> for data_model::ComputeFn {
     }
 }
 
-impl From<data_model::ComputeFn> for ComputeFn {
-    fn from(c: data_model::ComputeFn) -> Self {
+impl From<data_model::Function> for Function {
+    fn from(c: data_model::Function) -> Self {
         Self {
             name: c.name,
             fn_name: c.fn_name,
@@ -514,69 +514,41 @@ pub struct CreateNamespace {
     pub blob_storage_region: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QueryParams {
-    pub input_id: Option<String>,
-    pub on_graph_end: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GraphOutputNotification {
-    pub output_id: String,
-    pub compute_graph: String,
-    pub fn_name: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespaceResponse {
     pub name: Namespace,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum TaskOutcome {
+pub enum FunctionRunOutcome {
     Undefined,
     Success,
     Failure,
 }
 
-impl From<data_model::TaskOutcome> for TaskOutcome {
-    fn from(outcome: data_model::TaskOutcome) -> Self {
+impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
+    fn from(outcome: data_model::FunctionRunOutcome) -> Self {
         match outcome {
-            data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
-            data_model::TaskOutcome::Success => TaskOutcome::Success,
-            data_model::TaskOutcome::Failure(_) => TaskOutcome::Failure,
+            data_model::FunctionRunOutcome::Unknown => FunctionRunOutcome::Undefined,
+            data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
+            data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GraphVersion(pub String);
-
-impl From<data_model::GraphVersion> for GraphVersion {
-    fn from(version: data_model::GraphVersion) -> Self {
-        Self(version.0)
-    }
-}
-
-impl From<GraphVersion> for data_model::GraphVersion {
-    fn from(version: GraphVersion) -> Self {
-        Self(version.0)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum TaskStatus {
+pub enum FunctionRunStatus {
     Pending,
     Running,
     Completed,
 }
 
-impl From<data_model::TaskStatus> for TaskStatus {
-    fn from(status: data_model::TaskStatus) -> Self {
+impl From<data_model::FunctionRunStatus> for FunctionRunStatus {
+    fn from(status: data_model::FunctionRunStatus) -> Self {
         match status {
-            data_model::TaskStatus::Pending => TaskStatus::Pending,
-            data_model::TaskStatus::Running(_) => TaskStatus::Running,
-            data_model::TaskStatus::Completed => TaskStatus::Completed,
+            data_model::FunctionRunStatus::Pending => FunctionRunStatus::Pending,
+            data_model::FunctionRunStatus::Running(_) => FunctionRunStatus::Running,
+            data_model::FunctionRunStatus::Completed => FunctionRunStatus::Completed,
         }
     }
 }
@@ -616,15 +588,9 @@ pub struct RequestId {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
-    pub compute_graph: Option<String>,
-    pub compute_fn: Option<String>,
-
-    // Temporary fix to enable internal migration
-    // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older
-    // versions after all the invocations into them have been
-    // completed, and turn on new versions of the executor.
-    pub version: Option<GraphVersion>,
+    pub application: Option<String>,
+    pub function: Option<String>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -656,8 +622,8 @@ impl From<data_model::HostResources> for HostResources {
 pub struct FunctionExecutorMetadata {
     pub id: String,
     pub namespace: String,
-    pub compute_graph_name: String,
-    pub compute_fn_name: String,
+    pub application_name: String,
+    pub function_name: String,
     pub version: String,
     pub max_concurrency: u32,
     pub state: String,
@@ -671,8 +637,8 @@ pub fn from_data_model_function_executor(
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
         namespace: fe.namespace,
-        compute_graph_name: fe.compute_graph_name,
-        compute_fn_name: fe.compute_fn_name,
+        application_name: fe.application_name,
+        function_name: fe.function_name,
         version: fe.version.to_string(),
         max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
@@ -710,9 +676,9 @@ pub fn from_data_model_executor_metadata(
             .iter()
             .map(|fn_uri| FunctionAllowlist {
                 namespace: fn_uri.namespace.clone(),
-                compute_graph: fn_uri.compute_graph_name.clone(),
-                compute_fn: fn_uri.compute_fn_name.clone(),
-                version: fn_uri.version.clone().map(|v| v.into()),
+                application: fn_uri.application.clone(),
+                function: fn_uri.function.clone(),
+                version: fn_uri.version.clone(),
             })
             .collect()
     });
@@ -803,14 +769,14 @@ impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
 pub struct Allocation {
     pub id: String,
     pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
+    pub application: String,
+    pub function: String,
     pub executor_id: String,
     pub function_executor_id: String,
-    pub task_id: String,
-    pub invocation_id: String,
+    pub function_call_id: String,
+    pub request_id: String,
     pub created_at: u128,
-    pub outcome: TaskOutcome,
+    pub outcome: FunctionRunOutcome,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
@@ -820,12 +786,12 @@ impl From<data_model::Allocation> for Allocation {
         Self {
             id: allocation.id.to_string(),
             namespace: allocation.namespace,
-            compute_graph: allocation.compute_graph,
-            compute_fn: allocation.compute_fn,
+            application: allocation.application,
+            function: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
-            task_id: allocation.function_call_id.to_string(),
-            invocation_id: allocation.invocation_id.to_string(),
+            function_call_id: allocation.function_call_id.to_string(),
+            request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
@@ -841,9 +807,10 @@ pub struct StateChange {
     pub change_type: String,
     pub created_at: u64,
     pub namespace: Option<String>,
-    pub compute_graph: Option<String>,
-    pub invocation: Option<String>,
+    pub application: Option<String>,
+    pub request: Option<String>,
 }
+
 impl From<data_model::StateChange> for StateChange {
     fn from(item: data_model::StateChange) -> Self {
         StateChange {
@@ -852,8 +819,8 @@ impl From<data_model::StateChange> for StateChange {
             change_type: item.change_type.to_string(),
             created_at: item.created_at,
             namespace: item.namespace,
-            compute_graph: item.compute_graph,
-            invocation: item.invocation,
+            application: item.application,
+            request: item.request,
         }
     }
 }
@@ -894,7 +861,7 @@ pub struct ExecutorsAllocationsResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::{ComputeFn, PlacementConstraints};
+    use crate::http_objects::{Function, PlacementConstraints};
 
     #[test]
     fn test_labels_filter_conversion() {
@@ -935,27 +902,25 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_fn_with_placement_constraints() {
+    fn test_function_with_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
 
-        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
-        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
 
         // Test conversion to data model
-        let data_model_fn: crate::data_model::ComputeFn = compute_fn.try_into().unwrap();
+        let data_model_fn: crate::data_model::Function = function.try_into().unwrap();
         assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
     }
 
     #[test]
-    fn test_compute_fn_with_unparseable_placement_constraints() {
+    fn test_function_with_unparseable_placement_constraints() {
         let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
 
-        let compute_fn: ComputeFn = serde_json::from_str(json).unwrap();
-        assert_eq!(compute_fn.placement_constraints.filter_expressions.len(), 2);
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
 
         // Test failed conversion to data model
-        assert!(
-            <ComputeFn as TryInto<crate::data_model::ComputeFn>>::try_into(compute_fn).is_err()
-        );
+        assert!(<Function as TryInto<crate::data_model::Function>>::try_into(function).is_err());
     }
 }

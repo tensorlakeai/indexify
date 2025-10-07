@@ -17,34 +17,34 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ComputeGraphState, FunctionCallId, GraphInvocationCtxBuilder, InputArgs},
+    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        invocation_events::{InvocationStateChangeEvent, RequestFinishedEvent},
-        requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+        request_events::{RequestFinishedEvent, RequestStateChangeEvent},
+        requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
 };
 
 // New shared function for creating SSE streams
-async fn create_invocation_progress_stream(
+async fn create_request_progress_stream(
     id: String,
-    mut rx: Receiver<InvocationStateChangeEvent>,
+    mut rx: Receiver<RequestStateChangeEvent>,
     state: &RouteState,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     let reader = state.indexify_state.reader();
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+        match reader.request_ctx(namespace.as_str(), application.as_str(), &id)
         {
-            Ok(Some(invocation)) => {
-                if invocation.outcome.is_some() {
+            Ok(Some(request_ctx)) => {
+                if request_ctx.outcome.is_some() {
                     yield Event::default().json_data(
-                        InvocationStateChangeEvent::RequestFinished(
+                        RequestStateChangeEvent::RequestFinished(
                             RequestFinishedEvent {
                                 request_id: id.clone()
                             }
@@ -56,13 +56,13 @@ async fn create_invocation_progress_stream(
             Ok(None) => {
                 info!(
                     namespace = namespace,
-                    graph = compute_graph,
-                    invocation_id=id,
-                    "invocation not found, stopping stream");
+                    app = application,
+                    request_id=id,
+                    "request not found, stopping stream");
                 return;
             }
             Err(e) => {
-                error!("failed to get invocation: {:?}", e);
+                error!("failed to get request: {:?}", e);
                 return;
             }
         }
@@ -71,10 +71,10 @@ async fn create_invocation_progress_stream(
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    if ev.invocation_id() == id {
+                    if ev.request_id() == id {
                         yield Event::default().json_data(ev.clone());
 
-                        if let InvocationStateChangeEvent::RequestFinished(_) = ev {
+                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
                             return;
                         }
                     }
@@ -82,18 +82,18 @@ async fn create_invocation_progress_stream(
                 Err(RecvError::Lagged(num)) => {
                     warn!(
                         namespace = namespace,
-                        graph = compute_graph,
-                        invocation_id=id,
-                        "lagging behind task event stream by {} events", num);
+                        app = application,
+                        request_id=id,
+                        "lagging behind request event stream by {} events", num);
 
                     // Check if completion happened during lag
                     match reader
-                        .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+                        .request_ctx(namespace.as_str(), application.as_str(), &id)
                     {
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
                                 yield Event::default().json_data(
-                                    InvocationStateChangeEvent::RequestFinished(
+                                    RequestStateChangeEvent::RequestFinished(
                                         RequestFinishedEvent {
                                             request_id: id.clone()
                                         }
@@ -105,17 +105,17 @@ async fn create_invocation_progress_stream(
                         Ok(None) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
-                                invocation_id=id,
-                                "invocation not found");
+                                app = application,
+                                request_id=id,
+                                "request not found");
                             return;
                         }
                         Err(e) => {
                             error!(
                                 namespace = namespace,
-                                graph = compute_graph,
-                                invocation_id=id,
-                                "failed to get invocation context: {:?}", e);
+                                app = application,
+                                request_id=id,
+                                "failed to get request context: {:?}", e);
                             return;
                         }
                     }
@@ -133,7 +133,7 @@ struct RequestIdV1 {
     request_id: String,
 }
 
-/// Make a request to default api function of a workflow
+/// Make a request to application
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
@@ -145,53 +145,13 @@ struct RequestIdV1 {
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
-pub async fn invoke_default_api_with_object_v1(
+pub async fn invoke_application_with_object_v1(
     Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    do_invoke_api_with_object_v1(namespace, application, None, state, headers, body).await
-}
-
-/// Make a request to a particular api function of a workflow
-#[utoipa::path(
-    post,
-    path = "/v1/namespaces/{namespace}/applications/{application}/{api_function}",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "request successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "internal server error")
-    ),
-)]
-pub async fn invoke_api_with_object_v1(
-    Path((namespace, application, api_function)): Path<(String, String, String)>,
-    State(state): State<RouteState>,
-    headers: HeaderMap,
-    body: Body,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    do_invoke_api_with_object_v1(
-        namespace,
-        application,
-        Some(api_function),
-        state,
-        headers,
-        body,
-    )
-    .await
-}
-
-async fn do_invoke_api_with_object_v1(
-    namespace: String,
-    application: String,
-    api_function: Option<String>,
-    state: RouteState,
-    headers: HeaderMap,
-    body: Body,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let _inc = Increment::inc(&state.metrics.invocations, &[]);
+    let _inc = Increment::inc(&state.metrics.requests, &[]);
     let request_id = nanoid::nanoid!();
     let accept_header = headers
         .get("Accept")
@@ -227,40 +187,39 @@ async fn do_invoke_api_with_object_v1(
         encoding,
     };
 
-    state.metrics.invocation_bytes.add(data_payload.size, &[]);
+    state.metrics.request_bytes.add(data_payload.size, &[]);
 
     let application = state
         .indexify_state
         .reader()
-        .get_compute_graph(&namespace, &application)
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {e}")))?
-        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
+        .get_application(&namespace, &application)
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
+        .ok_or(IndexifyAPIError::not_found("application not found"))?;
 
-    if let ComputeGraphState::Disabled { reason } = &application.state {
+    if let ApplicationState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
     let function_call_id = FunctionCallId(request_id.clone());
 
-    let api_fn = if let Some(api_function) = api_function {
-        application
-            .nodes
-            .get(&api_function)
-            .ok_or(IndexifyAPIError::not_found(&format!(
-                "api function {api_function} not found",
-            )))?
-    } else {
-        &application.start_fn
+    let entrypoint_fn_name = &application.entrypoint.function_name;
+    let Some(entrypoint_fn) = application.functions.get(entrypoint_fn_name) else {
+        return Err(IndexifyAPIError::not_found(&format!(
+            "application entrypoint function {entrypoint_fn_name} is not in the application function list",
+        )));
     };
 
-    let fn_call =
-        api_fn.create_function_call(function_call_id, vec![data_payload.clone()], Bytes::new());
+    let fn_call = entrypoint_fn.create_function_call(
+        function_call_id,
+        vec![data_payload.clone()],
+        Bytes::new(),
+    );
     let cg_version = state
         .indexify_state
         .in_memory_state
         .read()
         .await
-        .compute_graph_version(&namespace, &application.name, &application.version)
+        .application_version(&namespace, &application.name, &application.version)
         .cloned()
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
@@ -280,20 +239,20 @@ async fn do_invoke_api_with_object_v1(
     let fn_runs = HashMap::from([(fn_run.id.clone(), fn_run)]);
     let fn_calls = HashMap::from([(fn_call.function_call_id.clone(), fn_call)]);
 
-    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+    let request_ctx = RequestCtxBuilder::default()
         .namespace(namespace.to_string())
-        .compute_graph_name(application.name.to_string())
-        .graph_version(application.version.clone())
+        .application_name(application.name.to_string())
+        .application_version(application.version.clone())
         .request_id(request_id.clone())
         .created_at(get_epoch_time_in_ms())
         .function_runs(fn_runs)
         .function_calls(fn_calls)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+    let request = RequestPayload::InvokeApplication(InvokeApplicationRequest {
         namespace: namespace.clone(),
-        compute_graph_name: application.name.clone(),
-        ctx: graph_invocation_ctx.clone(),
+        application_name: application.name.clone(),
+        ctx: request_ctx.clone(),
     });
     if accept_header.contains("application/json") {
         return return_request_id(&state, request.clone(), request_id.clone()).await;
@@ -338,9 +297,9 @@ async fn return_sse_response(
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
-    compute_graph: String,
+    application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
@@ -348,9 +307,9 @@ async fn return_sse_response(
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    let invocation_event_stream =
-        create_invocation_progress_stream(request_id, rx, state, namespace, compute_graph).await;
-    Ok(axum::response::Sse::new(invocation_event_stream)
+    let request_event_stream =
+        create_request_progress_stream(request_id, rx, state, namespace, application).await;
+    Ok(axum::response::Sse::new(request_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
@@ -362,28 +321,25 @@ async fn return_sse_response(
 /// Stream progress of a request until it is completed
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute-graphs/{compute_graph}/requests/{request_id}/progress",
+    path = "/namespaces/{namespace}/compute-graphs/{application}/requests/{request_id}/progress",
     tag = "operations",
     responses(
-        (status = 200, description = "SSE events of an invocation"),
+        (status = 200, description = "SSE events of a request"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
 #[axum::debug_handler]
 pub async fn progress_stream(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let rx = state.indexify_state.task_event_stream();
+    let rx = state.indexify_state.function_run_event_stream();
 
-    let invocation_event_stream =
-        create_invocation_progress_stream(invocation_id, rx, &state, namespace, compute_graph)
-            .await;
-    Ok(
-        axum::response::Sse::new(invocation_event_stream).keep_alive(
-            axum::response::sse::KeepAlive::new()
-                .interval(Duration::from_secs(1))
-                .text("keep-alive-text"),
-        ),
-    )
+    let request_event_stream =
+        create_request_progress_stream(request_id, rx, &state, namespace, application).await;
+    Ok(axum::response::Sse::new(request_event_stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(1))
+            .text("keep-alive-text"),
+    ))
 }

@@ -3,10 +3,10 @@ from collections.abc import Iterable
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     DataPayload,
     FunctionExecutorDescription,
     FunctionRef,
-    TaskAllocation,
 )
 
 
@@ -42,7 +42,7 @@ def validate_function_executor_description(
         validator.required_field("model")
 
 
-def validate_task_allocation(alloc: TaskAllocation) -> None:
+def validate_allocation(alloc: Allocation) -> None:
     """Validates the supplied TaskAllocation.
 
     Raises ValueError if the TaskAllocation is not valid.
@@ -51,7 +51,7 @@ def validate_task_allocation(alloc: TaskAllocation) -> None:
     validator.required_field("function")
     _validate_function_ref(alloc.function)
     validator.required_field("allocation_id")
-    validator.required_field("task_id")
+    validator.required_field("function_call_id")
     validator.required_field("request_id")
     _validate_data_payloads(alloc.args, field_name="TaskAllocation.args")
     validator.required_field("output_payload_uri_prefix")

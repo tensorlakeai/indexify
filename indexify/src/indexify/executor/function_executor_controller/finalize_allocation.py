@@ -15,64 +15,64 @@ from indexify.proto.executor_api_pb2 import (
     AllocationOutcomeCode,
 )
 
-from .events import TaskAllocationFinalizationFinished
-from .metrics.finalize_task_allocation import (
-    metric_task_allocation_finalization_errors,
-    metric_task_allocation_finalization_latency,
-    metric_task_allocation_finalizations,
-    metric_task_allocations_finalizing,
+from .allocation_info import AllocationInfo
+from .allocation_input import AllocationInput
+from .allocation_output import AllocationOutput
+from .events import AllocationFinalizationFinished
+from .metrics.finalize_allocation import (
+    metric_allocation_finalization_errors,
+    metric_allocation_finalization_latency,
+    metric_allocation_finalizations,
+    metric_allocations_finalizing,
 )
-from .task_allocation_info import TaskAllocationInfo
-from .task_allocation_input import TaskAllocationInput
-from .task_allocation_output import TaskAllocationOutput
 
 
-async def finalize_task_allocation(
-    task_alloc: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
-) -> TaskAllocationFinalizationFinished:
-    """Prepares the task output for getting it reported to Server.
+async def finalize_allocation(
+    alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
+) -> AllocationFinalizationFinished:
+    """Prepares the alloc output for getting it reported to Server.
 
-    The task output is either coming from a failed task or from its finished execution on the Function Executor.
+    The alloc output is either coming from a failed alloc or from its finished execution on the Function Executor.
     Doesn't raise any Exceptions.
     """
     logger = logger.bind(module=__name__)
     start_time = time.monotonic()
 
     with (
-        metric_task_allocations_finalizing.track_inprogress(),
-        metric_task_allocation_finalization_latency.time(),
-        metric_task_allocation_finalization_errors.count_exceptions(),
+        metric_allocations_finalizing.track_inprogress(),
+        metric_allocation_finalization_latency.time(),
+        metric_allocation_finalization_errors.count_exceptions(),
     ):
-        metric_task_allocation_finalizations.inc()
+        metric_allocation_finalizations.inc()
         try:
-            await _finalize_task_alloc_output(
-                alloc_info=task_alloc,
+            await _finalize_alloc_output(
+                alloc_info=alloc_info,
                 blob_store=blob_store,
                 logger=logger,
             )
             logger.info(
-                "task allocation finalized",
+                "allocation finalized",
                 duration=time.monotonic() - start_time,
             )
-            return TaskAllocationFinalizationFinished(
-                alloc_info=task_alloc, is_success=True
+            return AllocationFinalizationFinished(
+                alloc_info=alloc_info, is_success=True
             )
         except asyncio.CancelledError:
-            return TaskAllocationFinalizationFinished(
-                alloc_info=task_alloc, is_success=False
+            return AllocationFinalizationFinished(
+                alloc_info=alloc_info, is_success=False
             )
         except BaseException as e:
             logger.error(
-                "failed to finalize task allocation",
+                "failed to finalize allocation",
                 exc_info=e,
                 duration=time.monotonic() - start_time,
             )
-            return TaskAllocationFinalizationFinished(
-                alloc_info=task_alloc, is_success=False
+            return AllocationFinalizationFinished(
+                alloc_info=alloc_info, is_success=False
             )
 
 
-class _TaskAllocationOutputSummary:
+class _AllocationOutputSummary:
     def __init__(self):
         self.values_count: int = 0
         self.values_bytes: int = 0
@@ -82,27 +82,27 @@ class _TaskAllocationOutputSummary:
         self.request_error_bytes: int = 0
 
 
-async def _finalize_task_alloc_output(
-    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
+async def _finalize_alloc_output(
+    alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
 ) -> None:
-    """Finalizes the task output.
+    """Finalizes the allocation output.
 
     Raises exception on error."""
     if alloc_info.input is None:
         raise Exception(
-            "task allocation input is None, this should never happen",
+            "allocation input is None, this should never happen",
         )
     if alloc_info.output is None:
         raise Exception(
-            "task allocation output is None, this should never happen",
+            "allocation output is None, this should never happen",
         )
 
-    input: TaskAllocationInput = alloc_info.input
-    output: TaskAllocationOutput = alloc_info.output
+    input: AllocationInput = alloc_info.input
+    output: AllocationOutput = alloc_info.output
 
-    output_summary: _TaskAllocationOutputSummary = _alloc_output_summary(output)
+    output_summary: _AllocationOutputSummary = _alloc_output_summary(output)
     logger.info(
-        "task allocation output summary",
+        "allocation output summary",
         values_count=output_summary.values_count,
         values_bytes=output_summary.values_bytes,
         function_calls_count=output_summary.function_calls_count,
@@ -180,13 +180,13 @@ async def _finalize_task_alloc_output(
 
 
 def _alloc_output_summary(
-    alloc_output: TaskAllocationOutput,
-) -> _TaskAllocationOutputSummary:
+    alloc_output: AllocationOutput,
+) -> _AllocationOutputSummary:
     # self.values_count: int = 0
     # self.values_bytes: int = 0
     # self.function_calls_count: int = 0
     # self.reducer_calls_count: int = 0
-    summary: _TaskAllocationOutputSummary = _TaskAllocationOutputSummary()
+    summary: _AllocationOutputSummary = _AllocationOutputSummary()
 
     if alloc_output.output_value is not None:
         summary.values_count += 1
@@ -221,7 +221,7 @@ def _alloc_output_summary(
 
 # Temporary workaround is logging customer metrics until we store them somewhere
 # for future retrieval and processing.
-def _log_function_metrics(output: TaskAllocationOutput, logger: Any):
+def _log_function_metrics(output: AllocationOutput, logger: Any):
     if output.metrics is None:
         return
 

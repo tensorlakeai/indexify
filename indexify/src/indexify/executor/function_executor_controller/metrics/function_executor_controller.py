@@ -12,25 +12,25 @@ metric_control_loop_handle_event_latency: prometheus_client.Histogram = (
     )
 )
 
-metric_task_allocations_fetched: prometheus_client.Counter = prometheus_client.Counter(
-    "task_allocations_fetched",
-    "Number of task allocations that were fetched from Server",
+metric_allocations_fetched: prometheus_client.Counter = prometheus_client.Counter(
+    "allocations_fetched",
+    "Number of allocations that were fetched from Server",
 )
 
-metric_schedule_task_allocation_latency: prometheus_client.Histogram = (
+metric_schedule_allocation_latency: prometheus_client.Histogram = (
     latency_metric_for_customer_controlled_operation(
-        "schedule_task_allocation",
-        "Schedule a task allocation for execution after it got ready for execution",
+        "schedule_allocation",
+        "Schedule an allocation for execution after it got ready for execution",
     )
 )
-metric_runnable_task_allocations: prometheus_client.Gauge = prometheus_client.Gauge(
-    "runnable_task_allocations",
-    "Number of task allocations that are ready for execution but are waiting to get scheduled to run on Function Executor (typically waiting for a free Function Executor)",
+metric_runnable_allocations: prometheus_client.Gauge = prometheus_client.Gauge(
+    "runnable_allocations",
+    "Number of allocations that are ready for execution but are waiting to get scheduled to run on Function Executor (typically waiting for a free Function Executor)",
 )
-metric_runnable_task_allocations_per_function_name: prometheus_client.Gauge = (
+metric_runnable_allocations_per_function_name: prometheus_client.Gauge = (
     prometheus_client.Gauge(
-        "runnable_task_allocations_per_function_name",
-        "Number of task allocations that are ready for execution but are waiting to get scheduled to run on Function Executor (typically waiting for a free Function Executor)",
+        "runnable_allocations_per_function_name",
+        "Number of allocations that are ready for execution but are waiting to get scheduled to run on Function Executor (typically waiting for a free Function Executor)",
         ["function_name"],
     )
 )

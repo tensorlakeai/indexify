@@ -3,13 +3,14 @@ Unified tags for indexify / PE / FE stack. All events/metrics/spans should use t
 - graph - Name of graph. (Deprecated by application)
 - graph_version - Version of the graph (Deprecated by app_version)
 - invocation_id = ID of the invocation. (Deprecated by request_id)
+- task_id - ID of the task. (Deprecated by fn_call_id)
 - app - Name of application.
 - app_version - Version of the application
-- request_id = ID of the request.
+- request_id - ID of the request
 - fn - Name of the compute function
+- fn_call_id - ID of the function call
 - allocation_id - ID of the allocation
-- task_id - ID of the task.
-- namespace - Name of the namespace.
+- namespace - Name of the namespace
 - executor_sku - Type of executor (a100, h100, etc)
 - executor_id - ID of the executor
 - fn_executor_id - ID of the function executor.

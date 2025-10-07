@@ -10,18 +10,18 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.proto.executor_api_pb2 import DataPayload, TaskAllocation
+from indexify.proto.executor_api_pb2 import Allocation, DataPayload
 
+from .allocation_info import AllocationInfo
+from .allocation_input import AllocationInput
 from .downloads import serialized_object_manifest_from_data_payload_proto
-from .events import TaskAllocationPreparationFinished
-from .metrics.prepare_task_allocation import (
-    metric_task_allocation_preparation_errors,
-    metric_task_allocation_preparation_latency,
-    metric_task_allocation_preparations,
-    metric_task_allocations_getting_prepared,
+from .events import AllocationPreparationFinished
+from .metrics.prepare_allocation import (
+    metric_allocation_preparation_errors,
+    metric_allocation_preparation_latency,
+    metric_allocation_preparations,
+    metric_allocations_getting_prepared,
 )
-from .task_allocation_info import TaskAllocationInfo
-from .task_allocation_input import TaskAllocationInput
 
 # The following constants are subject to S3 limits,
 # see https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html.
@@ -42,59 +42,55 @@ _OUTPUT_BLOB_SLOWER_CHUNKS_COUNT: int = 100
 _REQUEST_ERROR_MAX_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 
-async def prepare_task_allocation(
-    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
-) -> TaskAllocationPreparationFinished:
-    """Prepares the task allocation for execution.
+async def prepare_allocation(
+    alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
+) -> AllocationPreparationFinished:
+    """Prepares the allocation for execution.
 
-    If successful then the task allocation is runnable.
+    If successful then the allocation is runnable.
     Doesn't raise any exceptions.
     """
     logger = logger.bind(module=__name__)
     start_time = time.monotonic()
     try:
         with (
-            metric_task_allocation_preparation_errors.count_exceptions(),
-            metric_task_allocations_getting_prepared.track_inprogress(),
-            metric_task_allocation_preparation_latency.time(),
+            metric_allocation_preparation_errors.count_exceptions(),
+            metric_allocations_getting_prepared.track_inprogress(),
+            metric_allocation_preparation_latency.time(),
         ):
-            metric_task_allocation_preparations.inc()
-            alloc_info.input = await _prepare_task_alloc_input(
+            metric_allocation_preparations.inc()
+            alloc_info.input = await _prepare_alloc_input(
                 alloc_info=alloc_info,
                 blob_store=blob_store,
                 logger=logger,
             )
             logger.info(
-                "task allocation was prepared for execution",
+                "allocation was prepared for execution",
                 duration=time.monotonic() - start_time,
             )
-            return TaskAllocationPreparationFinished(
+            return AllocationPreparationFinished(
                 alloc_info=alloc_info,
                 is_success=True,
             )
     except asyncio.CancelledError:
-        return TaskAllocationPreparationFinished(
-            alloc_info=alloc_info, is_success=False
-        )
+        return AllocationPreparationFinished(alloc_info=alloc_info, is_success=False)
     except BaseException as e:
         logger.error(
-            "failed to prepare task allocation for execution",
+            "failed to prepare allocation for execution",
             exc_info=e,
             duration=time.monotonic() - start_time,
         )
-        return TaskAllocationPreparationFinished(
-            alloc_info=alloc_info, is_success=False
-        )
+        return AllocationPreparationFinished(alloc_info=alloc_info, is_success=False)
 
 
-async def _prepare_task_alloc_input(
-    alloc_info: TaskAllocationInfo, blob_store: BLOBStore, logger: Any
-) -> TaskAllocationInput:
-    """Prepares the task for execution.
+async def _prepare_alloc_input(
+    alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
+) -> AllocationInput:
+    """Prepares the alloc for execution.
 
     Raises an exception on error.
     """
-    alloc: TaskAllocation = alloc_info.allocation
+    alloc: Allocation = alloc_info.allocation
     function_outputs_blob_uri: str = (
         f"{alloc.output_payload_uri_prefix}.{alloc_info.allocation.allocation_id}.output"
     )
@@ -102,7 +98,7 @@ async def _prepare_task_alloc_input(
         f"{alloc.request_error_payload_uri_prefix}.{alloc.request_id}.req_error"
     )
 
-    # The uploads are completed when finalizing the task.
+    # The uploads are completed when finalizing the alloc.
     function_outputs_blob_upload_id: str | None = None
     request_error_blob_upload_id: str | None = None
 
@@ -142,7 +138,7 @@ async def _prepare_task_alloc_input(
         )
         arg_blobs.append(arg_blob)
 
-    return TaskAllocationInput(
+    return AllocationInput(
         function_inputs=FunctionInputs(
             args=args,
             arg_blobs=arg_blobs,
@@ -194,7 +190,7 @@ async def _presign_function_arg_blob(
 async def _presign_function_outputs_blob(
     uri: str, upload_id: str, blob_store: BLOBStore, logger: Any
 ) -> BLOB:
-    """Presigns the output blob for the task."""
+    """Presigns the output blob for the allocation."""
     chunks: List[BLOBChunk] = []
 
     while len(chunks) != (

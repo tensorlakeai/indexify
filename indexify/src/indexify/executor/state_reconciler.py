@@ -13,10 +13,10 @@ from typing import (
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     DesiredExecutorState,
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
-    TaskAllocation,
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
@@ -27,10 +27,10 @@ from .function_executor.server.function_executor_server_factory import (
 )
 from .function_executor_controller import (
     FunctionExecutorController,
+    allocation_logger,
     function_executor_logger,
-    task_allocation_logger,
+    validate_allocation,
     validate_function_executor_description,
-    validate_task_allocation,
 )
 from .metrics.state_reconciler import (
     metric_state_reconciliation_errors,
@@ -260,9 +260,9 @@ class ExecutorStateReconciler:
         """
         for attempt in range(_RECONCILIATION_RETRIES):
             try:
-                # Reconcile FEs first because task allocations depend on them.
+                # Reconcile FEs first because allocations depend on them.
                 self._reconcile_function_executors(desired_state.function_executors)
-                self._reconcile_task_allocations(desired_state.task_allocations)
+                self._reconcile_allocations(desired_state.allocations)
                 return
             except Exception as e:
                 self._logger.error(
@@ -384,21 +384,19 @@ class ExecutorStateReconciler:
         self._function_executor_controllers.pop(function_executor_id, None)
         self._shutting_down_fe_ids.discard(function_executor_id)
 
-    def _reconcile_task_allocations(self, task_allocations: Iterable[TaskAllocation]):
-        valid_task_allocations: List[TaskAllocation] = self._valid_task_allocations(
-            task_allocations
-        )
-        for task_allocation in valid_task_allocations:
-            self._reconcile_task_allocation(task_allocation)
+    def _reconcile_allocations(self, allocations: Iterable[Allocation]):
+        valid_allocations: List[Allocation] = self._valid_allocations(allocations)
+        for allocation in valid_allocations:
+            self._reconcile_allocation(allocation)
 
-        # Cancel tasks that are no longer in the desired state.
+        # Cancel allocs that are no longer in the desired state.
         # FE ID => [Allocation ID]
         desired_alloc_ids_per_fe: Dict[str, List[str]] = {}
-        for task_allocation in valid_task_allocations:
-            if task_allocation.function_executor_id not in desired_alloc_ids_per_fe:
-                desired_alloc_ids_per_fe[task_allocation.function_executor_id] = []
-            desired_alloc_ids_per_fe[task_allocation.function_executor_id].append(
-                task_allocation.allocation_id
+        for allocation in valid_allocations:
+            if allocation.function_executor_id not in desired_alloc_ids_per_fe:
+                desired_alloc_ids_per_fe[allocation.function_executor_id] = []
+            desired_alloc_ids_per_fe[allocation.function_executor_id].append(
+                allocation.allocation_id
             )
 
         for fe_controller in self._function_executor_controllers.values():
@@ -408,54 +406,52 @@ class ExecutorStateReconciler:
                     desired_alloc_ids_per_fe[fe_controller.function_executor_id()]
                 )
             else:
-                # No tasks desired for this FE, so cancel all its tasks.
+                # No allocations desired for this FE, so cancel all its allocations.
                 desired_fe_alloc_ids: Set[str] = set()
-            actual_fe_alloc_ids: Set[str] = set(fe_controller.task_allocation_ids())
+            actual_fe_alloc_ids: Set[str] = set(fe_controller.allocation_ids())
             alloc_ids_to_remove: Set[str] = actual_fe_alloc_ids - desired_fe_alloc_ids
             for alloc_id in alloc_ids_to_remove:
-                fe_controller.remove_task_allocation(alloc_id)
+                fe_controller.remove_allocation(alloc_id)
 
-    def _reconcile_task_allocation(self, task_allocation: TaskAllocation):
-        """Reconciles a single TaskAllocation with the desired state.
+    def _reconcile_allocation(self, allocation: Allocation):
+        """Reconciles a single Allocation with the desired state.
 
         Doesn't raise any exceptions.
         """
         function_executor_controller: FunctionExecutorController = (
-            self._function_executor_controllers[task_allocation.function_executor_id]
+            self._function_executor_controllers[allocation.function_executor_id]
         )
-        if function_executor_controller.has_task_allocation(
-            task_allocation.allocation_id
-        ):
-            # Nothing to do, task already exists and it's immutable.
+        if function_executor_controller.has_allocation(allocation.allocation_id):
+            # Nothing to do, allocation already exists and it's immutable.
             return
 
-        function_executor_controller.add_task_allocation(task_allocation)
+        function_executor_controller.add_allocation(allocation)
 
-    def _valid_task_allocations(self, task_allocations: Iterable[TaskAllocation]):
-        valid_task_allocations: List[TaskAllocation] = []
-        for task_allocation in task_allocations:
-            task_allocation: TaskAllocation
-            logger = task_allocation_logger(task_allocation, self._logger)
+    def _valid_allocations(self, allocations: Iterable[Allocation]):
+        valid_allocations: List[Allocation] = []
+        for allocation in allocations:
+            allocation: Allocation
+            logger = allocation_logger(allocation, self._logger)
 
             try:
-                validate_task_allocation(task_allocation)
+                validate_allocation(allocation)
             except ValueError as e:
                 # There's no way to report this error to Server so just log it.
                 logger.error(
-                    "received invalid TaskAllocation from Server, dropping it from desired state",
+                    "received invalid Allocation from Server, dropping it from desired state",
                     exc_info=e,
                 )
                 continue
 
             if (
-                task_allocation.function_executor_id
+                allocation.function_executor_id
                 not in self._function_executor_controllers
             ):
                 logger.error(
-                    "received TaskAllocation for a Function Executor that doesn't exist, dropping it from desired state"
+                    "received Allocation for a Function Executor that doesn't exist, dropping it from desired state"
                 )
                 continue
 
-            valid_task_allocations.append(task_allocation)
+            valid_allocations.append(allocation)
 
-        return valid_task_allocations
+        return valid_allocations
