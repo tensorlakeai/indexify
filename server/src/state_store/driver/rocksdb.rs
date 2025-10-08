@@ -5,7 +5,10 @@ use opentelemetry::KeyValue;
 use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
+    DBCompactionStyle,
+    DBCompressionType,
     Error as RocksDBError,
+    LogLevel,
     Transaction,
     TransactionDB,
     TransactionDBOptions,
@@ -38,6 +41,9 @@ pub enum Error {
     #[error("Failed to open RocksDB database. error: {}", source)]
     OpenDatabaseFailed { source: RocksDBError },
 
+    #[error("Invalid RocksDB configuration")]
+    InvalidConfiguration { option: String, message: String },
+
     #[error(transparent)]
     GenericRocksDBFailure { source: RocksDBError },
 }
@@ -69,6 +75,54 @@ impl RocksDBDriver {
         let mut db_opts = RocksDBOptions::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
+        db_opts.increase_parallelism(*super::config::ROCKSDB_THREAD_COUNT);
+        db_opts.set_max_background_jobs(*super::config::ROCKSDB_JOBS_COUNT);
+        db_opts.set_target_file_size_base(*super::config::ROCKSDB_TARGET_FILE_SIZE_BASE);
+        db_opts
+            .set_target_file_size_multiplier(*super::config::ROCKSDB_TARGET_FILE_SIZE_MULTIPLIER);
+        db_opts.set_wal_size_limit_mb(*super::config::ROCKSDB_WAL_SIZE_LIMIT);
+        db_opts.set_write_buffer_size(*super::config::ROCKSDB_WRITE_BUFFER_SIZE);
+        db_opts.set_max_write_buffer_number(*super::config::ROCKSDB_MAX_WRITE_BUFFER_NUMBER);
+        db_opts.set_level_zero_file_num_compaction_trigger(
+            *super::config::ROCKSDB_LEVEL_ZERO_FILE_COMPACTION_TRIGGER,
+        );
+        db_opts.set_max_subcompactions(*super::config::ROCKSDB_MAX_CONCURRENT_SUBCOMPACTIONS);
+        db_opts.set_enable_pipelined_write(*super::config::ROCKSDB_ENABLE_PIPELINED_WRITES);
+        db_opts.set_keep_log_file_num(*super::config::ROCKSDB_KEEP_LOG_FILE_NUM);
+        db_opts.set_log_level(
+            match super::config::ROCKSDB_LOG_LEVEL
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "debug" => LogLevel::Debug,
+                "info" => LogLevel::Info,
+                "warn" => LogLevel::Warn,
+                "error" => LogLevel::Error,
+                "fatal" => LogLevel::Fatal,
+                l => {
+                    return Err(Error::InvalidConfiguration {
+                        message: format!("Invalid log level: {}", l),
+                        option: "log_level".to_string(),
+                    });
+                }
+            },
+        );
+        db_opts.set_compaction_style(
+            match super::config::ROCKSDB_COMPACTION_STYLE
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "universal" => DBCompactionStyle::Universal,
+                _ => DBCompactionStyle::Level,
+            },
+        );
+        db_opts.set_compression_per_level(&[
+            DBCompressionType::None,
+            DBCompressionType::None,
+            DBCompressionType::Snappy,
+            DBCompressionType::Snappy,
+            DBCompressionType::Snappy,
+        ]);
 
         let db = TransactionDB::open_cf_descriptors(
             &db_opts,
