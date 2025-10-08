@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::{delete, get, head, post},
+    routing::{delete, get, post},
 };
 use base64::prelude::*;
 use download::download_request_error;
@@ -272,26 +272,19 @@ async fn find_request(
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
 
-    let function_run = request_ctx
-        .function_runs
-        .get(&request_id.as_str().into())
-        .ok_or(IndexifyAPIError::not_found("function run not found"))?
-        .clone();
-
     let allocations = state
         .indexify_state
         .reader()
         .get_allocations_by_request_id(&namespace, &application, &request_id)
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let output = function_run.output.clone().map(|output| output.into());
     let request_error = download_request_error(
         request_ctx.request_error.clone(),
         &state.blob_storage.get_blob_store(&namespace),
     )
     .await?;
 
-    let request = http_objects_v1::Request::build(request_ctx, output, request_error, allocations);
+    let request = http_objects_v1::Request::build(request_ctx, request_error, allocations);
 
     Ok(Json(request))
 }

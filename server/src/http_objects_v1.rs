@@ -8,7 +8,6 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
-        DataPayload,
         FunctionRunOutcome,
         FunctionRunStatus,
         IndexifyAPIError,
@@ -286,7 +285,6 @@ pub struct Request {
 impl Request {
     pub fn build(
         ctx: RequestCtx,
-        output: Option<DataPayload>,
         request_error: Option<RequestError>,
         allocations: Vec<data_model::Allocation>,
     ) -> Self {
