@@ -101,7 +101,7 @@ impl RocksDBDriver {
                 "fatal" => LogLevel::Fatal,
                 l => {
                     return Err(Error::InvalidConfiguration {
-                        message: format!("Invalid log level: {}", l),
+                        message: format!("Invalid log level: {l}"),
                         option: "log_level".to_string(),
                     });
                 }
