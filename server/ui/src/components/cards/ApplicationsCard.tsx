@@ -34,6 +34,7 @@ export function ApplicationsCard({
   const [error, setError] = useState<string | null>(null)
 
   async function handleDeleteApplication(applicationName: string) {
+    // TODO: rendering errors
     try {
       const result = await deleteApplication({
         namespace,

@@ -30,3 +30,26 @@ export async function deleteApplication({
     return false
   }
 }
+
+export async function deleteApplicationRequest({
+  namespace,
+  application,
+  requestId,
+}: {
+  namespace: string
+  application: string
+  requestId: string
+}): Promise<boolean> {
+  try {
+    const response = await apiDelete(
+      `/v1/namespaces/${namespace}/applications/${application}/request/${requestId}`
+    )
+    if (response === 200) {
+      return true
+    } else {
+      return false
+    }
+  } catch {
+    return false
+  }
+}
