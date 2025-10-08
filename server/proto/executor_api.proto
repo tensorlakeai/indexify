@@ -231,7 +231,7 @@ message GetDesiredExecutorStatesRequest {
     optional string executor_id = 1;
 }
 
-message FunctionCallOutcome {
+message FunctionCallResult {
     optional string namespace = 1;
     optional string request_id = 2;
     optional string function_call_id = 4;
@@ -246,7 +246,7 @@ message FunctionCallOutcome {
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
     repeated Allocation allocations = 2;
-    repeated FunctionCallOutcome function_call_outcomes = 3;
+    repeated FunctionCallResult function_call_results = 3;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
     optional uint64 clock = 4;
@@ -340,23 +340,14 @@ message AllocationResult {
 }
 
 message FunctionCallRequest {
-    // ID of the parent request.
-    // Should be set by the Executor for safety.
-    optional string parent_request_id = 1;
-
-    // function call or reduce op.
-    repeated ExecutionPlanUpdate execution_plan_updates = 2;
-
-    // ID of the source function call.
-    // Should be set by the Executor for safety.
+    // The ID of request in which the function call
+    // needs to run.
+    optional string request_id = 1;
+    // Function call tree.
+    // updates.root_function_call_id is the ID of this function call.
+    optional ExecutionPlanUpdates updates = 2;
+    // ID of the function call that initiated this function call.
     optional string source_function_call_id = 5;
-}
-
-message FunctionCallResult {
-    oneof result {
-        DataPayload output = 1;
-        string exception = 2;
-    }
 }
 
 message FunctionCallResponse {
@@ -379,6 +370,5 @@ service ExecutorAPI {
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 
     // Called by the user code to invoke a blocking function call.
-    // returns a stream until the function call is completed.
-    rpc invoke_function(FunctionCallRequest) returns (FunctionCallResponse) {}
+    rpc call_function(FunctionCallRequest) returns (FunctionCallResponse) {}
 }

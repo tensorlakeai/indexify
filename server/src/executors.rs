@@ -527,7 +527,7 @@ impl ExecutorManager {
             function_executors: function_executors_pb,
             allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
-            function_call_outcomes: vec![],
+            function_call_results: vec![],
         }
     }
 

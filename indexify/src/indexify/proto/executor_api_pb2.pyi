@@ -439,15 +439,18 @@ class ExecutorUpdate(_message.Message):
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state", "executor_update")
+    __slots__ = ("executor_state", "executor_update", "watch_function_call_ids")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_UPDATE_FIELD_NUMBER: _ClassVar[int]
+    WATCH_FUNCTION_CALL_IDS_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
     executor_update: ExecutorUpdate
+    watch_function_call_ids: _containers.RepeatedScalarFieldContainer[str]
     def __init__(
         self,
         executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
         executor_update: _Optional[_Union[ExecutorUpdate, _Mapping]] = ...,
+        watch_function_call_ids: _Optional[_Iterable[str]] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -503,15 +506,54 @@ class GetDesiredExecutorStatesRequest(_message.Message):
     executor_id: str
     def __init__(self, executor_id: _Optional[str] = ...) -> None: ...
 
+class FunctionCallResult(_message.Message):
+    __slots__ = (
+        "namespace",
+        "request_id",
+        "function_call_id",
+        "outcome_code",
+        "failure_reason",
+        "return_value",
+        "request_error",
+    )
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_CODE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
+    RETURN_VALUE_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ERROR_FIELD_NUMBER: _ClassVar[int]
+    namespace: str
+    request_id: str
+    function_call_id: str
+    outcome_code: AllocationOutcomeCode
+    failure_reason: AllocationFailureReason
+    return_value: DataPayload
+    request_error: DataPayload
+    def __init__(
+        self,
+        namespace: _Optional[str] = ...,
+        request_id: _Optional[str] = ...,
+        function_call_id: _Optional[str] = ...,
+        outcome_code: _Optional[_Union[AllocationOutcomeCode, str]] = ...,
+        failure_reason: _Optional[_Union[AllocationFailureReason, str]] = ...,
+        return_value: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        request_error: _Optional[_Union[DataPayload, _Mapping]] = ...,
+    ) -> None: ...
+
 class DesiredExecutorState(_message.Message):
-    __slots__ = ("function_executors", "allocations", "clock")
+    __slots__ = ("function_executors", "allocations", "function_call_results", "clock")
     FUNCTION_EXECUTORS_FIELD_NUMBER: _ClassVar[int]
     ALLOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_RESULTS_FIELD_NUMBER: _ClassVar[int]
     CLOCK_FIELD_NUMBER: _ClassVar[int]
     function_executors: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorDescription
     ]
     allocations: _containers.RepeatedCompositeFieldContainer[Allocation]
+    function_call_results: _containers.RepeatedCompositeFieldContainer[
+        FunctionCallResult
+    ]
     clock: int
     def __init__(
         self,
@@ -519,6 +561,9 @@ class DesiredExecutorState(_message.Message):
             _Iterable[_Union[FunctionExecutorDescription, _Mapping]]
         ] = ...,
         allocations: _Optional[_Iterable[_Union[Allocation, _Mapping]]] = ...,
+        function_call_results: _Optional[
+            _Iterable[_Union[FunctionCallResult, _Mapping]]
+        ] = ...,
         clock: _Optional[int] = ...,
     ) -> None: ...
 
@@ -642,52 +687,20 @@ class AllocationResult(_message.Message):
     ) -> None: ...
 
 class FunctionCallRequest(_message.Message):
-    __slots__ = (
-        "parent_request_id",
-        "function",
-        "inputs",
-        "call_metadata",
-        "source_function_call_id",
-    )
-    PARENT_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_FIELD_NUMBER: _ClassVar[int]
-    INPUTS_FIELD_NUMBER: _ClassVar[int]
-    CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("request_id", "updates", "source_function_call_id")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    UPDATES_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
-    parent_request_id: str
-    function: FunctionRef
-    inputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
-    call_metadata: bytes
+    request_id: str
+    updates: ExecutionPlanUpdates
     source_function_call_id: str
     def __init__(
         self,
-        parent_request_id: _Optional[str] = ...,
-        function: _Optional[_Union[FunctionRef, _Mapping]] = ...,
-        inputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
-        call_metadata: _Optional[bytes] = ...,
+        request_id: _Optional[str] = ...,
+        updates: _Optional[_Union[ExecutionPlanUpdates, _Mapping]] = ...,
         source_function_call_id: _Optional[str] = ...,
     ) -> None: ...
 
-class FunctionCallResult(_message.Message):
-    __slots__ = ("output", "exception")
-    OUTPUT_FIELD_NUMBER: _ClassVar[int]
-    EXCEPTION_FIELD_NUMBER: _ClassVar[int]
-    output: DataPayload
-    exception: str
-    def __init__(
-        self,
-        output: _Optional[_Union[DataPayload, _Mapping]] = ...,
-        exception: _Optional[str] = ...,
-    ) -> None: ...
-
 class FunctionCallResponse(_message.Message):
-    __slots__ = ("update", "result")
-    UPDATE_FIELD_NUMBER: _ClassVar[int]
-    RESULT_FIELD_NUMBER: _ClassVar[int]
-    update: str
-    result: FunctionCallResult
-    def __init__(
-        self,
-        update: _Optional[str] = ...,
-        result: _Optional[_Union[FunctionCallResult, _Mapping]] = ...,
-    ) -> None: ...
+    __slots__ = ()
+    def __init__(self) -> None: ...
