@@ -200,6 +200,7 @@ message ExecutorUpdate {
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
     optional ExecutorUpdate executor_update = 2;
+    repeated string watch_function_call_ids = 3;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
@@ -230,14 +231,25 @@ message GetDesiredExecutorStatesRequest {
     optional string executor_id = 1;
 }
 
+message FunctionCallOutcome {
+    optional string namespace = 1;
+    optional string request_id = 2;
+    optional string function_call_id = 4;
+    optional AllocationOutcomeCode outcome_code = 5;
+    optional AllocationFailureReason failure_reason = 6;
+    optional DataPayload return_value = 7;
+    optional DataPayload request_error = 9;
+}
+
 // A message sent from Server to Executor that describes the desired state of the Executor at the moment.
 // Executor compares this state with its current state and make necessary changes to match the desired state.
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
     repeated Allocation allocations = 2;
+    repeated FunctionCallOutcome function_call_outcomes = 3;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
-    optional uint64 clock = 3;
+    optional uint64 clock = 4;
 }
 
 enum AllocationOutcomeCode {
@@ -331,14 +343,9 @@ message FunctionCallRequest {
     // ID of the parent request.
     // Should be set by the Executor for safety.
     optional string parent_request_id = 1;
-    // Reference of the target function.
-    optional FunctionRef function = 2;
 
-    // Inputs to the function.
-    repeated DataPayload inputs = 3;
-
-    // Metadata for the function call.
-    optional bytes call_metadata = 4;
+    // function call or reduce op.
+    repeated ExecutionPlanUpdate execution_plan_updates = 2;
 
     // ID of the source function call.
     // Should be set by the Executor for safety.
@@ -353,10 +360,6 @@ message FunctionCallResult {
 }
 
 message FunctionCallResponse {
-    oneof event {
-        string update = 1;
-        FunctionCallResult result = 2;
-    }
 }
 
 // Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
@@ -377,5 +380,5 @@ service ExecutorAPI {
 
     // Called by the user code to invoke a blocking function call.
     // returns a stream until the function call is completed.
-    rpc invoke_function(FunctionCallRequest) returns (stream FunctionCallResponse) {}
+    rpc invoke_function(FunctionCallRequest) returns (FunctionCallResponse) {}
 }
