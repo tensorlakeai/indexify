@@ -15,21 +15,21 @@ import { RequestOutcome, ShallowRequest } from '../../types/types'
 import { formatTimestamp } from '../../utils/helpers'
 import CopyText from '../CopyText'
 
-interface GraphRequestTableProps {
+interface ShallowRequestTableProps {
   namespace: string
   applicationName: string
-  shallowGraphRequests: ShallowRequest[]
+  shallowRequests: ShallowRequest[]
 }
 
-export function GraphRequestsTable({
+export function ShallowRequestsTable({
   namespace,
   applicationName,
-  shallowGraphRequests,
-}: GraphRequestTableProps) {
+  shallowRequests,
+}: ShallowRequestTableProps) {
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
       <Typography variant="h6" gutterBottom>
-        Graph Requests
+        Application Requests
       </Typography>
       <TableContainer
         component={Paper}
@@ -44,7 +44,7 @@ export function GraphRequestsTable({
             </TableRow>
           </TableHead>
           <TableBody>
-            {shallowGraphRequests.map((request) => (
+            {shallowRequests.map((request) => (
               <TableRow key={request.id}>
                 <TableCell>
                   <Box display="flex" flexDirection="row" alignItems="center">
@@ -67,7 +67,7 @@ export function GraphRequestsTable({
   )
 }
 
-export default GraphRequestsTable
+export default ShallowRequestsTable
 
 const renderOutcome = (outcome: RequestOutcome | null | undefined) => {
   if (!outcome) {

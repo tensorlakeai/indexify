@@ -18,7 +18,7 @@ import CopyTextPopover from '../../components/CopyTextPopover'
 import ApplicationEntrypointTable from '../../components/tables/ApplicationEntrypointTable'
 import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
 import ApplicationTagsTable from '../../components/tables/ApplicationTagsTable'
-import { GraphRequestsTable } from '../../components/tables/ShallowGraphRequestsTable'
+import { ShallowRequestsTable } from '../../components/tables/ShallowRequestsTable'
 import type { ShallowRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import { ApplicationDetailsLoaderData } from './types'
@@ -134,10 +134,10 @@ const ApplicationDetailsPage = () => {
           <ApplicationTagsTable namespace={namespace} tags={application.tags} />
         </Box>
 
-        <GraphRequestsTable
+        <ShallowRequestsTable
           namespace={namespace}
           applicationName={application.name}
-          shallowGraphRequests={shallowGraphRequests}
+          shallowRequests={shallowGraphRequests}
         />
 
         <Box
