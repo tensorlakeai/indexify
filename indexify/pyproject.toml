@@ -25,11 +25,11 @@ httpx = { version = "0.27.2", extras = ["http2"] }
 pydantic = "^2.11"
 prometheus-client = "^0.23.1"
 psutil = "^7.0.0"
-boto3 = "^1.40.46"
+boto3 = "^1.40.47"
 structlog = "25.4.0"
 # Adds function-executor binary, utils lib, sdk used in indexify-cli commands.
 # We need to specify the tensorlake version exactly because pip install doesn't respect poetry.lock files.
-tensorlake = "0.2.56"
+tensorlake = "0.2.59"
 # Uncomment the next line to use local tensorlake package (only for development!)
 # tensorlake = { path = "../tensorlake", develop = true }
 # grpcio is provided by tensorlake
