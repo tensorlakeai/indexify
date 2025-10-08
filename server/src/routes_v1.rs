@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, head, post},
 };
 use base64::prelude::*;
 use download::download_request_error;
@@ -35,7 +35,12 @@ use crate::{
     http_objects_v1::{self, Application, ApplicationRequests, ApplicationsList},
     routes::{
         applications::{self, create_or_update_application},
-        download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
+        download::{
+            self,
+            v1_download_fn_output_payload,
+            v1_download_fn_output_payload_head,
+            v1_download_fn_output_payload_simple,
+        },
         invoke::{self, progress_stream},
         routes_state::RouteState,
     },
@@ -62,6 +67,8 @@ use crate::{
             applications::delete_application,
             delete_request,
             download::v1_download_fn_output_payload,
+            download::v1_download_fn_output_payload_simple,
+            download::v1_download_fn_output_payload_head,
         ),
         components(
             schemas(
@@ -145,7 +152,9 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}/requests/{request_id}/output",
-            get(v1_download_fn_output_payload_simple).with_state(route_state.clone()),
+            get(v1_download_fn_output_payload_simple)
+                .head(v1_download_fn_output_payload_head)
+                .with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)
