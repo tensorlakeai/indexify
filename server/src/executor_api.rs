@@ -883,7 +883,7 @@ impl ExecutorApi for ExecutorAPIService {
             function_executors: vec![],
             allocations: vec![],
             clock: Some(0),
-            function_call_outcomes: vec![],
+            function_call_results: vec![],
         }));
         tokio::spawn(executor_update_loop(
             executor_id,
@@ -898,7 +898,7 @@ impl ExecutorApi for ExecutorAPIService {
         ))
     }
 
-    async fn invoke_function(
+    async fn call_function(
         &self,
         request: Request<FunctionCallRequest>,
     ) -> Result<Response<FunctionCallResponse>, Status> {
