@@ -294,7 +294,6 @@ pub struct Request {
     pub application_version: String,
     pub created_at: u128,
     pub request_error: Option<RequestError>,
-    pub output: Option<DataPayload>,
     pub function_runs: Vec<FunctionRun>,
 }
 
@@ -329,7 +328,6 @@ impl Request {
             application_version: ctx.application_version.to_string(),
             created_at: ctx.created_at.into(),
             request_error,
-            output,
             function_runs,
         }
     }
