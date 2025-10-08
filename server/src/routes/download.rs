@@ -126,6 +126,52 @@ pub async fn v1_download_fn_output_payload_simple(
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
+#[utoipa::path(
+    head,
+    path = "/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "function output exists"),
+        (status = 204, description = "function output does not exist"),
+        (status = INTERNAL_SERVER_ERROR, description = "internal server error"),
+        (status = NOT_FOUND, description = "resource not found")
+    ),
+)]
+pub async fn v1_download_fn_output_payload_head(
+    Path((namespace, application, request_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let ctx = state
+        .indexify_state
+        .reader()
+        .request_ctx(&namespace, &application, &request_id)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
+        })?
+        .ok_or(IndexifyAPIError::not_found("request context not found"))?;
+
+    let api_fn_run = ctx
+        .function_runs
+        .get(&FunctionCallId::from(request_id.as_str()))
+        .ok_or(IndexifyAPIError::not_found("function run not found"))?;
+
+    if let Some(payload) = api_fn_run.output.clone() {
+        let content_length = payload.size;
+        let encoding = payload.encoding;
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Length", content_length.to_string())
+            .header("Content-Type", encoding)
+            .body(Body::empty())
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
+
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(Body::empty())
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+}
+
 async fn stream_data_payload(
     payload: &data_model::DataPayload,
     blob_storage: &BlobStorage,

@@ -548,27 +548,6 @@ impl From<data_model::FunctionRunStatus> for FunctionRunStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
-pub struct DataPayload {
-    pub id: String,
-    pub path: String,
-    pub size: u64,
-    pub sha256_hash: String,
-}
-
-impl From<data_model::DataPayload> for DataPayload {
-    fn from(payload: data_model::DataPayload) -> Self {
-        let size = payload.size;
-        let sha256_hash = payload.sha256_hash;
-        Self {
-            id: payload.id,
-            path: payload.path,
-            size,
-            sha256_hash,
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct RequestError {
     pub function_name: String,
