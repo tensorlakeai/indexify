@@ -34,9 +34,19 @@ pub(super) static ROCKSDB_WRITE_BUFFER_SIZE: LazyLock<usize> = std::sync::LazyLo
         .unwrap_or(32 * 1024 * 1024)
 });
 
-/// The write-ahead-log size limit in MiB (default: 0)
+/// The write-ahead-log size threshold to trigger archived WAL deletion, in MiB
+/// (default: 0)
 pub(super) static ROCKSDB_WAL_SIZE_LIMIT: LazyLock<u64> = std::sync::LazyLock::new(|| {
     std::env::var("TL_ROCKSDB_WAL_SIZE_LIMIT")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
+});
+
+/// The total max write-ahead-log size before column family flushes in MiB
+/// (default: 0)
+pub(super) static ROCKSDB_MAX_TOTAL_WAL_SIZE: LazyLock<u64> = std::sync::LazyLock::new(|| {
+    std::env::var("TL_ROCKSDB_MAX_TOTAL_WAL_SIZE")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0)

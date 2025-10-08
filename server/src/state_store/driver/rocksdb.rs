@@ -81,6 +81,7 @@ impl RocksDBDriver {
         db_opts
             .set_target_file_size_multiplier(*super::config::ROCKSDB_TARGET_FILE_SIZE_MULTIPLIER);
         db_opts.set_wal_size_limit_mb(*super::config::ROCKSDB_WAL_SIZE_LIMIT);
+        db_opts.set_max_total_wal_size(*super::config::ROCKSDB_MAX_TOTAL_WAL_SIZE);
         db_opts.set_write_buffer_size(*super::config::ROCKSDB_WRITE_BUFFER_SIZE);
         db_opts.set_max_write_buffer_number(*super::config::ROCKSDB_MAX_WRITE_BUFFER_NUMBER);
         db_opts.set_level_zero_file_num_compaction_trigger(
@@ -117,12 +118,6 @@ impl RocksDBDriver {
             },
         );
 
-        debug!(
-            "db opts: log_level {}",
-            super::config::ROCKSDB_LOG_LEVEL
-                .to_ascii_lowercase()
-                .as_str()
-        );
         db_opts.set_compression_per_level(&[
             DBCompressionType::None,
             DBCompressionType::None,
