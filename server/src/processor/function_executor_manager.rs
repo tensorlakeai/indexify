@@ -25,8 +25,8 @@ use crate::{
     processor::{retry_policy::FunctionRunRetryPolicy, targets},
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
-        requests::{RequestPayload, SchedulerUpdateRequest},
-    },
+        requests::{FunctionExecutorServerMetadataKey, RequestPayload, SchedulerUpdateRequest},
+    }, utils::get_epoch_time_in_secs,
 };
 
 pub struct FunctionExecutorManager {
@@ -168,11 +168,14 @@ impl FunctionExecutorManager {
             "created function executor"
         );
 
+        let created_at = get_epoch_time_in_secs();
+
         // Create with current timestamp for last_allocation_at
         let fe_server_metadata = FunctionExecutorServerMetadata::new(
             executor_id.clone(),
             function_executor,
             FunctionExecutorState::Running, // Start with Running state
+            created_at,
         );
         update.new_function_executors.push(fe_server_metadata);
 
@@ -225,10 +228,12 @@ impl FunctionExecutorManager {
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
             {
+                let created_at = get_epoch_time_in_secs();
                 new_function_executors.push(FunctionExecutorServerMetadata::new(
                     executor.id.clone(),
                     fe.clone(),
                     fe.state,
+                    created_at,
                 ));
                 executor_server_metadata
                     .free_resources
@@ -404,11 +409,13 @@ impl FunctionExecutorManager {
         );
 
         // Add function executors to remove list
-        update
-            .remove_function_executors
-            .entry(executor_server_metadata.executor_id.clone())
-            .or_default()
-            .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
+        for fe in function_executors_to_remove {
+            update.remove_function_executors.insert(FunctionExecutorServerMetadataKey {
+                executor_id: executor_server_metadata.executor_id.clone(),
+                function_executor_id: fe.id.clone(),
+                function_executor_key: fe.key(),
+            });
+        }
 
         for fe in function_executors_to_remove {
             if let Some(fe_resource_claim) = executor_server_metadata.resource_claims.get(&fe.id) {

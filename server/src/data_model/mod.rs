@@ -1469,6 +1469,14 @@ impl Hash for FunctionExecutor {
 }
 
 impl FunctionExecutor {
+    pub fn key_prefix_by_app(namespace: &str, application: &str) -> String {
+        format!("{}|{}|", namespace, application)
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}|{}|{}", self.namespace, self.application_name, self.function_name, self.version)
+    }
+
     pub fn fn_uri_str(&self) -> String {
         format!(
             "{}|{}|{}|{}",
@@ -1510,6 +1518,8 @@ pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executor: FunctionExecutor,
     pub desired_state: FunctionExecutorState,
+    pub created_at: u64,
+    pub terminated_at: Option<u64>,
 }
 
 impl Eq for FunctionExecutorServerMetadata {}
@@ -1533,16 +1543,23 @@ impl FunctionExecutorServerMetadata {
         executor_id: ExecutorId,
         function_executor: FunctionExecutor,
         desired_state: FunctionExecutorState,
+        created_at: u64,
     ) -> Self {
         Self {
             executor_id,
             function_executor,
             desired_state,
+            created_at,
+            terminated_at: None,
         }
     }
 
     pub fn fn_uri_str(&self) -> String {
         self.function_executor.fn_uri_str()
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}|{}|{}", self.function_executor.namespace, self.function_executor.application_name, self.function_executor.function_name, self.function_executor.version)
     }
 }
 

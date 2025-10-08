@@ -48,6 +48,8 @@ pub enum IndexifyObjectsColumns {
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
 
+    FunctionExecutors, //NS_Application_FunctionName_Version -> FunctionExecutor
+
     GcUrls, // List of URLs pending deletion
 
     Stats, // Stats
@@ -451,6 +453,24 @@ pub(crate) fn handle_scheduler_update(
             request_ctx.key(),
             &serialized_graph_ctx,
         )?;
+    }
+
+    for function_executor in request.new_function_executors.iter() {
+        let serialized_function_executor = JsonEncoder::encode(&function_executor)?;
+        txn.put(
+            IndexifyObjectsColumns::FunctionExecutors.as_ref(),
+            function_executor.key(),
+            &serialized_function_executor,
+        )?;
+    }
+
+    for function_executor in request.remove_function_executors.values() {
+        for function_executor_id in function_executor {
+            txn.delete(
+                IndexifyObjectsColumns::FunctionExecutors.as_ref(),
+                function_executor_id.key(),
+            )?;
+        }
     }
 
     Ok(())

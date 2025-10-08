@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{data_model::FunctionRunOutcome, state_store::requests::AllocationOutput};
+use crate::{data_model, state_store::requests::AllocationOutput};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RequestStateChangeEvent {
@@ -86,18 +86,18 @@ pub struct FunctionRunAssigned {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum FunctionRunOutcomeSummary {
+pub enum FunctionRunOutcome {
     Unknown,
     Success,
     Failure,
 }
 
-impl From<&FunctionRunOutcome> for FunctionRunOutcomeSummary {
-    fn from(outcome: &FunctionRunOutcome) -> Self {
+impl From<&data_model::FunctionRunOutcome> for FunctionRunOutcome {
+    fn from(outcome: &data_model::FunctionRunOutcome) -> Self {
         match outcome {
-            FunctionRunOutcome::Unknown => FunctionRunOutcomeSummary::Unknown,
-            FunctionRunOutcome::Success => FunctionRunOutcomeSummary::Success,
-            FunctionRunOutcome::Failure(_) => FunctionRunOutcomeSummary::Failure,
+            data_model::FunctionRunOutcome::Unknown => FunctionRunOutcome::Unknown,
+            data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
+            data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
         }
     }
 }
@@ -108,7 +108,7 @@ pub struct FunctionRunCompleted {
     pub function_name: String,
     pub function_run_id: String,
     pub allocation_id: String,
-    pub outcome: FunctionRunOutcomeSummary,
+    pub outcome: FunctionRunOutcome,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

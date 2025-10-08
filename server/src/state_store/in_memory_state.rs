@@ -845,8 +845,8 @@ impl InMemoryState {
                     }
                 }
 
-                for (executor_id, function_executors) in &req.remove_function_executors {
-                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(executor_id)
+                for fe_key in &req.remove_function_executors {
+                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(&fe_key.executor_id)
                     {
                         fe_allocations
                             .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
@@ -1526,7 +1526,7 @@ mod tests {
             FunctionRunStatus,
         },
         in_memory_state_bootstrap,
-        state_store::in_memory_state::FunctionRunKey,
+        state_store::in_memory_state::FunctionRunKey, utils::get_epoch_time_in_secs,
     };
 
     #[test]
@@ -1606,6 +1606,8 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor: function_executor.clone(),
             desired_state: FunctionExecutorState::Running,
+            created_at: get_epoch_time_in_secs(),
+            terminated_at: None,
         };
 
         // Test case 1: No tasks - should return false
@@ -1737,6 +1739,8 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor,
             desired_state: FunctionExecutorState::Running,
+            created_at: get_epoch_time_in_secs(),
+            terminated_at: None,
         };
         assert!(state.has_pending_tasks(&fe_metadata2));
 

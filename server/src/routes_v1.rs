@@ -17,6 +17,8 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
+        self,
+        from_data_model_function_executor,
         Allocation,
         CacheKey,
         CreateNamespace,
@@ -146,6 +148,10 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/applications/{application}/requests/{request_id}/output",
             get(v1_download_fn_output_payload_simple).with_state(route_state.clone()),
+        )
+        .route(
+            "/applications/{application}/containers",
+            get(list_containers).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)
@@ -316,4 +322,32 @@ async fn delete_request(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/namespaces/{namespace}/applications/{application}/containers",
+    tag = "operations",
+    responses(
+        (status = 200, description = "list of containers", body = http_objects::FunctionExecutorMetadata),
+    ),
+)]
+async fn list_containers(
+    Path((namespace, application)): Path<(String, String)>,
+    State(state): State<RouteState>,
+) -> Result<Json<Vec<http_objects::FunctionExecutorMetadata>>, IndexifyAPIError> {
+    let containers = state
+        .indexify_state
+        .reader()
+        .list_function_executors(&namespace, &application)
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    let mut function_containers = vec![];
+    for container in containers {
+        function_containers.push(from_data_model_function_executor(
+            container.function_executor.clone(),
+            container.desired_state.clone(),
+        ));
+    }
+    Ok(Json(function_containers))
 }

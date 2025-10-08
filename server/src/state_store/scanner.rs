@@ -11,6 +11,8 @@ use crate::{
         Allocation,
         Application,
         ApplicationVersion,
+        FunctionExecutor,
+        FunctionExecutorServerMetadata,
         GcUrl,
         Namespace,
         RequestCtx,
@@ -326,6 +328,24 @@ impl StateReader {
             range.prev_cursor.map(|c| c.to_vec()),
             range.next_cursor.map(|c| c.to_vec()),
         ))
+    }
+
+    pub fn list_function_executors(
+        &self,
+        namespace: &str,
+        application: &str,
+    ) -> Result<Vec<FunctionExecutorServerMetadata>> {
+        let kvs = &[KeyValue::new("op", "list_function_executors")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+        let key_prefix = FunctionExecutor::key_prefix_by_app(namespace, application);
+        let (function_executors, _) = self
+            .get_rows_from_cf_with_limits::<FunctionExecutorServerMetadata>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::FunctionExecutors,
+                None,
+            )?;
+        Ok(function_executors)
     }
 
     pub fn list_applications(

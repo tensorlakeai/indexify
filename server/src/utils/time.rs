@@ -15,6 +15,10 @@ pub fn get_epoch_time_in_ns() -> u128 {
     get_epoch_time().as_nanos()
 }
 
+pub fn get_epoch_time_in_secs() -> u64 {
+    get_epoch_time().as_secs()
+}
+
 fn get_epoch_time() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

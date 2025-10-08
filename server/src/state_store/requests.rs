@@ -72,6 +72,13 @@ pub enum RequestPayload {
     ProcessStateChanges(Vec<StateChange>),
 }
 
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct FunctionExecutorServerMetadataKey {
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
+    pub function_executor_key: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
@@ -79,7 +86,7 @@ pub struct SchedulerUpdateRequest {
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
-    pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
+    pub remove_function_executors: HashSet<FunctionExecutorServerMetadataKey>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
     pub state_changes: Vec<StateChange>,
 }
