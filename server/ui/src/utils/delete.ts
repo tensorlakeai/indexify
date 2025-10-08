@@ -1,5 +1,11 @@
 import { apiClient } from './loaders'
 
+export interface DeleteResponse {
+  success: boolean
+  message: string
+  statusCode?: number
+}
+
 async function apiDelete<T>(url: string): Promise<T> {
   try {
     const response = await apiClient.delete<T>(url)
@@ -16,18 +22,44 @@ export async function deleteApplication({
 }: {
   namespace: string
   application: string
-}): Promise<boolean> {
+}): Promise<DeleteResponse> {
   try {
     const response = await apiDelete(
       `/v1/namespaces/${namespace}/applications/${application}`
     )
     if (response === 200) {
-      return true
+      return {
+        success: true,
+        message: 'application deleted successfully',
+      }
     } else {
-      return false
+      return {
+        success: false,
+        message: 'unexpected response',
+        statusCode: response as number,
+      }
     }
-  } catch {
-    return false
+  } catch (error: any) {
+    // Handle different HTTP status codes
+    if (error.response?.status === 400) {
+      return {
+        success: false,
+        message: 'unable to delete application',
+        statusCode: 400,
+      }
+    } else if (error.response?.status === 500) {
+      return {
+        success: false,
+        message: 'internal server error',
+        statusCode: 500,
+      }
+    } else {
+      return {
+        success: false,
+        message: 'failed to delete application',
+        statusCode: error.response?.status,
+      }
+    }
   }
 }
 
@@ -39,17 +71,43 @@ export async function deleteApplicationRequest({
   namespace: string
   application: string
   requestId: string
-}): Promise<boolean> {
+}): Promise<DeleteResponse> {
   try {
     const response = await apiDelete(
       `/v1/namespaces/${namespace}/applications/${application}/request/${requestId}`
     )
     if (response === 200) {
-      return true
+      return {
+        success: true,
+        message: 'request has been deleted',
+      }
     } else {
-      return false
+      return {
+        success: false,
+        message: 'unexpected response',
+        statusCode: response as number,
+      }
     }
-  } catch {
-    return false
+  } catch (error: any) {
+    // Handle different HTTP status codes
+    if (error.response?.status === 404) {
+      return {
+        success: false,
+        message: 'request not found',
+        statusCode: 404,
+      }
+    } else if (error.response?.status === 500) {
+      return {
+        success: false,
+        message: 'internal server error',
+        statusCode: 500,
+      }
+    } else {
+      return {
+        success: false,
+        message: 'failed to delete request',
+        statusCode: error.response?.status,
+      }
+    }
   }
 }

@@ -24,7 +24,6 @@ interface ApplicationsProps {
 }
 
 export function ApplicationsCard({
-  client,
   applications,
   namespace,
 }: ApplicationsProps) {
@@ -34,16 +33,17 @@ export function ApplicationsCard({
   const [error, setError] = useState<string | null>(null)
 
   async function handleDeleteApplication(applicationName: string) {
-    // TODO: rendering errors
     try {
       const result = await deleteApplication({
         namespace,
         application: applicationName,
       })
-      if (result) {
+      if (result.success) {
         setLocalApplications((prevGraphs) =>
           prevGraphs.filter((graph) => graph.name !== applicationName)
         )
+      } else {
+        setError(result.message)
       }
     } catch (err) {
       console.error('Error deleting compute graph:', err)

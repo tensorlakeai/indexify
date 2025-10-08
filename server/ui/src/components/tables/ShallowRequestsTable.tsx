@@ -36,17 +36,18 @@ export function ShallowRequestsTable({
   const [error, setError] = useState<string | null>(null)
 
   async function handleDeleteRequest(requestId: string) {
-    // TODO: rendering errors
     try {
       const result = await deleteApplicationRequest({
         namespace,
         application: applicationName,
         requestId,
       })
-      if (result) {
+      if (result.success) {
         setLocalRequests((prevRequests) =>
           prevRequests.filter((request) => request.id !== requestId)
         )
+      } else {
+        setError(result.message)
       }
     } catch (err) {
       console.error('Error deleting application request:', err)
@@ -88,7 +89,7 @@ export function ShallowRequestsTable({
                 <TableCell>{formatTimestamp(request.created_at)}</TableCell>
                 <TableCell>{renderOutcome(request.outcome)}</TableCell>
                 <TableCell>
-                  {!error && (
+                  {error ? (
                     <IconButton
                       onClick={() => handleDeleteRequest(request.id)}
                       color="error"
@@ -96,8 +97,9 @@ export function ShallowRequestsTable({
                     >
                       <DeleteIcon />
                     </IconButton>
+                  ) : (
+                    <Chip label="Error" size="small" color="error" />
                   )}
-                  {error && <Chip label="Error" size="small" color="error" />}
                 </TableCell>
               </TableRow>
             ))}
