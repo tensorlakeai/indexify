@@ -13,6 +13,7 @@ import { Cpu, InfoCircle } from 'iconsax-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Application, ApplicationsList } from '../../types/types'
+import { deleteApplication } from '../../utils/delete'
 import CopyText from '../CopyText'
 import TruncatedText from '../TruncatedText'
 
@@ -34,10 +35,15 @@ export function ApplicationsCard({
 
   async function handleDeleteApplication(applicationName: string) {
     try {
-      await client.deleteComputeGraph(applicationName)
-      setLocalApplications((prevGraphs) =>
-        prevGraphs.filter((graph) => graph.name !== applicationName)
-      )
+      const result = await deleteApplication({
+        namespace,
+        application: applicationName,
+      })
+      if (result) {
+        setLocalApplications((prevGraphs) =>
+          prevGraphs.filter((graph) => graph.name !== applicationName)
+        )
+      }
     } catch (err) {
       console.error('Error deleting compute graph:', err)
       setError('Failed to delete compute graph. Please try again.')
