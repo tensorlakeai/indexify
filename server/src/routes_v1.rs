@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, head, post},
 };
 use base64::prelude::*;
 use download::download_request_error;
