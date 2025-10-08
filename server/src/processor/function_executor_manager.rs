@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use if_chain::if_chain;
 use rand::seq::IndexedRandom;
 use tracing::{debug, error, info, info_span, warn};

@@ -1,19 +1,20 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use opentelemetry::{metrics::Histogram, KeyValue};
+use opentelemetry::{KeyValue, metrics::Histogram};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, trace};
 
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
-    metrics::{low_latency_boundaries, Timer},
+    metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
         function_run_creator,
         function_run_processor::FunctionRunProcessor,
     },
     state_store::{
+        IndexifyState,
         requests::{
             CreateOrUpdateApplicationRequest,
             DeleteApplicationRequest,
@@ -21,9 +22,8 @@ use crate::{
             RequestPayload,
             StateMachineUpdateRequest,
         },
-        IndexifyState,
     },
-    utils::{get_elapsed_time, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time},
 };
 
 pub struct ApplicationProcessor {

@@ -13,12 +13,12 @@ use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
 use tracing::error;
 use tracing_subscriber::{
+    Layer,
     fmt::{
         self,
         format::{Format, JsonFields},
     },
     layer::SubscriberExt,
-    Layer,
 };
 
 mod blob_store;

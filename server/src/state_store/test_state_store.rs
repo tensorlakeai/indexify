@@ -4,17 +4,17 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        test_objects::tests::{self, mock_request_ctx, TEST_NAMESPACE},
         Application,
+        test_objects::tests::{self, TEST_NAMESPACE, mock_request_ctx},
     },
     state_store::{
+        IndexifyState,
         requests::{
             CreateOrUpdateApplicationRequest,
             InvokeApplicationRequest,
             RequestPayload,
             StateMachineUpdateRequest,
         },
-        IndexifyState,
     },
 };
 

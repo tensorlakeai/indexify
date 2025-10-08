@@ -231,20 +231,6 @@ impl FunctionRun {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionRuns {
-    pub function_runs: Vec<FunctionRun>,
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum RequestStatus {
-    Pending,
-    Running,
-    Complete,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {

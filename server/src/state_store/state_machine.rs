@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
@@ -20,7 +20,7 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
+        driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
             AllocationOutput,
             DeleteRequestRequest,
@@ -29,7 +29,7 @@ use crate::{
             SchedulerUpdateRequest,
         },
     },
-    utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]

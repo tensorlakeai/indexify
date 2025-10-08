@@ -1,12 +1,12 @@
 use anyhow::Result;
 use applications::{applications, delete_application, get_application};
 use axum::{
+    Json,
+    Router,
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json,
-    Router,
 };
 use base64::prelude::*;
 use download::download_request_error;

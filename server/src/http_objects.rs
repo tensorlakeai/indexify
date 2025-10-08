@@ -514,11 +514,6 @@ pub struct CreateNamespace {
     pub blob_storage_region: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateNamespaceResponse {
-    pub name: Namespace,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum FunctionRunOutcome {
     Undefined,
@@ -578,11 +573,6 @@ impl From<data_model::DataPayload> for DataPayload {
 pub struct RequestError {
     pub function_name: String,
     pub message: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RequestId {
-    pub id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

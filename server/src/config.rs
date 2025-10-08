@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Result;
 use figment::{
-    providers::{Format, Serialized, Yaml},
     Figment,
+    providers::{Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,11 @@ pub struct ExecutorCatalogEntry {
 
 impl Display for ExecutorCatalogEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})", self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels)
+        write!(
+            f,
+            "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})",
+            self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels
+        )
     }
 }
 

@@ -2,16 +2,16 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
+    Json,
     body::Body,
     extract::{Path, State},
     http::HeaderMap,
-    response::{sse::Event, IntoResponse},
-    Json,
+    response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde::Serialize;
-use tokio::sync::broadcast::{error::RecvError, Receiver};
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ use crate::{
 async fn create_request_progress_stream(
     id: String,
     mut rx: Receiver<RequestStateChangeEvent>,
-    state: &RouteState,
+    state: RouteState,
     namespace: String,
     application: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
@@ -263,7 +263,8 @@ pub async fn invoke_application_with_object_v1(
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
-            &state,
+            // cloning the state is cheap because all its fields are inside arcs
+            state.clone(),
             request.clone(),
             request_id.clone(),
             namespace,
@@ -297,7 +298,7 @@ async fn return_request_id(
 }
 
 async fn return_sse_response(
-    state: &RouteState,
+    state: RouteState,
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
@@ -339,8 +340,9 @@ pub async fn progress_stream(
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let rx = state.indexify_state.function_run_event_stream();
 
+    // cloning the state is cheap because all its fields are inside arcs
     let request_event_stream =
-        create_request_progress_stream(request_id, rx, &state, namespace, application).await;
+        create_request_progress_stream(request_id, rx, state.clone(), namespace, application).await;
     Ok(axum::response::Sse::new(request_event_stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(1))

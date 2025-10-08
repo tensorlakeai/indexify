@@ -12,7 +12,7 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{rocksdb::RocksDBDriver, Reader, Writer},
+        driver::{Reader, Writer, rocksdb::RocksDBDriver},
     },
 };
 

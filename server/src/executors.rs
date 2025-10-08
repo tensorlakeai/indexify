@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::Arc,
     time::Duration,
@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use priority_queue::PriorityQueue;
 use tokio::{
-    sync::{watch, Mutex, RwLock},
+    sync::{Mutex, RwLock, watch},
     time::Instant,
 };
 use tracing::{debug, error, trace};
@@ -32,9 +32,9 @@ use crate::{
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     state_store::{
+        IndexifyState,
         in_memory_state::DesiredStateFunctionExecutor,
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
-        IndexifyState,
     },
     utils::dynamic_sleep::DynamicSleepFuture,
 };

@@ -11,7 +11,7 @@ use std::{
     vec,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use derive_builder::Builder;
 use filter::LabelsFilter;
 use nanoid::nanoid;
@@ -52,21 +52,6 @@ impl ExecutorId {
 impl From<&str> for ExecutorId {
     fn from(value: &str) -> Self {
         Self::new(value.to_string())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FunctionRunId(String);
-
-impl Display for FunctionRunId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for FunctionRunId {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
     }
 }
 
@@ -568,7 +553,12 @@ impl Application {
                     "function {} is asking for labels {:?}, but no executor catalog entry matches, current catalog: {}",
                     node.name,
                     node.placement_constraints.0,
-                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog
+                        .entries
+                        .iter()
+                        .map(|entry| entry.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 ));
             }
             if !has_cpu {
@@ -576,7 +566,12 @@ impl Application {
                     "function {} is asking for CPU {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.cpu_ms_per_sec / 1000,
-                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog
+                        .entries
+                        .iter()
+                        .map(|entry| entry.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 ));
             }
             if !has_mem {
@@ -584,7 +579,12 @@ impl Application {
                     "function {} is asking for memory {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.memory_mb,
-                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog
+                        .entries
+                        .iter()
+                        .map(|entry| entry.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 ));
             }
             if !has_disk {
@@ -592,15 +592,30 @@ impl Application {
                     "function {} is asking for disk {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources.ephemeral_disk_mb,
-                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    executor_catalog
+                        .entries
+                        .iter()
+                        .map(|entry| entry.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 ));
             }
             if !has_gpu_models {
                 return Err(anyhow!(
                     "function {} is asking for GPU models {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
-                    node.resources.gpu_configs.iter().map(|gpu| gpu.model.clone()).collect::<Vec<String>>().join(", "),
-                    executor_catalog.entries.iter().map(|entry| entry.to_string()).collect::<Vec<String>>().join(", "),
+                    node.resources
+                        .gpu_configs
+                        .iter()
+                        .map(|gpu| gpu.model.clone())
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                    executor_catalog
+                        .entries
+                        .iter()
+                        .map(|entry| entry.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
                 ));
             }
         }
@@ -681,11 +696,6 @@ impl ApplicationVersion {
             .get(&fn_run.name)
             .map(|func| func.retry_policy.max_retries)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RouterOutput {
-    pub edges: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -1180,10 +1190,10 @@ impl HostResources {
         self.cpu_ms_per_sec -= request.cpu_ms_per_sec;
         self.memory_bytes -= request.memory_mb * 1024 * 1024;
         self.disk_bytes -= request.ephemeral_disk_mb * 1024 * 1024;
-        if let Some(requested_gpu) = &request.gpu {
-            if let Some(available_gpu) = &mut self.gpu {
-                available_gpu.count -= requested_gpu.count;
-            }
+        if let Some(requested_gpu) = &request.gpu &&
+            let Some(available_gpu) = &mut self.gpu
+        {
+            available_gpu.count -= requested_gpu.count;
         }
 
         Ok(())
@@ -1599,26 +1609,6 @@ pub struct InvokeApplicationEvent {
     pub application: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct FunctionRunFinalizedEvent {
-    pub namespace: String,
-    pub application: String,
-    pub function: String,
-    pub request_id: String,
-    pub function_run_id: FunctionRunId,
-    pub executor_id: ExecutorId,
-}
-
-impl fmt::Display for FunctionRunFinalizedEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "FunctionRunFinalizedEvent(namespace: {}, app: {}, fn: {}, request_id: {}, fn_call_id: {}, executor_id: {})",
-            self.namespace, self.application, self.function, self.request_id, self.function_run_id, self.executor_id,
-        )
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GraphUpdates {
     pub graph_updates: Vec<ComputeOp>,
@@ -1806,7 +1796,7 @@ mod tests {
     use mock_instant::global::MockClock;
 
     use super::*;
-    use crate::data_model::{test_objects::tests::test_function, Application, ApplicationVersion};
+    use crate::data_model::{Application, ApplicationVersion, test_objects::tests::test_function};
 
     #[test]
     fn test_application_update() {
@@ -1865,7 +1855,7 @@ mod tests {
             TestCase {
                 description: "version update",
                 update: Application {
-                    version: "100".to_string(),   // different
+                    version: "100".to_string(), // different
                     ..original_application.clone()
                 },
                 expected_graph: Application {
@@ -1880,17 +1870,17 @@ mod tests {
             TestCase {
                 description: "immutable fields should not change when version changed",
                 update: Application {
-                    namespace: "namespace2".to_string(),         // different
-                    name: "graph2".to_string(),                  // different
-                    version: "100".to_string(),   // different
-                    created_at: 10,                              // different
+                    namespace: "namespace2".to_string(), // different
+                    name: "graph2".to_string(),          // different
+                    version: "100".to_string(),          // different
+                    created_at: 10,                      // different
                     ..original_application.clone()
                 },
                 expected_graph: Application {
                     version: "100".to_string(),
                     ..original_application.clone()
                 },
-                expected_version:ApplicationVersion {
+                expected_version: ApplicationVersion {
                     version: "100".to_string(),
                     ..original_version.clone()
                 },
@@ -2060,7 +2050,7 @@ mod tests {
                 expected_version: ApplicationVersion {
                     version: "2".to_string(),
                     functions: HashMap::from([
-                        ("fn_a".to_string(), test_function("fn_a",  0)),
+                        ("fn_a".to_string(), test_function("fn_a", 0)),
                         ("fn_b".to_string(), fn_b.clone()),
                         ("fn_c".to_string(), fn_c.clone()),
                     ]),

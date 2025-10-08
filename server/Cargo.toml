@@ -1,7 +1,7 @@
 [package]
 name = "indexify-server"
 version = "0.3.12"
-edition = "2021"
+edition = "2024"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
 build = "build.rs"

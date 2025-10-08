@@ -1,30 +1,30 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
-use axum::{extract::DefaultBodyLimit, Router};
+use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
 use tokio::{
     self,
     signal,
-    sync::{watch, Mutex},
+    sync::{Mutex, watch},
 };
 use tonic::transport::Server;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    blob_store::{registry::BlobStorageRegistry, BlobStorage},
+    blob_store::{BlobStorage, registry::BlobStorageRegistry},
     config::ServerConfig,
-    executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
+    executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
     metrics::{self, init_provider},
     processor::{application_processor::ApplicationProcessor, gc::Gc},
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
-    state_store::{kv::KVS, IndexifyState},
+    state_store::{IndexifyState, kv::KVS},
 };
 
 pub mod executor_api_descriptor {

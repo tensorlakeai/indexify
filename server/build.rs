@@ -1,6 +1,6 @@
 use std::{env, path::PathBuf, process::Command};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use vergen::{BuildBuilder, Emitter, SysinfoBuilder};
 
 fn main() -> Result<()> {

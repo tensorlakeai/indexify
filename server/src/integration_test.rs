@@ -8,21 +8,21 @@ mod tests {
     use crate::{
         assert_function_run_counts,
         data_model::{
-            test_objects::tests::{
-                mock_data_payload,
-                mock_executor_metadata,
-                mock_updates,
-                TEST_EXECUTOR_ID,
-                TEST_NAMESPACE,
-            },
             ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_data_payload,
+                mock_executor_metadata,
+                mock_updates,
+            },
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
         state_store::{
-            driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
+            driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -32,7 +32,7 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
             test_state_store::{self, invoke_application},
         },
-        testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
+        testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -746,8 +746,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries(
-    ) -> Result<()> {
+    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries()
+    -> Result<()> {
         test_function_run_retry_attempt_not_used(
             FunctionRunFailureReason::FunctionExecutorTerminated,
             0,

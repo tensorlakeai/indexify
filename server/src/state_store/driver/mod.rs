@@ -12,7 +12,7 @@ use std::{fmt, sync::Arc};
 
 use bytes::Bytes;
 use derive_builder::Builder;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     data_model::clocks::Linearizable,
