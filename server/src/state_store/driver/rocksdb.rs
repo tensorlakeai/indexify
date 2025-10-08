@@ -15,7 +15,7 @@ use rocksdb::{
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     data_model::clocks::Linearizable,
@@ -115,6 +115,13 @@ impl RocksDBDriver {
                 "universal" => DBCompactionStyle::Universal,
                 _ => DBCompactionStyle::Level,
             },
+        );
+
+        debug!(
+            "db opts: log_level {}",
+            super::config::ROCKSDB_LOG_LEVEL
+                .to_ascii_lowercase()
+                .as_str()
         );
         db_opts.set_compression_per_level(&[
             DBCompressionType::None,
