@@ -259,7 +259,14 @@ pub async fn invoke_application_with_object_v1(
         ctx: request_ctx.clone(),
     });
     if accept_header.contains("application/json") {
-        return return_request_id(&state, request.clone(), request_id.clone()).await;
+        return return_request_id(
+            &state,
+            request.clone(),
+            request_id.clone(),
+            namespace,
+            application.name.clone(),
+        )
+        .await;
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
@@ -281,6 +288,8 @@ async fn return_request_id(
     state: &RouteState,
     request_payload: RequestPayload,
     request_id: String,
+    namespace: String,
+    application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     state
         .indexify_state
@@ -289,6 +298,13 @@ async fn return_request_id(
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+
+    info!(
+        request_id = request_id.clone(),
+        namespace = namespace.clone(),
+        app = application.clone(),
+        "request created",
+    );
 
     Ok(Json(RequestIdV1 {
         id: request_id.clone(),
@@ -312,6 +328,12 @@ async fn return_sse_response(
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+    info!(
+        request_id = request_id.clone(),
+        namespace = namespace.clone(),
+        app = application.clone(),
+        "request created",
+    );
     let request_event_stream =
         create_request_progress_stream(request_id, rx, state, namespace, application).await;
     Ok(axum::response::Sse::new(request_event_stream)

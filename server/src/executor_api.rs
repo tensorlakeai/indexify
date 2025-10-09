@@ -546,12 +546,18 @@ impl ExecutorAPIService {
                 alloc_result.request_id(),
                 alloc_result.allocation_id(),
             );
-            let mut allocation = self
+            let Some(mut allocation) = self
                 .indexify_state
                 .reader()
                 .get_allocation(&allocation_key)
                 .map_err(|e| Status::internal(e.to_string()))?
-                .ok_or(anyhow::anyhow!("allocation not found"))?;
+            else {
+                warn!(
+                    allocation_key = allocation_key.clone(),
+                    "allocation not found"
+                );
+                return Ok(Vec::new());
+            };
             let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
                 alloc_result.outcome_code.unwrap_or(0),
             )
