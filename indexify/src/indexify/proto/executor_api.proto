@@ -320,6 +320,8 @@ message ReduceOp {
 message ExecutionPlanUpdates {
   repeated ExecutionPlanUpdate updates = 1;
   optional string root_function_call_id = 2;
+  // Optional delay before starting plan execution.
+  optional uint64 delay_ms = 3;
 }
 
 message AllocationResult {
