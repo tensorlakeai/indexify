@@ -23,6 +23,7 @@ use crate::{
     executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
     state_store::{
+        driver::rocksdb::RocksDBConfig,
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
@@ -66,6 +67,7 @@ impl TestService {
                 .to_str()
                 .unwrap()
                 .to_string(),
+            rocksdb_config: RocksDBConfig::default(),
             blob_storage: BlobStorageConfig {
                 path: format!(
                     "file://{}",
