@@ -113,8 +113,8 @@ impl Default for RocksDBConfig {
             max_write_buffer_number: 2,
             write_buffer_size: 32 * 1024 * 1024, // 32 MiB
             wal_size_limit: 0,
-            max_total_wal_size: 1 * 1024 * 1024 * 1024, // 1 GiB
-            target_file_size_base: 64 * 1024 * 1024,    // 64 MiB
+            max_total_wal_size: 1024 * 1024 * 1024,  // 1 GiB
+            target_file_size_base: 64 * 1024 * 1024, // 64 MiB
             target_file_size_multiplier: 2,
             level_zero_file_compaction_trigger: 4,
             max_concurrent_subcompactions: 4,
