@@ -67,7 +67,7 @@ export function VersionDisplay({
     async function fetchVersions() {
       try {
         const [openApiResponse, githubResponse] = await Promise.all([
-          fetch(`${serviceUrl}/docs/openapi.json`),
+          fetch(`${serviceUrl}/docs/public/openapi.json`),
           fetch(
             `https://api.github.com/repos/${owner}/${repo}/releases/latest`
           ),
