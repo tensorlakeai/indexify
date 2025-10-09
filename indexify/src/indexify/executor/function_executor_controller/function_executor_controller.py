@@ -1078,7 +1078,9 @@ def _so_to_data_payload_proto(
         uri=blob_uri,
         encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
         encoding_version=so.manifest.encoding_version,
-        content_type=so.manifest.content_type,
+        content_type=(
+            so.manifest.content_type if so.manifest.HasField("content_type") else None
+        ),
         metadata_size=so.manifest.metadata_size,
         offset=so.offset,
         size=so.manifest.size,

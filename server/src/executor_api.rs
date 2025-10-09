@@ -1076,6 +1076,7 @@ fn prepare_data_payload(
     if let Some(content_type) = msg.content_type.as_ref() {
         // User supplied content type when a function returns tensorlake.File.
         // FIXME - The executor shouldn't set a content type as empty string
+        // Update: this is fixed but Executor is not deployed yet.
         if !content_type.is_empty() {
             encoding = content_type.as_str();
         }
