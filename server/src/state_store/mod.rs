@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::Display,
     fs,
     path::PathBuf,
     sync::{
@@ -15,7 +14,6 @@ use opentelemetry::KeyValue;
 use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
-use serde::{Deserialize, Serialize};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, broadcast, watch};
@@ -60,23 +58,6 @@ pub mod state_machine;
 
 #[cfg(test)]
 pub mod test_state_store;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateStoreConfig {
-    /// The path to the state store
-    pub path: String,
-    pub driver_config: RocksDBConfig,
-}
-
-impl Display for StateStoreConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "StateStoreConfig (path: {}, driver_config: ({}))",
-            self.path, self.driver_config
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct ExecutorState {

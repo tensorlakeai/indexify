@@ -12,10 +12,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    blob_store::BlobStorageConfig,
-    state_store::{StateStoreConfig, driver::rocksdb::RocksDBConfig},
-};
+use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
@@ -42,7 +39,8 @@ impl Display for ExecutorCatalogEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub dev: bool,
-    pub state_store: StateStoreConfig,
+    pub state_store_path: String,
+    pub rocksdb_config: RocksDBConfig,
     pub listen_addr: String,
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
@@ -57,10 +55,8 @@ impl Default for ServerConfig {
         let state_store_path = env::current_dir().unwrap().join("indexify_storage/state");
         ServerConfig {
             dev: false,
-            state_store: StateStoreConfig {
-                path: state_store_path.to_str().unwrap().to_string(),
-                driver_config: RocksDBConfig::default(),
-            },
+            state_store_path: state_store_path.to_str().unwrap().to_string(),
+            rocksdb_config: RocksDBConfig::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
