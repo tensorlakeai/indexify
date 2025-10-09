@@ -23,6 +23,8 @@ use crate::{
     executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
     state_store::{
+        StateStoreConfig,
+        driver::rocksdb::RocksDBConfig,
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
@@ -60,12 +62,15 @@ impl TestService {
         let temp_dir = tempfile::tempdir()?;
 
         let cfg = ServerConfig {
-            state_store_path: temp_dir
-                .path()
-                .join("state_store")
-                .to_str()
-                .unwrap()
-                .to_string(),
+            state_store: StateStoreConfig {
+                path: temp_dir
+                    .path()
+                    .join("state_store")
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                driver_config: RocksDBConfig::default(),
+            },
             blob_storage: BlobStorageConfig {
                 path: format!(
                     "file://{}",

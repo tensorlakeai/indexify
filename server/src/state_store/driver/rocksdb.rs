@@ -14,8 +14,8 @@ use rocksdb::{
     TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
-use serde::{Serialize, de::DeserializeOwned};
-use tracing::{debug, error, warn};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tracing::{error, warn};
 
 use crate::{
     data_model::clocks::Linearizable,
@@ -54,10 +54,79 @@ impl Error {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RocksDBConfig {
+    /// The number of threads to start for flushing and compaction
+    pub thread_count: i32,
+
+    /// The maximum number of threads to use for flushing and compaction
+    pub jobs_count: i32,
+
+    /// The maximum number of write buffers which can be used
+    pub max_write_buffer_number: i32,
+
+    /// The amount of data each write buffer can build up in memory (in bytes)
+    pub write_buffer_size: usize,
+
+    /// The write-ahead-log size threshold to trigger archived WAL deletion (in
+    /// bytes)
+    pub wal_size_limit: u64,
+
+    /// The total max write-ahead-log size before column family flushes (in
+    /// bytes)
+    pub max_total_wal_size: u64,
+
+    /// The target file size for compaction (in bytes)
+    pub target_file_size_base: u64,
+
+    /// The target file size multiplier for each compaction level
+    pub target_file_size_multiplier: i32,
+
+    /// The number of files needed to trigger level 0 compaction
+    pub level_zero_file_compaction_trigger: i32,
+
+    /// The maximum number threads which will perform compactions
+    pub max_concurrent_subcompactions: u32,
+
+    /// Whether to use separate queues for WAL writes and memtable writes
+    pub enable_pipelined_writes: bool,
+
+    /// The maximum number of information log files to keep
+    pub keep_log_file_num: usize,
+
+    /// The information log level of the RocksDB library
+    pub log_level: String,
+
+    /// Database compaction style
+    pub compaction_style: String,
+}
+
+impl Default for RocksDBConfig {
+    fn default() -> Self {
+        RocksDBConfig {
+            thread_count: 1,
+            jobs_count: 2,
+            max_write_buffer_number: 2,
+            write_buffer_size: 32 * 1024 * 1024, // 32 MiB
+            wal_size_limit: 0,
+            max_total_wal_size: 1 * 1024 * 1024 * 1024, // 1 GiB
+            target_file_size_base: 64 * 1024 * 1024,    // 64 MiB
+            target_file_size_multiplier: 2,
+            level_zero_file_compaction_trigger: 4,
+            max_concurrent_subcompactions: 4,
+            enable_pipelined_writes: true,
+            keep_log_file_num: 10,
+            log_level: "warn".to_string(),
+            compaction_style: "level".to_string(),
+        }
+    }
+}
+
 /// Options to start a connection with RocksDB.
 pub(crate) struct Options {
     pub path: PathBuf,
     pub column_families: Vec<ColumnFamilyDescriptor>,
+    pub config: RocksDBConfig,
 }
 
 /// Driver to connect with a RocksDB database.
@@ -75,23 +144,24 @@ impl RocksDBDriver {
         let mut db_opts = RocksDBOptions::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        db_opts.increase_parallelism(*super::config::ROCKSDB_THREAD_COUNT);
-        db_opts.set_max_background_jobs(*super::config::ROCKSDB_JOBS_COUNT);
-        db_opts.set_target_file_size_base(*super::config::ROCKSDB_TARGET_FILE_SIZE_BASE);
-        db_opts
-            .set_target_file_size_multiplier(*super::config::ROCKSDB_TARGET_FILE_SIZE_MULTIPLIER);
-        db_opts.set_wal_size_limit_mb(*super::config::ROCKSDB_WAL_SIZE_LIMIT);
-        db_opts.set_max_total_wal_size(*super::config::ROCKSDB_MAX_TOTAL_WAL_SIZE);
-        db_opts.set_write_buffer_size(*super::config::ROCKSDB_WRITE_BUFFER_SIZE);
-        db_opts.set_max_write_buffer_number(*super::config::ROCKSDB_MAX_WRITE_BUFFER_NUMBER);
+        db_opts.increase_parallelism(driver_options.config.thread_count);
+        db_opts.set_max_background_jobs(driver_options.config.jobs_count);
+        db_opts.set_target_file_size_base(driver_options.config.target_file_size_base);
+        db_opts.set_target_file_size_multiplier(driver_options.config.target_file_size_multiplier);
+        db_opts.set_wal_size_limit_mb(driver_options.config.wal_size_limit);
+        db_opts.set_max_total_wal_size(driver_options.config.max_total_wal_size);
+        db_opts.set_write_buffer_size(driver_options.config.write_buffer_size);
+        db_opts.set_max_write_buffer_number(driver_options.config.max_write_buffer_number);
         db_opts.set_level_zero_file_num_compaction_trigger(
-            *super::config::ROCKSDB_LEVEL_ZERO_FILE_COMPACTION_TRIGGER,
+            driver_options.config.level_zero_file_compaction_trigger,
         );
-        db_opts.set_max_subcompactions(*super::config::ROCKSDB_MAX_CONCURRENT_SUBCOMPACTIONS);
-        db_opts.set_enable_pipelined_write(*super::config::ROCKSDB_ENABLE_PIPELINED_WRITES);
-        db_opts.set_keep_log_file_num(*super::config::ROCKSDB_KEEP_LOG_FILE_NUM);
+        db_opts.set_max_subcompactions(driver_options.config.max_concurrent_subcompactions);
+        db_opts.set_enable_pipelined_write(driver_options.config.enable_pipelined_writes);
+        db_opts.set_keep_log_file_num(driver_options.config.keep_log_file_num);
         db_opts.set_log_level(
-            match super::config::ROCKSDB_LOG_LEVEL
+            match driver_options
+                .config
+                .log_level
                 .to_ascii_lowercase()
                 .as_str()
             {
@@ -109,7 +179,9 @@ impl RocksDBDriver {
             },
         );
         db_opts.set_compaction_style(
-            match super::config::ROCKSDB_COMPACTION_STYLE
+            match driver_options
+                .config
+                .compaction_style
                 .to_ascii_lowercase()
                 .as_str()
             {

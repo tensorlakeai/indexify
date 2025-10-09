@@ -23,8 +23,6 @@ use crate::{
 pub mod rocksdb;
 use rocksdb::*;
 
-mod config;
-
 pub type KVBytes = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Debug, thiserror::Error)]

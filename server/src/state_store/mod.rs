@@ -14,6 +14,7 @@ use opentelemetry::KeyValue;
 use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
+use serde::{Deserialize, Serialize};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, broadcast, watch};
@@ -24,7 +25,10 @@ use crate::{
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{Writer, rocksdb::RocksDBDriver},
+        driver::{
+            Writer,
+            rocksdb::{RocksDBConfig, RocksDBDriver},
+        },
         request_events::RequestStartedEvent,
     },
 };
@@ -55,6 +59,13 @@ pub mod state_machine;
 
 #[cfg(test)]
 pub mod test_state_store;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateStoreConfig {
+    /// The path to the state store
+    pub path: String,
+    pub driver_config: RocksDBConfig,
+}
 
 #[derive(Debug)]
 pub struct ExecutorState {
@@ -105,6 +116,7 @@ pub struct IndexifyState {
 
 pub(crate) fn open_database<I>(
     path: PathBuf,
+    config: RocksDBConfig,
     column_families: I,
     metrics: Arc<StateStoreMetrics>,
 ) -> Result<RocksDBDriver>
@@ -113,6 +125,7 @@ where
 {
     let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
         path,
+        config,
         column_families: column_families.collect::<Vec<_>>(),
     });
 
@@ -120,14 +133,18 @@ where
 }
 
 impl IndexifyState {
-    pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
+    pub async fn new(
+        path: PathBuf,
+        config: RocksDBConfig,
+        executor_catalog: ExecutorCatalog,
+    ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
 
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
-        let sm_meta = migration_runner::run(&path)?;
+        let sm_meta = migration_runner::run(&path, config.clone())?;
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -135,6 +152,7 @@ impl IndexifyState {
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let db = Arc::new(open_database(
             path,
+            config,
             sm_column_families,
             state_store_metrics.clone(),
         )?);
@@ -609,7 +627,12 @@ mod tests {
         let path = tmp_dir.path().to_path_buf();
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = open_database(path.clone(), columns_iter, state_store_metrics.clone())?;
+        let db = open_database(
+            path.clone(),
+            RocksDBConfig::default(),
+            columns_iter,
+            state_store_metrics.clone(),
+        )?;
         for name in &columns {
             db.put(name, b"key", b"value")?;
         }
@@ -625,7 +648,13 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        open_database(path, sm_column_families, state_store_metrics).expect(
+        open_database(
+            path,
+            RocksDBConfig::default(),
+            sm_column_families,
+            state_store_metrics,
+        )
+        .expect(
             "failed to open database with the column families defined in IndexifyObjectsColumns",
         );
 

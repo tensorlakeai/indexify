@@ -6,7 +6,12 @@ use tracing::info;
 use crate::{
     data_model::StateMachineMetadata,
     state_store::{
-        driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{
+            Reader,
+            Transaction,
+            Writer,
+            rocksdb::{RocksDBConfig, RocksDBDriver},
+        },
         migrations::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
@@ -18,9 +23,9 @@ use crate::{
 
 /// Main function to run all necessary migrations on a database at the given
 /// path
-pub fn run(path: &Path) -> Result<StateMachineMetadata> {
+pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     // Initialize prepare context
-    let prepare_ctx = PrepareContext::new(path.to_path_buf());
+    let prepare_ctx = PrepareContext::new(path.to_path_buf(), config);
 
     // Initialize registry
     let registry = MigrationRegistry::new()?;
@@ -148,7 +153,11 @@ mod tests {
     use super::*;
     use crate::{
         metrics::StateStoreMetrics,
-        state_store::{self, migrations::migration_trait::Migration},
+        state_store::{
+            self,
+            driver::rocksdb::RocksDBConfig,
+            migrations::migration_trait::Migration,
+        },
     };
 
     #[derive(Clone)]
@@ -196,7 +205,7 @@ mod tests {
         info!("Testing with migration: {}", mock_migration.name());
 
         // Run migrations on non-existent DB
-        let sm_meta = run(path)?;
+        let sm_meta = run(path, RocksDBConfig::default())?;
 
         // Check migration resulted in latest version
         assert_eq!(
@@ -217,7 +226,9 @@ mod tests {
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        let db = state_store::open_database(path.to_path_buf(), sm_column_families, metrics)?;
+        let config = RocksDBConfig::default();
+        let db =
+            state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
 
         // Set initial version to 1
         let txn = db.transaction();
@@ -230,7 +241,7 @@ mod tests {
         drop(db);
 
         // Run migrations
-        let sm_meta = run(path)?;
+        let sm_meta = run(path, RocksDBConfig::default())?;
 
         // Check migration resulted in latest version
         assert_eq!(

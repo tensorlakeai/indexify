@@ -9,6 +9,7 @@ use crate::{
     },
     state_store::{
         IndexifyState,
+        driver::rocksdb::RocksDBConfig,
         requests::{
             CreateOrUpdateApplicationRequest,
             InvokeApplicationRequest,
@@ -27,6 +28,7 @@ impl TestStateStore {
         let temp_dir = tempfile::tempdir()?;
         let indexify_state = IndexifyState::new(
             temp_dir.path().join("state"),
+            RocksDBConfig::default(),
             crate::state_store::ExecutorCatalog::default(),
         )
         .await?;
