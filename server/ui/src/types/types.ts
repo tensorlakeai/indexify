@@ -63,13 +63,6 @@ export type CreateNamespace = {
 
 export type CursorDirection = 'forward' | 'backward'
 
-export type DataPayload = {
-  id: string
-  path: string
-  sha256_hash: string
-  size: number
-}
-
 export type EntryPointManifest = {
   function_name: string
   input_serializer: string
@@ -233,7 +226,6 @@ export type Request = {
   function_runs: Array<FunctionRun>
   id: string
   outcome?: null | RequestOutcome
-  output?: null | DataPayload
   request_error?: null | RequestError
 }
 
@@ -512,6 +504,71 @@ export type FindRequestResponses = {
 
 export type FindRequestResponse =
   FindRequestResponses[keyof FindRequestResponses]
+
+export type V1DownloadFnOutputPayloadSimpleData = {
+  body?: never
+  path: {
+    namespace: string
+    application: string
+    request_id: string
+  }
+  query?: never
+  url: '/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output'
+}
+
+export type V1DownloadFnOutputPayloadSimpleErrors = {
+  /**
+   * resource not found
+   */
+  404: unknown
+  /**
+   * internal server error
+   */
+  500: unknown
+}
+
+export type V1DownloadFnOutputPayloadSimpleResponses = {
+  /**
+   * function output
+   */
+  200: unknown
+}
+
+export type V1DownloadFnOutputPayloadHeadData = {
+  body?: never
+  path: {
+    namespace: string
+    application: string
+    request_id: string
+  }
+  query?: never
+  url: '/v1/namespaces/{namespace}/applications/{application}/requests/{request_id}/output'
+}
+
+export type V1DownloadFnOutputPayloadHeadErrors = {
+  /**
+   * resource not found
+   */
+  404: unknown
+  /**
+   * internal server error
+   */
+  500: unknown
+}
+
+export type V1DownloadFnOutputPayloadHeadResponses = {
+  /**
+   * function output exists
+   */
+  200: unknown
+  /**
+   * function output does not exist
+   */
+  204: void
+}
+
+export type V1DownloadFnOutputPayloadHeadResponse =
+  V1DownloadFnOutputPayloadHeadResponses[keyof V1DownloadFnOutputPayloadHeadResponses]
 
 export type V1DownloadFnOutputPayloadData = {
   body?: never

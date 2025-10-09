@@ -1,6 +1,8 @@
+import DeleteIcon from '@mui/icons-material/Delete'
 import {
   Box,
   Chip,
+  IconButton,
   Paper,
   Table,
   TableBody,
@@ -10,26 +12,53 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RequestOutcome, ShallowRequest } from '../../types/types'
+import { deleteApplicationRequest } from '../../utils/delete'
 import { formatTimestamp } from '../../utils/helpers'
 import CopyText from '../CopyText'
 
-interface GraphRequestTableProps {
+interface ShallowRequestTableProps {
   namespace: string
   applicationName: string
-  shallowGraphRequests: ShallowRequest[]
+  shallowRequests: ShallowRequest[]
 }
 
-export function GraphRequestsTable({
+export function ShallowRequestsTable({
   namespace,
   applicationName,
-  shallowGraphRequests,
-}: GraphRequestTableProps) {
+  shallowRequests,
+}: ShallowRequestTableProps) {
+  const [localRequests, setLocalRequests] = useState<ShallowRequest[]>(
+    shallowRequests || []
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleDeleteRequest(requestId: string) {
+    try {
+      const result = await deleteApplicationRequest({
+        namespace,
+        application: applicationName,
+        requestId,
+      })
+      if (result.success) {
+        setLocalRequests((prevRequests) =>
+          prevRequests.filter((request) => request.id !== requestId)
+        )
+      } else {
+        setError(result.message)
+      }
+    } catch (err) {
+      console.error('Error deleting application request:', err)
+      setError('Failed to delete application request. Please try again.')
+    }
+  }
+
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
       <Typography variant="h6" gutterBottom>
-        Graph Requests
+        Application Requests
       </Typography>
       <TableContainer
         component={Paper}
@@ -41,10 +70,11 @@ export function GraphRequestsTable({
               <TableCell>ID</TableCell>
               <TableCell>Created At</TableCell>
               <TableCell>Outcome</TableCell>
+              <TableCell>Delete</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {shallowGraphRequests.map((request) => (
+            {localRequests.map((request) => (
               <TableRow key={request.id}>
                 <TableCell>
                   <Box display="flex" flexDirection="row" alignItems="center">
@@ -58,6 +88,21 @@ export function GraphRequestsTable({
                 </TableCell>
                 <TableCell>{formatTimestamp(request.created_at)}</TableCell>
                 <TableCell>{renderOutcome(request.outcome)}</TableCell>
+                <TableCell>
+                  <IconButton
+                    onClick={() => handleDeleteRequest(request.id)}
+                    color="error"
+                    size="small"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                  {error && (
+                    <>
+                      <Chip label="Error" size="small" color="error" />
+                      <p style={{ color: 'red' }}>{error}</p>
+                    </>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -67,7 +112,7 @@ export function GraphRequestsTable({
   )
 }
 
-export default GraphRequestsTable
+export default ShallowRequestsTable
 
 const renderOutcome = (outcome: RequestOutcome | null | undefined) => {
   if (!outcome) {
