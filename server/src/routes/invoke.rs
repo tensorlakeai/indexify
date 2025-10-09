@@ -259,7 +259,14 @@ pub async fn invoke_application_with_object_v1(
         ctx: request_ctx.clone(),
     });
     if accept_header.contains("application/json") {
-        return return_request_id(&state, request.clone(), request_id.clone(), namespace, application.name.clone()).await;
+        return return_request_id(
+            &state,
+            request.clone(),
+            request_id.clone(),
+            namespace,
+            application.name.clone(),
+        )
+        .await;
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(

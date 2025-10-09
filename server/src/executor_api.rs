@@ -550,13 +550,14 @@ impl ExecutorAPIService {
                 .indexify_state
                 .reader()
                 .get_allocation(&allocation_key)
-                .map_err(|e| Status::internal(e.to_string()))? else {
-                    warn!(
-                        allocation_key = allocation_key.clone(),
-                        "allocation not found"
-                    );
-                    return Ok(Vec::new());
-                };
+                .map_err(|e| Status::internal(e.to_string()))?
+            else {
+                warn!(
+                    allocation_key = allocation_key.clone(),
+                    "allocation not found"
+                );
+                return Ok(Vec::new());
+            };
             let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
                 alloc_result.outcome_code.unwrap_or(0),
             )
