@@ -38,7 +38,7 @@ const ApplicationDetailsPage = () => {
     applicationRequests.next_cursor ? applicationRequests.next_cursor : null
   )
 
-  const fetchInvocations = useCallback(
+  const retrieveApplicationRequests = useCallback(
     async (cursor: string | null, direction: 'forward' | 'backward') => {
       setIsLoading(true)
       try {
@@ -53,12 +53,12 @@ const ApplicationDetailsPage = () => {
         const response = await axios.get(url)
         const data = response.data
 
-        setShallowGraphRequests([...data.invocations])
+        setShallowGraphRequests([...data.requests])
 
         setPrevCursor(data.prev_cursor)
         setNextCursor(data.next_cursor)
       } catch (error) {
-        console.error('Error fetching invocations:', error)
+        console.error('Error fetching requests:', error)
       } finally {
         setIsLoading(false)
       }
@@ -68,15 +68,15 @@ const ApplicationDetailsPage = () => {
 
   const handleNextPage = useCallback(() => {
     if (nextCursor) {
-      fetchInvocations(nextCursor, 'forward')
+      retrieveApplicationRequests(nextCursor, 'forward')
     }
-  }, [nextCursor, fetchInvocations])
+  }, [nextCursor, retrieveApplicationRequests])
 
   const handlePreviousPage = useCallback(() => {
     if (prevCursor) {
-      fetchInvocations(prevCursor, 'backward')
+      retrieveApplicationRequests(prevCursor, 'backward')
     }
-  }, [prevCursor, fetchInvocations])
+  }, [prevCursor, retrieveApplicationRequests])
 
   return (
     <Stack direction="column" spacing={3}>

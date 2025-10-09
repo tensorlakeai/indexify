@@ -12,7 +12,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RequestOutcome, ShallowRequest } from '../../types/types'
 import { deleteApplicationRequest } from '../../utils/delete'
@@ -54,6 +54,10 @@ export function ShallowRequestsTable({
       setError('Failed to delete application request. Please try again.')
     }
   }
+
+  useEffect(() => {
+    setLocalRequests(shallowRequests)
+  }, [shallowRequests])
 
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
