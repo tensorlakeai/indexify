@@ -1,4 +1,8 @@
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::{
+    fmt::{self, Display},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use bytes::Bytes;
 use opentelemetry::KeyValue;
@@ -119,6 +123,29 @@ impl Default for RocksDBConfig {
             log_level: "warn".to_string(),
             compaction_style: "level".to_string(),
         }
+    }
+}
+
+impl Display for RocksDBConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "thread_count: {}, jobs_count: {}, max_write_buffer_number: {}, write_buffer_size: {}, wal_size_limit: {}, max_total_wal_size: {}, target_file_size_base: {}, target_file_size_multiplier: {}, level_zero_file_compaction_trigger: {}, max_concurrent_subcompactions: {}, enable_pipelined_writes: {}, keep_log_file_num: {}, log_level: {}, compaction_style: {}",
+            self.thread_count,
+            self.jobs_count,
+            self.max_write_buffer_number,
+            self.write_buffer_size,
+            self.wal_size_limit,
+            self.max_total_wal_size,
+            self.target_file_size_base,
+            self.target_file_size_multiplier,
+            self.level_zero_file_compaction_trigger,
+            self.max_concurrent_subcompactions,
+            self.enable_pipelined_writes,
+            self.keep_log_file_num,
+            self.log_level,
+            self.compaction_style
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     fs,
     path::PathBuf,
     sync::{
@@ -67,6 +68,16 @@ pub struct StateStoreConfig {
     pub driver_config: RocksDBConfig,
 }
 
+impl Display for StateStoreConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "StateStoreConfig (path: {}, driver_config: ({}))",
+            self.path, self.driver_config
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct ExecutorState {
     pub new_state_channel: watch::Sender<()>,
@@ -123,6 +134,12 @@ pub(crate) fn open_database<I>(
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
+    info!(
+        "opening state store database at {} with config {}",
+        path.display(),
+        config
+    );
+
     let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
         path,
         config,
