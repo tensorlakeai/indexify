@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     fs,
     path::PathBuf,
     sync::{
@@ -292,6 +293,7 @@ impl IndexifyState {
                 db_version: self.db_version,
             },
         )?;
+
         txn.commit()?;
         let changed_executors = self
             .in_memory_state

@@ -23,6 +23,8 @@ use crate::{
         ExecutorsAllocationsResponse,
         Function,
         FunctionRunOutcome,
+        HealthzChecks,
+        HealthzResponse,
         IndexifyAPIError,
         Namespace,
         NamespaceList,
@@ -54,6 +56,7 @@ use crate::{
             list_unallocated_function_runs,
             list_unprocessed_state_changes,
             list_executor_catalog,
+            healthz_handler,
         ),
         components(
             schemas(
@@ -70,6 +73,8 @@ use crate::{
                 UnallocatedFunctionRuns,
                 StateChangesResponse,
                 ExecutorCatalog,
+                HealthzResponse,
+                HealthzChecks,
             )
         ),
         tags(
@@ -130,6 +135,7 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/applications/{application}/state",
             put(change_application_state).with_state(route_state.clone()),
         )
+        .route("/healthz", get(healthz_handler).with_state(route_state.clone()))
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
 }
@@ -557,4 +563,58 @@ async fn change_application_state(
         .status(StatusCode::NO_CONTENT)
         .body(Body::empty())
         .unwrap())
+}
+
+/// Health check endpoint that returns the service status and version
+/// Performs comprehensive health checks on critical components
+#[utoipa::path(
+    get,
+    path = "/healthz",
+    responses(
+        (status = 200, description = "Service is healthy", body = HealthzResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Service is unhealthy or degraded")
+    ),
+    tag = "health"
+)]
+pub async fn healthz_handler(
+    State(state): State<RouteState>,
+) -> Result<Json<HealthzResponse>, StatusCode> {
+    let mut overall_status = "ok";
+    let mut checks = HealthzChecks {
+        database: "ok".to_string(),
+        executor_manager: "ok".to_string(),
+    };
+
+    // Check database/state store health
+    match state.indexify_state.reader().get_all_namespaces() {
+        Ok(_) => checks.database = "ok".to_string(),
+        Err(e) => {
+            error!("Database health check failed: {:?}", e);
+            checks.database = "error".to_string();
+            overall_status = "degraded";
+        }
+    }
+
+    // Check executor manager health
+    match state.executor_manager.list_executors().await {
+        Ok(_) => checks.executor_manager = "ok".to_string(),
+        Err(e) => {
+            error!("Executor manager health check failed: {:?}", e);
+            checks.executor_manager = "error".to_string();
+            overall_status = "degraded";
+        }
+    }
+
+    let response = HealthzResponse {
+        status: overall_status.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        checks,
+    };
+
+    // Return 503 Service Unavailable if any critical component is down
+    if overall_status == "degraded" {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    Ok(Json(response))
 }

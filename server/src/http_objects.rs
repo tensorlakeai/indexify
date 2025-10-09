@@ -828,6 +828,19 @@ pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzResponse {
+    pub status: String,
+    pub version: String,
+    pub checks: HealthzChecks,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzChecks {
+    pub database: String,
+    pub executor_manager: String,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::http_objects::{Function, PlacementConstraints};
