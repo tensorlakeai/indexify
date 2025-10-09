@@ -89,16 +89,18 @@ export function ShallowRequestsTable({
                 <TableCell>{formatTimestamp(request.created_at)}</TableCell>
                 <TableCell>{renderOutcome(request.outcome)}</TableCell>
                 <TableCell>
-                  {error ? (
-                    <IconButton
-                      onClick={() => handleDeleteRequest(request.id)}
-                      color="error"
-                      size="small"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  ) : (
-                    <Chip label="Error" size="small" color="error" />
+                  <IconButton
+                    onClick={() => handleDeleteRequest(request.id)}
+                    color="error"
+                    size="small"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                  {error && (
+                    <>
+                      <Chip label="Error" size="small" color="error" />
+                      <p style={{ color: 'red' }}>{error}</p>
+                    </>
                   )}
                 </TableCell>
               </TableRow>

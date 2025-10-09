@@ -6,10 +6,10 @@ export interface DeleteResponse {
   statusCode?: number
 }
 
-async function apiDelete<T>(url: string): Promise<T> {
+async function apiDelete<T>(url: string) {
   try {
     const response = await apiClient.delete<T>(url)
-    return response.data
+    return response
   } catch (error) {
     console.error(`Error fetching ${url}:`, error)
     throw error
@@ -27,7 +27,7 @@ export async function deleteApplication({
     const response = await apiDelete(
       `/v1/namespaces/${namespace}/applications/${application}`
     )
-    if (response === 200) {
+    if (response.status === 200) {
       return {
         success: true,
         message: 'application deleted successfully',
@@ -36,7 +36,7 @@ export async function deleteApplication({
       return {
         success: false,
         message: 'unexpected response',
-        statusCode: response as number,
+        statusCode: response.status,
       }
     }
   } catch (error: any) {
@@ -74,9 +74,10 @@ export async function deleteApplicationRequest({
 }): Promise<DeleteResponse> {
   try {
     const response = await apiDelete(
-      `/v1/namespaces/${namespace}/applications/${application}/request/${requestId}`
+      `/v1/namespaces/${namespace}/applications/${application}/requests/${requestId}`
     )
-    if (response === 200) {
+
+    if (response.status === 200) {
       return {
         success: true,
         message: 'request has been deleted',
@@ -85,7 +86,7 @@ export async function deleteApplicationRequest({
       return {
         success: false,
         message: 'unexpected response',
-        statusCode: response as number,
+        statusCode: response.status,
       }
     }
   } catch (error: any) {
