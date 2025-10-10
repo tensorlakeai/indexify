@@ -56,8 +56,8 @@ class ExecutorAPIStub(object):
             response_deserializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
         )
-        self.invoke_function = channel.unary_stream(
-            "/executor_api_pb.ExecutorAPI/invoke_function",
+        self.call_function = channel.unary_unary(
+            "/executor_api_pb.ExecutorAPI/call_function",
             request_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
             response_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
             _registered_method=True,
@@ -90,10 +90,8 @@ class ExecutorAPIServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def invoke_function(self, request, context):
-        """Called by the user code to invoke a blocking function call.
-        returns a stream until the function call is completed.
-        """
+    def call_function(self, request, context):
+        """Called by the user code to invoke a blocking function call."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -111,8 +109,8 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
             request_deserializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.FromString,
             response_serializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.SerializeToString,
         ),
-        "invoke_function": grpc.unary_stream_rpc_method_handler(
-            servicer.invoke_function,
+        "call_function": grpc.unary_unary_rpc_method_handler(
+            servicer.call_function,
             request_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.FromString,
             response_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.SerializeToString,
         ),
@@ -197,7 +195,7 @@ class ExecutorAPI(object):
         )
 
     @staticmethod
-    def invoke_function(
+    def call_function(
         request,
         target,
         options=(),
@@ -209,10 +207,10 @@ class ExecutorAPI(object):
         timeout=None,
         metadata=None,
     ):
-        return grpc.experimental.unary_stream(
+        return grpc.experimental.unary_unary(
             request,
             target,
-            "/executor_api_pb.ExecutorAPI/invoke_function",
+            "/executor_api_pb.ExecutorAPI/call_function",
             indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
             indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
             options,
