@@ -309,7 +309,8 @@ pub struct StateStoreMetrics {
     pub driver_reads: Counter<u64>,
     pub driver_scans: Counter<u64>,
     pub driver_deletes: Counter<u64>,
-    pub driver_commit_errors: Counter<u64>,
+    pub driver_commits: Counter<u64>,
+    pub driver_commits_errors: Counter<u64>,
 }
 
 impl Default for StateStoreMetrics {
@@ -363,8 +364,13 @@ impl StateStoreMetrics {
             .with_description("Number of state driver deletes")
             .build();
 
-        let driver_commit_errors = meter
-            .u64_counter("indexify.state_driver_commit_errors")
+        let driver_commits = meter
+            .u64_counter("indexify.state_driver_commits")
+            .with_description("Number of state driver commits")
+            .build();
+
+        let driver_commits_errors = meter
+            .u64_counter("indexify.state_driver_commits_errors")
             .with_description("Number of state driver commit errors")
             .build();
 
@@ -376,7 +382,8 @@ impl StateStoreMetrics {
             driver_reads,
             driver_scans,
             driver_deletes,
-            driver_commit_errors,
+            driver_commits,
+            driver_commits_errors,
         }
     }
 }
