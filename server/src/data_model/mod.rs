@@ -256,7 +256,10 @@ impl FunctionRun {
     }
 
     pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.application, self.id)
+        format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.application, self.request_id, self.id
+        )
     }
 
     pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
