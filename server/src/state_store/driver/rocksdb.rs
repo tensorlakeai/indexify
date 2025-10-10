@@ -60,6 +60,12 @@ impl Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RocksDBConfig {
+    /// Create if missing
+    pub create_if_missing: bool,
+
+    /// Create missing column families
+    pub create_missing_column_families: bool,
+
     /// The number of threads to start for flushing and compaction
     pub thread_count: i32,
 
@@ -108,6 +114,8 @@ pub struct RocksDBConfig {
 impl Default for RocksDBConfig {
     fn default() -> Self {
         RocksDBConfig {
+            create_if_missing: true,
+            create_missing_column_families: true,
             thread_count: 1,
             jobs_count: 2,
             max_write_buffer_number: 2,
@@ -130,7 +138,9 @@ impl Display for RocksDBConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "thread_count: {}, jobs_count: {}, max_write_buffer_number: {}, write_buffer_size: {}, wal_size_limit: {}, max_total_wal_size: {}, target_file_size_base: {}, target_file_size_multiplier: {}, level_zero_file_compaction_trigger: {}, max_concurrent_subcompactions: {}, enable_pipelined_writes: {}, keep_log_file_num: {}, log_level: {}, compaction_style: {}",
+            "create_if_missing: {}, create_missing_column_families: {}, thread_count: {}, jobs_count: {}, max_write_buffer_number: {}, write_buffer_size: {}, wal_size_limit: {}, max_total_wal_size: {}, target_file_size_base: {}, target_file_size_multiplier: {}, level_zero_file_compaction_trigger: {}, max_concurrent_subcompactions: {}, enable_pipelined_writes: {}, keep_log_file_num: {}, log_level: {}, compaction_style: {}",
+            self.create_if_missing,
+            self.create_missing_column_families,
             self.thread_count,
             self.jobs_count,
             self.max_write_buffer_number,
@@ -169,8 +179,9 @@ impl RocksDBDriver {
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<RocksDBDriver, Error> {
         let mut db_opts = RocksDBOptions::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
+        db_opts.create_if_missing(driver_options.config.create_if_missing);
+        db_opts
+            .create_missing_column_families(driver_options.config.create_missing_column_families);
         db_opts.increase_parallelism(driver_options.config.thread_count);
         db_opts.set_max_background_jobs(driver_options.config.jobs_count);
         db_opts.set_target_file_size_base(driver_options.config.target_file_size_base);
