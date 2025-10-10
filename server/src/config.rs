@@ -11,6 +11,7 @@ use figment::{
     providers::{Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
 
@@ -105,7 +106,7 @@ impl ServerConfig {
         self.telemetry
             .instance_id
             .clone()
-            .unwrap_or_else(|| format!("{}-1", self.env))
+            .unwrap_or_else(|| format!("{}-{}", self.env, Uuid::new_v4()))
     }
 }
 
