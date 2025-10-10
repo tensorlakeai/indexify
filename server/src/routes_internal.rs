@@ -73,8 +73,8 @@ use crate::{
                 UnallocatedFunctionRuns,
                 StateChangesResponse,
                 ExecutorCatalog,
-                HealthzResponse,
                 HealthzChecks,
+                HealthzResponse,
             )
         ),
         tags(
