@@ -148,8 +148,11 @@ impl From<&Box<FunctionRun>> for FunctionRunKey {
 impl From<&Allocation> for FunctionRunKey {
     fn from(allocation: &Allocation) -> Self {
         FunctionRunKey(format!(
-            "{}|{}|{}",
-            allocation.namespace, allocation.application, allocation.function_call_id
+            "{}|{}|{}|{}",
+            allocation.namespace,
+            allocation.application,
+            allocation.request_id,
+            allocation.function_call_id
         ))
     }
 }
@@ -157,8 +160,11 @@ impl From<&Allocation> for FunctionRunKey {
 impl From<&Box<Allocation>> for FunctionRunKey {
     fn from(allocation: &Box<Allocation>) -> Self {
         FunctionRunKey(format!(
-            "{}|{}|{}",
-            allocation.namespace, allocation.application, allocation.function_call_id
+            "{}|{}|{}|{}",
+            allocation.namespace,
+            allocation.application,
+            allocation.request_id,
+            allocation.function_call_id
         ))
     }
 }
