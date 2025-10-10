@@ -53,7 +53,7 @@ impl Service {
             config.telemetry.enable_metrics,
             config.telemetry.endpoint.as_ref(),
             config.telemetry.metrics_interval,
-            config.telemetry.instance_id.as_ref(),
+            &config.instance_id(),
             env!("CARGO_PKG_VERSION"),
         )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());

@@ -1,8 +1,4 @@
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::PathBuf;
 
 use anyhow::{Ok, Result};
 use clap::Parser;
@@ -11,7 +7,7 @@ use opentelemetry::global;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
-use tracing::error;
+use tracing::{error, info_span};
 use tracing_subscriber::{
     Layer,
     fmt::{
@@ -82,62 +78,11 @@ where
     Box::new(tracing_subscriber::fmt::layer().compact())
 }
 
-/// Builds up a configuration for the local log layer.
-///
-/// The idea here is that we want to be able to use a separate local log file
-/// with detailed event information (more detailed than we want to send to our
-/// log collector). So we allow the user to configure a target->level map for
-/// local logs; to keep these from growing too crazily large, we make sure to
-/// rotate them on a daily basis.
-fn get_local_log_layer<S>(config: &ServerConfig) -> Box<dyn Layer<S> + Send + Sync>
-where
-    S: for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-    S: tracing::Subscriber,
-{
-    let Some(log_file_path) = &config.telemetry.local_log_file else {
-        // Return Identity layer if no local log file is configured
-        return Box::new(tracing_subscriber::layer::Identity::new());
-    };
-
-    // Build Targets filter from config
-    let mut targets = tracing_subscriber::filter::Targets::new();
-    for (target, level_str) in &config.telemetry.local_log_targets {
-        let level = tracing::Level::from_str(level_str).unwrap_or_else(|_| {
-            error!(
-                "Invalid log level '{}' for target '{}', defaulting to DEBUG",
-                level_str, target
-            );
-            tracing::Level::DEBUG
-        });
-        targets = targets.with_target(target, level);
-    }
-
-    let file_appender = tracing_appender::rolling::daily(
-        Path::new(log_file_path).parent().unwrap_or(Path::new(".")),
-        Path::new(log_file_path)
-            .file_name()
-            .unwrap_or(OsStr::new("local.log")),
-    );
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_writer(non_blocking)
-        .with_ansi(false) // No ANSI colors for file output
-        .with_filter(targets);
-
-    // Store the guard to prevent it from being dropped
-    std::mem::forget(_guard);
-
-    Box::new(file_layer)
-}
-
-fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
-    let structured_logging = !config.dev;
+fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>> {
     let env_filter_layer = get_env_filter();
-    let log_layer = get_log_layer(structured_logging);
-    let local_log_layer = get_local_log_layer(&config);
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(log_layer.with_filter(env_filter_layer))
-        .with(local_log_layer);
+    let log_layer = get_log_layer(config.structured_logging());
+    let subscriber =
+        tracing_subscriber::Registry::default().with(log_layer.with_filter(env_filter_layer));
 
     if !config.telemetry.enable_tracing {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
@@ -168,11 +113,18 @@ async fn main() {
         None => config::ServerConfig::default(),
     };
 
-    let tracing_provider = setup_tracing(config.clone())
+    let tracing_provider = setup_tracing(&config)
         .inspect_err(|e| {
             error!("Error setting up tracing: {:?}", e);
         })
         .unwrap();
+
+    let root_span = info_span!(
+        "indexify",
+        env = config.env,
+        "indexify-instance" = config.instance_id()
+    );
+    let _guard = root_span.enter();
 
     let service = Service::new(config).await;
     if let Err(err) = service {
