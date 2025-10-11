@@ -8,6 +8,7 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         IndexifyAPIError,
@@ -207,6 +208,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub status: FunctionRunStatus,
     pub outcome: Option<FunctionRunOutcome>,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub application_version: String,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
@@ -217,12 +219,17 @@ impl FunctionRun {
         function_run: data_model::FunctionRun,
         allocations: Vec<Allocation>,
     ) -> Self {
+        let failure_reason = match &function_run.outcome {
+            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some(reason.clone().into()),
+            _ => None,
+        };
         Self {
             id: function_run.id.to_string(),
             name: function_run.name,
             application: function_run.application,
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
+            failure_reason,
             status: function_run.status.into(),
             application_version: function_run.version,
             allocations,
@@ -279,6 +286,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
 pub struct Request {
     pub id: String,
     pub outcome: Option<RequestOutcome>,
+    pub failure_reason: Option<RequestFailureReason>,
     pub application_version: String,
     pub created_at: u128,
     pub request_error: Option<RequestError>,
@@ -309,10 +317,15 @@ impl Request {
                 allocations,
             ));
         }
+        let failure_reason = match &ctx.outcome {
+            Some(data_model::RequestOutcome::Failure(reason)) => Some(reason.clone().into()),
+            _ => None,
+        };
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             application_version: ctx.application_version.to_string(),
+            failure_reason,
             created_at: ctx.created_at.into(),
             request_error,
             function_runs,

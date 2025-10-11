@@ -565,7 +565,7 @@ impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
 pub enum FunctionRunOutcome {
     Undefined,
     Success,
-    Failure(FunctionRunFailureReason),
+    Failure,
 }
 
 impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
@@ -573,9 +573,7 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
         match outcome {
             data_model::FunctionRunOutcome::Unknown => FunctionRunOutcome::Undefined,
             data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
-            data_model::FunctionRunOutcome::Failure(reason) => {
-                FunctionRunOutcome::Failure(reason.into())
-            }
+            data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
         }
     }
 }
@@ -796,12 +794,17 @@ pub struct Allocation {
     pub request_id: String,
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
+        let failure_reason = match allocation.outcome {
+            data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
+            _ => None,
+        };
         Self {
             id: allocation.id.to_string(),
             namespace: allocation.namespace,
@@ -813,6 +816,7 @@ impl From<data_model::Allocation> for Allocation {
             request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
+            failure_reason,
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
         }
