@@ -220,7 +220,7 @@ impl FunctionRun {
         allocations: Vec<Allocation>,
     ) -> Self {
         let failure_reason = match &function_run.outcome {
-            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some(reason.clone().into()),
+            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some((*reason).into()),
             _ => None,
         };
         Self {
