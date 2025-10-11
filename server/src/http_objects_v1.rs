@@ -36,6 +36,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum ApplicationState {
     #[default]
     Active,
@@ -256,6 +257,7 @@ pub enum RequestFailureReason {
     FunctionError,
     RequestError,
     ConstraintUnsatisfiable,
+    Cancelled,
 }
 
 impl From<data_model::RequestFailureReason> for RequestFailureReason {
@@ -268,6 +270,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
             data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
+            data_model::RequestFailureReason::Cancelled => RequestFailureReason::Cancelled,
         }
     }
 }
