@@ -36,6 +36,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum ApplicationState {
     #[default]
     Active,

@@ -814,7 +814,7 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
-            FunctionRunFailureReason::OOM => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::Oom => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::Cancelled => RequestFailureReason::Cancelled,
         }
     }
@@ -941,7 +941,7 @@ pub enum FunctionRunFailureReason {
     // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
 
-    OOM,
+    Oom,
 
     Cancelled,
 }
@@ -957,7 +957,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
-            FunctionRunFailureReason::OOM => "OOM",
+            FunctionRunFailureReason::Oom => "OOM",
             FunctionRunFailureReason::Cancelled => "Cancelled",
         };
         write!(f, "{str_val}")

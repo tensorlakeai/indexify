@@ -515,6 +515,7 @@ pub struct CreateNamespace {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum FunctionRunFailureReason {
     Unknown,
     InternalError,
@@ -524,7 +525,7 @@ pub enum FunctionRunFailureReason {
     FunctionRunCancelled,
     FunctionExecutorTerminated,
     ConstraintUnsatisfiable,
-    OOM,
+    Oom,
     Cancelled,
 }
 
@@ -553,13 +554,14 @@ impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             data_model::FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 FunctionRunFailureReason::ConstraintUnsatisfiable
             }
-            data_model::FunctionRunFailureReason::OOM => FunctionRunFailureReason::OOM,
+            data_model::FunctionRunFailureReason::Oom => FunctionRunFailureReason::Oom,
             data_model::FunctionRunFailureReason::Cancelled => FunctionRunFailureReason::Cancelled,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum FunctionRunOutcome {
     Undefined,
     Success,
@@ -579,6 +581,7 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum FunctionRunStatus {
     Pending,
     Running,
