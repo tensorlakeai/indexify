@@ -179,7 +179,7 @@ impl FunctionRunCreator {
                 if function_run.status != FunctionRunStatus::Completed {
                     function_run.status = FunctionRunStatus::Completed;
                     function_run.outcome = Some(FunctionRunOutcome::Failure(
-                        FunctionRunFailureReason::Cancelled,
+                        FunctionRunFailureReason::FunctionRunCancelled,
                     ));
                     scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
                 }

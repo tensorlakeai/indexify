@@ -261,8 +261,6 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
-    // Cancelled.
-    ALLOCATION_FAILURE_REASON_CANCELLED = 8;
 }
 
 message ExecutionPlanUpdate {

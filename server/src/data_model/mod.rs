@@ -807,15 +807,14 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::FunctionError => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
-            FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::InternalError,
+            FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::Cancelled,
             FunctionRunFailureReason::FunctionExecutorTerminated => {
                 RequestFailureReason::InternalError
             }
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
-            FunctionRunFailureReason::Oom => RequestFailureReason::FunctionError,
-            FunctionRunFailureReason::Cancelled => RequestFailureReason::Cancelled,
+            FunctionRunFailureReason::OutOfMemory => RequestFailureReason::FunctionError,
         }
     }
 }
@@ -941,9 +940,7 @@ pub enum FunctionRunFailureReason {
     // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
 
-    Oom,
-
-    Cancelled,
+    OutOfMemory,
 }
 
 impl Display for FunctionRunFailureReason {
@@ -957,8 +954,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
-            FunctionRunFailureReason::Oom => "OOM",
-            FunctionRunFailureReason::Cancelled => "Cancelled",
+            FunctionRunFailureReason::OutOfMemory => "OOM",
         };
         write!(f, "{str_val}")
     }
