@@ -515,10 +515,55 @@ pub struct CreateNamespace {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub enum FunctionRunFailureReason {
+    Unknown,
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    RequestError,
+    FunctionRunCancelled,
+    FunctionExecutorTerminated,
+    ConstraintUnsatisfiable,
+    OOM,
+    Cancelled,
+}
+
+impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
+    fn from(reason: data_model::FunctionRunFailureReason) -> Self {
+        match reason {
+            data_model::FunctionRunFailureReason::Unknown => FunctionRunFailureReason::Unknown,
+            data_model::FunctionRunFailureReason::InternalError => {
+                FunctionRunFailureReason::InternalError
+            }
+            data_model::FunctionRunFailureReason::FunctionError => {
+                FunctionRunFailureReason::FunctionError
+            }
+            data_model::FunctionRunFailureReason::FunctionTimeout => {
+                FunctionRunFailureReason::FunctionTimeout
+            }
+            data_model::FunctionRunFailureReason::RequestError => {
+                FunctionRunFailureReason::RequestError
+            }
+            data_model::FunctionRunFailureReason::FunctionRunCancelled => {
+                FunctionRunFailureReason::FunctionRunCancelled
+            }
+            data_model::FunctionRunFailureReason::FunctionExecutorTerminated => {
+                FunctionRunFailureReason::FunctionExecutorTerminated
+            }
+            data_model::FunctionRunFailureReason::ConstraintUnsatisfiable => {
+                FunctionRunFailureReason::ConstraintUnsatisfiable
+            }
+            data_model::FunctionRunFailureReason::OOM => FunctionRunFailureReason::OOM,
+            data_model::FunctionRunFailureReason::Cancelled => FunctionRunFailureReason::Cancelled,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum FunctionRunOutcome {
     Undefined,
     Success,
-    Failure,
+    Failure(FunctionRunFailureReason),
 }
 
 impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
@@ -526,7 +571,9 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
         match outcome {
             data_model::FunctionRunOutcome::Unknown => FunctionRunOutcome::Undefined,
             data_model::FunctionRunOutcome::Success => FunctionRunOutcome::Success,
-            data_model::FunctionRunOutcome::Failure(_) => FunctionRunOutcome::Failure,
+            data_model::FunctionRunOutcome::Failure(reason) => {
+                FunctionRunOutcome::Failure(reason.into())
+            }
         }
     }
 }

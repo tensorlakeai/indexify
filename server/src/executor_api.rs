@@ -644,6 +644,12 @@ impl ExecutorAPIService {
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(FunctionRunFailureReason::FunctionExecutorTerminated)
                     }
+                    executor_api_pb::AllocationFailureReason::Oom => {
+                        Some(FunctionRunFailureReason::OOM)
+                    }
+                    executor_api_pb::AllocationFailureReason::Cancelled => {
+                        Some(FunctionRunFailureReason::Cancelled)
+                    }
                 },
                 None => None,
             };

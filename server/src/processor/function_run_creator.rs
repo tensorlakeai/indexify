@@ -15,6 +15,7 @@ use crate::{
         FunctionCall,
         FunctionCallId,
         FunctionRun,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         InputArgs,
@@ -172,6 +173,17 @@ impl FunctionRunCreator {
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
             let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
+
+            // Mark the other function runs which are still running as cancelled
+            for function_run in request_ctx.function_runs.clone().values_mut() {
+                if function_run.status != FunctionRunStatus::Completed {
+                    function_run.status = FunctionRunStatus::Completed;
+                    function_run.outcome = Some(FunctionRunOutcome::Failure(
+                        FunctionRunFailureReason::Cancelled,
+                    ));
+                    scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
+                }
+            }
             return Ok(scheduler_update);
         }
 

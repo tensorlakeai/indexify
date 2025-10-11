@@ -256,6 +256,7 @@ pub enum RequestFailureReason {
     FunctionError,
     RequestError,
     ConstraintUnsatisfiable,
+    Cancelled,
 }
 
 impl From<data_model::RequestFailureReason> for RequestFailureReason {
@@ -268,6 +269,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
             data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
+            data_model::RequestFailureReason::Cancelled => RequestFailureReason::Cancelled,
         }
     }
 }
