@@ -553,7 +553,9 @@ impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             data_model::FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 FunctionRunFailureReason::ConstraintUnsatisfiable
             }
-            data_model::FunctionRunFailureReason::OutOfMemory => FunctionRunFailureReason::OutOfMemory,
+            data_model::FunctionRunFailureReason::OutOfMemory => {
+                FunctionRunFailureReason::OutOfMemory
+            }
         }
     }
 }

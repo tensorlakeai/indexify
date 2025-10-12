@@ -976,7 +976,8 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::FunctionRunCancelled |
-                FunctionRunFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::FunctionExecutorTerminated |
+                FunctionRunFailureReason::OutOfMemory
         )
     }
 
@@ -991,7 +992,8 @@ impl FunctionRunFailureReason {
             self,
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
-                FunctionRunFailureReason::FunctionTimeout
+                FunctionRunFailureReason::FunctionTimeout |
+                FunctionRunFailureReason::OutOfMemory
         )
     }
 }
