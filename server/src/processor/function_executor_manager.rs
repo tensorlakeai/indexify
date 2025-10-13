@@ -83,6 +83,7 @@ impl FunctionExecutorManager {
     }
 
     /// Creates a new function executor for the given function run
+    #[tracing::instrument(skip_all)]
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
