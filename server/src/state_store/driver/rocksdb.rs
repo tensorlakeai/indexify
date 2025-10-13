@@ -524,14 +524,21 @@ impl<'a> RocksDBTransaction<'a> {
     }
 
     pub fn commit(self) -> Result<(), DriverError> {
-        let result = self.tx.commit().map_err(Error::into_generic);
+        let result = self.tx.commit();
+
         // Count commits and errors
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_commits, attrs);
-        if result.is_err() {
+
+        // Count errors
+        if let Err(err) = &result {
+            let attrs = &[
+                KeyValue::new("driver", "rocksdb"),
+                KeyValue::new("driver.error_kind", format!("{:?}", err.kind())),
+            ];
             let _inc_errors = Increment::inc(&self.db.metrics.driver_commits_errors, attrs);
         }
-        result
+        result.map_err(Error::into_generic)
     }
 
     pub fn get<N, K: AsRef<[u8]>>(&self, table: N, key: K) -> Result<Option<Vec<u8>>, DriverError>
