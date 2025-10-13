@@ -526,9 +526,9 @@ impl<'a> RocksDBTransaction<'a> {
     pub fn commit(self) -> Result<(), DriverError> {
         let result = self.tx.commit();
 
-        // Count commits and errors
+        // Count commits
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.db.metrics.driver_commits, attrs);
+        Increment::inc(&self.db.metrics.driver_commits, attrs);
 
         // Count errors
         if let Err(err) = &result {
@@ -536,7 +536,7 @@ impl<'a> RocksDBTransaction<'a> {
                 KeyValue::new("driver", "rocksdb"),
                 KeyValue::new("driver.error_kind", format!("{:?}", err.kind())),
             ];
-            let _inc_errors = Increment::inc(&self.db.metrics.driver_commits_errors, attrs);
+            Increment::inc(&self.db.metrics.driver_commits_errors, attrs);
         }
         result.map_err(Error::into_generic)
     }

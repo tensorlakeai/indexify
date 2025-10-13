@@ -25,6 +25,7 @@ use crate::{
         FunctionRunOutcome,
         HealthzChecks,
         HealthzResponse,
+        HealthzStatus,
         IndexifyAPIError,
         Namespace,
         NamespaceList,
@@ -579,29 +580,29 @@ async fn change_application_state(
 pub async fn healthz_handler(
     State(state): State<RouteState>,
 ) -> Result<Json<HealthzResponse>, StatusCode> {
-    let mut overall_status = "ok";
+    let mut overall_status = HealthzStatus::Ok;
     let mut checks = HealthzChecks {
-        database: "ok".to_string(),
-        executor_manager: "ok".to_string(),
+        database: HealthzStatus::Ok,
+        executor_manager: HealthzStatus::Ok,
     };
 
     // Check database/state store health
     match state.indexify_state.reader().get_all_namespaces() {
-        Ok(_) => checks.database = "ok".to_string(),
+        Ok(_) => checks.database = HealthzStatus::Ok,
         Err(e) => {
             error!("Database health check failed: {:?}", e);
-            checks.database = "error".to_string();
-            overall_status = "degraded";
+            checks.database = HealthzStatus::Error;
+            overall_status = HealthzStatus::Degraded;
         }
     }
 
     // Check executor manager health
     match state.executor_manager.list_executors().await {
-        Ok(_) => checks.executor_manager = "ok".to_string(),
+        Ok(_) => checks.executor_manager = HealthzStatus::Ok,
         Err(e) => {
             error!("Executor manager health check failed: {:?}", e);
-            checks.executor_manager = "error".to_string();
-            overall_status = "degraded";
+            checks.executor_manager = HealthzStatus::Error;
+            overall_status = HealthzStatus::Degraded;
         }
     }
 
@@ -612,7 +613,7 @@ pub async fn healthz_handler(
     };
 
     // Return 503 Service Unavailable if any critical component is down
-    if overall_status == "degraded" {
+    if overall_status == HealthzStatus::Degraded {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
 

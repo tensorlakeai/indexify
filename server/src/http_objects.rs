@@ -829,6 +829,16 @@ pub struct ExecutorsAllocationsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum HealthzStatus {
+    #[serde(rename = "ok")]
+    Ok,
+    #[serde(rename = "degraded")]
+    Degraded,
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthzResponse {
     pub status: String,
     pub version: String,
