@@ -12,7 +12,7 @@ use tokio::{
 };
 use tonic::transport::Server;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tracing::{Instrument, info, info_span};
 
 use crate::{
     blob_store::{BlobStorage, registry::BlobStorageRegistry},
@@ -53,7 +53,7 @@ impl Service {
             config.telemetry.enable_metrics,
             config.telemetry.endpoint.as_ref(),
             config.telemetry.metrics_interval,
-            config.telemetry.instance_id.as_ref(),
+            &config.instance_id(),
             env!("CARGO_PKG_VERSION"),
         )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
@@ -123,6 +123,11 @@ impl Service {
     }
 
     pub async fn start(&mut self) -> Result<()> {
+        let span = info_span!(
+            "Initializing Service",
+            env = self.config.env,
+            "indexify-instance" = self.config.instance_id()
+        );
         let tokio_rt = tokio::runtime::Handle::current();
 
         let graph_processor = self.graph_processor.clone();
@@ -130,18 +135,31 @@ impl Service {
         // spawn the graph processor in a blocking thread
         // to avoid blocking the tokio runtime when working with
         // in-memory data structures.
+        let env = self.config.env.clone();
+        let instance_id = self.config.instance_id();
         tokio::task::spawn_blocking(move || {
-            tokio_rt.block_on(async move {
-                graph_processor.start(shutdown_rx).await;
-            });
+            let span = info_span!(
+                "Initializing Graph Processor",
+                env,
+                "indexify-instance" = instance_id
+            );
+            tokio_rt.block_on(
+                async move {
+                    graph_processor.start(shutdown_rx).await;
+                }
+                .instrument(span.clone()),
+            );
         });
 
         // Spawn monitoring task with shutdown receiver
         let monitor = self.executor_manager.clone();
         let shutdown_rx = self.shutdown_rx.clone();
-        tokio::spawn(async move {
-            monitor.start_heartbeat_monitor(shutdown_rx).await;
-        });
+        tokio::spawn(
+            async move {
+                monitor.start_heartbeat_monitor(shutdown_rx).await;
+            }
+            .instrument(span.clone()),
+        );
 
         let global_meter = opentelemetry::global::meter("server-http");
         let otel_metrics_service_layer =
@@ -160,46 +178,57 @@ impl Service {
             metrics: api_metrics.clone(),
         };
         let gc_executor = self.gc_executor.clone();
-        tokio::spawn(async move {
-            let gc_executor_guard = gc_executor.lock().await;
-            gc_executor_guard.start().await;
-        });
+        tokio::spawn(
+            async move {
+                let gc_executor_guard = gc_executor.lock().await;
+                gc_executor_guard.start().await;
+            }
+            .instrument(span.clone()),
+        );
 
         let handle = Handle::new();
         let handle_sh = handle.clone();
         let shutdown_tx = self.shutdown_tx.clone();
         let kvs = self.kvs.clone();
-        tokio::spawn(async move {
-            shutdown_signal(handle_sh, shutdown_tx).await;
-            info!("graceful shutdown signal received, shutting down server gracefully");
-            if let Err(err) = kvs.close_db().await {
-                tracing::error!("error closing kv store: {:?}", err);
+        tokio::spawn(
+            async move {
+                shutdown_signal(handle_sh, shutdown_tx).await;
+                info!("graceful shutdown signal received, shutting down server gracefully");
+                if let Err(err) = kvs.close_db().await {
+                    tracing::error!("error closing kv store: {:?}", err);
+                }
             }
-        });
+            .instrument(span.clone()),
+        );
 
         let addr_grpc: SocketAddr = self.config.listen_addr_grpc.parse()?;
         let mut shutdown_rx = self.shutdown_rx.clone();
         let indexify_state = self.indexify_state.clone();
         let executor_manager = self.executor_manager.clone();
         let blog_storage_registry = self.blob_storage_registry.clone();
-        tokio::spawn(async move {
-            info!("server grpc listening on {}", addr_grpc);
-            let reflection_service = tonic_reflection::server::Builder::configure()
-                .register_encoded_file_descriptor_set(executor_api_descriptor::FILE_DESCRIPTOR_SET)
-                .build_v1()
-                .unwrap();
-            Server::builder()
-                .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
-                    indexify_state,
-                    executor_manager,
-                    blog_storage_registry,
-                )))
-                .add_service(reflection_service)
-                .serve_with_shutdown(addr_grpc, async move {
-                    shutdown_rx.changed().await.ok();
-                })
-                .await
-        });
+        tokio::spawn(
+            async move {
+                info!("server grpc listening on {}", addr_grpc);
+                let reflection_service = tonic_reflection::server::Builder::configure()
+                    .register_encoded_file_descriptor_set(
+                        executor_api_descriptor::FILE_DESCRIPTOR_SET,
+                    )
+                    .build_v1()
+                    .unwrap();
+                Server::builder()
+                    .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
+                        indexify_state,
+                        executor_manager,
+                        blog_storage_registry,
+                    )))
+                    .add_service(reflection_service)
+                    .serve_with_shutdown(addr_grpc, async move {
+                        shutdown_rx.changed().await.ok();
+                    })
+                    .await
+            }
+            .instrument(span.clone()),
+        );
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
