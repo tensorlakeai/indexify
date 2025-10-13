@@ -607,7 +607,7 @@ pub async fn healthz_handler(
     }
 
     let response = HealthzResponse {
-        status: overall_status.to_string(),
+        status: overall_status.clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         checks,
     };

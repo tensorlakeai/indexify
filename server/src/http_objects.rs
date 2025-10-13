@@ -828,7 +828,7 @@ pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 pub enum HealthzStatus {
     #[serde(rename = "ok")]
     Ok,
@@ -840,15 +840,15 @@ pub enum HealthzStatus {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthzResponse {
-    pub status: String,
+    pub status: HealthzStatus,
     pub version: String,
     pub checks: HealthzChecks,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthzChecks {
-    pub database: String,
-    pub executor_manager: String,
+    pub database: HealthzStatus,
+    pub executor_manager: HealthzStatus,
 }
 
 #[cfg(test)]
