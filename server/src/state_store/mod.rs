@@ -100,6 +100,9 @@ pub struct IndexifyState {
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
+    pub usage_events_tx: tokio::sync::watch::Sender<()>,
+    pub usage_events_rx: tokio::sync::watch::Receiver<()>,
+
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
@@ -158,6 +161,8 @@ impl IndexifyState {
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
             scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
@@ -177,6 +182,8 @@ impl IndexifyState {
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
+            usage_events_tx,
+            usage_events_rx
         });
 
         info!(
@@ -251,7 +258,9 @@ impl IndexifyState {
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
                     state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
+                    state_machine::record_allocation_usage(&txn, &allocation_output.allocation)?;
                 }
+
                 if request.update_executor_state {
                     self.executor_states
                         .write()

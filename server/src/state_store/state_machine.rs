@@ -8,24 +8,16 @@ use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
+use crate::data_model::{AllocationUsageBuilder, FunctionRunOutcome};
 use crate::{
     data_model::{
-        Allocation,
-        Application,
-        ApplicationVersion,
-        GcUrl,
-        GcUrlBuilder,
-        NamespaceBuilder,
-        RequestCtx,
-        StateChange,
+        Allocation, Application, ApplicationVersion, GcUrl, GcUrlBuilder, NamespaceBuilder,
+        RequestCtx, StateChange,
     },
     state_store::{
         driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            AllocationOutput,
-            DeleteRequestRequest,
-            InvokeApplicationRequest,
-            NamespaceRequest,
+            AllocationOutput, DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
@@ -47,6 +39,7 @@ pub enum IndexifyObjectsColumns {
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
+    AllocationUsage,         // Allocation Usage ID -> Allocation Usage
 
     GcUrls, // List of URLs pending deletion
 
@@ -119,6 +112,63 @@ pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> R
         allocation.key().as_bytes(),
         &serialized_allocation,
     )?;
+
+    Ok(())
+}
+
+pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation) -> Result<()> {
+    if !allocation.is_terminal() {
+        return Ok(());
+    }
+
+    let Some(execution_duration_ms) = allocation.execution_duration_ms else {
+        warn!(
+            allocation_id = %allocation.id,
+            fn_call_id = allocation.function_call_id.to_string(),
+            "Allocation usage_ms is None, skipping recording usage",
+        );
+        return Ok(());
+    };
+
+    let application = txn
+        .get(
+            IndexifyObjectsColumns::Applications.as_ref(),
+            &Application::key_from(&allocation.namespace, &allocation.application),
+        )?
+        .ok_or(anyhow!("Application not found for allocation"))?;
+    
+    let application = JsonEncoder::decode::<Application>(&application)?;
+    
+    let function = application
+        .functions
+        .get(&allocation.function)
+        .ok_or(anyhow!("Function not found in application for allocation"))?;
+    
+    let allocation_usage = AllocationUsageBuilder::default()
+        .namespace(allocation.namespace.clone())
+        .application(allocation.application.clone())
+        .request_id(allocation.request_id.clone())
+        .allocation_id(allocation.id.clone())
+        .execution_duration_ms(execution_duration_ms)
+        .cpu_ms_per_second(function.resources.cpu_ms_per_sec)
+        .memory_mb(function.resources.memory_mb)
+        .disk_mb(function.resources.ephemeral_disk_mb)
+        .gpu_used(function.resources.gpu_configs.clone())
+        .build()?;
+    
+    let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
+    txn.put(
+        IndexifyObjectsColumns::AllocationUsage.as_ref(),
+        allocation_usage.key().as_bytes(),
+        &serialized_usage,
+    )?;
+
+    info!(
+          allocation_id = %allocation.id,
+          usage_id = %allocation_usage.id,
+          "recorded allocation usage"
+    );
+
     Ok(())
 }
 
