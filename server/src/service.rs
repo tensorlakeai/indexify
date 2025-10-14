@@ -11,7 +11,10 @@ use tokio::{
     sync::{Mutex, watch},
 };
 use tonic::transport::Server;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::{Instrument, info, info_span};
 
 use crate::{
@@ -20,6 +23,7 @@ use crate::{
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
     metrics::{self, init_provider},
+    middleware::InstanceRequestSpan,
     processor::{application_processor::ApplicationProcessor, gc::Gc},
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
@@ -206,9 +210,14 @@ impl Service {
         let indexify_state = self.indexify_state.clone();
         let executor_manager = self.executor_manager.clone();
         let blog_storage_registry = self.blob_storage_registry.clone();
+
+        let instance_span = InstanceRequestSpan::new(&self.config.env, &self.config.instance_id());
+        let instance_span_clone = instance_span.clone();
+
         tokio::spawn(
             async move {
                 info!("server grpc listening on {}", addr_grpc);
+                let instance_trace = TraceLayer::new_for_grpc().make_span_with(instance_span_clone);
                 let reflection_service = tonic_reflection::server::Builder::configure()
                     .register_encoded_file_descriptor_set(
                         executor_api_descriptor::FILE_DESCRIPTOR_SET,
@@ -216,6 +225,7 @@ impl Service {
                     .build_v1()
                     .unwrap();
                 Server::builder()
+                    .layer(instance_trace)
                     .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
                         indexify_state,
                         executor_manager,
@@ -238,12 +248,14 @@ impl Service {
             .allow_methods([Method::GET, Method::POST, Method::DELETE])
             .allow_origin(Any)
             .allow_headers(Any);
+        let instance_trace = TraceLayer::new_for_http().make_span_with(instance_span);
         let router = Router::new()
             .merge(internal_routes)
             .merge(v1_routes)
             .layer(otel_metrics_service_layer)
             .layer(OtelInResponseLayer)
             .layer(OtelAxumLayer::default())
+            .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
         axum_server::bind(addr)
