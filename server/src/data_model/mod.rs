@@ -992,7 +992,6 @@ impl FunctionRunFailureReason {
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
-                FunctionRunFailureReason::FunctionExecutorTerminated |
                 FunctionRunFailureReason::OutOfMemory
         )
     }
