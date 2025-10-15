@@ -7,7 +7,8 @@ use std::{
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
-    str, vec,
+    str,
+    vec,
 };
 
 use anyhow::{Result, anyhow};
@@ -964,11 +965,11 @@ impl FunctionRunFailureReason {
         // they fail the request permanently.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError
-                | FunctionRunFailureReason::FunctionError
-                | FunctionRunFailureReason::FunctionTimeout
-                | FunctionRunFailureReason::FunctionRunCancelled
-                | FunctionRunFailureReason::FunctionExecutorTerminated
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout |
+                FunctionRunFailureReason::FunctionRunCancelled |
+                FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
 
@@ -981,9 +982,9 @@ impl FunctionRunFailureReason {
         // with long lasting internal problems.
         matches!(
             self,
-            FunctionRunFailureReason::InternalError
-                | FunctionRunFailureReason::FunctionError
-                | FunctionRunFailureReason::FunctionTimeout
+            FunctionRunFailureReason::InternalError |
+                FunctionRunFailureReason::FunctionError |
+                FunctionRunFailureReason::FunctionTimeout
         )
     }
 }
@@ -1192,8 +1193,8 @@ impl HostResources {
         self.cpu_ms_per_sec -= request.cpu_ms_per_sec;
         self.memory_bytes -= request.memory_mb * 1024 * 1024;
         self.disk_bytes -= request.ephemeral_disk_mb * 1024 * 1024;
-        if let Some(requested_gpu) = &request.gpu
-            && let Some(available_gpu) = &mut self.gpu
+        if let Some(requested_gpu) = &request.gpu &&
+            let Some(available_gpu) = &mut self.gpu
         {
             available_gpu.count -= requested_gpu.count;
         }
@@ -1389,17 +1390,14 @@ impl FunctionAllowlist {
     pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace)
-            && self
-                .application
+            .is_none_or(|ns| ns == &function_executor.namespace) &&
+            self.application
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.application_name)
-            && self
-                .function
+                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
+            self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_executor.version)
     }
@@ -1407,17 +1405,14 @@ impl FunctionAllowlist {
     pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_run.namespace)
-            && self
-                .application
+            .is_none_or(|ns| ns == &function_run.namespace) &&
+            self.application
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_run.application)
-            && self
-                .function
+                .is_none_or(|cg_name| cg_name == &function_run.application) &&
+            self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_run.name)
-            && self
-                .version
+                .is_none_or(|fn_name| fn_name == &function_run.name) &&
+            self.version
                 .as_ref()
                 .is_none_or(|version| version == &function_run.version)
     }
@@ -1534,8 +1529,8 @@ impl Eq for FunctionExecutorServerMetadata {}
 
 impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.executor_id == other.executor_id
-            && self.function_executor.id == other.function_executor.id
+        self.executor_id == other.executor_id &&
+            self.function_executor.id == other.function_executor.id
     }
 }
 

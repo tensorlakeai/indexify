@@ -8,16 +8,26 @@ use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::data_model::{AllocationUsageBuilder, FunctionRunOutcome};
 use crate::{
     data_model::{
-        Allocation, Application, ApplicationVersion, GcUrl, GcUrlBuilder, NamespaceBuilder,
-        RequestCtx, StateChange,
+        Allocation,
+        AllocationUsageBuilder,
+        Application,
+        ApplicationVersion,
+        FunctionRunOutcome,
+        GcUrl,
+        GcUrlBuilder,
+        NamespaceBuilder,
+        RequestCtx,
+        StateChange,
     },
     state_store::{
         driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            AllocationOutput, DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
+            AllocationOutput,
+            DeleteRequestRequest,
+            InvokeApplicationRequest,
+            NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
@@ -117,7 +127,7 @@ pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> R
 }
 
 pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation) -> Result<()> {
-    if !allocation.is_terminal() {
+    if !matches!(allocation.outcome, FunctionRunOutcome::Success) {
         return Ok(());
     }
 
@@ -136,14 +146,14 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
             &Application::key_from(&allocation.namespace, &allocation.application),
         )?
         .ok_or(anyhow!("Application not found for allocation"))?;
-    
+
     let application = JsonEncoder::decode::<Application>(&application)?;
-    
+
     let function = application
         .functions
         .get(&allocation.function)
         .ok_or(anyhow!("Function not found in application for allocation"))?;
-    
+
     let allocation_usage = AllocationUsageBuilder::default()
         .namespace(allocation.namespace.clone())
         .application(allocation.application.clone())
@@ -155,7 +165,7 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
         .disk_mb(function.resources.ephemeral_disk_mb)
         .gpu_used(function.resources.gpu_configs.clone())
         .build()?;
-    
+
     let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
     txn.put(
         IndexifyObjectsColumns::AllocationUsage.as_ref(),
@@ -164,9 +174,14 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
     )?;
 
     info!(
-          allocation_id = %allocation.id,
-          usage_id = %allocation_usage.id,
-          "recorded allocation usage"
+        allocation_id = %allocation.id,
+        usage_id = %allocation_usage.id,
+        application = %allocation.application,
+        namespace = %allocation.namespace,
+        request_id = %allocation.request_id,
+        function = %allocation.function,
+        fn_call_id = allocation.function_call_id.to_string(),
+        "recorded allocation usage"
     );
 
     Ok(())

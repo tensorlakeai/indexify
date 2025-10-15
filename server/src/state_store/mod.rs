@@ -183,7 +183,7 @@ impl IndexifyState {
             change_events_rx,
             in_memory_state: indexes,
             usage_events_tx,
-            usage_events_rx
+            usage_events_rx,
         });
 
         info!(

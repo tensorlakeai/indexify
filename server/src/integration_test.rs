@@ -3,11 +3,13 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
+    use sha2::digest::generic_array::functional::FunctionalSequence;
     use strum::IntoEnumIterator;
 
     use crate::{
         assert_function_run_counts,
         data_model::{
+            AllocationUsage,
             ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
@@ -237,6 +239,14 @@ mod tests {
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
+        }
+
+        {
+            let (allocation_usage, cursor) =
+                indexify_state.reader().allocation_usage(None).unwrap();
+
+            assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
+            assert!(cursor.is_none());
         }
 
         Ok(())
@@ -934,4 +944,14 @@ mod tests {
 
         Ok(())
     }
+
+    // #[tokio::test]
+    // async fn test_usage_reporting() -> Result<()> {
+    //     let test_srv = testing::TestService::new().await?;
+    //     let Service { indexify_state, .. } = test_srv.service.clone();
+    //
+    //     let mut app =
+    // test_state_store::create_or_update_application(&indexify_state, 0).await;
+    //     assert_eq!(ApplicationState::Active, app.state);
+    // }
 }

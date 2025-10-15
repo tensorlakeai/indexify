@@ -97,6 +97,13 @@ impl ApplicationProcessor {
         Ok(())
     }
 
+    /// Starts the application processor loop
+    ///
+    /// The application processor listens for state changes from the state store
+    /// and processes them one by one. It processes state changes in the order
+    /// they are received, ensuring that global state changes are handled
+    /// before namespace-specific ones. The processor also handles shutdown
+    /// signals gracefully.
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
         let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
