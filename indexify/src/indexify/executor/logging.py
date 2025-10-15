@@ -5,6 +5,7 @@ import traceback
 from typing import TextIO
 
 import structlog
+from tensorlake.function_executor.cloud_events import render_cloud_event
 
 
 def configure_logging_early():
@@ -48,7 +49,9 @@ def configure_production_mode_logging():
         structlog.processors.add_log_level,
         structlog.dev.set_exc_info,
         structlog.processors.format_exc_info,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        # CloudEvents always add a timestamp attribute,
+        # so we don't need to add a Timestamper here.
+        render_cloud_event,
         structlog.processors.JSONRenderer(),
     ]
     structlog.configure(processors=processors)
