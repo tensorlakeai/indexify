@@ -629,7 +629,7 @@ mod tests {
             "Allocations",
             "AllocationUsage",
             "GcUrls",
-            "Stats"
+            "Stats",
         ];
 
         let columns_iter = columns
