@@ -34,7 +34,10 @@ impl UsageProcessor {
     }
 
     async fn process_allocation_usage_events(&self, cursor: &mut Option<Vec<u8>>) -> Result<()> {
-        let (events, new_cursor) = self.indexify_state.reader().allocation_usage(cursor.clone().as_ref())?;
+        let (events, new_cursor) = self
+            .indexify_state
+            .reader()
+            .allocation_usage(cursor.clone().as_ref())?;
         for event in events {
             // Process each event
             println!("Processing allocation usage event: {:?}", event);

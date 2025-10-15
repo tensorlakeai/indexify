@@ -944,14 +944,4 @@ mod tests {
 
         Ok(())
     }
-
-    // #[tokio::test]
-    // async fn test_usage_reporting() -> Result<()> {
-    //     let test_srv = testing::TestService::new().await?;
-    //     let Service { indexify_state, .. } = test_srv.service.clone();
-    //
-    //     let mut app =
-    // test_state_store::create_or_update_application(&indexify_state, 0).await;
-    //     assert_eq!(ApplicationState::Active, app.state);
-    // }
 }
