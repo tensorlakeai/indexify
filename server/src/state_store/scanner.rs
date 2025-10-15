@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{

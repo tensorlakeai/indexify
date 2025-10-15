@@ -154,7 +154,7 @@ impl Service {
             );
             tokio_rt.block_on(
                 async move {
-                    graph_processor.start(shutdown_rx).await;
+                    application_processor.start(shutdown_rx).await;
                 }
                 .instrument(span.clone()),
             );

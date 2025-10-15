@@ -8,7 +8,6 @@ use anyhow::Result;
 use crate::{
     data_model::{
         Allocation,
-        AllocationUsage,
         Application,
         ComputeOp,
         DataPayload,

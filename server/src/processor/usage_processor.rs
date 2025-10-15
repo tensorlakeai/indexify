@@ -11,7 +11,6 @@ use crate::{
     state_store::{
         IndexifyState,
         driver::Writer,
-        requests::{RequestPayload, StateMachineUpdateRequest},
         state_machine,
     },
 };
@@ -60,6 +59,12 @@ impl UsageProcessor {
 
                 },
                 _ = notify.notified() => {
+                    if let Err(error) = self.process_allocation_usage_events(&mut cached_events, &mut cursor, &notify).await {
+                        error!(
+                            %error,
+                            "error processing allocation usage events"
+                        );
+                    }
                 },
                 _ = shutdown_rx.changed() => {
                     info!("usage processor shutting down");
@@ -101,28 +106,10 @@ impl UsageProcessor {
             notify.notify_one();
         }
 
-        let (events, new_cursor) = self
-            .indexify_state
-            .reader()
-            .allocation_usage(cursor.clone().as_ref())?;
-
-        let mut processed_events = Vec::new();
-
-        for event in events {
-            info!(
-                allocation_id = %event.allocation_id,
-                application = %event.application,
-                request_id = %event.request_id,
-                "processing allocation usage event"
-            );
-
-            // TODO: submit the usage to an external system, like SQS, Kafka, etc.
-            // At the moment we just delete it to avoid filling up the state store.
-            processed_events.push(event);
-        }
+        let usage_event = cached_events.pop().unwrap();
 
         let txn = self.indexify_state.db.transaction();
-        state_machine::remove_allocation_usage_events(&txn, &processed_events)?;
+        state_machine::remove_allocation_usage_events(&txn, &[usage_event])?;
         txn.commit()?;
 
         Ok(())
