@@ -8,6 +8,7 @@ use anyhow::Result;
 use crate::{
     data_model::{
         Allocation,
+        AllocationUsage,
         Application,
         ComputeOp,
         DataPayload,
@@ -70,6 +71,7 @@ pub enum RequestPayload {
     DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
     DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     ProcessStateChanges(Vec<StateChange>),
+    ProcessAllocationUsageEvents(Vec<AllocationUsage>),
 }
 
 #[derive(Debug, Clone, Default)]

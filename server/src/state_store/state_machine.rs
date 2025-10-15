@@ -11,6 +11,7 @@ use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
         Allocation,
+        AllocationUsage,
         AllocationUsageBuilder,
         Application,
         ApplicationVersion,
@@ -634,5 +635,22 @@ pub(crate) fn mark_state_changes_processed(
             key,
         )?;
     }
+    Ok(())
+}
+
+pub(crate) fn remove_allocation_usage_events(
+    txn: &Transaction,
+    usage_events: &[AllocationUsage],
+) -> Result<()> {
+    for usage in usage_events {
+        trace!(
+            allocation_id = %usage.allocation_id,
+            usage_id = %usage.id,
+            "removing allocation usage event"
+        );
+        let key = &usage.key();
+        txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)?;
+    }
+
     Ok(())
 }

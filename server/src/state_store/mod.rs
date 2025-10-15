@@ -285,6 +285,9 @@ impl IndexifyState {
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes)?;
             }
+            RequestPayload::ProcessAllocationUsageEvents(usage) => {
+                state_machine::remove_allocation_usage_events(&txn, usage)?;
+            }
             _ => {} // Handle other request types as needed
         };
 
