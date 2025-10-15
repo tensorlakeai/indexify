@@ -144,7 +144,7 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
     let application = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
-            &Application::key_from(&allocation.namespace, &allocation.application),
+            Application::key_from(&allocation.namespace, &allocation.application),
         )?
         .ok_or(anyhow!("Application not found for allocation"))?;
 
