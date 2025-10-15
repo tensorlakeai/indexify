@@ -80,7 +80,7 @@ pub fn init_provider(
     enable_metrics: bool,
     endpoint: Option<&String>,
     interval: Duration,
-    instance_id: Option<&String>,
+    instance_id: &str,
     service_version: &str,
 ) -> Result<()> {
     // Early exit if metrics are disabled
@@ -88,25 +88,18 @@ pub fn init_provider(
         return Ok(());
     }
 
-    let mut resource_builder = Resource::builder()
+    let resource_builder = Resource::builder()
         .with_attribute(KeyValue::new("service.namespace", "indexify"))
         .with_attribute(KeyValue::new("service.name", "indexify-server"))
+        .with_attribute(KeyValue::new(
+            "indexify.instance.id",
+            instance_id.to_string(),
+        ))
+        .with_attribute(KeyValue::new("indexify-instance", instance_id.to_string()))
         .with_attribute(KeyValue::new(
             "service.version",
             service_version.to_string(),
         ));
-
-    if let Some(instance_id) = instance_id {
-        resource_builder = resource_builder.with_attribute(KeyValue::new(
-            "indexify.instance.id",
-            instance_id.to_owned(),
-        ));
-
-        // Temporary non-compliant instance-id attribute to avoid observability gap
-        // while we migrate rest of stack.
-        resource_builder = resource_builder
-            .with_attribute(KeyValue::new("indexify-instance", instance_id.to_owned()));
-    }
 
     let resource = resource_builder.build();
 
@@ -309,6 +302,8 @@ pub struct StateStoreMetrics {
     pub driver_reads: Counter<u64>,
     pub driver_scans: Counter<u64>,
     pub driver_deletes: Counter<u64>,
+    pub driver_commits: Counter<u64>,
+    pub driver_commits_errors: Counter<u64>,
 }
 
 impl Default for StateStoreMetrics {
@@ -362,6 +357,16 @@ impl StateStoreMetrics {
             .with_description("Number of state driver deletes")
             .build();
 
+        let driver_commits = meter
+            .u64_counter("indexify.state_driver_commits")
+            .with_description("Number of state driver commits")
+            .build();
+
+        let driver_commits_errors = meter
+            .u64_counter("indexify.state_driver_commits_errors")
+            .with_description("Number of state driver commit errors")
+            .build();
+
         Self {
             state_write,
             state_read,
@@ -370,6 +375,8 @@ impl StateStoreMetrics {
             driver_reads,
             driver_scans,
             driver_deletes,
+            driver_commits,
+            driver_commits_errors,
         }
     }
 }

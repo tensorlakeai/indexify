@@ -828,6 +828,29 @@ pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub enum HealthzStatus {
+    #[serde(rename = "ok")]
+    Ok,
+    #[serde(rename = "degraded")]
+    Degraded,
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzResponse {
+    pub status: HealthzStatus,
+    pub version: String,
+    pub checks: HealthzChecks,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzChecks {
+    pub database: HealthzStatus,
+    pub executor_manager: HealthzStatus,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::http_objects::{Function, PlacementConstraints};
