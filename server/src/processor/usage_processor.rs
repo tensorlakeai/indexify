@@ -102,7 +102,9 @@ impl UsageProcessor {
             notify.notify_one();
         }
 
-        let usage_event = cached_events.pop().unwrap();
+        let Some(usage_event) = cached_events.pop() else {
+            return Ok(());
+        };
 
         let txn = self.indexify_state.db.transaction();
         state_machine::remove_allocation_usage_events(&txn, &[usage_event])?;

@@ -162,8 +162,16 @@ impl Service {
 
         let usage_processor = self.usage_processor.clone();
         let shutdown_rx = self.shutdown_rx.clone();
+        let env = self.config.env.clone();
+        let instance_id = self.config.instance_id();
         tokio::spawn(async move {
-            usage_processor.start(shutdown_rx).await;
+            let span = info_span!(
+                "Initializing Usage Processor",
+                env,
+                "indexify-instance" = instance_id
+            );
+
+            let _ = usage_processor.start(shutdown_rx).await.instrument(span);
         });
 
         // Spawn monitoring task with shutdown receiver
