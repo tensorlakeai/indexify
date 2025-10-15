@@ -8,11 +8,7 @@ use tracing::{error, info, instrument};
 use crate::{
     data_model::AllocationUsage,
     metrics::{Timer, low_latency_boundaries},
-    state_store::{
-        IndexifyState,
-        driver::Writer,
-        state_machine,
-    },
+    state_store::{IndexifyState, driver::Writer, state_machine},
 };
 
 pub struct UsageProcessor {

@@ -8,7 +8,6 @@ mod tests {
     use crate::{
         assert_function_run_counts,
         data_model::{
-            AllocationUsage,
             ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
