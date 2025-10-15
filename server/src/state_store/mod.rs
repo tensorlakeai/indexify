@@ -627,8 +627,9 @@ mod tests {
             "RequestCtxSecondaryIndex",
             "UnprocessedStateChanges",
             "Allocations",
+            "AllocationUsage",
             "GcUrls",
-            "Stats",
+            "Stats"
         ];
 
         let columns_iter = columns
