@@ -26,6 +26,8 @@ use crate::{
     utils::get_epoch_time_in_ms,
 };
 
+const MAX_FETCH_LIMIT: usize = 100;
+
 #[derive(Clone, Debug, Default)]
 pub enum CursorDirection {
     #[default]
@@ -243,7 +245,7 @@ impl StateReader {
             &[],
             cursor,
             IndexifyObjectsColumns::AllocationUsage,
-            Some(100),
+            Some(MAX_FETCH_LIMIT),
         )
     }
 

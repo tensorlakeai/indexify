@@ -82,7 +82,6 @@ pub enum RequestPayload {
     DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
     DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     ProcessStateChanges(Vec<StateChange>),
-    ProcessAllocationUsageEvents(Vec<AllocationUsage>),
 }
 
 #[derive(Debug, Clone, Default)]

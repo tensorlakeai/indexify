@@ -3,7 +3,6 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
-    use sha2::digest::generic_array::functional::FunctionalSequence;
     use strum::IntoEnumIterator;
 
     use crate::{
