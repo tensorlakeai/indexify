@@ -16,6 +16,7 @@ mod indexify_ui;
 mod integration_test;
 mod integration_test_executor_catalog;
 mod metrics;
+mod middleware;
 mod processor;
 mod reconciliation_test;
 mod routes;
