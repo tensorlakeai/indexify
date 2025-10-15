@@ -327,6 +327,12 @@ impl IndexifyState {
             error!("failed to notify of state change event, ignoring: {err:?}",);
         }
 
+        if request.notify_usage_events() &&
+            let Err(err) = self.usage_events_tx.send(())
+        {
+            error!("failed to notify of usage event, ignoring: {err:?}",);
+        }
+
         self.handle_request_state_changes(&request).await;
 
         // This needs to be after the transaction is committed because if the gc
