@@ -171,7 +171,10 @@ impl Service {
                 "indexify-instance" = instance_id
             );
 
-            let _ = usage_processor.start(shutdown_rx).await.instrument(span);
+            let _ = {
+                usage_processor.start(shutdown_rx).await;
+                ().instrument(span.clone())
+            };
         });
 
         // Spawn monitoring task with shutdown receiver
