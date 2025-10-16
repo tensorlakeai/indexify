@@ -1905,14 +1905,14 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "tensorlake"
-version = "0.2.60"
+version = "0.2.66"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Applications"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.2.60-py3-none-any.whl", hash = "sha256:f39ad86c37a5c3a99bbb9256874759c324d181b133809f6db1d9d2b5459a306a"},
-    {file = "tensorlake-0.2.60.tar.gz", hash = "sha256:d3f20b661f5ba4f8d48972cd7707cbdbd4420cb3b68b57ca8820213451dfcfd7"},
+    {file = "tensorlake-0.2.66-py3-none-any.whl", hash = "sha256:5af8584cb4ea8d52da63fb7b93e3be9f86ba507c08a7837d773d7589562872e8"},
+    {file = "tensorlake-0.2.66.tar.gz", hash = "sha256:5dc53fc71fdc10a0c4339fa28f509c333edceec719c73b08ab90c225d55bf8ce"},
 ]
 
 [package.dependencies]
@@ -1928,6 +1928,7 @@ python-magic = ">=0.4.27,<0.5.0"
 pyyaml = ">=6.0.3,<7.0.0"
 retry = ">=0.9.2,<0.10.0"
 rich = "14.1.0"
+tomlkit = ">=0.13.3,<0.14.0"
 tqdm = ">=4.67.1,<5.0.0"
 
 [[package]]
@@ -1981,6 +1982,18 @@ files = [
     {file = "tomli-2.3.0-cp314-cp314t-win_amd64.whl", hash = "sha256:70a251f8d4ba2d9ac2542eecf008b3c8a9fc5c3f9f02c56a9d7952612be2fdba"},
     {file = "tomli-2.3.0-py3-none-any.whl", hash = "sha256:e95b1af3c5b07d9e643909b5abbec77cd9f1217e6d0bca72b0234736b9fb1f1b"},
     {file = "tomli-2.3.0.tar.gz", hash = "sha256:64be704a875d2a59753d80ee8a533c3fe183e3f06807ff7dc2232938ccb01549"},
+]
+
+[[package]]
+name = "tomlkit"
+version = "0.13.3"
+description = "Style preserving TOML library"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "tomlkit-0.13.3-py3-none-any.whl", hash = "sha256:c89c649d79ee40629a9fda55f8ace8c6a1b42deb912b2a8fd8d942ddadb606b0"},
+    {file = "tomlkit-0.13.3.tar.gz", hash = "sha256:430cf247ee57df2b94ee3fbe588e71d362a941ebb545dec29b53961d61add2a1"},
 ]
 
 [[package]]
@@ -2199,4 +2212,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "eb1f93aee2ae67a6145bf52ec98c396066684ca3ea5677e064b4eb1a5b757eff"
+content-hash = "0b7b5d53a4cfdc8cd02929f7272f83c8477d71753833b488bffc2041a6a95f12"

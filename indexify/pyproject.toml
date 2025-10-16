@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "indexify"
 # Incremented if any of the components provided in this packages are updated.
-version = "0.4.37"
+version = "0.4.38"
 description = "Open Source Indexify components and helper tools"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"
@@ -29,7 +29,7 @@ boto3 = "^1.40.47"
 structlog = "25.4.0"
 # Adds function-executor binary, utils lib, sdk used in indexify-cli commands.
 # We need to specify the tensorlake version exactly because pip install doesn't respect poetry.lock files.
-tensorlake = "0.2.60"
+tensorlake = "0.2.66"
 # Uncomment the next line to use local tensorlake package (only for development!)
 # tensorlake = { path = "../tensorlake", develop = true }
 # grpcio is provided by tensorlake
