@@ -22,7 +22,7 @@ message DataPayload {
     optional DataPayloadEncoding encoding = 2;
     // Not set and ignored by Server right now.
     optional uint64 encoding_version = 3;
-
+    // MIME type. Only set when raw encoding is used.
     optional string content_type = 4;
 
     // DataPayload metadata is stored at the head of the binary 
@@ -272,7 +272,8 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
     // Server removed the allocation from Executor desired state. The allocation didn't finish before the removal.
     ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
-    // Function Executor terminated - can't run the allocation on it anymore.
+    // Function Executor terminated can't run the allocation on it anymore.
+    // The allocation didn't run on FE.
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
@@ -311,7 +312,7 @@ message ReduceOp {
     // as the id of the ReduceOp.
   optional string id = 1;
   // Contains at least two items.
-  repeated FunctionArg collection = 2; 
+  repeated FunctionArg collection = 2;
   optional FunctionRef reducer = 3;
   // This required metadata allows SDK to restore original function call from the arguments.
   optional bytes call_metadata = 4;
