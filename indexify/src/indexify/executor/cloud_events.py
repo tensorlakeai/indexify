@@ -9,6 +9,8 @@ from .metrics.executor import (
     metric_executor_events_pushed,
 )
 
+ENVIRONMENT_EVENT_COLLECTOR_URL = os.environ.get("TENSORLAKE_EVENT_COLLECTOR_URL")
+
 
 class Resource(BaseModel):
     namespace: str
@@ -19,36 +21,32 @@ class Resource(BaseModel):
     fn: str
 
 
-def push_event_to_collector(
-    resource: Resource,
-    event: dict[str, Any],
-    logger: Any,
-    collector_url: str | None = None,
-) -> None:
-    """
-    Pushes the given event to a log collector.
-    This function relies on the existence of the TENSORLAKE_EVENT_COLLECTOR_URL environment variable.
-    If the environment variable is not set, the event is ignored.
+class EventCollector:
+    def __init__(
+        self, logger: Any, collector_url: str | None = ENVIRONMENT_EVENT_COLLECTOR_URL
+    ):
+        self._logger: Any = logger.bind(module=__name__)
+        self._collector_url: str = collector_url
+        self._client = httpx.Client()
 
-    This function does not capture any exceptions that may occur during the HTTP request
-    because it's designed to be embedded into the executor.
-    The executor needs to handle HTTP errors and collect metrics.
-    """
-    collector_url = (
-        os.environ.get("TENSORLAKE_EVENT_COLLECTOR_URL")
-        if collector_url is None
-        else collector_url
-    )
+    def push_event(self, resource: Resource, event: dict[str, Any]) -> None:
+        """
+        Pushes the given event to a log collector.
+        If the collector_url is not set, the event is ignored.
 
-    if collector_url:
-        try:
-            metric_executor_events_pushed.inc()
+        This function does not capture any exceptions that may occur during the HTTP request
+        because it's designed to be embedded into the executor.
+        The executor needs to handle HTTP errors and collect metrics.
+        """
+        if self._collector_url:
+            try:
+                metric_executor_events_pushed.inc()
 
-            body = resource.model_dump()
-            body["event"] = event
+                body = resource.model_dump()
+                body["event"] = event
 
-            response = httpx.post(collector_url, json=body)
-            response.raise_for_status()
-        except Exception as error:
-            metric_executor_event_push_errors.inc()
-            logger.error("Failed to push event to collector", error)
+                response = self._client.post(self._collector_url, json=body)
+                _ = response.raise_for_status()
+            except Exception as e:
+                metric_executor_event_push_errors.inc()
+                self._logger.error("Failed to push event to collector", exc_info=e)
