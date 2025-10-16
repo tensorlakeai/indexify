@@ -23,12 +23,12 @@ use crate::{
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
     metrics::{self, init_provider},
+    middleware::InstanceRequestSpan,
     processor::{
         application_processor::ApplicationProcessor,
         gc::Gc,
         usage_processor::UsageProcessor,
     },
-    middleware::InstanceRequestSpan,
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,

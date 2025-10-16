@@ -235,18 +235,22 @@ impl StateReader {
     pub fn allocation_usage(
         &self,
         cursor: Option<&Vec<u8>>,
-    ) -> Result<(Vec<AllocationUsage>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<AllocationUsage>, Option<Vec<u8>>, bool)> {
         let kvs = &[KeyValue::new("op", "allocation_usage")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let cursor = cursor.map(|c| c.as_slice());
 
-        self.get_rows_from_cf_with_limits::<AllocationUsage>(
+        let (events, cursor) = self.get_rows_from_cf_with_limits::<AllocationUsage>(
             &[],
             cursor,
             IndexifyObjectsColumns::AllocationUsage,
-            Some(MAX_FETCH_LIMIT),
-        )
+            Some(MAX_FETCH_LIMIT + 1),
+        )?;
+
+        let has_more = events.len() > MAX_FETCH_LIMIT;
+
+        Ok((events, cursor, has_more))
     }
 
     pub fn get_all_rows_from_cf<V>(

@@ -240,11 +240,12 @@ mod tests {
         }
 
         {
-            let (allocation_usage, cursor) =
+            let (allocation_usage, cursor, has_more) =
                 indexify_state.reader().allocation_usage(None).unwrap();
 
             assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
             assert!(cursor.is_none());
+            assert_eq!(has_more, false);
         }
 
         Ok(())
