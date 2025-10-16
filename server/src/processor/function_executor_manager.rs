@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use anyhow::{Result, anyhow};
-use if_chain::if_chain;
 use rand::seq::IndexedRandom;
 use tracing::{debug, error, info, info_span, warn};
 
@@ -18,6 +17,7 @@ use crate::{
         FunctionExecutorTerminationReason,
         FunctionResources,
         FunctionRun,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
@@ -327,11 +327,15 @@ impl FunctionExecutorManager {
                 .cloned()
                 .unwrap_or_default();
             for alloc in allocs {
+                let mut updated_alloc = *alloc.clone();
+                updated_alloc.outcome =
+                    FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
                 let Some(mut function_run) = in_memory_state
                     .function_runs
                     .get(&FunctionRunKey::from(&alloc))
                     .cloned()
                 else {
+                    update.updated_allocations.push(updated_alloc);
                     continue;
                 };
                 let Some(mut ctx) = in_memory_state
@@ -339,6 +343,7 @@ impl FunctionExecutorManager {
                     .get(&function_run.clone().into())
                     .cloned()
                 else {
+                    update.updated_allocations.push(updated_alloc);
                     continue;
                 };
                 // Idempotency: we only act on this alloc's function run if the
@@ -350,37 +355,50 @@ impl FunctionExecutorManager {
                         allocation_id: alloc.id.clone(),
                     })
                 {
+                    update.updated_allocations.push(updated_alloc);
                     continue;
                 }
-
-                if_chain! {
-                        if let Some(application_version) = in_memory_state.get_existing_application_version(&function_run);
-                        if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
-                then {
-                            if blame_alloc_ids.contains(&alloc.id.to_string()) {
-                                let mut updated_alloc = *alloc.clone();
-                                updated_alloc.outcome = FunctionRunOutcome::Failure((*termination_reason).into());
-                                FunctionRunRetryPolicy::handle_allocation_outcome(
-                                    &mut function_run,
-                                    &updated_alloc,
-                                    application_version,
-                                );
-                            } else {
-                                // This allocation wasn't blamed for the FE termination,
-                                // retry without involving the function run retry policy but still fail the alloc.
-                                function_run.status = FunctionRunStatus::Pending;
-                            }
-
-                            // Count failed function runs for logging
-                            if function_run.status == FunctionRunStatus::Completed {
-                                failed_function_runs += 1;
-                            }
-                        }
+                let Some(application_version) = in_memory_state
+                    .get_existing_application_version(&function_run)
+                    .cloned()
                 else {
-                            // Could not get compute graph version, or function executor not terminated; set function run to pending
-                            function_run.status = FunctionRunStatus::Pending;
-                        }
+                    update.updated_allocations.push(updated_alloc);
+                    continue;
+                };
+
+                if let FunctionExecutorState::Terminated {
+                    reason: termination_reason,
+                    failed_alloc_ids: blame_alloc_ids,
+                } = &fe.state
+                {
+                    if blame_alloc_ids.contains(&alloc.id.to_string()) {
+                        updated_alloc.outcome =
+                            FunctionRunOutcome::Failure((*termination_reason).into());
+                    } else {
+                        // This allocation wasn't blamed for the FE termination,
+                        // retry without involving the function run retry policy but still fail the
+                        // alloc.
+                        updated_alloc.outcome = FunctionRunOutcome::Failure(
+                            FunctionRunFailureReason::FunctionExecutorTerminated,
+                        );
                     }
+                    FunctionRunRetryPolicy::handle_allocation_outcome(
+                        &mut function_run,
+                        &updated_alloc,
+                        &application_version,
+                    );
+                    update.updated_allocations.push(updated_alloc);
+
+                    // Count failed function runs for logging
+                    if function_run.status == FunctionRunStatus::Completed {
+                        failed_function_runs += 1;
+                    }
+                } else {
+                    // Could not get compute graph version, or function executor not terminated; set
+                    // function run to pending
+                    function_run.status = FunctionRunStatus::Pending;
+                    update.updated_allocations.push(updated_alloc);
+                }
 
                 update
                     .updated_function_runs
