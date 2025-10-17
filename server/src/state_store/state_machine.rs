@@ -176,7 +176,6 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
 
     info!(
         allocation_id = %allocation.id,
-        usage_id = %allocation_usage.id,
         application = %allocation.application,
         namespace = %allocation.namespace,
         request_id = %allocation.request_id,
@@ -645,7 +644,9 @@ pub(crate) fn remove_allocation_usage_events(
     for usage in usage_events {
         trace!(
             allocation_id = %usage.allocation_id,
-            usage_id = %usage.id,
+            namespace = %usage.namespace,
+            application = %usage.application,
+            request_id = %usage.request_id,
             "removing allocation usage event"
         );
         let key = &usage.key();
