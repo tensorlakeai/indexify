@@ -99,7 +99,7 @@ impl UsageProcessor {
             if let Err(error) = self.send_to_queue(event.clone()).await {
                 error!(
                     %error,
-                    event_id = %event.id,
+                    namespace = %event.namespace,
                     allocation_id = %event.allocation_id,
                     application = %event.application,
                     request_id = %event.request_id,

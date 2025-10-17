@@ -1791,26 +1791,8 @@ impl Linearizable for Namespace {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-pub struct AllocationUsageId(String);
-
-impl Default for AllocationUsageId {
-    fn default() -> Self {
-        Self(nanoid::nanoid!())
-    }
-}
-
-impl Display for AllocationUsageId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct AllocationUsage {
-    #[builder(default)]
-    pub id: AllocationUsageId,
     pub namespace: String,
     pub application: String,
     pub request_id: String,
