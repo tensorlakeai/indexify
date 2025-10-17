@@ -644,6 +644,9 @@ impl ExecutorAPIService {
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(FunctionRunFailureReason::FunctionExecutorTerminated)
                     }
+                    executor_api_pb::AllocationFailureReason::Oom => {
+                        Some(FunctionRunFailureReason::OutOfMemory)
+                    }
                 },
                 None => None,
             };
