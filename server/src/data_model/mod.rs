@@ -1827,10 +1827,17 @@ pub struct AllocationUsage {
 
 impl AllocationUsage {
     pub fn key(&self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.namespace, self.application, self.request_id, self.allocation_id, self.id
-        )
+        // AllocationUsage uses the vector clock as the key
+        //
+        // RocksDB sorts keys in lexicographical order. Using the vector clock
+        // as the key ensures that newer versions of the same AllocationUsage
+        // will sort after older versions.
+        let vector_clock_big_endian_bytes = self.vector_clock.value().to_be_bytes();
+
+        vector_clock_big_endian_bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     }
 }
 
