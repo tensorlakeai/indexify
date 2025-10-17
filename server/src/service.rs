@@ -24,7 +24,11 @@ use crate::{
     executors::ExecutorManager,
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
-    processor::{application_processor::ApplicationProcessor, gc::Gc},
+    processor::{
+        application_processor::ApplicationProcessor,
+        gc::Gc,
+        usage_processor::UsageProcessor,
+    },
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
@@ -47,7 +51,8 @@ pub struct Service {
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
-    pub graph_processor: Arc<ApplicationProcessor>,
+    pub application_processor: Arc<ApplicationProcessor>,
+    pub usage_processor: Arc<UsageProcessor>,
 }
 
 impl Service {
@@ -108,11 +113,14 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let graph_processor = Arc::new(ApplicationProcessor::new(
+        let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
         ));
-        graph_processor.validate_app_constraints().await?;
+        application_processor.validate_app_constraints().await?;
+
+        let usage_processor = Arc::new(UsageProcessor::new(indexify_state.clone()).await?);
+
         Ok(Self {
             config,
             shutdown_tx,
@@ -122,7 +130,8 @@ impl Service {
             executor_manager,
             kvs,
             gc_executor,
-            graph_processor,
+            application_processor,
+            usage_processor,
         })
     }
 
@@ -134,9 +143,9 @@ impl Service {
         );
         let tokio_rt = tokio::runtime::Handle::current();
 
-        let graph_processor = self.graph_processor.clone();
+        let application_processor = self.application_processor.clone();
         let shutdown_rx = self.shutdown_rx.clone();
-        // spawn the graph processor in a blocking thread
+        // spawn the application processor in a blocking thread
         // to avoid blocking the tokio runtime when working with
         // in-memory data structures.
         let env = self.config.env.clone();
@@ -149,10 +158,27 @@ impl Service {
             );
             tokio_rt.block_on(
                 async move {
-                    graph_processor.start(shutdown_rx).await;
+                    application_processor.start(shutdown_rx).await;
                 }
                 .instrument(span.clone()),
             );
+        });
+
+        let usage_processor = self.usage_processor.clone();
+        let shutdown_rx = self.shutdown_rx.clone();
+        let env = self.config.env.clone();
+        let instance_id = self.config.instance_id();
+        tokio::spawn(async move {
+            let span = info_span!(
+                "Initializing Usage Processor",
+                env,
+                "indexify-instance" = instance_id
+            );
+
+            let _ = {
+                usage_processor.start(shutdown_rx).await;
+                ().instrument(span.clone())
+            };
         });
 
         // Spawn monitoring task with shutdown receiver

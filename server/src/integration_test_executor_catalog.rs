@@ -75,7 +75,7 @@ mod tests {
         // Step 4: Run constraint validation which should disable the graph
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -134,7 +134,7 @@ mod tests {
         // Step 8: Run constraint validation again which should keep the graph active
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -256,7 +256,7 @@ mod tests {
         // Run constraint validation which should disable the unsatisfiable graphs
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -445,7 +445,7 @@ mod tests {
         // Validate constraints
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;

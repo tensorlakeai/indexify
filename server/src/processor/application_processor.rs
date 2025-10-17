@@ -124,7 +124,7 @@ impl ApplicationProcessor {
                     }
                 },
                 _ = shutdown_rx.changed() => {
-                    info!("graph processor shutting down");
+                    info!("application processor shutting down");
                     break;
                 }
             }

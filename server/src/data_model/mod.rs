@@ -1791,6 +1791,38 @@ impl Linearizable for Namespace {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct AllocationUsage {
+    pub namespace: String,
+    pub application: String,
+    pub request_id: String,
+    pub allocation_id: AllocationId,
+    pub execution_duration_ms: u64,
+    pub cpu_ms_per_second: u32,
+    pub memory_mb: u64,
+    pub disk_mb: u64,
+    pub gpu_used: Vec<GPUResources>,
+
+    #[builder(default)]
+    vector_clock: VectorClock,
+}
+
+impl AllocationUsage {
+    pub fn key(&self) -> String {
+        // AllocationUsage uses the vector clock as the key
+        //
+        // RocksDB sorts keys in lexicographical order. Using the vector clock
+        // as the key ensures that newer versions of the same AllocationUsage
+        // will sort after older versions.
+        let vector_clock_big_endian_bytes = self.vector_clock.value().to_be_bytes();
+
+        vector_clock_big_endian_bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time::Duration};
