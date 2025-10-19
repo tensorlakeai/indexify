@@ -1386,9 +1386,7 @@ impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
             FunctionExecutorTerminationReason::ExecutorRemoved => {
                 FunctionRunFailureReason::ExecutorRemoved
             }
-            FunctionExecutorTerminationReason::Oom => {
-                FunctionRunFailureReason::OutOfMemory
-            }
+            FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
         }
     }
 }
