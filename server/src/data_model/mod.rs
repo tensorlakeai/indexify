@@ -808,9 +808,8 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
             FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::Cancelled,
-            FunctionRunFailureReason::FunctionExecutorTerminated => {
-                RequestFailureReason::InternalError
-            }
+            FunctionRunFailureReason::FunctionExecutorTerminated |
+            FunctionRunFailureReason::ExecutorRemoved => RequestFailureReason::InternalError,
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
@@ -939,6 +938,8 @@ pub enum FunctionRunFailureReason {
     FunctionExecutorTerminated,
     // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
+    // Executor was removed
+    ExecutorRemoved,
 
     OutOfMemory,
 }
@@ -954,6 +955,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            FunctionRunFailureReason::ExecutorRemoved => "ExecutorRemoved",
             FunctionRunFailureReason::OutOfMemory => "OOM",
         };
         write!(f, "{str_val}")
@@ -976,6 +978,7 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::FunctionExecutorTerminated |
+                FunctionRunFailureReason::ExecutorRemoved |
                 FunctionRunFailureReason::OutOfMemory
         )
     }
@@ -1380,7 +1383,7 @@ impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::ExecutorRemoved => {
-                FunctionRunFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::ExecutorRemoved
             }
         }
     }

@@ -18,6 +18,8 @@ use crate::{
         FunctionExecutorId,
         FunctionExecutorServerMetadata,
         FunctionRun,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GcUrl,
         HostResources,
         RequestCtx,
@@ -107,6 +109,12 @@ impl SchedulerUpdateRequest {
             .extend(other.remove_function_executors);
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
+    }
+
+    pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
+        allocation.outcome =
+            FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
+        self.updated_allocations.push(allocation.clone());
     }
 
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {

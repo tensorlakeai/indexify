@@ -328,14 +328,12 @@ impl FunctionExecutorManager {
                 .unwrap_or_default();
             for alloc in allocs {
                 let mut updated_alloc = *alloc.clone();
-                updated_alloc.outcome =
-                    FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
                 let Some(mut function_run) = in_memory_state
                     .function_runs
                     .get(&FunctionRunKey::from(&alloc))
                     .cloned()
                 else {
-                    update.updated_allocations.push(updated_alloc);
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
                 let Some(mut ctx) = in_memory_state
@@ -343,7 +341,7 @@ impl FunctionExecutorManager {
                     .get(&function_run.clone().into())
                     .cloned()
                 else {
-                    update.updated_allocations.push(updated_alloc);
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
                 // Idempotency: we only act on this alloc's function run if the
@@ -355,14 +353,14 @@ impl FunctionExecutorManager {
                         allocation_id: alloc.id.clone(),
                     })
                 {
-                    update.updated_allocations.push(updated_alloc);
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 }
                 let Some(application_version) = in_memory_state
                     .get_existing_application_version(&function_run)
                     .cloned()
                 else {
-                    update.updated_allocations.push(updated_alloc);
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
 
@@ -371,7 +369,13 @@ impl FunctionExecutorManager {
                     failed_alloc_ids: blame_alloc_ids,
                 } = &fe.state
                 {
-                    if blame_alloc_ids.contains(&alloc.id.to_string()) {
+                    // These are the cases where we know why an allocation failed.
+                    // otherwise we assume the FE terminated so the allocations couldn't run.
+                    // The assumption here is that bad user code or input can fail FE's but not the
+                    // executor.
+                    if blame_alloc_ids.contains(&alloc.id.to_string()) ||
+                        termination_reason == &FunctionExecutorTerminationReason::ExecutorRemoved
+                    {
                         updated_alloc.outcome =
                             FunctionRunOutcome::Failure((*termination_reason).into());
                     } else {
@@ -388,14 +392,14 @@ impl FunctionExecutorManager {
                         &application_version,
                     );
                     update.updated_allocations.push(updated_alloc);
-
                     // Count failed function runs for logging
                     if function_run.status == FunctionRunStatus::Completed {
                         failed_function_runs += 1;
                     }
                 } else {
-                    // Could not get compute graph version, or function executor not terminated; set
-                    // function run to pending
+                    // Function Executor is not terminated but getting removed. This means that
+                    // we're cancelling all allocs on it. And retrying their
+                    // function runs without increasing retries counters.
                     function_run.status = FunctionRunStatus::Pending;
                     update.updated_allocations.push(updated_alloc);
                 }

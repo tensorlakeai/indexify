@@ -526,6 +526,7 @@ pub enum FunctionRunFailureReason {
     FunctionRunCancelled,
     FunctionExecutorTerminated,
     ConstraintUnsatisfiable,
+    ExecutorRemoved,
     OutOfMemory,
 }
 
@@ -553,6 +554,9 @@ impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             }
             data_model::FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 FunctionRunFailureReason::ConstraintUnsatisfiable
+            }
+            data_model::FunctionRunFailureReason::ExecutorRemoved => {
+                FunctionRunFailureReason::ExecutorRemoved
             }
             data_model::FunctionRunFailureReason::OutOfMemory => {
                 FunctionRunFailureReason::OutOfMemory

@@ -343,12 +343,17 @@ pub struct Allocation {
     pub function_executor_id: String,
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
+        let failure_reason = match allocation.outcome {
+            data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
+            _ => None,
+        };
         Self {
             id: allocation.id.to_string(),
             function_name: allocation.function.to_string(),
@@ -358,6 +363,7 @@ impl From<data_model::Allocation> for Allocation {
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
+            failure_reason,
         }
     }
 }
