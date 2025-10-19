@@ -111,6 +111,9 @@ enum FunctionExecutorTerminationReason {
     // from Executor desired state.
     // FE termination is the only way to reliably stop the function code execution.
     FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
+
+    // FE was terminated because it ran out of memory.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_OOM = 16;
 }
 
 // Immutable information that identifies and describes a Function Executor.
