@@ -495,18 +495,10 @@ mod tests {
 
         // update the function executors with our retryable termination reason (not
         // using an attempt)
-        let allocs = executor
-            .desired_state()
-            .await
-            .allocations
-            .iter()
-            .filter_map(|ta| ta.allocation_id.as_ref())
-            .cloned()
-            .collect();
         executor
             .set_function_executor_states(FunctionExecutorState::Terminated {
                 reason,
-                failed_alloc_ids: allocs,
+                failed_alloc_ids: vec![],
             })
             .await?;
 

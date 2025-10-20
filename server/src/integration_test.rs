@@ -721,21 +721,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_function_run_retry_attempt_not_used(
-            FunctionRunFailureReason::FunctionRunCancelled,
-            TEST_FN_MAX_RETRIES,
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
-        test_function_run_retry_attempt_not_used(FunctionRunFailureReason::FunctionRunCancelled, 0)
-            .await
-    }
-
-    #[tokio::test]
     async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated() -> Result<()>
     {
         test_function_run_retry_attempt_not_used(

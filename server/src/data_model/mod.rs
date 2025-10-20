@@ -775,6 +775,8 @@ pub enum RequestFailureReason {
     RequestError,
     // A graph function cannot be scheduled given the specified constraints.
     ConstraintUnsatisfiable,
+    // Cancelled.
+    Cancelled,
 }
 
 impl Display for RequestFailureReason {
@@ -785,6 +787,7 @@ impl Display for RequestFailureReason {
             RequestFailureReason::FunctionError => "FunctionError",
             RequestFailureReason::RequestError => "RequestError",
             RequestFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            RequestFailureReason::Cancelled => "Cancelled",
         };
         write!(f, "{str_val}")
     }
@@ -804,13 +807,13 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::FunctionError => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionError,
             FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
-            FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::InternalError,
-            FunctionRunFailureReason::FunctionExecutorTerminated => {
-                RequestFailureReason::InternalError
-            }
+            FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::Cancelled,
+            FunctionRunFailureReason::FunctionExecutorTerminated |
+            FunctionRunFailureReason::ExecutorRemoved => RequestFailureReason::InternalError,
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
+            FunctionRunFailureReason::OutOfMemory => RequestFailureReason::FunctionError,
         }
     }
 }
@@ -935,6 +938,10 @@ pub enum FunctionRunFailureReason {
     FunctionExecutorTerminated,
     // Function run cannot be scheduled given its constraints.
     ConstraintUnsatisfiable,
+    // Executor was removed
+    ExecutorRemoved,
+
+    OutOfMemory,
 }
 
 impl Display for FunctionRunFailureReason {
@@ -948,6 +955,8 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::FunctionRunCancelled => "FunctionRunCancelled",
             FunctionRunFailureReason::FunctionExecutorTerminated => "FunctionExecutorTerminated",
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            FunctionRunFailureReason::ExecutorRemoved => "ExecutorRemoved",
+            FunctionRunFailureReason::OutOfMemory => "OOM",
         };
         write!(f, "{str_val}")
     }
@@ -968,8 +977,9 @@ impl FunctionRunFailureReason {
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
-                FunctionRunFailureReason::FunctionRunCancelled |
-                FunctionRunFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::FunctionExecutorTerminated |
+                FunctionRunFailureReason::ExecutorRemoved |
+                FunctionRunFailureReason::OutOfMemory
         )
     }
 
@@ -984,7 +994,8 @@ impl FunctionRunFailureReason {
             self,
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
-                FunctionRunFailureReason::FunctionTimeout
+                FunctionRunFailureReason::FunctionTimeout |
+                FunctionRunFailureReason::OutOfMemory
         )
     }
 }
@@ -1336,6 +1347,7 @@ pub enum FunctionExecutorTerminationReason {
     FunctionCancelled,
     DesiredStateRemoved,
     ExecutorRemoved,
+    Oom,
 }
 
 impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
@@ -1372,8 +1384,9 @@ impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::ExecutorRemoved => {
-                FunctionRunFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::ExecutorRemoved
             }
+            FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
         }
     }
 }
