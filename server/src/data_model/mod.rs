@@ -28,6 +28,7 @@ use crate::{
 pub struct StateMachineMetadata {
     pub db_version: u64,
     pub last_change_idx: u64,
+    pub last_usage_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -1791,8 +1792,30 @@ impl Linearizable for Namespace {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]
+pub struct AllocationUsageId(u64);
+
+impl AllocationUsageId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<AllocationUsageId> for u64 {
+    fn from(value: AllocationUsageId) -> Self {
+        value.0
+    }
+}
+
+impl Display for AllocationUsageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct AllocationUsage {
+    pub id: AllocationUsageId,
     pub namespace: String,
     pub application: String,
     pub request_id: String,
@@ -1808,18 +1831,14 @@ pub struct AllocationUsage {
 }
 
 impl AllocationUsage {
-    pub fn key(&self) -> String {
-        // AllocationUsage uses the vector clock as the key
-        //
+    /// Returns a key suitable for use in RocksDB.
+    ///
+    /// It uses the AllocationUsageId as the key, encoded as big-endian bytes.
+    pub fn key(&self) -> [u8; 8] {
         // RocksDB sorts keys in lexicographical order. Using the vector clock
         // as the key ensures that newer versions of the same AllocationUsage
         // will sort after older versions.
-        let vector_clock_big_endian_bytes = self.vector_clock.value().to_be_bytes();
-
-        vector_clock_big_endian_bytes
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+        self.id.0.to_be_bytes()
     }
 }
 

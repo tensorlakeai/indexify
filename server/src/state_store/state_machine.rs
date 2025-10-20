@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use anyhow::{Result, anyhow};
@@ -13,6 +16,7 @@ use crate::{
         Allocation,
         AllocationUsage,
         AllocationUsageBuilder,
+        AllocationUsageId,
         Application,
         ApplicationVersion,
         FunctionRunOutcome,
@@ -127,7 +131,11 @@ pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> R
     Ok(())
 }
 
-pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation) -> Result<()> {
+pub(crate) fn record_allocation_usage(
+    txn: &Transaction,
+    usage_event_sequence_id: &AtomicU64,
+    allocation: &Allocation,
+) -> Result<()> {
     if !matches!(allocation.outcome, FunctionRunOutcome::Success) {
         return Ok(());
     }
@@ -156,6 +164,9 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
         .ok_or(anyhow!("Function not found in application for allocation"))?;
 
     let allocation_usage = AllocationUsageBuilder::default()
+        .id(AllocationUsageId::new(
+            usage_event_sequence_id.fetch_add(1, Ordering::Relaxed),
+        ))
         .namespace(allocation.namespace.clone())
         .application(allocation.application.clone())
         .request_id(allocation.request_id.clone())
@@ -170,7 +181,7 @@ pub(crate) fn record_allocation_usage(txn: &Transaction, allocation: &Allocation
     let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
     txn.put(
         IndexifyObjectsColumns::AllocationUsage.as_ref(),
-        allocation_usage.key().as_bytes(),
+        allocation_usage.key(),
         &serialized_usage,
     )?;
 

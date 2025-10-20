@@ -43,6 +43,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
             return Ok(StateMachineMetadata {
                 db_version: latest_version,
                 last_change_idx: 0,
+                last_usage_idx: 0,
             });
         }
         Err(e) => return Err(anyhow::anyhow!("Error opening database: {e:?}")),
@@ -127,6 +128,7 @@ pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
+            last_usage_idx: 0,
         }),
     }
 }
@@ -235,6 +237,7 @@ mod tests {
         let initial_meta = StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
+            last_usage_idx: 0,
         };
         write_sm_meta(&txn, &initial_meta)?;
         txn.commit()?;

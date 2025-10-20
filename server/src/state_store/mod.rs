@@ -94,7 +94,10 @@ pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
+
     pub state_change_id_seq: Arc<AtomicU64>,
+    pub usage_event_id_seq: Arc<AtomicU64>,
+
     pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
@@ -173,6 +176,7 @@ impl IndexifyState {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
+            usage_event_id_seq: Arc::new(AtomicU64::new(0)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             gc_tx,
@@ -258,7 +262,11 @@ impl IndexifyState {
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
                     state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
-                    state_machine::record_allocation_usage(&txn, &allocation_output.allocation)?;
+                    state_machine::record_allocation_usage(
+                        &txn,
+                        &self.usage_event_id_seq,
+                        &allocation_output.allocation,
+                    )?;
                 }
 
                 if request.update_executor_state {
@@ -294,10 +302,12 @@ impl IndexifyState {
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
+        let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
+                last_usage_idx: current_usage_sequence_id,
                 db_version: self.db_version,
             },
         )?;
