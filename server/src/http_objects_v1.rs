@@ -258,8 +258,7 @@ impl From<data_model::RequestOutcome> for RequestOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-// TODO: change from "lowercase" to "snake_case"
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     Unknown,
     InternalError,
