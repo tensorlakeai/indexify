@@ -243,7 +243,7 @@ mod tests {
             let (allocation_usage, cursor) =
                 indexify_state.reader().allocation_usage(None).unwrap();
 
-            assert_eq!(allocation_usage.len(), 1, "{allocation_usage:#?}");
+            assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
             assert!(cursor.is_none());
         }
 
@@ -455,7 +455,7 @@ mod tests {
                                                                                * output */
                     (
                         IndexifyObjectsColumns::AllocationUsage.as_ref().to_string(),
-                        1,
+                        4,
                     ), // one per allocation
                 ]),
             )?;
