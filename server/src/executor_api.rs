@@ -23,9 +23,7 @@ use executor_api_pb::{
     ReportExecutorStateResponse,
     executor_api_server::ExecutorApi,
 };
-use tokio::sync::{
-    watch::{self, Receiver, Sender},
-};
+use tokio::sync::watch::{self, Receiver, Sender};
 use tokio_stream::{Stream, wrappers::WatchStream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -903,9 +901,7 @@ impl ExecutorApi for ExecutorAPIService {
         request: Request<FunctionCallRequest>,
     ) -> Result<Response<FunctionCallResponse>, Status> {
         let _req = request.into_inner();
-        Ok(Response::new(
-            FunctionCallResponse {}
-        ))
+        Ok(Response::new(FunctionCallResponse {}))
     }
 }
 

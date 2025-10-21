@@ -32,7 +32,7 @@ def get_function_executor_id_2(_: int) -> str:
 
 def update_random_version(func: Function) -> None:
     # Hacky way to update application version.
-    func.application_config.version = nanoid_generate()
+    func._application_config.version = nanoid_generate()
 
 
 class TestFunctionExecutorRouting(unittest.TestCase):
