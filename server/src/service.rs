@@ -6,8 +6,7 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
 use tokio::{
-    self,
-    signal,
+    self, signal,
     sync::{Mutex, watch},
 };
 use tonic::transport::Server;
@@ -17,6 +16,7 @@ use tower_http::{
 };
 use tracing::{Instrument, info, info_span};
 
+use crate::queue::Queue;
 use crate::{
     blob_store::{BlobStorage, registry::BlobStorageRegistry},
     config::ServerConfig,
@@ -25,9 +25,7 @@ use crate::{
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
     processor::{
-        application_processor::ApplicationProcessor,
-        gc::Gc,
-        usage_processor::UsageProcessor,
+        application_processor::ApplicationProcessor, gc::Gc, usage_processor::UsageProcessor,
     },
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
@@ -119,7 +117,10 @@ impl Service {
         ));
         application_processor.validate_app_constraints().await?;
 
-        let usage_processor = Arc::new(UsageProcessor::new(indexify_state.clone()).await?);
+        let usage_queue = Arc::new(Queue::new(config.usage_queue.clone()).await?);
+
+        let usage_processor =
+            Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
         Ok(Self {
             config,

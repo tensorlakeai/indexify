@@ -65,6 +65,8 @@ derive_builder = "0.20.2"
 tempfile = "3.23.0"
 thiserror = "2.0.16"
 json-subscriber = "0.2.6"
+omniqueue = "0.2.0"
+chrono = "0.4.42"
 
 [dev-dependencies]
 tempfile = "3.20.0"

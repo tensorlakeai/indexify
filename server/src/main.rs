@@ -30,6 +30,7 @@ mod utils;
 
 #[cfg(test)]
 mod testing;
+mod queue;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

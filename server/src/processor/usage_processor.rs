@@ -1,10 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
+use derive_builder::Builder;
 use opentelemetry::{KeyValue, metrics::Histogram};
+use serde::{Deserialize, Serialize};
+use strum::Display;
 use tokio::sync::Notify;
 use tracing::{error, info, instrument};
 
+use crate::queue::Queue;
 use crate::{
     data_model::AllocationUsage,
     metrics::{Timer, low_latency_boundaries},
@@ -13,14 +17,13 @@ use crate::{
 
 pub struct UsageProcessor {
     indexify_state: Arc<IndexifyState>,
-
+    queue: Arc<Queue>,
     processing_latency: Histogram<f64>,
-
     max_attempts: u8,
 }
 
 impl UsageProcessor {
-    pub async fn new(indexify_state: Arc<IndexifyState>) -> Result<Self> {
+    pub async fn new(queue: Arc<Queue>, indexify_state: Arc<IndexifyState>) -> Result<Self> {
         let meter = opentelemetry::global::meter("usage_processor_metrics");
 
         let processing_latency = meter
@@ -34,6 +37,7 @@ impl UsageProcessor {
             indexify_state,
             processing_latency,
             max_attempts: 10,
+            queue,
         })
     }
 
@@ -171,9 +175,178 @@ impl UsageProcessor {
         Err(anyhow::anyhow!("Failed to remove and commit events"))
     }
 
-    async fn send_to_queue(&self, _event: AllocationUsage) -> Result<()> {
-        // TODO: Implement the logic to send the usage event to the appropriate queue or
-        // processing system. This is a placeholder implementation.
+    async fn send_to_queue(&self, event: AllocationUsage) -> Result<()> {
+        let usage_event = UsageEvent::try_from(event)?;
+
+        if let Err(error) =self.queue.send_json(&usage_event).await {
+            error!(
+                %error,
+                "error sending usage event to queue"
+            );
+        }
+
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder)]
+pub struct UsageEvent {
+    pub service: String,
+    #[serde(default)]
+    pub application_usage: Vec<ApplicationResourceUsage>,
+    pub timestamp: String,
+    pub event_id: String,
+    pub project_id: String,
+}
+
+impl TryFrom<AllocationUsage> for UsageEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(allocation_usage: AllocationUsage) -> Result<Self, Self::Error> {
+        let now = chrono::Utc::now();
+
+        let mut usage_event_builder = UsageEventBuilder::default();
+
+        usage_event_builder
+            .project_id(allocation_usage.namespace)
+            .event_id(allocation_usage.allocation_id.0.clone())
+            .service("applications".to_string())
+            .timestamp(now.to_rfc3339());
+
+        let mut usage_entries = Vec::new();
+
+        if allocation_usage.cpu_ms_per_second > 0 {
+            let cpu_amount = allocation_usage.cpu_ms_per_second as u64 * allocation_usage.execution_duration_ms;
+            let cpu_amount = cpu_amount / 1000;
+
+            let cpu_usage = ApplicationResourceUsageBuilder::default()
+                .resource(ApplicationsResourceType::Cpu)
+                .application(allocation_usage.application.clone())
+                .allocation_id(allocation_usage.allocation_id.0.clone())
+                .request_id(allocation_usage.request_id.clone())
+                .amount(cpu_amount)
+                .build()?;
+
+            usage_entries.push(cpu_usage);
+        }
+
+        if allocation_usage.disk_mb > 0 {
+            let disk_amount = allocation_usage.disk_mb as u64 * allocation_usage.execution_duration_ms;
+            let disk_amount = disk_amount / 1000;
+
+            let disk_usage = ApplicationResourceUsageBuilder::default()
+                .resource(ApplicationsResourceType::DiskMb)
+                .application(allocation_usage.application.clone())
+                .allocation_id(allocation_usage.allocation_id.0.clone())
+                .request_id(allocation_usage.request_id.clone())
+                .amount(disk_amount)
+                .build()?;
+
+            usage_entries.push(disk_usage);
+        }
+
+        if allocation_usage.memory_mb > 0 {
+            let memory_amount = allocation_usage.memory_mb as u64 * allocation_usage.execution_duration_ms;
+            let memory_amount = memory_amount / 1000;
+
+            let memory_usage = ApplicationResourceUsageBuilder::default()
+                .resource(ApplicationsResourceType::MemoryMb)
+                .application(allocation_usage.application.clone())
+                .allocation_id(allocation_usage.allocation_id.0.clone())
+                .request_id(allocation_usage.request_id.clone())
+                .amount(memory_amount)
+                .build()?;
+
+            usage_entries.push(memory_usage);
+        }
+
+        if !allocation_usage.gpu_used.is_empty() {
+            let gpu_amount = allocation_usage.execution_duration_ms as u64 / 1000;
+
+            let mut gpu_usage_builder = ApplicationResourceUsageBuilder::default();
+
+            gpu_usage_builder
+                .application(allocation_usage.application.clone())
+                .allocation_id(allocation_usage.allocation_id.0.clone())
+                .request_id(allocation_usage.request_id.clone())
+                .amount(gpu_amount);
+
+            let mut gpu_models = Vec::new();
+
+            for gpu in allocation_usage.gpu_used.iter() {
+                for gpu_count in 0..gpu.count {
+                    let gpu_model = GpuModel::from(gpu.model.as_str());
+                    gpu_models.push(gpu_model);
+                }
+            }
+
+            gpu_usage_builder.resource(ApplicationsResourceType::Gpu(gpu_models));
+
+            let gpu_usage = gpu_usage_builder.build()?;
+
+            usage_entries.push(gpu_usage);
+        };
+
+        let usage_event = usage_event_builder
+            .application_usage(usage_entries)
+            .build()?;
+
+        Ok(usage_event)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Builder)]
+pub struct ApplicationResourceUsage {
+    pub resource: ApplicationsResourceType,
+    pub amount: u64,
+
+    pub application: String,
+    pub allocation_id: String,
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, Hash)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationsResourceType {
+    Cpu,
+    DiskMb,
+    Gpu(Vec<GpuModel>),
+    MemoryMb,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, Hash)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationsResourceUnit {
+    MbSeconds,
+    Seconds,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, Hash)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum GpuModel {
+    NvidiaA100_40GB,
+    NvidiaA100_80GB,
+    NvidiaH100_80GB,
+    NvidiaTeslaT4,
+    NvidiaA6000,
+    NvidiaA10,
+    Unknown,
+}
+
+impl From<&str> for GpuModel {
+    fn from(value: &str) -> Self {
+        match value {
+            "GPU_MODEL_NVIDIA_A100_40GB" => GpuModel::NvidiaA100_40GB,
+            "GPU_MODEL_NVIDIA_A100_80GB" => GpuModel::NvidiaA100_80GB,
+            "GPU_MODEL_NVIDIA_H100_80GB" => GpuModel::NvidiaH100_80GB,
+            "GPU_MODEL_NVIDIA_TESLA_T4" => GpuModel::NvidiaTeslaT4,
+            "GPU_MODEL_NVIDIA_A6000" => GpuModel::NvidiaA6000,
+            "GPU_MODEL_NVIDIA_A10" => GpuModel::NvidiaA10,
+            _ => GpuModel::Unknown,
+        }
     }
 }
