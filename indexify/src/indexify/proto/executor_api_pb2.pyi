@@ -1,3 +1,4 @@
+import datetime
 from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
 from typing import ClassVar as _ClassVar
@@ -6,6 +7,7 @@ from typing import Union as _Union
 
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
+from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 
@@ -628,18 +630,20 @@ class ReduceOp(_message.Message):
     ) -> None: ...
 
 class ExecutionPlanUpdates(_message.Message):
-    __slots__ = ("updates", "root_function_call_id", "delay_ms")
+    __slots__ = ("updates", "root_function_call_id", "start_at")
     UPDATES_FIELD_NUMBER: _ClassVar[int]
     ROOT_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
-    DELAY_MS_FIELD_NUMBER: _ClassVar[int]
+    START_AT_FIELD_NUMBER: _ClassVar[int]
     updates: _containers.RepeatedCompositeFieldContainer[ExecutionPlanUpdate]
     root_function_call_id: str
-    delay_ms: int
+    start_at: _timestamp_pb2.Timestamp
     def __init__(
         self,
         updates: _Optional[_Iterable[_Union[ExecutionPlanUpdate, _Mapping]]] = ...,
         root_function_call_id: _Optional[str] = ...,
-        delay_ms: _Optional[int] = ...,
+        start_at: _Optional[
+            _Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]
+        ] = ...,
     ) -> None: ...
 
 class AllocationResult(_message.Message):
