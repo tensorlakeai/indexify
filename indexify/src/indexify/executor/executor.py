@@ -10,6 +10,7 @@ from indexify.proto.executor_api_pb2 import ExecutorStatus
 
 from .blob_store.blob_store import BLOBStore
 from .channel_manager import ChannelManager
+from .cloud_events import EventCollector
 from .function_allowlist import (
     FunctionURI,
     function_allowlist_to_indexed_dict,
@@ -53,6 +54,7 @@ class Executor:
         monitoring_server_port: int,
         blob_store: BLOBStore,
         host_resources_provider: HostResourcesProvider,
+        event_collector: EventCollector,
     ):
         self._logger = structlog.get_logger(module=__name__, executor_id=id)
         protocol: str = "http"
