@@ -92,6 +92,7 @@ class Executor:
             channel_manager=self._channel_manager,
             state_reporter=self._state_reporter,
             logger=self._logger,
+            event_collector=event_collector,
         )
         self._monitoring_server = MonitoringServer(
             host=monitoring_server_host,

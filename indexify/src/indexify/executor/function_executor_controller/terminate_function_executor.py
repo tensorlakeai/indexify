@@ -2,7 +2,10 @@ import asyncio
 from typing import Any, List, Optional
 
 from indexify.executor.function_executor.function_executor import FunctionExecutor
-from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
+from indexify.proto.executor_api_pb2 import (
+    Allocation,
+    FunctionExecutorTerminationReason,
+)
 
 from .aio_utils import shielded_await
 from .events import FunctionExecutorTerminated
@@ -12,7 +15,7 @@ async def terminate_function_executor(
     function_executor: Optional[FunctionExecutor],
     lock: asyncio.Lock,
     fe_termination_reason: FunctionExecutorTerminationReason,
-    allocation_ids_caused_termination: List[str],
+    allocations_caused_termination: list[Allocation],
     logger: Any,
 ) -> FunctionExecutorTerminated:
     """Destroys the function executor if it's not None.
@@ -43,5 +46,5 @@ async def terminate_function_executor(
     return FunctionExecutorTerminated(
         is_success=True,
         fe_termination_reason=fe_termination_reason,
-        allocation_ids_caused_termination=allocation_ids_caused_termination,
+        allocations_caused_termination=allocations_caused_termination,
     )

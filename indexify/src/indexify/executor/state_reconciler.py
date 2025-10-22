@@ -12,6 +12,7 @@ from typing import (
 
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
+from indexify.executor.cloud_events import EventCollector
 from indexify.proto.executor_api_pb2 import (
     Allocation,
     DesiredExecutorState,
@@ -59,6 +60,7 @@ class ExecutorStateReconciler:
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
+        event_collector: EventCollector,
         server_backoff_interval_sec: int = _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
@@ -86,6 +88,7 @@ class ExecutorStateReconciler:
             lock=self._last_desired_state_lock
         )
         self._last_desired_state: DesiredExecutorState | None = None
+        self._event_collector: EventCollector = event_collector
 
     def get_desired_state(self) -> DesiredExecutorState | None:
         return self._last_desired_state
@@ -346,6 +349,7 @@ class ExecutorStateReconciler:
                 config_path=self._config_path,
                 cache_path=self._cache_path,
                 logger=self._logger,
+                event_collector=self._event_collector,
             )
             self._function_executor_controllers[function_executor_description.id] = (
                 controller

@@ -30,6 +30,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
+from indexify.executor.cloud_events import EventCollector, Resource, new_cloud_event
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
 from indexify.executor.function_executor.server.function_executor_server_factory import (
@@ -117,6 +118,7 @@ class FunctionExecutorController:
         config_path: str,
         cache_path: Path,
         logger: Any,
+        event_collector: EventCollector,
     ):
         """Initializes the FunctionExecutorController.
 
@@ -163,6 +165,7 @@ class FunctionExecutorController:
         self._runnable_allocations: List[AllocationInfo] = []
         # Allocations currently running on the FE.
         self._running_allocations: List[AllocationInfo] = []
+        self._event_collector: EventCollector = event_collector
 
     def function_executor_id(self) -> str:
         return self._fe_description.id
@@ -494,15 +497,13 @@ class FunctionExecutorController:
             # This prevents infinite retries if FEs consistently fail to start up.
             # The allocations we marked here also need to not used FE terminated failure reason in their outputs
             # because FE terminated means that the allocation wasn't the cause of the FE termination.
-            allocation_ids_caused_termination: List[str] = []
+            allocations_caused_termination: list[Allocation] = []
             for alloc_info in self._allocations.values():
                 alloc_logger = allocation_logger(alloc_info.allocation, self._logger)
                 alloc_logger.info(
                     "marking allocation failed on function executor startup failure"
                 )
-                allocation_ids_caused_termination.append(
-                    alloc_info.allocation.allocation_id
-                )
+                allocations_caused_termination.append(alloc_info.allocation)
                 alloc_info.output = AllocationOutput.function_executor_startup_failed(
                     allocation=alloc_info.allocation,
                     fe_termination_reason=event.fe_termination_reason,
@@ -510,7 +511,7 @@ class FunctionExecutorController:
                 )
             self._start_termination(
                 fe_termination_reason=event.fe_termination_reason,
-                allocation_ids_caused_termination=allocation_ids_caused_termination,
+                allocations_caused_termination=allocations_caused_termination,
             )
             return
 
@@ -548,7 +549,10 @@ class FunctionExecutorController:
                 description=self._fe_description,
                 status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
                 termination_reason=event.fe_termination_reason,
-                allocation_ids_caused_termination=event.allocation_ids_caused_termination,
+                allocation_ids_caused_termination=[
+                    allocation.allocation_id
+                    for allocation in event.allocations_caused_termination
+                ],
             )
         )
         self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATED)
@@ -559,6 +563,48 @@ class FunctionExecutorController:
             source="_handle_event_function_executor_destroyed",
         )
 
+        # Publish event with the cloud events endpoint so users can see this event in their logs.
+        if event.is_oom():
+            self._publish_oom_cloud_event(event)
+
+    def _publish_oom_cloud_event(self, event: FunctionExecutorTerminated):
+        if len(event.allocations_caused_termination) == 0:
+            # If there are no allocations caused by termination, return early.
+            return
+
+        # All the allocations belong to the same application.
+        # We can safely get the resource information from the first allocation.
+        allocation_info = event.allocations_caused_termination[0]
+
+        resource: Resource = Resource(
+            executor_id=self._executor_id,
+            fn_executor_id=allocation_info.function_executor_id,
+            namespace=allocation_info.function.namespace,
+            application=allocation_info.function.application_name,
+            application_version=allocation_info.function.application_version,
+            fn=allocation_info.function.function_name,
+        )
+
+        request_ids = set(
+            [
+                allocation.request_id
+                for allocation in event.allocations_caused_termination
+            ]
+        )
+
+        for request_id in request_ids:
+            cloud_event = new_cloud_event(
+                {
+                    "level": "ERROR",
+                    "type": "function_executor_terminated",
+                    "message": "The function executor ran out of memory",
+                    "request_id": request_id,
+                }
+            )
+            self._event_collector.push_event(
+                resource=resource, event=cloud_event, logger=self._logger
+            )
+
     async def _health_check_failed_callback(self, result: HealthCheckResult):
         self._logger.error(
             "Function Executor health check failed, terminating Function Executor",
@@ -567,9 +613,8 @@ class FunctionExecutorController:
 
         self._start_termination(
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
-            allocation_ids_caused_termination=[
-                alloc_info.allocation.allocation_id
-                for alloc_info in self._running_allocations
+            allocations_caused_termination=[
+                alloc_info.allocation for alloc_info in self._running_allocations
             ],
         )
 
@@ -708,7 +753,7 @@ class FunctionExecutorController:
         else:
             self._start_termination(
                 fe_termination_reason=event.function_executor_termination_reason,
-                allocation_ids_caused_termination=[alloc_info.allocation.allocation_id],
+                allocations_caused_termination=[alloc_info.allocation],
             )
 
         if alloc_info.output is None:
@@ -776,7 +821,7 @@ class FunctionExecutorController:
     def _start_termination(
         self,
         fe_termination_reason: FunctionExecutorTerminationReason,
-        allocation_ids_caused_termination: List[str],
+        allocations_caused_termination: list[Allocation],
     ) -> None:
         """Starts termination of the Function Executor if it's not started yet.
 
@@ -795,7 +840,7 @@ class FunctionExecutorController:
             function_executor=self._fe,
             lock=self._destroy_lock,
             fe_termination_reason=fe_termination_reason,
-            allocation_ids_caused_termination=allocation_ids_caused_termination,
+            allocations_caused_termination=allocations_caused_termination,
             logger=self._logger,
         )
         self._spawn_aio_for_fe(
@@ -803,7 +848,7 @@ class FunctionExecutorController:
             on_exception=FunctionExecutorTerminated(
                 is_success=False,
                 fe_termination_reason=fe_termination_reason,
-                allocation_ids_caused_termination=allocation_ids_caused_termination,
+                allocations_caused_termination=allocations_caused_termination,
             ),
         )
 
