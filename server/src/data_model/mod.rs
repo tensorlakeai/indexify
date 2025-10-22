@@ -28,6 +28,7 @@ use crate::{
 pub struct StateMachineMetadata {
     pub db_version: u64,
     pub last_change_idx: u64,
+    pub last_usage_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -1801,6 +1802,56 @@ pub struct Namespace {
 impl Linearizable for Namespace {
     fn vector_clock(&self) -> VectorClock {
         self.vector_clock.clone()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]
+pub struct AllocationUsageId(u64);
+
+impl AllocationUsageId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<AllocationUsageId> for u64 {
+    fn from(value: AllocationUsageId) -> Self {
+        value.0
+    }
+}
+
+impl Display for AllocationUsageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct AllocationUsage {
+    pub id: AllocationUsageId,
+    pub namespace: String,
+    pub application: String,
+    pub request_id: String,
+    pub allocation_id: AllocationId,
+    pub execution_duration_ms: u64,
+    pub cpu_ms_per_second: u32,
+    pub memory_mb: u64,
+    pub disk_mb: u64,
+    pub gpu_used: Vec<GPUResources>,
+
+    #[builder(default)]
+    vector_clock: VectorClock,
+}
+
+impl AllocationUsage {
+    /// Returns a key suitable for use in RocksDB.
+    ///
+    /// It uses the AllocationUsageId as the key, encoded as big-endian bytes.
+    pub fn key(&self) -> [u8; 8] {
+        // RocksDB sorts keys in lexicographical order. Using the vector clock
+        // as the key ensures that newer versions of the same AllocationUsage
+        // will sort after older versions.
+        self.id.0.to_be_bytes()
     }
 }
 

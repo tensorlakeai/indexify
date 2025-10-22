@@ -110,7 +110,7 @@ impl TestService {
             .changes;
         while !cached_state_changes.is_empty() {
             self.service
-                .graph_processor
+                .application_processor
                 .write_sm_update(&mut cached_state_changes, &mut None, &mut None, &notify)
                 .await?;
         }
@@ -283,6 +283,7 @@ pub struct FinalizeFunctionRunArgs {
     pub allocation_key: String,
     pub graph_updates: Option<RequestUpdates>,
     pub data_payload: Option<DataPayload>,
+    pub execution_duration_ms: Option<u64>,
 }
 
 pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
@@ -317,6 +318,7 @@ impl FinalizeFunctionRunArgs {
             allocation_key,
             graph_updates,
             data_payload,
+            execution_duration_ms: None,
         }
     }
 
@@ -490,6 +492,11 @@ impl TestExecutor<'_> {
             .unwrap();
 
         allocation.outcome = args.task_outcome;
+
+        allocation.execution_duration_ms = args.execution_duration_ms;
+        if allocation.execution_duration_ms.is_none() {
+            allocation.execution_duration_ms = Some(1000);
+        }
 
         let ingest_task_outputs_request = AllocationOutput {
             request_exception: None,

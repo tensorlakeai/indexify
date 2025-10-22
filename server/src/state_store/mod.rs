@@ -94,12 +94,18 @@ pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
+
     pub state_change_id_seq: Arc<AtomicU64>,
+    pub usage_event_id_seq: Arc<AtomicU64>,
+
     pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
+    pub usage_events_tx: tokio::sync::watch::Sender<()>,
+    pub usage_events_rx: tokio::sync::watch::Receiver<()>,
+
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
@@ -158,6 +164,8 @@ impl IndexifyState {
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
             scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
@@ -168,6 +176,7 @@ impl IndexifyState {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
+            usage_event_id_seq: Arc::new(AtomicU64::new(0)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             gc_tx,
@@ -177,6 +186,8 @@ impl IndexifyState {
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
+            usage_events_tx,
+            usage_events_rx,
         });
 
         info!(
@@ -251,7 +262,13 @@ impl IndexifyState {
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
                     state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
+                    state_machine::record_allocation_usage(
+                        &txn,
+                        &self.usage_event_id_seq,
+                        &allocation_output.allocation,
+                    )?;
                 }
+
                 if request.update_executor_state {
                     self.executor_states
                         .write()
@@ -285,10 +302,12 @@ impl IndexifyState {
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
+        let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
+                last_usage_idx: current_usage_sequence_id,
                 db_version: self.db_version,
             },
         )?;
@@ -313,6 +332,12 @@ impl IndexifyState {
             let Err(err) = self.change_events_tx.send(())
         {
             error!("failed to notify of state change event, ignoring: {err:?}",);
+        }
+
+        if request.notify_usage_events() &&
+            let Err(err) = self.usage_events_tx.send(())
+        {
+            error!("failed to notify of usage event, ignoring: {err:?}",);
         }
 
         self.handle_request_state_changes(&request).await;
@@ -612,6 +637,7 @@ mod tests {
             "RequestCtxSecondaryIndex",
             "UnprocessedStateChanges",
             "Allocations",
+            "AllocationUsage",
             "GcUrls",
             "Stats",
         ];

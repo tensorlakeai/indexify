@@ -56,6 +56,16 @@ impl StateMachineUpdateRequest {
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
+
+    pub fn notify_usage_events(&self) -> bool {
+        match self.payload {
+            RequestPayload::UpsertExecutor(ref req) => req
+                .allocation_outputs
+                .iter()
+                .any(|o| matches!(o.allocation.outcome, FunctionRunOutcome::Success)),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, strum::Display)]

@@ -128,7 +128,7 @@ impl FunctionRunCreator {
             &function_run,
         )?);
 
-        let Some(cg_version) = in_memory_state
+        let Some(application_version) = in_memory_state
             .get_existing_application_version(&function_run)
             .cloned()
         else {
@@ -146,7 +146,7 @@ impl FunctionRunCreator {
         FunctionRunRetryPolicy::handle_allocation_outcome(
             &mut function_run,
             &allocation,
-            &cg_version,
+            &application_version,
         );
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
@@ -324,7 +324,7 @@ impl FunctionRunCreator {
             if !schedulable {
                 continue;
             }
-            let function_run = cg_version
+            let function_run = application_version
                 .create_function_run(function_call, input_args, &request_ctx.request_id)
                 .unwrap();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);

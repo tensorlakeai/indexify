@@ -239,6 +239,14 @@ mod tests {
             assert!(request_ctx.outcome.is_some());
         }
 
+        {
+            let (allocation_usage, cursor) =
+                indexify_state.reader().allocation_usage(None).unwrap();
+
+            assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
+            assert!(cursor.is_none());
+        }
+
         Ok(())
     }
 
@@ -297,6 +305,10 @@ mod tests {
             indexify_state.db.clone(),
             HashMap::from([
                 (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 3), // input
+                (
+                    IndexifyObjectsColumns::AllocationUsage.as_ref().to_string(),
+                    1,
+                ), // one per allocation
             ]),
         )?;
 
@@ -441,6 +453,10 @@ mod tests {
                 HashMap::from([
                     (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 7), /* 1x input, 3x
                                                                                * output */
+                    (
+                        IndexifyObjectsColumns::AllocationUsage.as_ref().to_string(),
+                        4,
+                    ), // one per allocation
                 ]),
             )?;
         }
