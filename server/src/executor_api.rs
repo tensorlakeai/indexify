@@ -340,6 +340,9 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
             FunctionExecutorTerminationReason::FunctionCancelled => {
                 Ok(data_model::FunctionExecutorTerminationReason::FunctionCancelled)
             }
+            FunctionExecutorTerminationReason::Oom => {
+                Ok(data_model::FunctionExecutorTerminationReason::Oom)
+            }
         }
     }
 }
@@ -643,6 +646,9 @@ impl ExecutorAPIService {
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(FunctionRunFailureReason::FunctionExecutorTerminated)
+                    }
+                    executor_api_pb::AllocationFailureReason::Oom => {
+                        Some(FunctionRunFailureReason::OutOfMemory)
                     }
                 },
                 None => None,

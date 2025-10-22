@@ -742,6 +742,14 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
+                for allocation in &req.updated_allocations {
+                    self.allocations_by_executor
+                        .entry(allocation.target.executor_id.clone())
+                        .or_default()
+                        .entry(allocation.target.function_executor_id.clone())
+                        .or_default()
+                        .push(Box::new(allocation.clone()));
+                }
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
                         let Some(ctx) = req.updated_request_states.get(ctx_key).cloned() else {

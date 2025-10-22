@@ -12,6 +12,8 @@ use crate::{
         ExecutorId,
         ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GraphUpdates,
         InvokeApplicationEvent,
         StateChange,
@@ -101,6 +103,13 @@ pub fn task_outputs_ingested(
     last_change_id: &AtomicU64,
     request: &AllocationOutput,
 ) -> Result<Vec<StateChange>> {
+    // If the allocation is cancelled, we don't need to trigger the scheduler for
+    // it.
+    if let FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled) =
+        request.allocation.outcome
+    {
+        return Ok(vec![]);
+    }
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.allocation.namespace.clone()))

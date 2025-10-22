@@ -528,6 +528,9 @@ pub(crate) fn handle_scheduler_update(
             &serialized_graph_ctx,
         )?;
     }
+    for alloc in &request.updated_allocations {
+        upsert_allocation(txn, alloc)?;
+    }
 
     Ok(())
 }
