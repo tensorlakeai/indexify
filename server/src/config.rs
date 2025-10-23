@@ -13,8 +13,11 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
-use crate::queue::QueueConfig;
+use crate::{
+    blob_store::BlobStorageConfig,
+    queue::QueueConfig,
+    state_store::driver::rocksdb::RocksDBConfig,
+};
 
 const LOCAL_ENV: &str = "local";
 

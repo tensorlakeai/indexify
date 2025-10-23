@@ -6,7 +6,8 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
 use tokio::{
-    self, signal,
+    self,
+    signal,
     sync::{Mutex, watch},
 };
 use tonic::transport::Server;
@@ -16,7 +17,6 @@ use tower_http::{
 };
 use tracing::{Instrument, info, info_span};
 
-use crate::queue::Queue;
 use crate::{
     blob_store::{BlobStorage, registry::BlobStorageRegistry},
     config::ServerConfig,
@@ -25,8 +25,11 @@ use crate::{
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
     processor::{
-        application_processor::ApplicationProcessor, gc::Gc, usage_processor::UsageProcessor,
+        application_processor::ApplicationProcessor,
+        gc::Gc,
+        usage_processor::UsageProcessor,
     },
+    queue::Queue,
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,

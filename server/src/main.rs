@@ -28,9 +28,9 @@ mod tracing;
 use tracing::setup_tracing;
 mod utils;
 
+mod queue;
 #[cfg(test)]
 mod testing;
-mod queue;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
