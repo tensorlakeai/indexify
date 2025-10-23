@@ -35,6 +35,9 @@ class FunctionExecutorServer:
     async def status(self) -> FunctionExecutorServerStatus:
         """
         Returns the status information about the Function Executor Server.
-        Raises Exception if an error occurred.
+        By default, it returns a status with running=False and oom_killed=False.
+
+        Classes that inherit from FunctionExecutorServer should override this method to provide
+        their own implementation.
         """
-        raise NotImplementedError
+        return FunctionExecutorServerStatus(running=False, oom_killed=False)
