@@ -27,7 +27,7 @@ async def terminate_function_executor(
     """
     logger = logger.bind(module=__name__)
 
-    if function_executor:
+    if function_executor is not None:
         async with lock:
             logger.info(
                 "destroying function executor",

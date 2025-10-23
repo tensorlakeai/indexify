@@ -571,12 +571,11 @@ class FunctionExecutorController:
         fe_termination_reason = (
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
         )
-        if self._fe:
-            server_status: FunctionExecutorServerStatus = await self._fe.server_status()
-            if server_status.oom_killed:
-                fe_termination_reason = (
-                    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
-                )
+        server_status: FunctionExecutorServerStatus = await self._fe.server_status()
+        if server_status.oom_killed:
+            fe_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+            )
 
         self._start_termination(
             fe_termination_reason=fe_termination_reason,
@@ -895,7 +894,7 @@ _termination_reason_to_short_name_map = {
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: "INTERNAL_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: "FUNCTION_TIMEOUT",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: "FUNCTION_CANCELLED",
-    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM: "FUNCTION_OUT_OF_MEMORY",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM: "OUT_OF_MEMORY",
 }
 
 

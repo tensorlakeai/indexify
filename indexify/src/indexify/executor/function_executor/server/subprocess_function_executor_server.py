@@ -31,13 +31,16 @@ class SubprocessFunctionExecutorServer(FunctionExecutorServer):
     async def status(self) -> FunctionExecutorServerStatus:
         """
         Returns information about the function executor.
-        If the returncode is None, the process is still running.
+
+        `returncode` is only set if the process has exited for whatever reason.
+        We check if the process was killed only if the process has already exited.
+        In any other case, we assume the process is running.
         """
 
-        if self._proc.returncode is None:
-            return FunctionExecutorServerStatus(True, False)
-        else:
+        if self._proc.returncode is not None:
             return FunctionExecutorServerStatus(False, await self._check_oom())
+        else:
+            return FunctionExecutorServerStatus(True, False)
 
     async def _check_oom(self) -> bool:
         """
