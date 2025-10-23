@@ -274,7 +274,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
             let mut gpu_models = Vec::new();
 
             for gpu in allocation_usage.gpu_used.iter() {
-                for gpu_count in 0..gpu.count {
+                for _ in 0..gpu.count {
                     let gpu_model = GpuModel::from(gpu.model.as_str());
                     gpu_models.push(gpu_model);
                 }

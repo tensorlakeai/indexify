@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use omniqueue::QueueProducer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -25,20 +24,10 @@ impl Queue {
     pub async fn new(config: QueueConfig) -> anyhow::Result<Self> {
         let producer = match &config.backend {
             QueueBackend::InMemory => {
-                match omniqueue::backends::InMemoryBackend::builder()
+                omniqueue::backends::InMemoryBackend::builder()
                     .make_dynamic()
                     .build_producer()
-                    .await
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        // If building the producer fails, it might be because the in-memory
-                        // backend hasn't been initialized yet. Initialize it now
-
-                        tracing::error!("");
-                        return anyhow!(e.to_string());
-                    }
-                }
+                    .await?
             }
             QueueBackend::AmazonSqs { queue_url } => {
                 let sqs_config = omniqueue::backends::SqsConfig {
