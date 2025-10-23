@@ -262,7 +262,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         }
 
         if !allocation_usage.gpu_used.is_empty() {
-            let gpu_amount = allocation_usage.execution_duration_ms as u64 / 1000;
+            let gpu_amount = allocation_usage.execution_duration_ms / 1000;
 
             let mut gpu_usage_builder = ApplicationResourceUsageBuilder::default();
 
