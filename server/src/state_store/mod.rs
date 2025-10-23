@@ -194,6 +194,12 @@ impl IndexifyState {
             "initialized state store with last state change id: {}",
             s.state_change_id_seq.load(atomic::Ordering::Relaxed)
         );
+
+        info!(
+            "initialized state store with last usage id: {}",
+            s.usage_event_id_seq.load(atomic::Ordering::Relaxed)
+        );
+
         info!("db version discovered: {}", sm_meta.db_version);
 
         Ok(s)
