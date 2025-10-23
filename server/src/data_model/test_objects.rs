@@ -161,6 +161,7 @@ pub mod tests {
             inputs,
             fn_name: fn_name.to_string(),
             call_metadata: Bytes::new(),
+            parent_function_call_id: None,
         }
     }
 

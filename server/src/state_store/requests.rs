@@ -214,6 +214,7 @@ pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
+    pub watch_function_call_ids: HashSet<String>,
     state_changes: Vec<StateChange>,
 }
 
@@ -229,6 +230,7 @@ impl UpsertExecutorRequest {
         executor: ExecutorMetadata,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
+        watch_function_call_ids: HashSet<String>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
         let state_change_id_seq = indexify_state.state_change_id_seq();
@@ -252,6 +254,7 @@ impl UpsertExecutorRequest {
             allocation_outputs,
             state_changes,
             update_executor_state,
+            watch_function_call_ids,
         })
     }
 }

@@ -57,6 +57,12 @@ impl From<&str> for ExecutorId {
     }
 }
 
+impl From<String> for ExecutorId {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
@@ -186,12 +192,19 @@ impl From<&str> for FunctionCallId {
     }
 }
 
+impl From<String> for FunctionCallId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub function_call_id: FunctionCallId,
     pub inputs: Vec<FunctionArgs>,
     pub fn_name: String,
     pub call_metadata: bytes::Bytes,
+    pub parent_function_call_id: Option<FunctionCallId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,6 +257,9 @@ pub struct FunctionRun {
     #[builder(default)]
     vector_clock: VectorClock,
     pub call_metadata: bytes::Bytes,
+
+    #[builder(default)]
+    pub request_error: Option<DataPayload>,
 }
 
 impl FunctionRunBuilder {
@@ -395,12 +411,14 @@ impl Function {
         function_call_id: FunctionCallId,
         inputs: Vec<DataPayload>,
         call_metadata: bytes::Bytes,
+        parent_function_call_id: Option<FunctionCallId>,
     ) -> FunctionCall {
         FunctionCall {
             function_call_id,
             inputs: inputs.into_iter().map(FunctionArgs::DataPayload).collect(),
             fn_name: self.name.clone(),
             call_metadata,
+            parent_function_call_id,
         }
     }
 }
@@ -671,6 +689,7 @@ impl ApplicationVersion {
                 inputs: fn_call.inputs.clone(),
                 fn_name: fn_call.fn_name.clone(),
                 call_metadata: fn_call.call_metadata.clone(),
+                parent_function_call_id: fn_call.parent_function_call_id.clone(),
             }))
             .input_args(input_args)
             .name(fn_call.fn_name.clone())

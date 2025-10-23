@@ -32,6 +32,9 @@ use crate::{
     },
 };
 
+mod executor_watches;
+use executor_watches::ExecutorWatches;
+
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
     pub entries: Vec<ExecutorCatalogEntry>,
@@ -110,6 +113,8 @@ pub struct IndexifyState {
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
     _in_memory_state_metrics: InMemoryMetrics,
+    // Executor watches for function call results streaming
+    pub executor_watches: ExecutorWatches,
 }
 
 pub(crate) fn open_database<I>(
@@ -188,6 +193,7 @@ impl IndexifyState {
             in_memory_state: indexes,
             usage_events_tx,
             usage_events_rx,
+            executor_watches: ExecutorWatches::new(),
         });
 
         info!(
@@ -282,6 +288,13 @@ impl IndexifyState {
                         .entry(request.executor.id.clone())
                         .or_default();
                 }
+                // Update executor watches for efficient sync
+                self.executor_watches
+                    .sync_watches(
+                        request.executor.id.get().to_string(),
+                        request.watch_function_call_ids.clone(),
+                    )
+                    .await;
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
@@ -292,6 +305,10 @@ impl IndexifyState {
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
+                // Cleanup all watches for this executor
+                self.executor_watches
+                    .remove_executor(request.executor_id.get())
+                    .await;
             }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(&txn, urls.clone())?;
@@ -318,12 +335,23 @@ impl IndexifyState {
             },
         )?;
         txn.commit()?;
-        let changed_executors = self
+        let mut changed_executors = self
             .in_memory_state
             .write()
             .await
             .update_state(current_state_id, &request.payload, "state_store")
             .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
+
+        match &request.payload {
+            RequestPayload::SchedulerUpdate((request, _)) => {
+                let impacted_executors = self
+                    .executor_watches
+                    .impacted_executors(request.updated_function_runs.keys().cloned().collect())
+                    .await;
+                changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
+            }
+            _ => {}
+        }
         // Notify the executors with state changes
         {
             let mut executor_states = self.executor_states.write().await;

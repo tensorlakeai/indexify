@@ -22,12 +22,15 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
+        FunctionCallId,
         FunctionExecutorId,
         FunctionExecutorResources,
         FunctionExecutorServerMetadata,
         FunctionExecutorState,
         FunctionResources,
         FunctionRun,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         FunctionRunStatus,
         FunctionURI,
         Namespace,
@@ -104,11 +107,22 @@ pub struct DesiredStateFunctionExecutor {
     pub code_payload: DataPayload,
 }
 
+pub struct FunctionCallOutcome {
+    pub namespace: String,
+    pub request_id: String,
+    pub function_call_id: FunctionCallId,
+    pub outcome: FunctionRunOutcome,
+    pub failure_reason: Option<FunctionRunFailureReason>,
+    pub return_value: Option<DataPayload>,
+    pub request_error: Option<DataPayload>,
+}
+
 pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
     pub function_run_allocations: std::collections::HashMap<FunctionExecutorId, Vec<Allocation>>,
+    pub function_call_outcomes: Vec<FunctionCallOutcome>,
     pub clock: u64,
 }
 
@@ -1369,7 +1383,37 @@ impl InMemoryState {
             .any(|(_k, v)| v.outcome.is_none())
     }
 
-    pub fn desired_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
+    pub fn desired_state(
+        &self,
+        executor_id: &ExecutorId,
+        fn_call_watches: HashSet<String>,
+    ) -> DesiredExecutorState {
+        let mut function_call_outcomes = Vec::new();
+        for function_call_id in fn_call_watches.iter() {
+            let Some(function_run) = self
+                .function_runs
+                .get(&FunctionRunKey(function_call_id.clone()))
+            else {
+                error!(
+                    function_call_id = function_call_id.clone(),
+                    "function run not found for function call watch",
+                );
+                continue;
+            };
+            let failure_reason = match function_run.outcome {
+                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason),
+                _ => None,
+            };
+            function_call_outcomes.push(FunctionCallOutcome {
+                namespace: function_run.namespace.clone(),
+                request_id: function_run.request_id.clone(),
+                function_call_id: function_run.id.clone(),
+                outcome: function_run.outcome.unwrap_or(FunctionRunOutcome::Unknown),
+                failure_reason,
+                return_value: function_run.output.clone(),
+                request_error: function_run.request_error.clone(),
+            });
+        }
         let active_function_executors = self
             .executor_states
             .get(executor_id)
@@ -1435,6 +1479,7 @@ impl InMemoryState {
             function_executors,
             function_run_allocations: task_allocations,
             clock: self.clock,
+            function_call_outcomes,
         }
     }
 
@@ -1617,6 +1662,7 @@ mod tests {
                     )),
                     fn_name: function.to_string(),
                     call_metadata: Bytes::new(),
+                    parent_function_call_id: None,
                 }))
                 .status(FunctionRunStatus::Pending)
                 .outcome(outcome)

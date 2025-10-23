@@ -26,6 +26,7 @@ mod service;
 mod state_store;
 mod tracing;
 use tracing::setup_tracing;
+mod pb_helpers;
 mod utils;
 
 mod queue;
