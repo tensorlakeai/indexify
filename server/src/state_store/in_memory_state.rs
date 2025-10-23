@@ -112,13 +112,36 @@ pub struct DesiredExecutorState {
     pub clock: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CandidateFunctionExecutor {
     pub metadata: Box<FunctionExecutorServerMetadata>,
     pub allocation_count: usize,
 }
 
+impl PartialOrd for CandidateFunctionExecutor {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CandidateFunctionExecutor {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Order by allocation count first (ascending - least loaded first)
+        // Then by executor_id and function_executor_id for consistent ordering
+        self.allocation_count
+            .cmp(&other.allocation_count)
+            .then_with(|| self.metadata.executor_id.cmp(&other.metadata.executor_id))
+            .then_with(|| {
+                self.metadata
+                    .function_executor
+                    .id
+                    .cmp(&other.metadata.function_executor.id)
+            })
+    }
+}
+
 pub struct CandidateFunctionExecutors {
-    pub function_executors: Vec<CandidateFunctionExecutor>,
+    pub function_executors: std::collections::BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
 }
 
@@ -1083,7 +1106,7 @@ impl InMemoryState {
         function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
-        let mut candidates = Vec::new();
+        let mut candidates = std::collections::BTreeSet::new();
         let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
@@ -1114,7 +1137,7 @@ impl InMemoryState {
                 if (allocation_count as u32) <
                     capacity_threshold * function_executor.function_executor.max_concurrency
                 {
-                    candidates.push(CandidateFunctionExecutor {
+                    candidates.insert(CandidateFunctionExecutor {
                         metadata: function_executor.clone(),
                         allocation_count,
                     });
