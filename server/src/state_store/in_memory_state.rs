@@ -112,9 +112,13 @@ pub struct DesiredExecutorState {
     pub clock: u64,
 }
 
+pub struct CandidateFunctionExecutor {
+    pub metadata: Box<FunctionExecutorServerMetadata>,
+    pub allocation_count: usize,
+}
+
 pub struct CandidateFunctionExecutors {
-    #[allow(clippy::vec_box)]
-    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub function_executors: Vec<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
 }
 
@@ -1110,7 +1114,10 @@ impl InMemoryState {
                 if (allocation_count as u32) <
                     capacity_threshold * function_executor.function_executor.max_concurrency
                 {
-                    candidates.push(function_executor.clone());
+                    candidates.push(CandidateFunctionExecutor {
+                        metadata: function_executor.clone(),
+                        allocation_count,
+                    });
                 }
             }
         }

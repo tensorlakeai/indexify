@@ -533,12 +533,23 @@ impl FunctionExecutorManager {
             "found function executors for function run",
         );
 
-        // Select a function executor using the current policy (random selection)
+        // Select a function executor using least-loaded policy (fewest allocations)
         let selected_fe = function_executors
             .function_executors
-            .choose(&mut rand::rng())
+            .iter()
+            .min_by_key(|fe| fe.allocation_count)
             .map(|fe| {
-                AllocationTarget::new(fe.executor_id.clone(), fe.function_executor.id.clone())
+                debug!(
+                    target: targets::SCHEDULER,
+                    executor_id = fe.metadata.executor_id.get(),
+                    fn_executor_id = fe.metadata.function_executor.id.get(),
+                    allocation_count = fe.allocation_count,
+                    "selected function executor with least allocations",
+                );
+                AllocationTarget::new(
+                    fe.metadata.executor_id.clone(),
+                    fe.metadata.function_executor.id.clone(),
+                )
             });
 
         Ok((selected_fe, update))
