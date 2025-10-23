@@ -153,10 +153,10 @@ async def run_allocation_on_function_executor(
             logger.error("allocation management RPC failed", exc_info=e)
         metric_function_executor_run_allocation_rpc_errors.inc()
 
-        server_status: FunctionExecutorServerStatus | None = (
+        server_status: FunctionExecutorServerStatus = (
             await function_executor.server_status()
         )
-        if server_status and server_status.oom_killed:
+        if server_status.oom_killed:
             function_executor_termination_reason = (
                 FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
             )
@@ -216,10 +216,10 @@ async def run_allocation_on_function_executor(
             # Check if the allocation failed because the FE is unhealthy to prevent more allocations failing.
             result: HealthCheckResult = await function_executor.health_checker().check()
             if not result.is_healthy:
-                server_status: FunctionExecutorServerStatus | None = (
+                server_status: FunctionExecutorServerStatus = (
                     await function_executor.server_status()
                 )
-                if server_status and server_status.oom_killed:
+                if server_status.oom_killed:
                     function_executor_termination_reason = (
                         FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
                     )

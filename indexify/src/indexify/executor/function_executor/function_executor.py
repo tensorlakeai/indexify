@@ -127,8 +127,12 @@ class FunctionExecutor:
                 )
                 await self._create_health_checker(self._channel, stub)
 
-                return await self._initialize_server(
-                    stub, initialize_request, customer_code_timeout_sec
+                return await _initialize_server(
+                    stub,
+                    initialize_request,
+                    customer_code_timeout_sec,
+                    self._logger,
+                    self._server,
                 )
         except Exception:
             await self.destroy()
@@ -143,8 +147,8 @@ class FunctionExecutor:
     def health_checker(self) -> HealthChecker:
         return self._health_checker
 
-    async def server_status(self) -> FunctionExecutorServerStatus | None:
-        return await self._server.status() if self._server else None
+    async def server_status(self) -> FunctionExecutorServerStatus:
+        return await self._server.status()
 
     async def destroy(self):
         """Destroys all resources owned by this FunctionExecutor.
@@ -287,54 +291,6 @@ class FunctionExecutor:
         finally:
             self._health_checker = None
 
-    async def _initialize_server(
-        self,
-        stub: FunctionExecutorStub,
-        initialize_request: InitializeRequest,
-        customer_code_timeout_sec: float,
-    ) -> FunctionExecutorInitializationResult:
-        with metric_initialize_rpc_latency.time():
-            try:
-                initialize_response: InitializeResponse = await stub.initialize(
-                    initialize_request,
-                    timeout=customer_code_timeout_sec,
-                )
-                return FunctionExecutorInitializationResult(
-                    is_timeout=False,
-                    is_oom=False,
-                    response=initialize_response,
-                )
-            except grpc.aio.AioRpcError as e:
-                # Increment the metric manually as we're not raising this exception.
-                metric_initialize_rpc_errors.inc()
-                metric_create_errors.inc()
-
-                if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                    return FunctionExecutorInitializationResult(
-                        is_timeout=True,
-                        is_oom=False,
-                        response=None,
-                    )
-                else:
-                    is_oom: bool = False
-                    if self._server:
-                        server_status: FunctionExecutorServerStatus = (
-                            await self._server.status()
-                        )
-                        is_oom = server_status.oom_killed
-
-                    self._logger.error(
-                        "Function Executor initialize RPC failed",
-                        is_oom=is_oom,
-                        exc_info=e,
-                    )
-
-                    return FunctionExecutorInitializationResult(
-                        is_timeout=False,
-                        is_oom=is_oom,
-                        response=None,
-                    )
-
 
 async def _collect_server_info(stub: FunctionExecutorStub) -> None:
     with (
@@ -354,3 +310,50 @@ async def _collect_server_info(stub: FunctionExecutorStub) -> None:
             sdk_language=info.sdk_language,
             sdk_language_version=info.sdk_language_version,
         ).inc()
+
+
+async def _initialize_server(
+    self,
+    stub: FunctionExecutorStub,
+    initialize_request: InitializeRequest,
+    customer_code_timeout_sec: float,
+    server: FunctionExecutorServer,
+    logger: Any,
+) -> FunctionExecutorInitializationResult:
+    with metric_initialize_rpc_latency.time():
+        try:
+            initialize_response: InitializeResponse = await stub.initialize(
+                initialize_request,
+                timeout=customer_code_timeout_sec,
+            )
+            return FunctionExecutorInitializationResult(
+                is_timeout=False,
+                is_oom=False,
+                response=initialize_response,
+            )
+        except grpc.aio.AioRpcError as e:
+            # Increment the metric manually as we're not raising this exception.
+            metric_initialize_rpc_errors.inc()
+            metric_create_errors.inc()
+
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return FunctionExecutorInitializationResult(
+                    is_timeout=True,
+                    is_oom=False,
+                    response=None,
+                )
+            else:
+                server_status: FunctionExecutorServerStatus = await server.status()
+                is_oom = server_status.oom_killed
+
+                logger.error(
+                    "Function Executor initialize RPC failed",
+                    is_oom=is_oom,
+                    exc_info=e,
+                )
+
+                return FunctionExecutorInitializationResult(
+                    is_timeout=False,
+                    is_oom=is_oom,
+                    response=None,
+                )

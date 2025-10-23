@@ -572,10 +572,8 @@ class FunctionExecutorController:
             FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
         )
         if self._fe:
-            server_status: FunctionExecutorServerStatus | None = (
-                await self._fe.server_status()
-            )
-            if server_status and server_status.oom_killed:
+            server_status: FunctionExecutorServerStatus = await self._fe.server_status()
+            if server_status.oom_killed:
                 fe_termination_reason = (
                     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
                 )
