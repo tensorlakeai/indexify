@@ -6,7 +6,6 @@ import grpc
 from .client_configuration import GRPC_CHANNEL_OPTIONS
 from .function_executor_server import (
     FunctionExecutorServer,
-    FunctionExecutorServerStatus,
 )
 
 
@@ -26,38 +25,3 @@ class SubprocessFunctionExecutorServer(FunctionExecutorServer):
     @override
     async def create_channel(self, logger: Any) -> grpc.aio.Channel:
         return grpc.aio.insecure_channel(self._address, options=GRPC_CHANNEL_OPTIONS)
-
-    @override
-    async def status(self) -> FunctionExecutorServerStatus:
-        """
-        Returns information about the function executor.
-
-        `returncode` is only set if the process has exited for whatever reason.
-        We check if the process was killed only if the process has already exited.
-        In any other case, we assume the process is running.
-        """
-
-        if self._proc.returncode is not None:
-            return FunctionExecutorServerStatus(False, await self._check_oom())
-        else:
-            return FunctionExecutorServerStatus(True, False)
-
-    async def _check_oom(self) -> bool:
-        """
-        Returns True if the process with the given pid was killed due to an out-of-memory error.
-        """
-        oom_pattern = f"Out of memory: Killed process {self._proc.pid}"
-
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                f'dmesg | grep "{oom_pattern}"',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            if proc.returncode == 0 and stdout.strip():
-                return True
-        except (FileNotFoundError, OSError):
-            pass  # dmesg failed or not available
-
-        return False
