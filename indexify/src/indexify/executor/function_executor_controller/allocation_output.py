@@ -185,6 +185,11 @@ def _fe_startup_failure_reason_to_alloc_failure_reason(
         return (
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
         )
+    elif (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+    ):
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM
     else:
         logger.error(
             "unexpected function executor startup failure reason",
