@@ -30,9 +30,11 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.executor.cloud_events import EventCollector, Resource, new_cloud_event
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
+from indexify.executor.function_executor.server.function_executor_server import (
+    FunctionExecutorServerStatus,
+)
 from indexify.executor.function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
@@ -118,7 +120,6 @@ class FunctionExecutorController:
         config_path: str,
         cache_path: Path,
         logger: Any,
-        event_collector: EventCollector,
     ):
         """Initializes the FunctionExecutorController.
 
@@ -165,7 +166,6 @@ class FunctionExecutorController:
         self._runnable_allocations: List[AllocationInfo] = []
         # Allocations currently running on the FE.
         self._running_allocations: List[AllocationInfo] = []
-        self._event_collector: EventCollector = event_collector
 
     def function_executor_id(self) -> str:
         return self._fe_description.id
@@ -563,56 +563,26 @@ class FunctionExecutorController:
             source="_handle_event_function_executor_destroyed",
         )
 
-        # Publish event with the cloud events endpoint so users can see this event in their logs.
-        if event.is_oom():
-            self._publish_oom_cloud_event(event)
-
-    def _publish_oom_cloud_event(self, event: FunctionExecutorTerminated):
-        if len(event.allocations_caused_termination) == 0:
-            # If there are no allocations caused by termination, return early.
-            return
-
-        # All the allocations belong to the same application.
-        # We can safely get the resource information from the first allocation.
-        allocation_info = event.allocations_caused_termination[0]
-
-        resource: Resource = Resource(
-            executor_id=self._executor_id,
-            fn_executor_id=allocation_info.function_executor_id,
-            namespace=allocation_info.function.namespace,
-            application=allocation_info.function.application_name,
-            application_version=allocation_info.function.application_version,
-            fn=allocation_info.function.function_name,
-        )
-
-        request_ids = set(
-            [
-                allocation.request_id
-                for allocation in event.allocations_caused_termination
-            ]
-        )
-
-        for request_id in request_ids:
-            cloud_event = new_cloud_event(
-                {
-                    "level": "ERROR",
-                    "type": "function_executor_terminated",
-                    "message": "The function executor ran out of memory",
-                    "request_id": request_id,
-                }
-            )
-            self._event_collector.push_event(
-                resource=resource, event=cloud_event, logger=self._logger
-            )
-
     async def _health_check_failed_callback(self, result: HealthCheckResult):
         self._logger.error(
             "Function Executor health check failed, terminating Function Executor",
             reason=result.reason,
         )
 
+        fe_termination_reason = (
+            FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+        )
+        if self._fe:
+            server_status: FunctionExecutorServerStatus | None = (
+                await self._fe.server_status()
+            )
+            if server_status and server_status.oom_killed:
+                fe_termination_reason = (
+                    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+                )
+
         self._start_termination(
-            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
+            fe_termination_reason=fe_termination_reason,
             allocations_caused_termination=[
                 alloc_info.allocation for alloc_info in self._running_allocations
             ],

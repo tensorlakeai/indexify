@@ -74,12 +74,6 @@ class FunctionExecutorTerminated(BaseEvent):
             allocations_caused_termination
         )
 
-    def is_oom(self) -> bool:
-        return (
-            self.fe_termination_reason
-            == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
-        )
-
     def __str__(self) -> str:
         allocation_ids: list[str] = [
             allocation.allocation_id

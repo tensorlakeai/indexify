@@ -113,6 +113,12 @@ def _to_fe_created_event(
             fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT,
         )
 
+    if result.is_oom:
+        return FunctionExecutorCreated(
+            function_executor=None,
+            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM,
+        )
+
     if result.response is None:
         # This is a grey failure where we don't know the exact cause.
         # Treat it as a customer function error to prevent service abuse by intentionally

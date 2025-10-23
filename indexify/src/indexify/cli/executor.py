@@ -18,7 +18,6 @@ import prometheus_client
 import structlog
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.executor.cloud_events import EventCollector
 from indexify.executor.executor import Executor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
@@ -194,5 +193,4 @@ def executor(
         monitoring_server_port=monitoring_server_port,
         blob_store=BLOBStore(),
         host_resources_provider=host_resources_provider,
-        event_collector=EventCollector(),
     ).run()
