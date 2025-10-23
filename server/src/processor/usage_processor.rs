@@ -232,8 +232,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         }
 
         if allocation_usage.disk_mb > 0 {
-            let disk_amount =
-                allocation_usage.disk_mb as u64 * allocation_usage.execution_duration_ms;
+            let disk_amount = allocation_usage.disk_mb * allocation_usage.execution_duration_ms;
             let disk_amount = disk_amount / 1000;
 
             let disk_usage = ApplicationResourceUsageBuilder::default()
@@ -248,8 +247,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         }
 
         if allocation_usage.memory_mb > 0 {
-            let memory_amount =
-                allocation_usage.memory_mb as u64 * allocation_usage.execution_duration_ms;
+            let memory_amount = allocation_usage.memory_mb * allocation_usage.execution_duration_ms;
             let memory_amount = memory_amount / 1000;
 
             let memory_usage = ApplicationResourceUsageBuilder::default()
