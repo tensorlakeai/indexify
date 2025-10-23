@@ -28,6 +28,7 @@ use crate::{
 pub struct StateMachineMetadata {
     pub db_version: u64,
     pub last_change_idx: u64,
+    #[serde(default)]
     pub last_usage_idx: u64,
 }
 
