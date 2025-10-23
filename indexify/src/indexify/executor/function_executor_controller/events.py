@@ -1,10 +1,11 @@
 from enum import Enum
-from typing import List
 
 from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
 )
-from indexify.proto.executor_api_pb2 import FunctionExecutorTerminationReason
+from indexify.proto.executor_api_pb2 import (
+    FunctionExecutorTerminationReason,
+)
 
 from .allocation_info import AllocationInfo
 
@@ -61,14 +62,14 @@ class FunctionExecutorTerminated(BaseEvent):
         self,
         is_success: bool,
         fe_termination_reason: FunctionExecutorTerminationReason,
-        allocation_ids_caused_termination: List[str],
+        allocation_ids_caused_termination: list[str],
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_TERMINATED)
         self.is_success: bool = is_success
         self.fe_termination_reason: FunctionExecutorTerminationReason = (
             fe_termination_reason
         )
-        self.allocation_ids_caused_termination: List[str] = (
+        self.allocation_ids_caused_termination: list[str] = (
             allocation_ids_caused_termination
         )
 

@@ -30,6 +30,9 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
+from indexify.executor.function_executor.server.function_executor_server import (
+    FunctionExecutorServerStatus,
+)
 from indexify.proto.executor_api_pb2 import (
     Allocation,
     AllocationFailureReason,
@@ -136,12 +139,7 @@ async def run_allocation_on_function_executor(
         #
         # This is an unexpected situation, though, so we make sure to
         # log the situation for further investigation.
-
-        function_executor_termination_reason = (
-            FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
-        )
-        metric_function_executor_run_allocation_rpc_errors.inc()
-
+        #
         if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
             # This is either a create_allocation() RPC timeout or a
             # delete_allocation() RPC timeout; either suggests that the FE
@@ -153,12 +151,27 @@ async def run_allocation_on_function_executor(
             # This is a status from an unsuccessful RPC; this
             # shouldn't happen, but we handle it.
             logger.error("allocation management RPC failed", exc_info=e)
+        metric_function_executor_run_allocation_rpc_errors.inc()
 
-        alloc_info.output = AllocationOutput.function_executor_unresponsive(
-            allocation=alloc_info.allocation,
-            execution_start_time=execution_start_time,
-            execution_end_time=time.monotonic(),
+        server_status: FunctionExecutorServerStatus = (
+            await function_executor.server_status()
         )
+        if server_status.oom_killed:
+            function_executor_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+            )
+            alloc_info.output = AllocationOutput.function_executor_out_of_memory(
+                allocation=alloc_info.allocation,
+            )
+        else:
+            function_executor_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+            )
+            alloc_info.output = AllocationOutput.function_executor_unresponsive(
+                allocation=alloc_info.allocation,
+                execution_start_time=execution_start_time,
+                execution_end_time=time.monotonic(),
+            )
     except asyncio.CancelledError:
         # Handle aio task cancellation during `await _run_allocation_rpcs`.
         # The allocation is still running in FE, we only cancelled the client-side RPC.
@@ -203,12 +216,21 @@ async def run_allocation_on_function_executor(
             # Check if the allocation failed because the FE is unhealthy to prevent more allocations failing.
             result: HealthCheckResult = await function_executor.health_checker().check()
             if not result.is_healthy:
-                function_executor_termination_reason = (
-                    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+                server_status: FunctionExecutorServerStatus = (
+                    await function_executor.server_status()
                 )
+                if server_status.oom_killed:
+                    function_executor_termination_reason = (
+                        FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+                    )
+                else:
+                    function_executor_termination_reason = (
+                        FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+                    )
                 logger.error(
                     "Function Executor health check failed after running allocation, shutting down Function Executor",
                     health_check_fail_reason=result.reason,
+                    function_executor_termination_reason=function_executor_termination_reason,
                 )
         except asyncio.CancelledError:
             # The aio task was cancelled during the health check await.

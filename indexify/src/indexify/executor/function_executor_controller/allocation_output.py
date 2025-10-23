@@ -131,6 +131,17 @@ class AllocationOutput:
         )
 
     @classmethod
+    def function_executor_out_of_memory(
+        cls, allocation: Allocation
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for the case when allocation failed because its FE ran out of memory."""
+        return AllocationOutput(
+            allocation=allocation,
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM,
+        )
+
+    @classmethod
     def function_executor_startup_failed(
         cls,
         allocation: Allocation,
@@ -174,6 +185,11 @@ def _fe_startup_failure_reason_to_alloc_failure_reason(
         return (
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
         )
+    elif (
+        fe_termination_reason
+        == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+    ):
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM
     else:
         logger.error(
             "unexpected function executor startup failure reason",

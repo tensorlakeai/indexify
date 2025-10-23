@@ -65,6 +65,9 @@ class FunctionExecutorTerminationReason(
     FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: _ClassVar[
         FunctionExecutorTerminationReason
     ]
+    FUNCTION_EXECUTOR_TERMINATION_REASON_OOM: _ClassVar[
+        FunctionExecutorTerminationReason
+    ]
 
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -91,6 +94,7 @@ class AllocationFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper)
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: _ClassVar[
         AllocationFailureReason
     ]
+    ALLOCATION_FAILURE_REASON_OOM: _ClassVar[AllocationFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -125,6 +129,7 @@ FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: FunctionExecutorTerminati
 FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: (
     FunctionExecutorTerminationReason
 )
+FUNCTION_EXECUTOR_TERMINATION_REASON_OOM: FunctionExecutorTerminationReason
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
@@ -140,6 +145,7 @@ ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_REQUEST_ERROR: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_OOM: AllocationFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = (

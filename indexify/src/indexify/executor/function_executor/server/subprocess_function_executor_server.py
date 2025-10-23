@@ -1,10 +1,12 @@
 import asyncio
-from typing import Any
+from typing import Any, override
 
 import grpc
 
 from .client_configuration import GRPC_CHANNEL_OPTIONS
-from .function_executor_server import FunctionExecutorServer
+from .function_executor_server import (
+    FunctionExecutorServer,
+)
 
 
 class SubprocessFunctionExecutorServer(FunctionExecutorServer):
@@ -20,5 +22,6 @@ class SubprocessFunctionExecutorServer(FunctionExecutorServer):
         self._port = port
         self._address = address
 
+    @override
     async def create_channel(self, logger: Any) -> grpc.aio.Channel:
         return grpc.aio.insecure_channel(self._address, options=GRPC_CHANNEL_OPTIONS)
