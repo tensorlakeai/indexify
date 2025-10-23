@@ -1,6 +1,4 @@
-import datetime
 import os
-import uuid
 from typing import Any
 
 import httpx
@@ -14,28 +12,6 @@ from .metrics.executor import (
 ENVIRONMENT_EVENT_COLLECTOR_URL = os.environ.get("TENSORLAKE_EVENT_COLLECTOR_URL")
 
 
-def new_cloud_event(
-    event: dict[str, Any], source: str = "/tensorlake/executor"
-) -> dict[str, Any]:
-    """
-    Creates a new CloudEvent from the given event dictionary.
-    """
-    event_dict = {
-        "specversion": "1.0",
-        "id": str(uuid.uuid4()),
-        "timestamp": current_time(),
-        "type": "ai.tensorlake.event",
-        "datacontenttype": "application/json",
-        "source": source,
-        "data": event,
-    }
-    return event_dict
-
-
-def current_time() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
-
-
 class Resource(BaseModel):
     namespace: str
     application: str
@@ -43,7 +19,6 @@ class Resource(BaseModel):
     executor_id: str
     fn_executor_id: str
     fn: str
-    container_id: str | None = None
 
 
 class EventCollector:

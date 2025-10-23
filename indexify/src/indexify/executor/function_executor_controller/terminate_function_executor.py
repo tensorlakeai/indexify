@@ -1,9 +1,8 @@
 import asyncio
-from typing import Any, List, Optional
+from typing import Any
 
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.proto.executor_api_pb2 import (
-    Allocation,
     FunctionExecutorTerminationReason,
 )
 
@@ -12,7 +11,7 @@ from .events import FunctionExecutorTerminated
 
 
 async def terminate_function_executor(
-    function_executor: Optional[FunctionExecutor],
+    function_executor: FunctionExecutor | None,
     lock: asyncio.Lock,
     fe_termination_reason: FunctionExecutorTerminationReason,
     allocation_ids_caused_termination: list[str],
@@ -28,7 +27,7 @@ async def terminate_function_executor(
     """
     logger = logger.bind(module=__name__)
 
-    if function_executor is not None:
+    if function_executor:
         async with lock:
             logger.info(
                 "destroying function executor",
