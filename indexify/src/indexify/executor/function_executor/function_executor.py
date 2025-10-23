@@ -131,8 +131,8 @@ class FunctionExecutor:
                     stub,
                     initialize_request,
                     customer_code_timeout_sec,
-                    self._logger,
                     self._server,
+                    self._logger,
                 )
         except Exception:
             await self.destroy()
@@ -313,7 +313,6 @@ async def _collect_server_info(stub: FunctionExecutorStub) -> None:
 
 
 async def _initialize_server(
-    self,
     stub: FunctionExecutorStub,
     initialize_request: InitializeRequest,
     customer_code_timeout_sec: float,
