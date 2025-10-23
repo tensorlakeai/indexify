@@ -4,7 +4,6 @@ from indexify.executor.function_executor.function_executor import (
     FunctionExecutor,
 )
 from indexify.proto.executor_api_pb2 import (
-    Allocation,
     FunctionExecutorTerminationReason,
 )
 
@@ -63,27 +62,23 @@ class FunctionExecutorTerminated(BaseEvent):
         self,
         is_success: bool,
         fe_termination_reason: FunctionExecutorTerminationReason,
-        allocations_caused_termination: list[Allocation],
+        allocation_ids_caused_termination: list[str],
     ):
         super().__init__(EventType.FUNCTION_EXECUTOR_TERMINATED)
         self.is_success: bool = is_success
         self.fe_termination_reason: FunctionExecutorTerminationReason = (
             fe_termination_reason
         )
-        self.allocations_caused_termination: list[Allocation] = (
-            allocations_caused_termination
+        self.allocation_ids_caused_termination: list[str] = (
+            allocation_ids_caused_termination
         )
 
     def __str__(self) -> str:
-        allocation_ids: list[str] = [
-            allocation.allocation_id
-            for allocation in self.allocations_caused_termination
-        ]
         return (
             f"Event(type={self.event_type.name}, "
             f"is_success={self.is_success}, "
             f"fe_termination_reason={FunctionExecutorTerminationReason.Name(self.fe_termination_reason)}, "
-            f"allocation_ids_caused_termination={allocation_ids})"
+            f"allocation_ids_caused_termination={self.allocation_ids_caused_termination})"
         )
 
 

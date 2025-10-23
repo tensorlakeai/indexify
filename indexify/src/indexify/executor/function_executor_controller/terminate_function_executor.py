@@ -15,7 +15,7 @@ async def terminate_function_executor(
     function_executor: Optional[FunctionExecutor],
     lock: asyncio.Lock,
     fe_termination_reason: FunctionExecutorTerminationReason,
-    allocations_caused_termination: list[Allocation],
+    allocation_ids_caused_termination: list[str],
     logger: Any,
 ) -> FunctionExecutorTerminated:
     """Destroys the function executor if it's not None.
@@ -46,5 +46,5 @@ async def terminate_function_executor(
     return FunctionExecutorTerminated(
         is_success=True,
         fe_termination_reason=fe_termination_reason,
-        allocations_caused_termination=allocations_caused_termination,
+        allocation_ids_caused_termination=allocation_ids_caused_termination,
     )

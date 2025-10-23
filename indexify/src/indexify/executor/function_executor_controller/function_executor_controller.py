@@ -497,13 +497,15 @@ class FunctionExecutorController:
             # This prevents infinite retries if FEs consistently fail to start up.
             # The allocations we marked here also need to not used FE terminated failure reason in their outputs
             # because FE terminated means that the allocation wasn't the cause of the FE termination.
-            allocations_caused_termination: list[Allocation] = []
+            allocation_ids_caused_termination: list[str] = []
             for alloc_info in self._allocations.values():
                 alloc_logger = allocation_logger(alloc_info.allocation, self._logger)
                 alloc_logger.info(
                     "marking allocation failed on function executor startup failure"
                 )
-                allocations_caused_termination.append(alloc_info.allocation)
+                allocation_ids_caused_termination.append(
+                    alloc_info.allocation.allocation_id
+                )
                 alloc_info.output = AllocationOutput.function_executor_startup_failed(
                     allocation=alloc_info.allocation,
                     fe_termination_reason=event.fe_termination_reason,
@@ -511,7 +513,7 @@ class FunctionExecutorController:
                 )
             self._start_termination(
                 fe_termination_reason=event.fe_termination_reason,
-                allocations_caused_termination=allocations_caused_termination,
+                allocation_ids_caused_termination=allocation_ids_caused_termination,
             )
             return
 
@@ -549,10 +551,7 @@ class FunctionExecutorController:
                 description=self._fe_description,
                 status=FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_TERMINATED,
                 termination_reason=event.fe_termination_reason,
-                allocation_ids_caused_termination=[
-                    allocation.allocation_id
-                    for allocation in event.allocations_caused_termination
-                ],
+                allocation_ids_caused_termination=event.allocation_ids_caused_termination,
             )
         )
         self._update_internal_state(_FE_CONTROLLER_STATE.TERMINATED)
@@ -583,8 +582,9 @@ class FunctionExecutorController:
 
         self._start_termination(
             fe_termination_reason=fe_termination_reason,
-            allocations_caused_termination=[
-                alloc_info.allocation for alloc_info in self._running_allocations
+            allocation_ids_caused_termination=[
+                alloc_info.allocation.allocation_id
+                for alloc_info in self._running_allocations
             ],
         )
 
@@ -723,7 +723,7 @@ class FunctionExecutorController:
         else:
             self._start_termination(
                 fe_termination_reason=event.function_executor_termination_reason,
-                allocations_caused_termination=[alloc_info.allocation],
+                allocation_ids_caused_termination=[alloc_info.allocation.allocation_id],
             )
 
         if alloc_info.output is None:
@@ -791,7 +791,7 @@ class FunctionExecutorController:
     def _start_termination(
         self,
         fe_termination_reason: FunctionExecutorTerminationReason,
-        allocations_caused_termination: list[Allocation],
+        allocation_ids_caused_termination: list[str],
     ) -> None:
         """Starts termination of the Function Executor if it's not started yet.
 
@@ -810,7 +810,7 @@ class FunctionExecutorController:
             function_executor=self._fe,
             lock=self._destroy_lock,
             fe_termination_reason=fe_termination_reason,
-            allocations_caused_termination=allocations_caused_termination,
+            allocation_ids_caused_termination=allocation_ids_caused_termination,
             logger=self._logger,
         )
         self._spawn_aio_for_fe(
@@ -818,7 +818,7 @@ class FunctionExecutorController:
             on_exception=FunctionExecutorTerminated(
                 is_success=False,
                 fe_termination_reason=fe_termination_reason,
-                allocations_caused_termination=allocations_caused_termination,
+                allocation_ids_caused_termination=allocation_ids_caused_termination,
             ),
         )
 
