@@ -169,6 +169,7 @@ impl FunctionRunCreator {
                     function_name: function_run.name.clone(),
                     payload: request_error_payload.clone(),
                 });
+                function_run.request_error = Some(request_error_payload.clone());
             }
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
             let mut scheduler_update = SchedulerUpdateRequest::default();
@@ -223,7 +224,7 @@ impl FunctionRunCreator {
                     };
 
                     let mut last_function_call =
-                        create_function_call_from_reduce_op(reduce_op, first_arg, second_arg);
+                        create_function_call_from_reduce_op(reduce_op, first_arg, second_arg, None);
                     scheduler_update
                         .add_function_call(last_function_call.clone(), &mut request_ctx);
                     // Ordering of arguments is important. When we reduce "a, b, c, d"
@@ -236,6 +237,7 @@ impl FunctionRunCreator {
                                 last_function_call.function_call_id.clone(),
                             ),
                             arg,
+                            None,
                         );
                         scheduler_update.add_function_call(function_call.clone(), &mut request_ctx);
                         last_function_call = function_call.clone();
@@ -343,6 +345,7 @@ fn create_function_call_from_reduce_op(
     reduce_op: &ReduceOperation,
     first_arg: FunctionArgs,
     second_arg: FunctionArgs,
+    parent_function_call_id: Option<FunctionCallId>,
 ) -> FunctionCall {
     let inputs = vec![first_arg, second_arg];
     FunctionCall {
@@ -350,6 +353,7 @@ fn create_function_call_from_reduce_op(
         inputs,
         fn_name: reduce_op.fn_name.clone(),
         call_metadata: reduce_op.call_metadata.clone(),
+        parent_function_call_id,
     }
 }
 

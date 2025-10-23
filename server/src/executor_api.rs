@@ -3,7 +3,13 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
+use std::{
+    collections::{HashMap, HashSet},
+    pin::Pin,
+    sync::Arc,
+    time::Instant,
+    vec,
+};
 
 use anyhow::Result;
 use executor_api_pb::{
@@ -52,6 +58,7 @@ use crate::{
         FunctionExecutorTerminationReason,
     },
     executors::ExecutorManager,
+    pb_helpers::blob_store_url_to_path,
     state_store::{
         IndexifyState,
         requests::{
@@ -112,21 +119,6 @@ impl TryFrom<HostResources> for data_model::HostResources {
             disk_bytes: disk,
             gpu,
         })
-    }
-}
-
-impl TryFrom<String> for DataPayloadEncoding {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
-            "application/json" => Ok(DataPayloadEncoding::Utf8Json),
-            "application/python-pickle" => Ok(DataPayloadEncoding::BinaryPickle),
-            "application/zip" => Ok(DataPayloadEncoding::BinaryZip),
-            "text/plain" => Ok(DataPayloadEncoding::Utf8Text),
-            // User supplied content type for tensorlake.File.
-            _ => Ok(DataPayloadEncoding::Raw),
-        }
     }
 }
 
@@ -436,6 +428,7 @@ fn to_internal_function_call(
     function_call: executor_api_pb::FunctionCall,
     blob_store_url_scheme: &str,
     blob_store_url: &str,
+    source_function_call_id: Option<String>,
 ) -> Result<data_model::FunctionCall, anyhow::Error> {
     Ok(data_model::FunctionCall {
         function_call_id: FunctionCallId(
@@ -452,6 +445,7 @@ fn to_internal_function_call(
             .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
         call_metadata: function_call.call_metadata.unwrap_or_default().into(),
+        parent_function_call_id: source_function_call_id.map(FunctionCallId::from),
     })
 }
 
@@ -487,14 +481,18 @@ fn to_internal_compute_op(
     compute_op: executor_api_pb::ExecutionPlanUpdate,
     blob_store_url_scheme: &str,
     blob_store_url: &str,
+    source_function_call_id: Option<String>,
 ) -> Result<data_model::ComputeOp, anyhow::Error> {
     let op = compute_op.op.ok_or(anyhow::anyhow!("op is required"))?;
     match op {
-        executor_api_pb::execution_plan_update::Op::FunctionCall(function_call) => {
-            Ok(data_model::ComputeOp::FunctionCall(
-                to_internal_function_call(function_call, blob_store_url_scheme, blob_store_url)?,
-            ))
-        }
+        executor_api_pb::execution_plan_update::Op::FunctionCall(function_call) => Ok(
+            data_model::ComputeOp::FunctionCall(to_internal_function_call(
+                function_call,
+                blob_store_url_scheme,
+                blob_store_url,
+                source_function_call_id,
+            )?),
+        ),
         executor_api_pb::execution_plan_update::Op::Reduce(reduce) => {
             Ok(data_model::ComputeOp::Reduce(to_internal_reduce_op(
                 reduce,
@@ -597,6 +595,7 @@ impl ExecutorAPIService {
                                 update,
                                 &blob_storage_url_schema,
                                 &blob_storage_url,
+                                None,
                             )?);
                         }
                         request_updates = Some(RequestUpdates {
@@ -641,6 +640,12 @@ impl ExecutorAPIService {
                     }
                     executor_api_pb::AllocationFailureReason::Oom => {
                         Some(FunctionRunFailureReason::OutOfMemory)
+                    }
+                    executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable => {
+                        Some(FunctionRunFailureReason::ConstraintUnsatisfiable)
+                    }
+                    executor_api_pb::AllocationFailureReason::ExecutorRemoved => {
+                        Some(FunctionRunFailureReason::ExecutorRemoved)
                     }
                 },
                 None => None,
@@ -797,6 +802,13 @@ impl ExecutorApi for ExecutorAPIService {
             .clone()
             .ok_or(Status::invalid_argument("executor_update is required"))?;
 
+        let watch_function_call_ids = request
+            .get_ref()
+            .watch_function_call_ids
+            .clone()
+            .into_iter()
+            .collect::<HashSet<_>>();
+
         trace!(
             executor_id = executor_id.get(),
             "Got report_executor_state request"
@@ -820,6 +832,7 @@ impl ExecutorApi for ExecutorAPIService {
             executor_metadata,
             allocation_outputs,
             update_executor_state,
+            watch_function_call_ids,
             self.indexify_state.clone(),
         )
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -951,79 +964,4 @@ fn prepare_data_payload(
         .offset(offset)
         .build()
         .map_err(|e| anyhow::anyhow!("failed to build data payload: {e}"))
-}
-
-pub fn blob_store_path_to_url(
-    path: &str,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
-) -> String {
-    if blob_store_url_scheme == "file" {
-        // Local file blob store implementation is always using absolute paths without
-        // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        format!("{blob_store_url_scheme}:///{path}")
-    } else if blob_store_url_scheme == "s3" {
-        // S3 blob store implementation uses paths relative to its bucket from
-        // blob_store_url.
-        format!(
-            "{}://{}/{}",
-            blob_store_url_scheme,
-            bucket_name_from_s3_blob_store_url(blob_store_url),
-            path
-        )
-    } else {
-        format!("not supported blob store scheme: {blob_store_url_scheme}")
-    }
-}
-
-pub fn blob_store_url_to_path(
-    url: &str,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
-) -> String {
-    if blob_store_url_scheme == "file" {
-        // Local file blob store implementation is always using absolute paths without
-        // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        url.strip_prefix(&format!("{blob_store_url_scheme}:///").to_string())
-            // The url doesn't include blob_store_scheme if this payload was uploaded to server
-            // instead of directly to blob storage.
-            .unwrap_or(url)
-            .to_string()
-    } else if blob_store_url_scheme == "s3" {
-        // S3 blob store implementation uses paths relative to its bucket from
-        // blob_store_url.
-        url.strip_prefix(
-            &format!(
-                "{}://{}/",
-                blob_store_url_scheme,
-                bucket_name_from_s3_blob_store_url(blob_store_url)
-            )
-            .to_string(),
-        )
-        // The url doesn't include blob_store_url if this payload was uploaded to server instead
-        // of directly to blob storage.
-        .unwrap_or(url)
-        .to_string()
-    } else {
-        format!("not supported blob store scheme: {blob_store_url_scheme}")
-    }
-}
-
-fn bucket_name_from_s3_blob_store_url(blob_store_url: &str) -> String {
-    match url::Url::parse(blob_store_url) {
-        Ok(url) => match url.host_str() {
-            Some(bucket) => bucket.into(),
-            None => {
-                error!("Didn't find bucket name in S3 url: {}", blob_store_url);
-                String::new()
-            }
-        },
-        Err(e) => {
-            error!(
-                "Failed to parse blob_store_url: {}. Error: {}",
-                blob_store_url, e
-            );
-            String::new()
-        }
-    }
 }
