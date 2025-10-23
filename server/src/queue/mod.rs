@@ -1,8 +1,10 @@
-use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+use tracing::info;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum QueueBackend {
     #[default]
     InMemory,
@@ -24,12 +26,20 @@ impl Queue {
     pub async fn new(config: QueueConfig) -> anyhow::Result<Self> {
         let producer = match &config.backend {
             QueueBackend::InMemory => {
-                omniqueue::backends::InMemoryBackend::builder()
+                info!("using in-memory queue backend");
+
+                // We have to build the pair because the in-memory backend
+                // does not allow instantiating a single half
+                let (producer, _) = omniqueue::backends::InMemoryBackend::builder()
                     .make_dynamic()
-                    .build_producer()
-                    .await?
+                    .build_pair()
+                    .await?;
+
+                producer
             }
             QueueBackend::AmazonSqs { queue_url } => {
+                info!("using sqs queue config with url: {queue_url}");
+
                 let sqs_config = omniqueue::backends::SqsConfig {
                     queue_dsn: queue_url.clone(),
                     override_endpoint: false,

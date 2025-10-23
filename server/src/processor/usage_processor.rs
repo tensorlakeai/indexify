@@ -8,10 +8,10 @@ use strum::Display;
 use tokio::sync::Notify;
 use tracing::{error, info, instrument};
 
-use crate::queue::Queue;
 use crate::{
     data_model::AllocationUsage,
     metrics::{Timer, low_latency_boundaries},
+    queue::Queue,
     state_store::{IndexifyState, driver::Writer, state_machine},
 };
 
@@ -178,7 +178,7 @@ impl UsageProcessor {
     async fn send_to_queue(&self, event: AllocationUsage) -> Result<()> {
         let usage_event = UsageEvent::try_from(event)?;
 
-        if let Err(error) =self.queue.send_json(&usage_event).await {
+        if let Err(error) = self.queue.send_json(&usage_event).await {
             error!(
                 %error,
                 "error sending usage event to queue"
@@ -216,7 +216,8 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         let mut usage_entries = Vec::new();
 
         if allocation_usage.cpu_ms_per_second > 0 {
-            let cpu_amount = allocation_usage.cpu_ms_per_second as u64 * allocation_usage.execution_duration_ms;
+            let cpu_amount =
+                allocation_usage.cpu_ms_per_second as u64 * allocation_usage.execution_duration_ms;
             let cpu_amount = cpu_amount / 1000;
 
             let cpu_usage = ApplicationResourceUsageBuilder::default()
@@ -231,7 +232,8 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         }
 
         if allocation_usage.disk_mb > 0 {
-            let disk_amount = allocation_usage.disk_mb as u64 * allocation_usage.execution_duration_ms;
+            let disk_amount =
+                allocation_usage.disk_mb as u64 * allocation_usage.execution_duration_ms;
             let disk_amount = disk_amount / 1000;
 
             let disk_usage = ApplicationResourceUsageBuilder::default()
@@ -246,7 +248,8 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         }
 
         if allocation_usage.memory_mb > 0 {
-            let memory_amount = allocation_usage.memory_mb as u64 * allocation_usage.execution_duration_ms;
+            let memory_amount =
+                allocation_usage.memory_mb as u64 * allocation_usage.execution_duration_ms;
             let memory_amount = memory_amount / 1000;
 
             let memory_usage = ApplicationResourceUsageBuilder::default()
@@ -313,15 +316,6 @@ pub enum ApplicationsResourceType {
     DiskMb,
     Gpu(Vec<GpuModel>),
     MemoryMb,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, Hash)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum ApplicationsResourceUnit {
-    MbSeconds,
-    Seconds,
-    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display, PartialEq, Eq, Hash)]
