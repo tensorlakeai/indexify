@@ -17,13 +17,16 @@ use crate::{
 
 pub struct UsageProcessor {
     indexify_state: Arc<IndexifyState>,
-    queue: Arc<Queue>,
+    queue: Arc<Option<Queue>>,
     processing_latency: Histogram<f64>,
     max_attempts: u8,
 }
 
 impl UsageProcessor {
-    pub async fn new(queue: Arc<Queue>, indexify_state: Arc<IndexifyState>) -> Result<Self> {
+    pub async fn new(
+        queue: Arc<Option<Queue>>,
+        indexify_state: Arc<IndexifyState>,
+    ) -> Result<Self> {
         let meter = opentelemetry::global::meter("usage_processor_metrics");
 
         let processing_latency = meter
@@ -98,6 +101,7 @@ impl UsageProcessor {
             cursor.replace(c);
         };
 
+        let mut failed_submission_cursor: Option<Vec<u8>> = None;
         let mut processed_events = Vec::new();
         for event in events {
             if let Err(error) = self.send_to_queue(event.clone()).await {
@@ -109,6 +113,12 @@ impl UsageProcessor {
                     request_id = %event.request_id,
                     "error processing allocation usage event"
                 );
+
+                if failed_submission_cursor.is_none() {
+                    failed_submission_cursor = Some(event.key().to_vec());
+                }
+
+                break;
             } else {
                 processed_events.push(event);
             }
@@ -122,6 +132,10 @@ impl UsageProcessor {
         if !processed_events.is_empty() {
             self.remove_and_commit_with_backoff(processed_events)
                 .await?;
+        }
+
+        if let Some(failed_cursor) = failed_submission_cursor {
+            cursor.replace(failed_cursor);
         }
 
         notify.notify_one();
@@ -176,14 +190,15 @@ impl UsageProcessor {
     }
 
     async fn send_to_queue(&self, event: AllocationUsage) -> Result<()> {
-        let usage_event = UsageEvent::try_from(event)?;
+        let queue = match self.queue.as_ref() {
+            Some(q) => q,
+            None => {
+                return Ok(());
+            }
+        };
 
-        if let Err(error) = self.queue.send_json(&usage_event).await {
-            error!(
-                %error,
-                "error sending usage event to queue"
-            );
-        }
+        let usage_event = UsageEvent::try_from(event)?;
+        queue.send_json(&usage_event).await?;
 
         Ok(())
     }

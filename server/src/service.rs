@@ -120,7 +120,17 @@ impl Service {
         ));
         application_processor.validate_app_constraints().await?;
 
-        let usage_queue = Arc::new(Queue::new(config.usage_queue.clone()).await?);
+        let usage_queue = match config.usage_queue.as_ref() {
+            None => {
+                return Err(anyhow::anyhow!(
+                    "usage queue configuration is required for usage processing"
+                ));
+            }
+            Some(usage_queue_cfg) => {
+                let queue = Queue::new(usage_queue_cfg.clone()).await?;
+                Arc::new(Some(queue))
+            }
+        };
 
         let usage_processor =
             Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);

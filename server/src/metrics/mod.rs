@@ -292,6 +292,42 @@ pub mod kv_storage {
     }
 }
 
+pub mod queue {
+    use opentelemetry::metrics::Counter;
+
+    pub struct Metrics {
+        pub messages_sent: Counter<u64>,
+        pub send_errors: Counter<u64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Metrics {
+        pub fn new() -> Self {
+            let meter = opentelemetry::global::meter("queue");
+
+            let messages_sent = meter
+                .u64_counter("indexify.queue_messages_sent")
+                .with_description("Number of messages successfully sent to the queue")
+                .build();
+
+            let send_errors = meter
+                .u64_counter("indexify.queue_send_errors")
+                .with_description("Number of errors encountered when sending messages to the queue")
+                .build();
+
+            Self {
+                messages_sent,
+                send_errors,
+            }
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct StateStoreMetrics {
