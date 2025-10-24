@@ -53,9 +53,7 @@ pub fn fn_call_outcome_to_pb(
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
             }
-            FunctionRunFailureReason::OutOfMemory => {
-                executor_api_pb::AllocationFailureReason::Oom
-            }
+            FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
             FunctionRunFailureReason::ExecutorRemoved => {
                 executor_api_pb::AllocationFailureReason::ExecutorRemoved
             }
