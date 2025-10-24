@@ -538,15 +538,12 @@ impl FunctionExecutorManager {
         let selected_fe = function_executors.function_executors.first().map(|fe| {
             debug!(
                 target: targets::SCHEDULER,
-                executor_id = fe.metadata.executor_id.get(),
-                fn_executor_id = fe.metadata.function_executor.id.get(),
+                executor_id = %fe.executor_id,
+                function_executor_id = %fe.function_executor_id,
                 allocation_count = fe.allocation_count,
                 "selected function executor with least allocations",
             );
-            AllocationTarget::new(
-                fe.metadata.executor_id.clone(),
-                fe.metadata.function_executor.id.clone(),
-            )
+            AllocationTarget::new(fe.executor_id.clone(), fe.function_executor_id.clone())
         });
 
         Ok((selected_fe, update))

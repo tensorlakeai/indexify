@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
 };
@@ -112,9 +112,10 @@ pub struct DesiredExecutorState {
     pub clock: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CandidateFunctionExecutor {
-    pub metadata: Box<FunctionExecutorServerMetadata>,
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
     pub allocation_count: usize,
 }
 
@@ -130,18 +131,13 @@ impl Ord for CandidateFunctionExecutor {
         // Then by executor_id and function_executor_id for consistent ordering
         self.allocation_count
             .cmp(&other.allocation_count)
-            .then_with(|| self.metadata.executor_id.cmp(&other.metadata.executor_id))
-            .then_with(|| {
-                self.metadata
-                    .function_executor
-                    .id
-                    .cmp(&other.metadata.function_executor.id)
-            })
+            .then_with(|| self.executor_id.cmp(&other.executor_id))
+            .then_with(|| self.function_executor_id.cmp(&other.function_executor_id))
     }
 }
 
 pub struct CandidateFunctionExecutors {
-    pub function_executors: std::collections::BTreeSet<CandidateFunctionExecutor>,
+    pub function_executors: BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
 }
 
@@ -1106,23 +1102,23 @@ impl InMemoryState {
         function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
-        let mut candidates = std::collections::BTreeSet::new();
+        let mut candidates = BTreeSet::new();
+
         let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
-            for function_executor_kv in function_executors.iter() {
-                let function_executor = function_executor_kv.1;
-                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
-                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+            for (_, metadata) in function_executors.iter() {
+                if metadata.function_executor.state == FunctionExecutorState::Pending ||
+                    metadata.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
                 if matches!(
-                    function_executor.desired_state,
+                    metadata.desired_state,
                     FunctionExecutorState::Terminated { .. }
                 ) || matches!(
-                    function_executor.function_executor.state,
+                    metadata.function_executor.state,
                     FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
@@ -1130,15 +1126,16 @@ impl InMemoryState {
                 // FIXME - Create a reverse index of fe_id -> # active allocations
                 let allocation_count = self
                     .allocations_by_executor
-                    .get(&function_executor.executor_id)
-                    .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
+                    .get(&metadata.executor_id)
+                    .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
                 if (allocation_count as u32) <
-                    capacity_threshold * function_executor.function_executor.max_concurrency
+                    capacity_threshold * metadata.function_executor.max_concurrency
                 {
                     candidates.insert(CandidateFunctionExecutor {
-                        metadata: function_executor.clone(),
+                        executor_id: metadata.executor_id.clone(),
+                        function_executor_id: metadata.function_executor.id.clone(),
                         allocation_count,
                     });
                 }
@@ -1858,20 +1855,14 @@ mod tests {
 
         // Test 1: Lower allocation count comes first
         let candidate_1 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_1.clone(),
-                function_executor: fe_1.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
             allocation_count: 5,
         };
 
         let candidate_2 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_1.clone(),
-                function_executor: fe_1.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
             allocation_count: 10,
         };
 
@@ -1880,20 +1871,14 @@ mod tests {
 
         // Test 2: Same allocation count, executor_id determines order
         let candidate_3 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_1.clone(),
-                function_executor: fe_1.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
             allocation_count: 5,
         };
 
         let candidate_4 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_2.clone(),
-                function_executor: fe_1.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_2.clone(),
+            function_executor_id: fe_1.id.clone(),
             allocation_count: 5,
         };
 
@@ -1902,20 +1887,14 @@ mod tests {
         // Test 3: Same allocation count and executor_id, function_executor_id
         // determines order
         let candidate_5 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_1.clone(),
-                function_executor: fe_1.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
             allocation_count: 5,
         };
 
         let candidate_6 = CandidateFunctionExecutor {
-            metadata: Box::new(FunctionExecutorServerMetadata {
-                executor_id: executor_id_1.clone(),
-                function_executor: fe_2.clone(),
-                desired_state: FunctionExecutorState::Running,
-            }),
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_2.id.clone(),
             allocation_count: 5,
         };
 
@@ -1929,7 +1908,8 @@ mod tests {
 
         let first = candidates.first().unwrap();
         assert_eq!(first.allocation_count, 5);
-        assert_eq!(first.metadata.function_executor.id, fe_id_1);
+        assert_eq!(first.function_executor_id, fe_id_1);
+        assert_eq!(first.executor_id, executor_id_1);
 
         let last = candidates.last().unwrap();
         assert_eq!(last.allocation_count, 10);

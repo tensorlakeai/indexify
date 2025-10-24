@@ -37,7 +37,7 @@ pub struct ExecutorId(String);
 
 impl Display for ExecutorId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", &self.0)
     }
 }
 
@@ -1303,6 +1303,12 @@ impl Default for FunctionExecutorId {
 impl From<&str> for FunctionExecutorId {
     fn from(s: &str) -> Self {
         Self::new(s.to_string())
+    }
+}
+
+impl fmt::Display for FunctionExecutorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.0)
     }
 }
 
