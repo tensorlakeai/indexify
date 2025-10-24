@@ -7,18 +7,37 @@ import grpc
 FUNCTION_EXECUTOR_SERVER_READY_TIMEOUT_SEC = 5
 
 
+class FunctionExecutorServerStatus:
+    def __init__(self, running: bool, oom_killed: bool):
+        self.running: bool = running
+        self.oom_killed: bool = oom_killed
+
+
 class FunctionExecutorServer:
-    """Abstract interface for a Function Executor Server.
+    """
+    Abstract interface for a Function Executor Server.
 
     FunctionExecutorServer is a class that executes tasks for a particular function.
     The communication with FunctionExecutorServer is typicall done via gRPC.
     """
 
     async def create_channel(self, logger: Any) -> grpc.aio.Channel:
-        """Creates a new async gRPC channel to the Function Executor Server.
+        """
+        Creates a new async gRPC channel to the Function Executor Server.
 
         The channel is in ready state. It can only be used in the same thread where the
         function was called. Caller should close the channel when it's no longer needed.
 
-        Raises Exception if an error occurred."""
+        Raises Exception if an error occurred.
+        """
         raise NotImplementedError
+
+    async def status(self) -> FunctionExecutorServerStatus:
+        """
+        Returns the status information about the Function Executor Server.
+        By default, it returns a status with running=False and oom_killed=False.
+
+        Classes that inherit from FunctionExecutorServer should override this method to provide
+        their own implementation.
+        """
+        return FunctionExecutorServerStatus(running=False, oom_killed=False)

@@ -23,8 +23,8 @@ class Resource(BaseModel):
 
 class EventCollector:
     def __init__(self, collector_url: str | None = ENVIRONMENT_EVENT_COLLECTOR_URL):
-        self._collector_url: str = collector_url
-        self._client = httpx.Client()
+        self._collector_url: str | None = collector_url
+        self._client: httpx.Client = httpx.Client()
 
     def push_event(
         self, resource: Resource, event: dict[str, Any], logger: Any
