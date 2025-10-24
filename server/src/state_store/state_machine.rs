@@ -1,9 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use strum::AsRefStr;
 use tracing::{debug, info, info_span, trace, warn};
 
@@ -11,8 +14,12 @@ use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
         Allocation,
+        AllocationUsage,
+        AllocationUsageBuilder,
+        AllocationUsageId,
         Application,
         ApplicationVersion,
+        FunctionRunOutcome,
         GcUrl,
         GcUrlBuilder,
         NamespaceBuilder,
@@ -20,7 +27,7 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Reader, Transaction, Writer},
+        driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
             AllocationOutput,
             DeleteRequestRequest,
@@ -29,7 +36,7 @@ use crate::{
             SchedulerUpdateRequest,
         },
     },
-    utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
@@ -47,6 +54,7 @@ pub enum IndexifyObjectsColumns {
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
+    AllocationUsage,         // Allocation Usage ID -> Allocation Usage
 
     GcUrls, // List of URLs pending deletion
 
@@ -119,6 +127,74 @@ pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> R
         allocation.key().as_bytes(),
         &serialized_allocation,
     )?;
+
+    Ok(())
+}
+
+pub(crate) fn record_allocation_usage(
+    txn: &Transaction,
+    usage_event_sequence_id: &AtomicU64,
+    allocation: &Allocation,
+) -> Result<()> {
+    if !matches!(allocation.outcome, FunctionRunOutcome::Success) {
+        return Ok(());
+    }
+
+    let Some(execution_duration_ms) = allocation.execution_duration_ms else {
+        warn!(
+            allocation_id = %allocation.id,
+            fn_call_id = allocation.function_call_id.to_string(),
+            "Allocation usage_ms is None, skipping recording usage",
+        );
+        return Ok(());
+    };
+
+    let application = txn
+        .get(
+            IndexifyObjectsColumns::Applications.as_ref(),
+            Application::key_from(&allocation.namespace, &allocation.application),
+        )?
+        .ok_or(anyhow!("Application not found for allocation"))?;
+
+    let application = JsonEncoder::decode::<Application>(&application)?;
+
+    let function = application
+        .functions
+        .get(&allocation.function)
+        .ok_or(anyhow!("Function not found in application for allocation"))?;
+
+    let allocation_usage = AllocationUsageBuilder::default()
+        .id(AllocationUsageId::new(
+            usage_event_sequence_id.fetch_add(1, Ordering::Relaxed),
+        ))
+        .namespace(allocation.namespace.clone())
+        .application(allocation.application.clone())
+        .request_id(allocation.request_id.clone())
+        .allocation_id(allocation.id.clone())
+        .execution_duration_ms(execution_duration_ms)
+        .cpu_ms_per_second(function.resources.cpu_ms_per_sec)
+        .memory_mb(function.resources.memory_mb)
+        .disk_mb(function.resources.ephemeral_disk_mb)
+        .gpu_used(function.resources.gpu_configs.clone())
+        .build()?;
+
+    let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
+    txn.put(
+        IndexifyObjectsColumns::AllocationUsage.as_ref(),
+        allocation_usage.key(),
+        &serialized_usage,
+    )?;
+
+    info!(
+        allocation_id = %allocation.id,
+        application = %allocation.application,
+        namespace = %allocation.namespace,
+        request_id = %allocation.request_id,
+        function = %allocation.function,
+        fn_call_id = allocation.function_call_id.to_string(),
+        "recorded allocation usage"
+    );
+
     Ok(())
 }
 
@@ -452,6 +528,9 @@ pub(crate) fn handle_scheduler_update(
             &serialized_graph_ctx,
         )?;
     }
+    for alloc in &request.updated_allocations {
+        upsert_allocation(txn, alloc)?;
+    }
 
     Ok(())
 }
@@ -569,5 +648,24 @@ pub(crate) fn mark_state_changes_processed(
             key,
         )?;
     }
+    Ok(())
+}
+
+pub(crate) fn remove_allocation_usage_events(
+    txn: &Transaction,
+    usage_events: &[AllocationUsage],
+) -> Result<()> {
+    for usage in usage_events {
+        trace!(
+            allocation_id = %usage.allocation_id,
+            namespace = %usage.namespace,
+            application = %usage.application,
+            request_id = %usage.request_id,
+            "removing allocation usage event"
+        );
+        let key = &usage.key();
+        txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)?;
+    }
+
     Ok(())
 }

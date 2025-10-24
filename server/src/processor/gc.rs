@@ -7,8 +7,8 @@ use tracing::{debug, error, info};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     state_store::{
-        requests::{RequestPayload, StateMachineUpdateRequest},
         IndexifyState,
+        requests::{RequestPayload, StateMachineUpdateRequest},
     },
 };
 

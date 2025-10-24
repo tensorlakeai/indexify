@@ -10,6 +10,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material'
+import React from 'react'
 import {
   ApplicationFunction,
   FunctionResources,
@@ -200,7 +201,7 @@ function ApplicationFunctionsTable({
           {applicationFunctionRows
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((row) => (
-              <>
+              <React.Fragment key={row.name}>
                 <TableRow
                   key={row.name}
                   sx={{
@@ -272,7 +273,7 @@ function ApplicationFunctionsTable({
                   <TableCell sx={CELL_STYLES}></TableCell>
                   <TableCell sx={CELL_STYLES}></TableCell>
                 </TableRow>
-              </>
+              </React.Fragment>
             ))}
         </TableBody>
       </Table>

@@ -1,19 +1,20 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use opentelemetry::{metrics::Histogram, KeyValue};
+use opentelemetry::{KeyValue, metrics::Histogram};
 use tokio::sync::Notify;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
-    metrics::{low_latency_boundaries, Timer},
+    metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
         function_run_creator,
         function_run_processor::FunctionRunProcessor,
     },
     state_store::{
+        IndexifyState,
         requests::{
             CreateOrUpdateApplicationRequest,
             DeleteApplicationRequest,
@@ -21,9 +22,8 @@ use crate::{
             RequestPayload,
             StateMachineUpdateRequest,
         },
-        IndexifyState,
     },
-    utils::{get_elapsed_time, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time},
 };
 
 pub struct ApplicationProcessor {
@@ -97,6 +97,7 @@ impl ApplicationProcessor {
         Ok(())
     }
 
+    #[instrument(skip(self, shutdown_rx))]
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
         let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
@@ -123,13 +124,14 @@ impl ApplicationProcessor {
                     }
                 },
                 _ = shutdown_rx.changed() => {
-                    info!("graph processor shutting down");
+                    info!("application processor shutting down");
                     break;
                 }
             }
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn write_sm_update(
         &self,
         cached_state_changes: &mut Vec<StateChange>,
@@ -233,6 +235,7 @@ impl ApplicationProcessor {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub async fn handle_state_change(
         &self,
         state_change: &StateChange,

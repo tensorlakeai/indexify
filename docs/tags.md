@@ -1,9 +1,5 @@
 Unified tags for indexify / PE / FE stack. All events/metrics/spans should use these attribute names when relevant.
 
-- graph - Name of graph. (Deprecated by application)
-- graph_version - Version of the graph (Deprecated by app_version)
-- invocation_id = ID of the invocation. (Deprecated by request_id)
-- task_id - ID of the task. (Deprecated by fn_call_id)
 - app - Name of application.
 - app_version - Version of the application
 - request_id - ID of the request

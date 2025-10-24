@@ -1,12 +1,12 @@
 use anyhow::Result;
 use applications::{applications, delete_application, get_application};
 use axum::{
+    Json,
+    Router,
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json,
-    Router,
 };
 use base64::prelude::*;
 use download::download_request_error;
@@ -35,7 +35,12 @@ use crate::{
     http_objects_v1::{self, Application, ApplicationRequests, ApplicationsList},
     routes::{
         applications::{self, create_or_update_application},
-        download::{self, v1_download_fn_output_payload, v1_download_fn_output_payload_simple},
+        download::{
+            self,
+            v1_download_fn_output_payload,
+            v1_download_fn_output_payload_head,
+            v1_download_fn_output_payload_simple,
+        },
         invoke::{self, progress_stream},
         routes_state::RouteState,
     },
@@ -62,6 +67,8 @@ use crate::{
             applications::delete_application,
             delete_request,
             download::v1_download_fn_output_payload,
+            download::v1_download_fn_output_payload_simple,
+            download::v1_download_fn_output_payload_head,
         ),
         components(
             schemas(
@@ -145,7 +152,9 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/applications/{application}/requests/{request_id}/output",
-            get(v1_download_fn_output_payload_simple).with_state(route_state.clone()),
+            get(v1_download_fn_output_payload_simple)
+                .head(v1_download_fn_output_payload_head)
+                .with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)
@@ -263,26 +272,19 @@ async fn find_request(
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
 
-    let function_run = request_ctx
-        .function_runs
-        .get(&request_id.as_str().into())
-        .ok_or(IndexifyAPIError::not_found("function run not found"))?
-        .clone();
-
     let allocations = state
         .indexify_state
         .reader()
         .get_allocations_by_request_id(&namespace, &application, &request_id)
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let output = function_run.output.clone().map(|output| output.into());
     let request_error = download_request_error(
         request_ctx.request_error.clone(),
         &state.blob_storage.get_blob_store(&namespace),
     )
     .await?;
 
-    let request = http_objects_v1::Request::build(request_ctx, output, request_error, allocations);
+    let request = http_objects_v1::Request::build(request_ctx, request_error, allocations);
 
     Ok(Json(request))
 }

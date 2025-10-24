@@ -4,17 +4,18 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        test_objects::tests::{self, mock_request_ctx, TEST_NAMESPACE},
         Application,
+        test_objects::tests::{self, TEST_NAMESPACE, mock_request_ctx},
     },
     state_store::{
+        IndexifyState,
+        driver::rocksdb::RocksDBConfig,
         requests::{
             CreateOrUpdateApplicationRequest,
             InvokeApplicationRequest,
             RequestPayload,
             StateMachineUpdateRequest,
         },
-        IndexifyState,
     },
 };
 
@@ -27,6 +28,7 @@ impl TestStateStore {
         let temp_dir = tempfile::tempdir()?;
         let indexify_state = IndexifyState::new(
             temp_dir.path().join("state"),
+            RocksDBConfig::default(),
             crate::state_store::ExecutorCatalog::default(),
         )
         .await?;

@@ -15,6 +15,7 @@ use crate::{
         FunctionCall,
         FunctionCallId,
         FunctionRun,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         InputArgs,
@@ -27,9 +28,9 @@ use crate::{
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
+        IndexifyState,
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
-        IndexifyState,
     },
 };
 
@@ -127,7 +128,7 @@ impl FunctionRunCreator {
             &function_run,
         )?);
 
-        let Some(cg_version) = in_memory_state
+        let Some(application_version) = in_memory_state
             .get_existing_application_version(&function_run)
             .cloned()
         else {
@@ -145,7 +146,7 @@ impl FunctionRunCreator {
         FunctionRunRetryPolicy::handle_allocation_outcome(
             &mut function_run,
             &allocation,
-            &cg_version,
+            &application_version,
         );
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
@@ -172,6 +173,17 @@ impl FunctionRunCreator {
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
             let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
+
+            // Mark the other function runs which are still running as cancelled
+            for function_run in request_ctx.function_runs.clone().values_mut() {
+                if function_run.status != FunctionRunStatus::Completed {
+                    function_run.status = FunctionRunStatus::Completed;
+                    function_run.outcome = Some(FunctionRunOutcome::Failure(
+                        FunctionRunFailureReason::FunctionRunCancelled,
+                    ));
+                    scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
+                }
+            }
             return Ok(scheduler_update);
         }
 
@@ -312,7 +324,7 @@ impl FunctionRunCreator {
             if !schedulable {
                 continue;
             }
-            let function_run = cg_version
+            let function_run = application_version
                 .create_function_run(function_call, input_args, &request_ctx.request_id)
                 .unwrap();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);

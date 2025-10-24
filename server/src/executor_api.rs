@@ -7,7 +7,6 @@ use std::{collections::HashMap, pin::Pin, sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
     Allocation,
     AllocationResult,
     AllowedFunction,
@@ -22,12 +21,13 @@ use executor_api_pb::{
     HostResources,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
+    executor_api_server::ExecutorApi,
 };
 use tokio::sync::{
     broadcast::error::RecvError,
     watch::{self, Receiver, Sender},
 };
-use tokio_stream::{wrappers::WatchStream, Stream};
+use tokio_stream::{Stream, wrappers::WatchStream};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -58,6 +58,7 @@ use crate::{
     },
     executors::ExecutorManager,
     state_store::{
+        IndexifyState,
         request_events::{RequestFinishedEvent, RequestStateChangeEvent},
         requests::{
             AllocationOutput,
@@ -67,7 +68,6 @@ use crate::{
             StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
-        IndexifyState,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -340,6 +340,9 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
             FunctionExecutorTerminationReason::FunctionCancelled => {
                 Ok(data_model::FunctionExecutorTerminationReason::FunctionCancelled)
             }
+            FunctionExecutorTerminationReason::Oom => {
+                Ok(data_model::FunctionExecutorTerminationReason::Oom)
+            }
         }
     }
 }
@@ -546,12 +549,18 @@ impl ExecutorAPIService {
                 alloc_result.request_id(),
                 alloc_result.allocation_id(),
             );
-            let mut allocation = self
+            let Some(mut allocation) = self
                 .indexify_state
                 .reader()
                 .get_allocation(&allocation_key)
                 .map_err(|e| Status::internal(e.to_string()))?
-                .ok_or(anyhow::anyhow!("allocation not found"))?;
+            else {
+                warn!(
+                    allocation_key = allocation_key.clone(),
+                    "allocation not found"
+                );
+                return Ok(Vec::new());
+            };
             let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
                 alloc_result.outcome_code.unwrap_or(0),
             )
@@ -637,6 +646,9 @@ impl ExecutorAPIService {
                     }
                     executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
                         Some(FunctionRunFailureReason::FunctionExecutorTerminated)
+                    }
+                    executor_api_pb::AllocationFailureReason::Oom => {
+                        Some(FunctionRunFailureReason::OutOfMemory)
                     }
                 },
                 None => None,
@@ -1075,7 +1087,11 @@ fn prepare_data_payload(
     };
     if let Some(content_type) = msg.content_type.as_ref() {
         // User supplied content type when a function returns tensorlake.File.
-        encoding = content_type.as_str();
+        // FIXME - The executor shouldn't set a content type as empty string
+        // Update: this is fixed but Executor is not deployed yet.
+        if !content_type.is_empty() {
+            encoding = content_type.as_str();
+        }
     }
     let metadata_size = msg.metadata_size.unwrap_or(0);
     let offset = msg.offset.unwrap_or(0);

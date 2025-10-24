@@ -67,6 +67,7 @@ impl From<serde_json::Error> for IndexifyAPIError {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+// TODO: Use #[serde(rename_all = "snake_case")]
 pub enum CursorDirection {
     #[serde(rename = "forward")]
     Forward,
@@ -514,12 +515,58 @@ pub struct CreateNamespace {
     pub blob_storage_region: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateNamespaceResponse {
-    pub name: Namespace,
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum FunctionRunFailureReason {
+    Unknown,
+    InternalError,
+    FunctionError,
+    FunctionTimeout,
+    RequestError,
+    FunctionRunCancelled,
+    FunctionExecutorTerminated,
+    ConstraintUnsatisfiable,
+    ExecutorRemoved,
+    OutOfMemory,
+}
+
+impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
+    fn from(reason: data_model::FunctionRunFailureReason) -> Self {
+        match reason {
+            data_model::FunctionRunFailureReason::Unknown => FunctionRunFailureReason::Unknown,
+            data_model::FunctionRunFailureReason::InternalError => {
+                FunctionRunFailureReason::InternalError
+            }
+            data_model::FunctionRunFailureReason::FunctionError => {
+                FunctionRunFailureReason::FunctionError
+            }
+            data_model::FunctionRunFailureReason::FunctionTimeout => {
+                FunctionRunFailureReason::FunctionTimeout
+            }
+            data_model::FunctionRunFailureReason::RequestError => {
+                FunctionRunFailureReason::RequestError
+            }
+            data_model::FunctionRunFailureReason::FunctionRunCancelled => {
+                FunctionRunFailureReason::FunctionRunCancelled
+            }
+            data_model::FunctionRunFailureReason::FunctionExecutorTerminated => {
+                FunctionRunFailureReason::FunctionExecutorTerminated
+            }
+            data_model::FunctionRunFailureReason::ConstraintUnsatisfiable => {
+                FunctionRunFailureReason::ConstraintUnsatisfiable
+            }
+            data_model::FunctionRunFailureReason::ExecutorRemoved => {
+                FunctionRunFailureReason::ExecutorRemoved
+            }
+            data_model::FunctionRunFailureReason::OutOfMemory => {
+                FunctionRunFailureReason::OutOfMemory
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+// TODO: use #[serde(rename_all = "snake_case")]
 pub enum FunctionRunOutcome {
     Undefined,
     Success,
@@ -537,6 +584,7 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+// TODO: use #[serde(rename_all = "snake_case")]
 pub enum FunctionRunStatus {
     Pending,
     Running,
@@ -553,36 +601,10 @@ impl From<data_model::FunctionRunStatus> for FunctionRunStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
-pub struct DataPayload {
-    pub id: String,
-    pub path: String,
-    pub size: u64,
-    pub sha256_hash: String,
-}
-
-impl From<data_model::DataPayload> for DataPayload {
-    fn from(payload: data_model::DataPayload) -> Self {
-        let size = payload.size;
-        let sha256_hash = payload.sha256_hash;
-        Self {
-            id: payload.id,
-            path: payload.path,
-            size,
-            sha256_hash,
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct RequestError {
     pub function_name: String,
     pub message: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RequestId {
-    pub id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -777,12 +799,17 @@ pub struct Allocation {
     pub request_id: String,
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
+        let failure_reason = match allocation.outcome {
+            data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
+            _ => None,
+        };
         Self {
             id: allocation.id.to_string(),
             namespace: allocation.namespace,
@@ -794,6 +821,7 @@ impl From<data_model::Allocation> for Allocation {
             request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
             outcome: allocation.outcome.into(),
+            failure_reason,
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
         }
@@ -857,6 +885,29 @@ pub struct ExecutorAllocations {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorsAllocationsResponse {
     pub executors: Vec<ExecutorAllocations>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+pub enum HealthzStatus {
+    #[serde(rename = "ok")]
+    Ok,
+    #[serde(rename = "degraded")]
+    Degraded,
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzResponse {
+    pub status: HealthzStatus,
+    pub version: String,
+    pub checks: HealthzChecks,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthzChecks {
+    pub database: HealthzStatus,
+    pub executor_manager: HealthzStatus,
 }
 
 #[cfg(test)]

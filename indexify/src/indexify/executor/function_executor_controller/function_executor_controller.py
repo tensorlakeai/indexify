@@ -32,6 +32,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
+from indexify.executor.function_executor.server.function_executor_server import (
+    FunctionExecutorServerStatus,
+)
 from indexify.executor.function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
@@ -494,7 +497,7 @@ class FunctionExecutorController:
             # This prevents infinite retries if FEs consistently fail to start up.
             # The allocations we marked here also need to not used FE terminated failure reason in their outputs
             # because FE terminated means that the allocation wasn't the cause of the FE termination.
-            allocation_ids_caused_termination: List[str] = []
+            allocation_ids_caused_termination: list[str] = []
             for alloc_info in self._allocations.values():
                 alloc_logger = allocation_logger(alloc_info.allocation, self._logger)
                 alloc_logger.info(
@@ -565,8 +568,17 @@ class FunctionExecutorController:
             reason=result.reason,
         )
 
+        fe_termination_reason = (
+            FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
+        )
+        server_status: FunctionExecutorServerStatus = await self._fe.server_status()
+        if server_status.oom_killed:
+            fe_termination_reason = (
+                FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
+            )
+
         self._start_termination(
-            fe_termination_reason=FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY,
+            fe_termination_reason=fe_termination_reason,
             allocation_ids_caused_termination=[
                 alloc_info.allocation.allocation_id
                 for alloc_info in self._running_allocations
@@ -776,7 +788,7 @@ class FunctionExecutorController:
     def _start_termination(
         self,
         fe_termination_reason: FunctionExecutorTerminationReason,
-        allocation_ids_caused_termination: List[str],
+        allocation_ids_caused_termination: list[str],
     ) -> None:
         """Starts termination of the Function Executor if it's not started yet.
 
@@ -882,6 +894,7 @@ _termination_reason_to_short_name_map = {
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR: "INTERNAL_ERROR",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT: "FUNCTION_TIMEOUT",
     FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED: "FUNCTION_CANCELLED",
+    FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM: "OUT_OF_MEMORY",
 }
 
 
@@ -1078,7 +1091,9 @@ def _so_to_data_payload_proto(
         uri=blob_uri,
         encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
         encoding_version=so.manifest.encoding_version,
-        content_type=so.manifest.content_type,
+        content_type=(
+            so.manifest.content_type if so.manifest.HasField("content_type") else None
+        ),
         metadata_size=so.manifest.metadata_size,
         offset=so.offset,
         size=so.manifest.size,

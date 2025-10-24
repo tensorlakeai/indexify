@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
@@ -9,6 +9,7 @@ use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
         Allocation,
+        AllocationUsage,
         Application,
         ApplicationVersion,
         GcUrl,
@@ -19,11 +20,13 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{rocksdb::RocksDBDriver, IterOptions, RangeOptionsBuilder, Reader},
+        driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
 };
+
+const MAX_FETCH_LIMIT: usize = 100;
 
 #[derive(Clone, Debug, Default)]
 pub enum CursorDirection {
@@ -219,6 +222,33 @@ impl StateReader {
             last_global_state_change_cursor: global_state_change_cursor,
             last_namespace_state_change_cursor: ns_state_change_cursor,
         })
+    }
+
+    /// Fetch allocation usage records with pagination support.
+    /// It fetches up to 100 records at a time.
+    ///
+    /// `cursor`: Optional cursor to start fetching from (exclusive).
+    ///
+    /// Returns a tuple containing:
+    /// - A vector of `AllocationUsage` records.
+    /// - An optional cursor for the next page (if more records are available).
+    pub fn allocation_usage(
+        &self,
+        cursor: Option<&Vec<u8>>,
+    ) -> Result<(Vec<AllocationUsage>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "allocation_usage")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let cursor = cursor.map(|c| c.as_slice());
+
+        let (events, cursor) = self.get_rows_from_cf_with_limits::<AllocationUsage>(
+            &[],
+            cursor,
+            IndexifyObjectsColumns::AllocationUsage,
+            Some(MAX_FETCH_LIMIT),
+        )?;
+
+        Ok((events, cursor))
     }
 
     pub fn get_all_rows_from_cf<V>(

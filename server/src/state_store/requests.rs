@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{atomic::AtomicU64, Arc},
+    sync::{Arc, atomic::AtomicU64},
 };
 
 use anyhow::Result;
@@ -18,12 +18,14 @@ use crate::{
         FunctionExecutorId,
         FunctionExecutorServerMetadata,
         FunctionRun,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GcUrl,
         HostResources,
         RequestCtx,
         StateChange,
     },
-    state_store::{state_changes, IndexifyState},
+    state_store::{IndexifyState, state_changes},
 };
 
 #[derive(Debug)]
@@ -54,6 +56,16 @@ impl StateMachineUpdateRequest {
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
+
+    pub fn notify_usage_events(&self) -> bool {
+        match self.payload {
+            RequestPayload::UpsertExecutor(ref req) => req
+                .allocation_outputs
+                .iter()
+                .any(|o| matches!(o.allocation.outcome, FunctionRunOutcome::Success)),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, strum::Display)]
@@ -75,6 +87,7 @@ pub enum RequestPayload {
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
+    pub updated_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
@@ -88,6 +101,7 @@ impl SchedulerUpdateRequest {
     /// Extends this SchedulerUpdateRequest with contents from another one
     pub fn extend(&mut self, other: SchedulerUpdateRequest) {
         self.new_allocations.extend(other.new_allocations);
+        self.updated_allocations.extend(other.updated_allocations);
         for (ctx_key, function_run_ids) in other.updated_function_runs {
             self.updated_function_runs
                 .entry(ctx_key)
@@ -105,6 +119,12 @@ impl SchedulerUpdateRequest {
             .extend(other.remove_function_executors);
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
+    }
+
+    pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
+        allocation.outcome =
+            FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
+        self.updated_allocations.push(allocation.clone());
     }
 
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {

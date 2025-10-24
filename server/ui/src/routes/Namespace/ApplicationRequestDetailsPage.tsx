@@ -91,7 +91,7 @@ const ApplicationRequestDetailsPage = () => {
               />
             </div>
             <Typography variant="h4" display={'flex'} flexDirection={'row'}>
-              Graph Requests - {requestId} <CopyText text={requestId} />
+              Application Requests - {requestId} <CopyText text={requestId} />
             </Typography>
           </div>
         </Box>
@@ -160,82 +160,6 @@ const ApplicationRequestDetailsPage = () => {
                 </Typography>
                 {renderOutcome(applicationRequest.outcome)}
               </Grid>
-
-              {applicationRequest.output && (
-                <Grid item xs={12}>
-                  <Typography
-                    variant="subtitle2"
-                    color="text.secondary"
-                    gutterBottom
-                  >
-                    Output
-                  </Typography>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6} md={4}>
-                          <Typography variant="caption" color="text.secondary">
-                            ID
-                          </Typography>
-                          <Typography variant="body2">
-                            {applicationRequest.output.id}
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={6} md={4}>
-                          <Typography variant="caption" color="text.secondary">
-                            Size
-                          </Typography>
-                          <Typography variant="body2">
-                            {applicationRequest.output.size} bytes
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Typography variant="caption" color="text.secondary">
-                            SHA256
-                          </Typography>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontFamily: 'monospace',
-                                fontSize: '0.75rem',
-                              }}
-                            >
-                              {applicationRequest.output.sha256_hash.substring(
-                                0,
-                                16
-                              )}
-                              ...
-                            </Typography>
-                            <CopyText
-                              text={applicationRequest.output.sha256_hash}
-                            />
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Typography variant="caption" color="text.secondary">
-                            Path
-                          </Typography>
-                          <Box display="flex" alignItems="flex-start" gap={1}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontFamily: 'monospace',
-                                wordBreak: 'break-all',
-                                overflowWrap: 'break-word',
-                                flex: 1,
-                              }}
-                            >
-                              {applicationRequest.output.path}
-                            </Typography>
-                            <CopyText text={applicationRequest.output.path} />
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              )}
 
               {applicationRequest.request_error && (
                 <Grid item xs={12}>

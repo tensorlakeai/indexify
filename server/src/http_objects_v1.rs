@@ -8,7 +8,7 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
-        DataPayload,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         IndexifyAPIError,
@@ -37,6 +37,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
+// TODO: use #[serde(rename_all = "snake_case")]
 pub enum ApplicationState {
     #[default]
     Active,
@@ -207,6 +208,7 @@ pub struct FunctionRun {
     pub namespace: String,
     pub status: FunctionRunStatus,
     pub outcome: Option<FunctionRunOutcome>,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub application_version: String,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
@@ -217,12 +219,17 @@ impl FunctionRun {
         function_run: data_model::FunctionRun,
         allocations: Vec<Allocation>,
     ) -> Self {
+        let failure_reason = match &function_run.outcome {
+            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some((*reason).into()),
+            _ => None,
+        };
         Self {
             id: function_run.id.to_string(),
             name: function_run.name,
             application: function_run.application,
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
+            failure_reason,
             status: function_run.status.into(),
             application_version: function_run.version,
             allocations,
@@ -231,21 +238,8 @@ impl FunctionRun {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionRuns {
-    pub function_runs: Vec<FunctionRun>,
-    pub cursor: Option<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum RequestStatus {
-    Pending,
-    Running,
-    Complete,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+// TODO: change from "lowercase" to "snake_case"
 #[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
     Undefined,
@@ -264,6 +258,7 @@ impl From<data_model::RequestOutcome> for RequestOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+// TODO: change from "lowercase" to "snake_case"
 #[serde(rename_all = "lowercase")]
 pub enum RequestFailureReason {
     Unknown,
@@ -271,6 +266,7 @@ pub enum RequestFailureReason {
     FunctionError,
     RequestError,
     ConstraintUnsatisfiable,
+    Cancelled,
 }
 
 impl From<data_model::RequestFailureReason> for RequestFailureReason {
@@ -283,6 +279,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
             data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
+            data_model::RequestFailureReason::Cancelled => RequestFailureReason::Cancelled,
         }
     }
 }
@@ -291,6 +288,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
 pub struct Request {
     pub id: String,
     pub outcome: Option<RequestOutcome>,
+    pub failure_reason: Option<RequestFailureReason>,
     pub application_version: String,
     pub created_at: u128,
     pub request_error: Option<RequestError>,
@@ -300,7 +298,6 @@ pub struct Request {
 impl Request {
     pub fn build(
         ctx: RequestCtx,
-        output: Option<DataPayload>,
         request_error: Option<RequestError>,
         allocations: Vec<data_model::Allocation>,
     ) -> Self {
@@ -322,10 +319,15 @@ impl Request {
                 allocations,
             ));
         }
+        let failure_reason = match &ctx.outcome {
+            Some(data_model::RequestOutcome::Failure(reason)) => Some(reason.clone().into()),
+            _ => None,
+        };
         Self {
             id: ctx.request_id.to_string(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             application_version: ctx.application_version.to_string(),
+            failure_reason,
             created_at: ctx.created_at.into(),
             request_error,
             function_runs,
@@ -341,12 +343,17 @@ pub struct Allocation {
     pub function_executor_id: String,
     pub created_at: u128,
     pub outcome: FunctionRunOutcome,
+    pub failure_reason: Option<FunctionRunFailureReason>,
     pub attempt_number: u32,
     pub execution_duration_ms: Option<u64>,
 }
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
+        let failure_reason = match allocation.outcome {
+            data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
+            _ => None,
+        };
         Self {
             id: allocation.id.to_string(),
             function_name: allocation.function.to_string(),
@@ -356,6 +363,7 @@ impl From<data_model::Allocation> for Allocation {
             outcome: allocation.outcome.into(),
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,
+            failure_reason,
         }
     }
 }

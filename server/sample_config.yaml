@@ -1,3 +1,4 @@
+env: production
 state_store_path: indexify_server_state
 listen_addr: 0.0.0.0:8900
 
@@ -6,17 +7,12 @@ telemetry:
   enable_metrics: false
   # Shared OTLP endpoint for both traces and metrics
   # If specified, both traces and metrics will be sent to this endpoint
-  endpoint: "http://localhost:4317"
+  endpoint: 'http://localhost:4317'
   # Metrics export interval in seconds (defaults to 10 if not specified)
   metrics_interval: 5
-  # Optional path to write local logs to a rotating file
-  local_log_file: "/tmp/indexify/local.log"
-  # List of targets and their log levels for local logging
-  local_log_targets:
-    scheduler: "debug"
   # Instance ID for this Indexify server instance
   # Used as a metric attribute "indexify.instance.id"
-  instance_id: "indexify-server-1"
+  instance_id: 'indexify-server-1'
 
 # Executor catalog configuration.
 #
@@ -30,26 +26,26 @@ telemetry:
 # If no catalog entries are configured, executor label checks are not
 # enforced; all executor labels are allowed.
 executor_catalog:
-  - name: "gpu-xl"
+  - name: 'gpu-xl'
     cpu_cores: 16
     memory_gb: 64
     disk_gb: 100
     regions:
-      - "us-west-2"
-      - "eu-west-1"
-  - name: "cpu-s"
+      - 'us-west-2'
+      - 'eu-west-1'
+  - name: 'cpu-s'
     cpu_cores: 8
     memory_gb: 32
     disk_gb: 100
     gpu_models:
-      - "A100"
-      - "V100"
+      - 'A100'
+      - 'V100'
     regions:
-      - "us-east-1"
-      - "us-west-2"
-  - name: "gpu-xxl"
+      - 'us-east-1'
+      - 'us-west-2'
+  - name: 'gpu-xxl'
     cpu_cores: 32
     memory_gb: 128
     disk_gb: 100
     regions:
-      - "eu-west-1"
+      - 'eu-west-1'

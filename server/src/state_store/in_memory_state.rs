@@ -4,10 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use opentelemetry::{
-    metrics::{Histogram, ObservableGauge},
     KeyValue,
+    metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
@@ -37,12 +37,12 @@ use crate::{
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
+        ExecutorCatalog,
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
-        ExecutorCatalog,
     },
-    utils::{get_elapsed_time, get_epoch_time_in_ms, TimeUnit},
+    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
 #[derive(Debug, Clone)]
@@ -148,8 +148,11 @@ impl From<&Box<FunctionRun>> for FunctionRunKey {
 impl From<&Allocation> for FunctionRunKey {
     fn from(allocation: &Allocation) -> Self {
         FunctionRunKey(format!(
-            "{}|{}|{}",
-            allocation.namespace, allocation.application, allocation.function_call_id
+            "{}|{}|{}|{}",
+            allocation.namespace,
+            allocation.application,
+            allocation.request_id,
+            allocation.function_call_id
         ))
     }
 }
@@ -157,8 +160,11 @@ impl From<&Allocation> for FunctionRunKey {
 impl From<&Box<Allocation>> for FunctionRunKey {
     fn from(allocation: &Box<Allocation>) -> Self {
         FunctionRunKey(format!(
-            "{}|{}|{}",
-            allocation.namespace, allocation.application, allocation.function_call_id
+            "{}|{}|{}|{}",
+            allocation.namespace,
+            allocation.application,
+            allocation.request_id,
+            allocation.function_call_id
         ))
     }
 }
@@ -407,7 +413,7 @@ impl InMemoryMetrics {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
-                                                // non-completed request
+                            // non-completed request
                         }
                         None => 0.0,
                     };
@@ -452,7 +458,7 @@ impl InMemoryMetrics {
                                     a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
-                                                // non-terminal tasks
+                            // non-terminal tasks
                         }
                         None => 0.0,
                     };
@@ -736,6 +742,14 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
+                for allocation in &req.updated_allocations {
+                    self.allocations_by_executor
+                        .entry(allocation.target.executor_id.clone())
+                        .or_default()
+                        .entry(allocation.target.function_executor_id.clone())
+                        .or_default()
+                        .push(Box::new(allocation.clone()));
+                }
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
                         let Some(ctx) = req.updated_request_states.get(ctx_key).cloned() else {
@@ -1270,7 +1284,10 @@ impl InMemoryState {
                     if !found_allowlist_match {
                         debug!(
                             "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
-                            fe.id.get(), executor_id.get(), fe.version, latest_cg_version
+                            fe.id.get(),
+                            executor_id.get(),
+                            fe.version,
+                            latest_cg_version
                         );
                         can_be_removed = true;
                     }

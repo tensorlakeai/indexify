@@ -12,7 +12,11 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{rocksdb::RocksDBDriver, Reader, Writer},
+        driver::{
+            Reader,
+            Writer,
+            rocksdb::{RocksDBConfig, RocksDBDriver},
+        },
     },
 };
 
@@ -49,6 +53,7 @@ impl MigrationTestBuilder {
         // Create database with specified column families
         let db = state_store::open_database(
             path.to_path_buf(),
+            RocksDBConfig::default(),
             self.column_families
                 .into_iter()
                 .map(|s| ColumnFamilyDescriptor::new(s, Default::default())),
@@ -62,7 +67,7 @@ impl MigrationTestBuilder {
         drop(db);
 
         // Prepare the database for migration
-        let prepare_ctx = PrepareContext::new(path.to_path_buf());
+        let prepare_ctx = PrepareContext::new(path.to_path_buf(), RocksDBConfig::default());
         let db = migration.prepare(&prepare_ctx)?;
 
         // Apply the migration

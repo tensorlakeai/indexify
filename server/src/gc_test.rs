@@ -8,10 +8,10 @@ mod tests {
 
     use crate::{
         data_model::{
-            test_objects::tests::{mock_application, mock_function_call, TEST_NAMESPACE},
             DataPayload,
             InputArgs,
             RequestCtxBuilder,
+            test_objects::tests::{TEST_NAMESPACE, mock_application, mock_function_call},
         },
         service::Service,
         state_store::{

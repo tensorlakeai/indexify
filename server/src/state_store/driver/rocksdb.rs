@@ -1,17 +1,24 @@
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::{
+    fmt::{self, Display},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use bytes::Bytes;
 use opentelemetry::KeyValue;
 use rocksdb::{
     ColumnFamily,
     ColumnFamilyDescriptor,
+    DBCompactionStyle,
+    DBCompressionType,
     Error as RocksDBError,
+    LogLevel,
     Transaction,
     TransactionDB,
     TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, warn};
 
 use crate::{
@@ -38,6 +45,9 @@ pub enum Error {
     #[error("Failed to open RocksDB database. error: {}", source)]
     OpenDatabaseFailed { source: RocksDBError },
 
+    #[error("Invalid RocksDB configuration")]
+    InvalidConfiguration { option: String, message: String },
+
     #[error(transparent)]
     GenericRocksDBFailure { source: RocksDBError },
 }
@@ -48,10 +58,112 @@ impl Error {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RocksDBConfig {
+    /// Create if missing
+    pub create_if_missing: bool,
+
+    /// Create missing column families
+    pub create_missing_column_families: bool,
+
+    /// The number of threads to start for flushing and compaction
+    pub thread_count: i32,
+
+    /// The maximum number of threads to use for flushing and compaction
+    pub jobs_count: i32,
+
+    /// The maximum number of write buffers which can be used
+    pub max_write_buffer_number: i32,
+
+    /// The amount of data each write buffer can build up in memory (in bytes)
+    pub write_buffer_size: usize,
+
+    /// The write-ahead-log size threshold to trigger archived WAL deletion (in
+    /// bytes)
+    pub wal_size_limit: u64,
+
+    /// The total max write-ahead-log size before column family flushes (in
+    /// bytes)
+    pub max_total_wal_size: u64,
+
+    /// The target file size for compaction (in bytes)
+    pub target_file_size_base: u64,
+
+    /// The target file size multiplier for each compaction level
+    pub target_file_size_multiplier: i32,
+
+    /// The number of files needed to trigger level 0 compaction
+    pub level_zero_file_compaction_trigger: i32,
+
+    /// The maximum number threads which will perform compactions
+    pub max_concurrent_subcompactions: u32,
+
+    /// Whether to use separate queues for WAL writes and memtable writes
+    pub enable_pipelined_writes: bool,
+
+    /// The maximum number of information log files to keep
+    pub keep_log_file_num: usize,
+
+    /// The information log level of the RocksDB library
+    pub log_level: String,
+
+    /// Database compaction style
+    pub compaction_style: String,
+}
+
+impl Default for RocksDBConfig {
+    fn default() -> Self {
+        RocksDBConfig {
+            create_if_missing: true,
+            create_missing_column_families: true,
+            thread_count: 1,
+            jobs_count: 2,
+            max_write_buffer_number: 2,
+            write_buffer_size: 32 * 1024 * 1024, // 32 MiB
+            wal_size_limit: 0,
+            max_total_wal_size: 1024 * 1024 * 1024,  // 1 GiB
+            target_file_size_base: 64 * 1024 * 1024, // 64 MiB
+            target_file_size_multiplier: 2,
+            level_zero_file_compaction_trigger: 4,
+            max_concurrent_subcompactions: 4,
+            enable_pipelined_writes: true,
+            keep_log_file_num: 10,
+            log_level: "warn".to_string(),
+            compaction_style: "level".to_string(),
+        }
+    }
+}
+
+impl Display for RocksDBConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "create_if_missing: {}, create_missing_column_families: {}, thread_count: {}, jobs_count: {}, max_write_buffer_number: {}, write_buffer_size: {}, wal_size_limit: {}, max_total_wal_size: {}, target_file_size_base: {}, target_file_size_multiplier: {}, level_zero_file_compaction_trigger: {}, max_concurrent_subcompactions: {}, enable_pipelined_writes: {}, keep_log_file_num: {}, log_level: {}, compaction_style: {}",
+            self.create_if_missing,
+            self.create_missing_column_families,
+            self.thread_count,
+            self.jobs_count,
+            self.max_write_buffer_number,
+            self.write_buffer_size,
+            self.wal_size_limit,
+            self.max_total_wal_size,
+            self.target_file_size_base,
+            self.target_file_size_multiplier,
+            self.level_zero_file_compaction_trigger,
+            self.max_concurrent_subcompactions,
+            self.enable_pipelined_writes,
+            self.keep_log_file_num,
+            self.log_level,
+            self.compaction_style
+        )
+    }
+}
+
 /// Options to start a connection with RocksDB.
 pub(crate) struct Options {
     pub path: PathBuf,
     pub column_families: Vec<ColumnFamilyDescriptor>,
+    pub config: RocksDBConfig,
 }
 
 /// Driver to connect with a RocksDB database.
@@ -67,8 +179,62 @@ impl RocksDBDriver {
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<RocksDBDriver, Error> {
         let mut db_opts = RocksDBOptions::default();
-        db_opts.create_missing_column_families(true);
-        db_opts.create_if_missing(true);
+        db_opts.create_if_missing(driver_options.config.create_if_missing);
+        db_opts
+            .create_missing_column_families(driver_options.config.create_missing_column_families);
+        db_opts.increase_parallelism(driver_options.config.thread_count);
+        db_opts.set_max_background_jobs(driver_options.config.jobs_count);
+        db_opts.set_target_file_size_base(driver_options.config.target_file_size_base);
+        db_opts.set_target_file_size_multiplier(driver_options.config.target_file_size_multiplier);
+        db_opts.set_wal_size_limit_mb(driver_options.config.wal_size_limit);
+        db_opts.set_max_total_wal_size(driver_options.config.max_total_wal_size);
+        db_opts.set_write_buffer_size(driver_options.config.write_buffer_size);
+        db_opts.set_max_write_buffer_number(driver_options.config.max_write_buffer_number);
+        db_opts.set_level_zero_file_num_compaction_trigger(
+            driver_options.config.level_zero_file_compaction_trigger,
+        );
+        db_opts.set_max_subcompactions(driver_options.config.max_concurrent_subcompactions);
+        db_opts.set_enable_pipelined_write(driver_options.config.enable_pipelined_writes);
+        db_opts.set_keep_log_file_num(driver_options.config.keep_log_file_num);
+        db_opts.set_log_level(
+            match driver_options
+                .config
+                .log_level
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "debug" => LogLevel::Debug,
+                "info" => LogLevel::Info,
+                "warn" => LogLevel::Warn,
+                "error" => LogLevel::Error,
+                "fatal" => LogLevel::Fatal,
+                l => {
+                    return Err(Error::InvalidConfiguration {
+                        message: format!("Invalid log level: {l}"),
+                        option: "log_level".to_string(),
+                    });
+                }
+            },
+        );
+        db_opts.set_compaction_style(
+            match driver_options
+                .config
+                .compaction_style
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "universal" => DBCompactionStyle::Universal,
+                _ => DBCompactionStyle::Level,
+            },
+        );
+
+        db_opts.set_compression_per_level(&[
+            DBCompressionType::None,
+            DBCompressionType::None,
+            DBCompressionType::Snappy,
+            DBCompressionType::Snappy,
+            DBCompressionType::Snappy,
+        ]);
 
         let db = TransactionDB::open_cf_descriptors(
             &db_opts,
@@ -336,7 +502,9 @@ impl Driver for RocksDBDriver {}
 /// and we should crash the server.
 fn unwrap_rocksdb_transaction<'db>(tx: &'db super::Transaction) -> &'db RocksDBTransaction<'db> {
     let super::Transaction::RocksDB(tx) = tx else {
-        panic!("tried to unwrap a RocksDBTransaction from a Transaction that was not created by the RocksDB driver: {tx:?}");
+        panic!(
+            "tried to unwrap a RocksDBTransaction from a Transaction that was not created by the RocksDB driver: {tx:?}"
+        );
     };
     tx
 }
@@ -356,7 +524,21 @@ impl<'a> RocksDBTransaction<'a> {
     }
 
     pub fn commit(self) -> Result<(), DriverError> {
-        self.tx.commit().map_err(Error::into_generic)
+        let result = self.tx.commit();
+
+        // Count commits
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        Increment::inc(&self.db.metrics.driver_commits, attrs);
+
+        // Count errors
+        if let Err(err) = &result {
+            let attrs = &[
+                KeyValue::new("driver", "rocksdb"),
+                KeyValue::new("driver.error_kind", format!("{:?}", err.kind())),
+            ];
+            Increment::inc(&self.db.metrics.driver_commits_errors, attrs);
+        }
+        result.map_err(Error::into_generic)
     }
 
     pub fn get<N, K: AsRef<[u8]>>(&self, table: N, key: K) -> Result<Option<Vec<u8>>, DriverError>

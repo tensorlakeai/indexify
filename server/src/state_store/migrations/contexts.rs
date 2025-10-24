@@ -1,14 +1,18 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Result};
-use rocksdb::{ColumnFamilyDescriptor, Options, DB};
+use anyhow::{Result, anyhow};
+use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde_json::Value;
 
 use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{rocksdb::RocksDBDriver, Reader, Transaction},
+        driver::{
+            Reader,
+            Transaction,
+            rocksdb::{RocksDBConfig, RocksDBDriver},
+        },
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -17,13 +21,18 @@ use crate::{
 pub struct PrepareContext {
     pub path: PathBuf,
     pub db_opts: Options,
+    pub config: RocksDBConfig,
 }
 
 impl PrepareContext {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(path: PathBuf, config: RocksDBConfig) -> Self {
         let mut db_opts = Options::default();
         db_opts.create_if_missing(true);
-        Self { path, db_opts }
+        Self {
+            path,
+            db_opts,
+            config,
+        }
     }
 
     /// Open database with all existing column families
@@ -36,7 +45,7 @@ impl PrepareContext {
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        state_store::open_database(self.path.clone(), cfs, metrics)
+        state_store::open_database(self.path.clone(), self.config.clone(), cfs, metrics)
     }
 
     /// Helper to perform column family operations and reopen DB
@@ -195,7 +204,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().to_path_buf();
 
-        let ctx = PrepareContext::new(path);
+        let ctx = PrepareContext::new(path, RocksDBConfig::default());
 
         // Test creating DB
         let mut db_opts = Options::default();
@@ -248,8 +257,12 @@ mod tests {
         ];
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        let db =
-            state_store::open_database(path.to_path_buf(), cf_descriptors.into_iter(), metrics)?;
+        let db = state_store::open_database(
+            path.to_path_buf(),
+            RocksDBConfig::default(),
+            cf_descriptors.into_iter(),
+            metrics,
+        )?;
 
         // Add test data
         let test_json = json!({

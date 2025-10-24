@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{anyhow, Result};
-use if_chain::if_chain;
+use anyhow::{Result, anyhow};
 use rand::seq::IndexedRandom;
 use tracing::{debug, error, info, info_span, warn};
 
@@ -18,6 +17,7 @@ use crate::{
         FunctionExecutorTerminationReason,
         FunctionResources,
         FunctionRun,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
@@ -83,6 +83,7 @@ impl FunctionExecutorManager {
     }
 
     /// Creates a new function executor for the given function run
+    #[tracing::instrument(skip_all)]
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -327,11 +328,13 @@ impl FunctionExecutorManager {
                 .cloned()
                 .unwrap_or_default();
             for alloc in allocs {
+                let mut updated_alloc = *alloc.clone();
                 let Some(mut function_run) = in_memory_state
                     .function_runs
                     .get(&FunctionRunKey::from(&alloc))
                     .cloned()
                 else {
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
                 let Some(mut ctx) = in_memory_state
@@ -339,6 +342,7 @@ impl FunctionExecutorManager {
                     .get(&function_run.clone().into())
                     .cloned()
                 else {
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
                 // Idempotency: we only act on this alloc's function run if the
@@ -350,37 +354,56 @@ impl FunctionExecutorManager {
                         allocation_id: alloc.id.clone(),
                     })
                 {
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 }
-
-                if_chain! {
-                        if let Some(application_version) = in_memory_state.get_existing_application_version(&function_run);
-                        if let FunctionExecutorState::Terminated { reason: termination_reason, failed_alloc_ids: blame_alloc_ids } = &fe.state;
-                then {
-                            if blame_alloc_ids.contains(&alloc.id.to_string()) {
-                                let mut updated_alloc = *alloc.clone();
-                                updated_alloc.outcome = FunctionRunOutcome::Failure((*termination_reason).into());
-                                FunctionRunRetryPolicy::handle_allocation_outcome(
-                                    &mut function_run,
-                                    &updated_alloc,
-                                    application_version,
-                                );
-                            } else {
-                                // This allocation wasn't blamed for the FE termination,
-                                // retry without involving the function run retry policy but still fail the alloc.
-                                function_run.status = FunctionRunStatus::Pending;
-                            }
-
-                            // Count failed function runs for logging
-                            if function_run.status == FunctionRunStatus::Completed {
-                                failed_function_runs += 1;
-                            }
-                        }
+                let Some(application_version) = in_memory_state
+                    .get_existing_application_version(&function_run)
+                    .cloned()
                 else {
-                            // Could not get compute graph version, or function executor not terminated; set function run to pending
-                            function_run.status = FunctionRunStatus::Pending;
-                        }
+                    update.cancel_allocation(&mut updated_alloc);
+                    continue;
+                };
+
+                if let FunctionExecutorState::Terminated {
+                    reason: termination_reason,
+                    failed_alloc_ids: blame_alloc_ids,
+                } = &fe.state
+                {
+                    // These are the cases where we know why an allocation failed.
+                    // otherwise we assume the FE terminated so the allocations couldn't run.
+                    // The assumption here is that bad user code or input can fail FE's but not the
+                    // executor.
+                    if blame_alloc_ids.contains(&alloc.id.to_string()) ||
+                        termination_reason == &FunctionExecutorTerminationReason::ExecutorRemoved
+                    {
+                        updated_alloc.outcome =
+                            FunctionRunOutcome::Failure((*termination_reason).into());
+                    } else {
+                        // This allocation wasn't blamed for the FE termination,
+                        // retry without involving the function run retry policy but still fail the
+                        // alloc.
+                        updated_alloc.outcome = FunctionRunOutcome::Failure(
+                            FunctionRunFailureReason::FunctionExecutorTerminated,
+                        );
                     }
+                    FunctionRunRetryPolicy::handle_allocation_outcome(
+                        &mut function_run,
+                        &updated_alloc,
+                        &application_version,
+                    );
+                    update.updated_allocations.push(updated_alloc);
+                    // Count failed function runs for logging
+                    if function_run.status == FunctionRunStatus::Completed {
+                        failed_function_runs += 1;
+                    }
+                } else {
+                    // Function Executor is not terminated but getting removed. This means that
+                    // we're cancelling all allocs on it. And retrying their
+                    // function runs without increasing retries counters.
+                    function_run.status = FunctionRunStatus::Pending;
+                    update.updated_allocations.push(updated_alloc);
+                }
 
                 update
                     .updated_function_runs

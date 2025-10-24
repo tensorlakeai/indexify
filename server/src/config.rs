@@ -7,12 +7,15 @@ use std::{
 
 use anyhow::Result;
 use figment::{
-    providers::{Format, Serialized, Yaml},
     Figment,
+    providers::{Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use crate::blob_store::BlobStorageConfig;
+use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+
+const LOCAL_ENV: &str = "local";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
@@ -28,14 +31,19 @@ pub struct ExecutorCatalogEntry {
 
 impl Display for ExecutorCatalogEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})", self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels)
+        write!(
+            f,
+            "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})",
+            self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels
+        )
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    pub dev: bool,
+    pub env: String,
     pub state_store_path: String,
+    pub rocksdb_config: RocksDBConfig,
     pub listen_addr: String,
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
@@ -49,8 +57,9 @@ impl Default for ServerConfig {
     fn default() -> Self {
         let state_store_path = env::current_dir().unwrap().join("indexify_storage/state");
         ServerConfig {
-            dev: false,
+            env: LOCAL_ENV.to_string(),
             state_store_path: state_store_path.to_str().unwrap().to_string(),
+            rocksdb_config: RocksDBConfig::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
@@ -88,6 +97,17 @@ impl ServerConfig {
         }
         Ok(())
     }
+
+    pub fn structured_logging(&self) -> bool {
+        self.env != LOCAL_ENV
+    }
+
+    pub fn instance_id(&self) -> String {
+        self.telemetry
+            .instance_id
+            .clone()
+            .unwrap_or_else(|| format!("{}-{}", self.env, Uuid::new_v4()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,10 +125,6 @@ pub struct TelemetryConfig {
     pub metrics_interval: Duration,
     // Optional path to write local logs to a rotating file.
     pub local_log_file: Option<String>,
-    // List of targets and their log levels for local logging.
-    // Format: {"target_name": "log_level"}, e.g., {"scheduler": "debug"}
-    #[serde(default)]
-    pub local_log_targets: std::collections::HashMap<String, String>,
     // Instance ID for this Indexify server instance.
     // Used as a metric attribute "indexify.instance.id".
     pub instance_id: Option<String>,
@@ -122,7 +138,6 @@ impl Default for TelemetryConfig {
             endpoint: None,
             metrics_interval: Duration::from_secs(10),
             local_log_file: None,
-            local_log_targets: std::collections::HashMap::new(),
             instance_id: None,
         }
     }

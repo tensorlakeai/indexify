@@ -7,9 +7,9 @@ mod tests {
     use crate::{
         config::ExecutorCatalogEntry,
         data_model::{
+            ApplicationState,
             filter::{Expression, LabelsFilter, Operator},
             test_objects::tests::{self as test_objects, TEST_NAMESPACE},
-            ApplicationState,
         },
         state_store::requests::{
             CreateOrUpdateApplicationRequest,
@@ -75,7 +75,7 @@ mod tests {
         // Step 4: Run constraint validation which should disable the graph
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -134,7 +134,7 @@ mod tests {
         // Step 8: Run constraint validation again which should keep the graph active
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -256,7 +256,7 @@ mod tests {
         // Run constraint validation which should disable the unsatisfiable graphs
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -321,9 +321,9 @@ mod tests {
     async fn test_validate_graph_constraints_resources() -> Result<()> {
         use crate::data_model::{
             FunctionResources,
-            GPUResources,
             GPU_MODEL_NVIDIA_A10,
             GPU_MODEL_NVIDIA_H100_80GB,
+            GPUResources,
         };
 
         // Single catalog entry with specific capacities
@@ -445,7 +445,7 @@ mod tests {
         // Validate constraints
         test_srv
             .service
-            .graph_processor
+            .application_processor
             .validate_app_constraints()
             .await?;
         test_srv.process_all_state_changes().await?;

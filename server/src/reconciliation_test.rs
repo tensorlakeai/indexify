@@ -7,20 +7,20 @@ mod tests {
         assert_executor_state,
         assert_function_run_counts,
         data_model::{
-            test_objects::tests::{
-                mock_executor_metadata,
-                mock_updates,
-                TEST_EXECUTOR_ID,
-                TEST_NAMESPACE,
-            },
             FunctionAllowlist,
             FunctionExecutorState,
             FunctionExecutorTerminationReason,
             FunctionRunOutcome,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_executor_metadata,
+                mock_updates,
+            },
         },
         service::Service,
         state_store::test_state_store,
-        testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
+        testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -236,10 +236,12 @@ mod tests {
 
         // The FE for fn_a should be removed
         let executor_server_state = executor.get_executor_server_state().await?;
-        assert!(executor_server_state
-            .function_executors
-            .iter()
-            .all(|(_id, fe)| { fe.function_name != "fn_a" }));
+        assert!(
+            executor_server_state
+                .function_executors
+                .iter()
+                .all(|(_id, fe)| { fe.function_name != "fn_a" })
+        );
 
         Ok(())
     }
@@ -493,18 +495,10 @@ mod tests {
 
         // update the function executors with our retryable termination reason (not
         // using an attempt)
-        let allocs = executor
-            .desired_state()
-            .await
-            .allocations
-            .iter()
-            .filter_map(|ta| ta.allocation_id.as_ref())
-            .cloned()
-            .collect();
         executor
             .set_function_executor_states(FunctionExecutorState::Terminated {
                 reason,
-                failed_alloc_ids: allocs,
+                failed_alloc_ids: vec![],
             })
             .await?;
 

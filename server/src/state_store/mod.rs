@@ -3,12 +3,12 @@ use std::{
     fs,
     path::PathBuf,
     sync::{
-        atomic::{self, AtomicU64},
         Arc,
+        atomic::{self, AtomicU64},
     },
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
 use opentelemetry::KeyValue;
 use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
@@ -16,7 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -24,7 +24,10 @@ use crate::{
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{rocksdb::RocksDBDriver, Writer},
+        driver::{
+            Writer,
+            rocksdb::{RocksDBConfig, RocksDBDriver},
+        },
         request_events::RequestStartedEvent,
     },
 };
@@ -91,12 +94,18 @@ pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
+
     pub state_change_id_seq: Arc<AtomicU64>,
+    pub usage_event_id_seq: Arc<AtomicU64>,
+
     pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
+    pub usage_events_tx: tokio::sync::watch::Sender<()>,
+    pub usage_events_rx: tokio::sync::watch::Receiver<()>,
+
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
@@ -105,14 +114,22 @@ pub struct IndexifyState {
 
 pub(crate) fn open_database<I>(
     path: PathBuf,
+    config: RocksDBConfig,
     column_families: I,
     metrics: Arc<StateStoreMetrics>,
 ) -> Result<RocksDBDriver>
 where
     I: Iterator<Item = ColumnFamilyDescriptor>,
 {
+    info!(
+        "opening state store database at {} with config {}",
+        path.display(),
+        config
+    );
+
     let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
         path,
+        config,
         column_families: column_families.collect::<Vec<_>>(),
     });
 
@@ -120,14 +137,18 @@ where
 }
 
 impl IndexifyState {
-    pub async fn new(path: PathBuf, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
+    pub async fn new(
+        path: PathBuf,
+        config: RocksDBConfig,
+        executor_catalog: ExecutorCatalog,
+    ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
 
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
-        let sm_meta = migration_runner::run(&path)?;
+        let sm_meta = migration_runner::run(&path, config.clone())?;
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -135,6 +156,7 @@ impl IndexifyState {
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let db = Arc::new(open_database(
             path,
+            config,
             sm_column_families,
             state_store_metrics.clone(),
         )?);
@@ -142,6 +164,8 @@ impl IndexifyState {
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+
         let indexes = Arc::new(RwLock::new(InMemoryState::new(
             sm_meta.last_change_idx,
             scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
@@ -152,6 +176,7 @@ impl IndexifyState {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
+            usage_event_id_seq: Arc::new(AtomicU64::new(0)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             gc_tx,
@@ -161,12 +186,20 @@ impl IndexifyState {
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
+            usage_events_tx,
+            usage_events_rx,
         });
 
         info!(
             "initialized state store with last state change id: {}",
             s.state_change_id_seq.load(atomic::Ordering::Relaxed)
         );
+
+        info!(
+            "initialized state store with last usage id: {}",
+            s.usage_event_id_seq.load(atomic::Ordering::Relaxed)
+        );
+
         info!("db version discovered: {}", sm_meta.db_version);
 
         Ok(s)
@@ -235,7 +268,13 @@ impl IndexifyState {
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
                     state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
+                    state_machine::record_allocation_usage(
+                        &txn,
+                        &self.usage_event_id_seq,
+                        &allocation_output.allocation,
+                    )?;
                 }
+
                 if request.update_executor_state {
                     self.executor_states
                         .write()
@@ -269,10 +308,12 @@ impl IndexifyState {
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
+        let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
+                last_usage_idx: current_usage_sequence_id,
                 db_version: self.db_version,
             },
         )?;
@@ -293,10 +334,16 @@ impl IndexifyState {
             }
         }
 
-        if !new_state_changes.is_empty() {
-            if let Err(err) = self.change_events_tx.send(()) {
-                error!("failed to notify of state change event, ignoring: {err:?}",);
-            }
+        if !new_state_changes.is_empty() &&
+            let Err(err) = self.change_events_tx.send(())
+        {
+            error!("failed to notify of state change event, ignoring: {err:?}",);
+        }
+
+        if request.notify_usage_events() &&
+            let Err(err) = self.usage_events_tx.send(())
+        {
+            error!("failed to notify of usage event, ignoring: {err:?}",);
         }
 
         self.handle_request_state_changes(&request).await;
@@ -400,18 +447,18 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        test_objects::tests::{
-            mock_application,
-            mock_data_payload,
-            mock_function_call,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-        },
         Application,
         InputArgs,
         Namespace,
         RequestCtxBuilder,
         StateChangeId,
+        test_objects::tests::{
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+            mock_application,
+            mock_data_payload,
+            mock_function_call,
+        },
     };
 
     #[tokio::test]
@@ -451,9 +498,11 @@ mod tests {
         // Check if the namespaces were created
         assert!(namespaces.iter().any(|ns| ns.name == "namespace1"));
         assert!(namespaces.iter().any(|ns| ns.name == "namespace2"));
-        assert!(namespaces
-            .iter()
-            .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string())));
+        assert!(
+            namespaces
+                .iter()
+                .any(|ns| ns.blob_storage_bucket == Some("bucket2".to_string()))
+        );
 
         Ok(())
     }
@@ -594,6 +643,7 @@ mod tests {
             "RequestCtxSecondaryIndex",
             "UnprocessedStateChanges",
             "Allocations",
+            "AllocationUsage",
             "GcUrls",
             "Stats",
         ];
@@ -607,7 +657,12 @@ mod tests {
         let path = tmp_dir.path().to_path_buf();
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = open_database(path.clone(), columns_iter, state_store_metrics.clone())?;
+        let db = open_database(
+            path.clone(),
+            RocksDBConfig::default(),
+            columns_iter,
+            state_store_metrics.clone(),
+        )?;
         for name in &columns {
             db.put(name, b"key", b"value")?;
         }
@@ -623,7 +678,13 @@ mod tests {
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
-        open_database(path, sm_column_families, state_store_metrics).expect(
+        open_database(
+            path,
+            RocksDBConfig::default(),
+            sm_column_families,
+            state_store_metrics,
+        )
+        .expect(
             "failed to open database with the column families defined in IndexifyObjectsColumns",
         );
 

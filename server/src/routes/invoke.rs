@@ -2,16 +2,16 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
+    Json,
     body::Body,
     extract::{Path, State},
     http::HeaderMap,
-    response::{sse::Event, IntoResponse},
-    Json,
+    response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde::Serialize;
-use tokio::sync::broadcast::{error::RecvError, Receiver};
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ use crate::{
 async fn create_request_progress_stream(
     id: String,
     mut rx: Receiver<RequestStateChangeEvent>,
-    state: &RouteState,
+    state: RouteState,
     namespace: String,
     application: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
@@ -259,11 +259,19 @@ pub async fn invoke_application_with_object_v1(
         ctx: request_ctx.clone(),
     });
     if accept_header.contains("application/json") {
-        return return_request_id(&state, request.clone(), request_id.clone()).await;
+        return return_request_id(
+            &state,
+            request.clone(),
+            request_id.clone(),
+            namespace,
+            application.name.clone(),
+        )
+        .await;
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
-            &state,
+            // cloning the state is cheap because all its fields are inside arcs
+            state.clone(),
             request.clone(),
             request_id.clone(),
             namespace,
@@ -280,6 +288,8 @@ async fn return_request_id(
     state: &RouteState,
     request_payload: RequestPayload,
     request_id: String,
+    namespace: String,
+    application: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     state
         .indexify_state
@@ -289,6 +299,13 @@ async fn return_request_id(
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
 
+    info!(
+        request_id = request_id.clone(),
+        namespace = namespace.clone(),
+        app = application.clone(),
+        "request created",
+    );
+
     Ok(Json(RequestIdV1 {
         id: request_id.clone(),
         request_id: request_id.clone(),
@@ -297,7 +314,7 @@ async fn return_request_id(
 }
 
 async fn return_sse_response(
-    state: &RouteState,
+    state: RouteState,
     request_payload: RequestPayload,
     request_id: String,
     namespace: String,
@@ -311,6 +328,12 @@ async fn return_sse_response(
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+    info!(
+        request_id = request_id.clone(),
+        namespace = namespace.clone(),
+        app = application.clone(),
+        "request created",
+    );
     let request_event_stream =
         create_request_progress_stream(request_id, rx, state, namespace, application).await;
     Ok(axum::response::Sse::new(request_event_stream)
@@ -339,8 +362,9 @@ pub async fn progress_stream(
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let rx = state.indexify_state.function_run_event_stream();
 
+    // cloning the state is cheap because all its fields are inside arcs
     let request_event_stream =
-        create_request_progress_stream(request_id, rx, &state, namespace, application).await;
+        create_request_progress_stream(request_id, rx, state.clone(), namespace, application).await;
     Ok(axum::response::Sse::new(request_event_stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(1))

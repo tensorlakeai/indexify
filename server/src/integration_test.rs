@@ -8,21 +8,21 @@ mod tests {
     use crate::{
         assert_function_run_counts,
         data_model::{
-            test_objects::tests::{
-                mock_data_payload,
-                mock_executor_metadata,
-                mock_updates,
-                TEST_EXECUTOR_ID,
-                TEST_NAMESPACE,
-            },
             ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_data_payload,
+                mock_executor_metadata,
+                mock_updates,
+            },
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
         state_store::{
-            driver::{rocksdb::RocksDBDriver, IterOptions, Reader},
+            driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -32,7 +32,7 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
             test_state_store::{self, invoke_application},
         },
-        testing::{self, allocation_key_from_proto, FinalizeFunctionRunArgs},
+        testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -239,6 +239,14 @@ mod tests {
             assert!(request_ctx.outcome.is_some());
         }
 
+        {
+            let (allocation_usage, cursor) =
+                indexify_state.reader().allocation_usage(None).unwrap();
+
+            assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
+            assert!(cursor.is_none());
+        }
+
         Ok(())
     }
 
@@ -297,6 +305,10 @@ mod tests {
             indexify_state.db.clone(),
             HashMap::from([
                 (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 3), // input
+                (
+                    IndexifyObjectsColumns::AllocationUsage.as_ref().to_string(),
+                    1,
+                ), // one per allocation
             ]),
         )?;
 
@@ -441,6 +453,10 @@ mod tests {
                 HashMap::from([
                     (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 7), /* 1x input, 3x
                                                                                * output */
+                    (
+                        IndexifyObjectsColumns::AllocationUsage.as_ref().to_string(),
+                        4,
+                    ), // one per allocation
                 ]),
             )?;
         }
@@ -721,21 +737,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_task_cancelled() -> Result<()> {
-        test_function_run_retry_attempt_not_used(
-            FunctionRunFailureReason::FunctionRunCancelled,
-            TEST_FN_MAX_RETRIES,
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_task_cancelled_no_retries() -> Result<()> {
-        test_function_run_retry_attempt_not_used(FunctionRunFailureReason::FunctionRunCancelled, 0)
-            .await
-    }
-
-    #[tokio::test]
     async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated() -> Result<()>
     {
         test_function_run_retry_attempt_not_used(
@@ -746,8 +747,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries(
-    ) -> Result<()> {
+    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries()
+    -> Result<()> {
         test_function_run_retry_attempt_not_used(
             FunctionRunFailureReason::FunctionExecutorTerminated,
             0,

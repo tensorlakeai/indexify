@@ -1,18 +1,18 @@
 use std::{env, fmt::Debug, ops::Range, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use bytes::Bytes;
 #[cfg(test)]
 use bytes::BytesMut;
-use futures::{stream::BoxStream, StreamExt};
+use futures::{StreamExt, stream::BoxStream};
 use object_store::{
-    aws::{AmazonS3Builder, S3ConditionalPut},
-    parse_url,
-    path::Path,
     GetOptions,
     ObjectStore,
     ObjectStoreScheme,
     WriteMultipart,
+    aws::{AmazonS3Builder, S3ConditionalPut},
+    parse_url,
+    path::Path,
 };
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 use url::Url;
 
-use crate::metrics::{blob_storage, Timer};
+use crate::metrics::{Timer, blob_storage};
 
 pub mod registry;
 
