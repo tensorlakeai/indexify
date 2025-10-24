@@ -3,7 +3,7 @@ pub mod filter;
 pub mod test_objects;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
@@ -916,6 +916,31 @@ impl RequestCtx {
     pub fn key_prefix_for_application(namespace: &str, application: &str) -> String {
         format!("{namespace}|{application}|")
     }
+
+    pub fn pending_function_calls(&self) -> HashSet<FunctionCallId> {
+        let function_call_ids = self.function_calls.keys().collect::<HashSet<_>>();
+        let function_run_ids = self.function_runs.keys().collect::<HashSet<_>>();
+
+        let pending_function_calls = function_call_ids
+            .difference(&function_run_ids)
+            .cloned()
+            .map(|id| id.clone())
+            .collect::<HashSet<_>>();
+
+        pending_function_calls
+    }
+
+    pub fn is_request_completed(&self) -> bool {
+        if self.outcome.is_some() {
+            return true;
+        }
+        if self.function_calls.len() != self.function_runs.len() {
+            return false;
+        }
+        self.function_runs
+            .values()
+            .all(|function_run| matches!(function_run.status, FunctionRunStatus::Completed))
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -1673,6 +1698,15 @@ pub struct AllocationOutputIngestedEvent {
     pub request_exception: Option<DataPayload>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct FunctionCallEvent {
+    pub namespace: String,
+    pub application: String,
+    pub request_id: String,
+    pub source_function_call_id: FunctionCallId,
+    pub graph_updates: GraphUpdates,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ExecutorRemovedEvent {
     pub executor_id: ExecutorId,
@@ -1699,6 +1733,7 @@ pub struct ExecutorUpsertedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeApplication(InvokeApplicationEvent),
+    CreateFunctionCall(FunctionCallEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
     TombstoneApplication(TombstoneApplicationEvent),
     TombstoneRequest(TombstoneRequestEvent),
@@ -1714,6 +1749,13 @@ impl fmt::Display for ChangeType {
                     f,
                     "InvokeApplication namespace: {}, request_id: {}, app: {}",
                     ev.namespace, ev.request_id, ev.application
+                )
+            }
+            ChangeType::CreateFunctionCall(ev) => {
+                write!(
+                    f,
+                    "CreateFunctionCall, request_id: {}, source_function_call_id: {}",
+                    ev.request_id, ev.source_function_call_id
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(

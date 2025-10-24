@@ -353,14 +353,16 @@ message AllocationResult {
 }
 
 message FunctionCallRequest {
+    optional string namespace = 1;
+    optional string application = 2;
     // The ID of request in which the function call
     // needs to run.
-    optional string request_id = 1;
+    optional string request_id = 3;
     // Function call tree.
     // updates.root_function_call_id is the ID of this function call.
-    optional ExecutionPlanUpdates updates = 2;
+    optional ExecutionPlanUpdates updates = 4;
     // ID of the function call that initiated this function call.
-    optional string source_function_call_id = 5;
+    optional string source_function_call_id = 6;
 }
 
 message FunctionCallResponse {

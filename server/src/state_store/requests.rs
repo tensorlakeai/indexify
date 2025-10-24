@@ -42,6 +42,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::InvokeApplication(request) => {
                 state_changes::invoke_application(state_change_id_seq, request)
             }
+            RequestPayload::CreateFunctionCall(request) => {
+                state_changes::create_function_call(state_change_id_seq, request)
+            }
             RequestPayload::TombstoneApplication(request) => {
                 state_changes::tombstone_application(state_change_id_seq, request)
             }
@@ -71,6 +74,7 @@ impl StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeApplication(InvokeApplicationRequest),
+    CreateFunctionCall(FunctionCallRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateApplication(Box<CreateOrUpdateApplicationRequest>),
     TombstoneApplication(DeleteApplicationRequest),
@@ -177,6 +181,16 @@ pub struct InvokeApplicationRequest {
     pub namespace: String,
     pub application_name: String,
     pub ctx: RequestCtx,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionCallRequest {
+    pub namespace: String,
+    pub application_name: String,
+    pub request_id: String,
+    pub updates: Vec<ComputeOp>,
+    pub source_function_call_id: FunctionCallId,
+    pub output_function_call_id: FunctionCallId,
 }
 
 #[derive(Debug, Clone)]

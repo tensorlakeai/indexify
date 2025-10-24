@@ -51,18 +51,14 @@ use crate::{
         FunctionRunOutcome,
         GPUResources,
     },
-    executor_api::executor_api_pb::{
-        FunctionCallRequest,
-        FunctionCallResponse,
-        FunctionExecutorState,
-        FunctionExecutorTerminationReason,
-    },
+    executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
     pb_helpers::blob_store_url_to_path,
     state_store::{
         IndexifyState,
         requests::{
             AllocationOutput,
+            FunctionCallRequest,
             RequestPayload,
             RequestUpdates,
             StateMachineUpdateRequest,
@@ -426,23 +422,30 @@ fn to_internal_function_arg(
 
 fn to_internal_function_call(
     function_call: executor_api_pb::FunctionCall,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
+    blob_storage_registry: &BlobStorageRegistry,
     source_function_call_id: Option<String>,
 ) -> Result<data_model::FunctionCall, anyhow::Error> {
+    let target = function_call
+        .target
+        .ok_or(anyhow::anyhow!("target is required"))?;
+    let namespace = target
+        .namespace
+        .ok_or(anyhow::anyhow!("namespace is required"))?;
+    let blob_storage_url_scheme = blob_storage_registry
+        .get_blob_store(&namespace)
+        .get_url_scheme();
+    let blob_storage_url = blob_storage_registry.get_blob_store(&namespace).get_url();
     Ok(data_model::FunctionCall {
         function_call_id: FunctionCallId(
             function_call.id.ok_or(anyhow::anyhow!("id is required"))?,
         ),
-        fn_name: function_call
-            .target
-            .ok_or(anyhow::anyhow!("target is required"))?
+        fn_name: target
             .function_name
             .ok_or(anyhow::anyhow!("function_name is required"))?,
         inputs: function_call
             .args
             .into_iter()
-            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
+            .map(|arg| to_internal_function_arg(arg, &blob_storage_url_scheme, &blob_storage_url))
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
         call_metadata: function_call.call_metadata.unwrap_or_default().into(),
         parent_function_call_id: source_function_call_id.map(FunctionCallId::from),
@@ -451,18 +454,25 @@ fn to_internal_function_call(
 
 fn to_internal_reduce_op(
     reduce_op: executor_api_pb::ReduceOp,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
+    blob_storage_registry: &BlobStorageRegistry,
 ) -> Result<data_model::ReduceOperation> {
+    let reducer = reduce_op
+        .reducer
+        .ok_or(anyhow::anyhow!("reducer is required"))?;
+    let namespace = reducer
+        .namespace
+        .ok_or(anyhow::anyhow!("namespace is required"))?;
+    let blob_storage_url_scheme = blob_storage_registry
+        .get_blob_store(&namespace)
+        .get_url_scheme();
+    let blob_storage_url = blob_storage_registry.get_blob_store(&namespace).get_url();
     Ok(data_model::ReduceOperation {
         function_call_id: FunctionCallId(
             reduce_op
                 .id
                 .ok_or(anyhow::anyhow!("reduce op id is required"))?,
         ),
-        fn_name: reduce_op
-            .reducer
-            .ok_or(anyhow::anyhow!("reducer is required"))?
+        fn_name: reducer
             .function_name
             .ok_or(anyhow::anyhow!("function_name is required"))?,
         call_metadata: reduce_op
@@ -472,15 +482,14 @@ fn to_internal_reduce_op(
         collection: reduce_op
             .collection
             .into_iter()
-            .map(|arg| to_internal_function_arg(arg, blob_store_url_scheme, blob_store_url))
+            .map(|arg| to_internal_function_arg(arg, &blob_storage_url_scheme, &blob_storage_url))
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
     })
 }
 
 fn to_internal_compute_op(
     compute_op: executor_api_pb::ExecutionPlanUpdate,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
+    blob_storage_registry: &BlobStorageRegistry,
     source_function_call_id: Option<String>,
 ) -> Result<data_model::ComputeOp, anyhow::Error> {
     let op = compute_op.op.ok_or(anyhow::anyhow!("op is required"))?;
@@ -488,18 +497,13 @@ fn to_internal_compute_op(
         executor_api_pb::execution_plan_update::Op::FunctionCall(function_call) => Ok(
             data_model::ComputeOp::FunctionCall(to_internal_function_call(
                 function_call,
-                blob_store_url_scheme,
-                blob_store_url,
+                blob_storage_registry,
                 source_function_call_id,
             )?),
         ),
-        executor_api_pb::execution_plan_update::Op::Reduce(reduce) => {
-            Ok(data_model::ComputeOp::Reduce(to_internal_reduce_op(
-                reduce,
-                blob_store_url_scheme,
-                blob_store_url,
-            )?))
-        }
+        executor_api_pb::execution_plan_update::Op::Reduce(reduce) => Ok(
+            data_model::ComputeOp::Reduce(to_internal_reduce_op(reduce, blob_storage_registry)?),
+        ),
     }
 }
 
@@ -593,8 +597,7 @@ impl ExecutorAPIService {
                         for update in updates.updates {
                             function_calls.push(to_internal_compute_op(
                                 update,
-                                &blob_storage_url_schema,
-                                &blob_storage_url,
+                                &self.blob_storage_registry,
                                 None,
                             )?);
                         }
@@ -911,10 +914,58 @@ impl ExecutorApi for ExecutorAPIService {
 
     async fn call_function(
         &self,
-        request: Request<FunctionCallRequest>,
-    ) -> Result<Response<FunctionCallResponse>, Status> {
-        let _req = request.into_inner();
-        Ok(Response::new(FunctionCallResponse {}))
+        request: Request<executor_api_pb::FunctionCallRequest>,
+    ) -> Result<Response<executor_api_pb::FunctionCallResponse>, Status> {
+        let req = request.into_inner();
+        let updates = req
+            .updates
+            .ok_or(Status::invalid_argument("updates is required"))?;
+        let request_id = req
+            .request_id
+            .ok_or(Status::invalid_argument("request_id is required"))?;
+        let source_function_call_id = req.source_function_call_id.ok_or(
+            Status::invalid_argument("source_function_call_id is required"),
+        )?;
+        let namespace = req
+            .namespace
+            .ok_or(Status::invalid_argument("namespace is required"))?;
+        let application_name = req
+            .application
+            .ok_or(Status::invalid_argument("application is required"))?;
+        let root_function_call_id =
+            updates
+                .root_function_call_id
+                .ok_or(Status::invalid_argument(
+                    "root function call id is required",
+                ))?;
+        let mut compute_ops = Vec::new();
+        for update in updates.updates {
+            compute_ops.push(
+                to_internal_compute_op(
+                    update,
+                    &self.blob_storage_registry,
+                    Some(source_function_call_id.clone()),
+                )
+                .map_err(|e| Status::internal(e.to_string()))?,
+            );
+        }
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateFunctionCall(FunctionCallRequest {
+                namespace,
+                application_name,
+                request_id: request_id.into(),
+                updates: compute_ops,
+                source_function_call_id: FunctionCallId(source_function_call_id),
+                output_function_call_id: FunctionCallId(root_function_call_id),
+            }),
+        };
+        if let Err(e) = self.indexify_state.write(sm_req).await {
+            error!("failed to write state machine update request: {e:?}");
+            return Err(Status::internal(
+                "failed to write state machine update request",
+            ));
+        }
+        Ok(Response::new(executor_api_pb::FunctionCallResponse {}))
     }
 }
 
