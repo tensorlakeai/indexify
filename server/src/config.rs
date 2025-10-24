@@ -13,7 +13,11 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+use crate::{
+    blob_store::BlobStorageConfig,
+    queue::QueueConfig,
+    state_store::driver::rocksdb::RocksDBConfig,
+};
 
 const LOCAL_ENV: &str = "local";
 
@@ -48,6 +52,7 @@ pub struct ServerConfig {
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
     pub kv_storage: BlobStorageConfig,
+    pub usage_queue: Option<QueueConfig>,
     pub telemetry: TelemetryConfig,
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
     pub queue_size: u32,
@@ -67,6 +72,7 @@ impl Default for ServerConfig {
             telemetry: TelemetryConfig::default(),
             executor_catalog: Vec::new(),
             queue_size: 1,
+            usage_queue: None,
         }
     }
 }

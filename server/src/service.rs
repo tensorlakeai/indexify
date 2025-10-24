@@ -29,6 +29,7 @@ use crate::{
         gc::Gc,
         usage_processor::UsageProcessor,
     },
+    queue::Queue,
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
@@ -119,7 +120,13 @@ impl Service {
         ));
         application_processor.validate_app_constraints().await?;
 
-        let usage_processor = Arc::new(UsageProcessor::new(indexify_state.clone()).await?);
+        let usage_queue = Arc::new(match &config.usage_queue {
+            Some(cfg) => Some(Queue::new(cfg.clone()).await?),
+            None => None,
+        });
+
+        let usage_processor =
+            Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
         Ok(Self {
             config,

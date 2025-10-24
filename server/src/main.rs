@@ -28,6 +28,7 @@ mod tracing;
 use tracing::setup_tracing;
 mod utils;
 
+mod queue;
 #[cfg(test)]
 mod testing;
 
