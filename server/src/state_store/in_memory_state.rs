@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
 };
@@ -112,9 +112,32 @@ pub struct DesiredExecutorState {
     pub clock: u64,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct CandidateFunctionExecutor {
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
+    pub allocation_count: usize,
+}
+
+impl PartialOrd for CandidateFunctionExecutor {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CandidateFunctionExecutor {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Order by allocation count first (ascending - least loaded first)
+        // Then by executor_id and function_executor_id for consistent ordering
+        self.allocation_count
+            .cmp(&other.allocation_count)
+            .then_with(|| self.executor_id.cmp(&other.executor_id))
+            .then_with(|| self.function_executor_id.cmp(&other.function_executor_id))
+    }
+}
+
 pub struct CandidateFunctionExecutors {
-    #[allow(clippy::vec_box)]
-    pub function_executors: Vec<Box<FunctionExecutorServerMetadata>>,
+    pub function_executors: BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
 }
 
@@ -1079,23 +1102,23 @@ impl InMemoryState {
         function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
-        let mut candidates = Vec::new();
+        let mut candidates = BTreeSet::new();
+
         let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
-            for function_executor_kv in function_executors.iter() {
-                let function_executor = function_executor_kv.1;
-                if function_executor.function_executor.state == FunctionExecutorState::Pending ||
-                    function_executor.function_executor.state == FunctionExecutorState::Unknown
+            for (_, metadata) in function_executors.iter() {
+                if metadata.function_executor.state == FunctionExecutorState::Pending ||
+                    metadata.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
                 if matches!(
-                    function_executor.desired_state,
+                    metadata.desired_state,
                     FunctionExecutorState::Terminated { .. }
                 ) || matches!(
-                    function_executor.function_executor.state,
+                    metadata.function_executor.state,
                     FunctionExecutorState::Terminated { .. }
                 ) {
                     continue;
@@ -1103,14 +1126,18 @@ impl InMemoryState {
                 // FIXME - Create a reverse index of fe_id -> # active allocations
                 let allocation_count = self
                     .allocations_by_executor
-                    .get(&function_executor.executor_id)
-                    .and_then(|alloc_map| alloc_map.get(&function_executor.function_executor.id))
+                    .get(&metadata.executor_id)
+                    .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
                 if (allocation_count as u32) <
-                    capacity_threshold * function_executor.function_executor.max_concurrency
+                    capacity_threshold * metadata.function_executor.max_concurrency
                 {
-                    candidates.push(function_executor.clone());
+                    candidates.insert(CandidateFunctionExecutor {
+                        executor_id: metadata.executor_id.clone(),
+                        function_executor_id: metadata.function_executor.id.clone(),
+                        allocation_count,
+                    });
                 }
             }
         }
@@ -1777,5 +1804,114 @@ mod tests {
             }
         }
         assert!(!state.has_pending_tasks(&fe_metadata2));
+    }
+
+    #[test]
+    fn test_candidate_function_executor_ordering() {
+        use super::CandidateFunctionExecutor;
+
+        // Test that CandidateFunctionExecutor orders correctly by allocation count
+        // first, then by executor_id, then by function_executor_id
+
+        let executor_id_1 = ExecutorId::new("executor-1".to_string());
+        let executor_id_2 = ExecutorId::new("executor-2".to_string());
+        let fe_id_1 = FunctionExecutorId::new("fe-1".to_string());
+        let fe_id_2 = FunctionExecutorId::new("fe-2".to_string());
+
+        // Create function executors with different allocation counts
+        let fe_1 = FunctionExecutorBuilder::default()
+            .id(fe_id_1.clone())
+            .namespace("test-ns".to_string())
+            .application_name("test-app".to_string())
+            .function_name("test-fn".to_string())
+            .version("1.0".to_string())
+            .state(FunctionExecutorState::Running)
+            .resources(FunctionExecutorResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .build()
+            .unwrap();
+
+        let fe_2 = FunctionExecutorBuilder::default()
+            .id(fe_id_2.clone())
+            .namespace("test-ns".to_string())
+            .application_name("test-app".to_string())
+            .function_name("test-fn".to_string())
+            .version("1.0".to_string())
+            .state(FunctionExecutorState::Running)
+            .resources(FunctionExecutorResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .build()
+            .unwrap();
+
+        // Test 1: Lower allocation count comes first
+        let candidate_1 = CandidateFunctionExecutor {
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
+            allocation_count: 5,
+        };
+
+        let candidate_2 = CandidateFunctionExecutor {
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
+            allocation_count: 10,
+        };
+
+        assert!(candidate_1 < candidate_2);
+        assert!(candidate_2 > candidate_1);
+
+        // Test 2: Same allocation count, executor_id determines order
+        let candidate_3 = CandidateFunctionExecutor {
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
+            allocation_count: 5,
+        };
+
+        let candidate_4 = CandidateFunctionExecutor {
+            executor_id: executor_id_2.clone(),
+            function_executor_id: fe_1.id.clone(),
+            allocation_count: 5,
+        };
+
+        assert!(candidate_3 < candidate_4);
+
+        // Test 3: Same allocation count and executor_id, function_executor_id
+        // determines order
+        let candidate_5 = CandidateFunctionExecutor {
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_1.id.clone(),
+            allocation_count: 5,
+        };
+
+        let candidate_6 = CandidateFunctionExecutor {
+            executor_id: executor_id_1.clone(),
+            function_executor_id: fe_2.id.clone(),
+            allocation_count: 5,
+        };
+
+        assert!(candidate_5 < candidate_6);
+
+        // Test 4: BTreeSet maintains correct order
+        let mut candidates = std::collections::BTreeSet::new();
+        candidates.insert(candidate_2.clone()); // allocation_count: 10
+        candidates.insert(candidate_1.clone()); // allocation_count: 5
+        candidates.insert(candidate_6.clone()); // allocation_count: 5, executor_id_1, fe_id_2
+
+        let first = candidates.first().unwrap();
+        assert_eq!(first.allocation_count, 5);
+        assert_eq!(first.function_executor_id, fe_id_1);
+        assert_eq!(first.executor_id, executor_id_1);
+
+        let last = candidates.last().unwrap();
+        assert_eq!(last.allocation_count, 10);
     }
 }

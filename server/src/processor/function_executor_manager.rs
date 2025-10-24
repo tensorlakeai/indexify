@@ -533,13 +533,18 @@ impl FunctionExecutorManager {
             "found function executors for function run",
         );
 
-        // Select a function executor using the current policy (random selection)
-        let selected_fe = function_executors
-            .function_executors
-            .choose(&mut rand::rng())
-            .map(|fe| {
-                AllocationTarget::new(fe.executor_id.clone(), fe.function_executor.id.clone())
-            });
+        // Select a function executor using least-loaded policy (fewest allocations)
+        // BTreeSet is already ordered by allocation count, so just pick the first one
+        let selected_fe = function_executors.function_executors.first().map(|fe| {
+            debug!(
+                target: targets::SCHEDULER,
+                executor_id = %fe.executor_id,
+                function_executor_id = %fe.function_executor_id,
+                allocation_count = fe.allocation_count,
+                "selected function executor with least allocations",
+            );
+            AllocationTarget::new(fe.executor_id.clone(), fe.function_executor_id.clone())
+        });
 
         Ok((selected_fe, update))
     }
