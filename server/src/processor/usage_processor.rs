@@ -215,51 +215,44 @@ impl TryFrom<AllocationUsage> for UsageEvent {
 
         let mut usage_entries = Vec::new();
 
-        if allocation_usage.cpu_ms_per_second > 0 {
-            let cpu_amount =
-                allocation_usage.cpu_ms_per_second as u64 * allocation_usage.execution_duration_ms;
-            let cpu_amount = cpu_amount / 1000;
+        let cpu_amount =
+            allocation_usage.cpu_ms_per_second as u64 * allocation_usage.execution_duration_ms;
+        let cpu_amount = cpu_amount / 1000;
 
-            let cpu_usage = ApplicationResourceUsageBuilder::default()
-                .resource(ApplicationsResourceType::Cpu)
-                .application(allocation_usage.application.clone())
-                .allocation_id(allocation_usage.allocation_id.0.clone())
-                .request_id(allocation_usage.request_id.clone())
-                .amount(cpu_amount)
-                .build()?;
+        let cpu_usage = ApplicationResourceUsageBuilder::default()
+            .resource(ApplicationsResourceType::Cpu)
+            .application(allocation_usage.application.clone())
+            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .request_id(allocation_usage.request_id.clone())
+            .amount(cpu_amount)
+            .build()?;
 
-            usage_entries.push(cpu_usage);
-        }
+        usage_entries.push(cpu_usage);
+        let disk_amount = allocation_usage.disk_mb * allocation_usage.execution_duration_ms;
+        let disk_amount = disk_amount / 1000;
 
-        if allocation_usage.disk_mb > 0 {
-            let disk_amount = allocation_usage.disk_mb * allocation_usage.execution_duration_ms;
-            let disk_amount = disk_amount / 1000;
+        let disk_usage = ApplicationResourceUsageBuilder::default()
+            .resource(ApplicationsResourceType::DiskMb)
+            .application(allocation_usage.application.clone())
+            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .request_id(allocation_usage.request_id.clone())
+            .amount(disk_amount)
+            .build()?;
 
-            let disk_usage = ApplicationResourceUsageBuilder::default()
-                .resource(ApplicationsResourceType::DiskMb)
-                .application(allocation_usage.application.clone())
-                .allocation_id(allocation_usage.allocation_id.0.clone())
-                .request_id(allocation_usage.request_id.clone())
-                .amount(disk_amount)
-                .build()?;
+        usage_entries.push(disk_usage);
 
-            usage_entries.push(disk_usage);
-        }
+        let memory_amount = allocation_usage.memory_mb * allocation_usage.execution_duration_ms;
+        let memory_amount = memory_amount / 1000;
 
-        if allocation_usage.memory_mb > 0 {
-            let memory_amount = allocation_usage.memory_mb * allocation_usage.execution_duration_ms;
-            let memory_amount = memory_amount / 1000;
+        let memory_usage = ApplicationResourceUsageBuilder::default()
+            .resource(ApplicationsResourceType::MemoryMb)
+            .application(allocation_usage.application.clone())
+            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .request_id(allocation_usage.request_id.clone())
+            .amount(memory_amount)
+            .build()?;
 
-            let memory_usage = ApplicationResourceUsageBuilder::default()
-                .resource(ApplicationsResourceType::MemoryMb)
-                .application(allocation_usage.application.clone())
-                .allocation_id(allocation_usage.allocation_id.0.clone())
-                .request_id(allocation_usage.request_id.clone())
-                .amount(memory_amount)
-                .build()?;
-
-            usage_entries.push(memory_usage);
-        }
+        usage_entries.push(memory_usage);
 
         if !allocation_usage.gpu_used.is_empty() {
             let gpu_amount = allocation_usage.execution_duration_ms / 1000;
