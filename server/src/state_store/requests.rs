@@ -42,6 +42,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::InvokeApplication(request) => {
                 state_changes::invoke_application(state_change_id_seq, request)
             }
+            RequestPayload::CreateFunctionCall(request) => {
+                state_changes::create_function_call(state_change_id_seq, request)
+            }
             RequestPayload::TombstoneApplication(request) => {
                 state_changes::tombstone_application(state_change_id_seq, request)
             }
@@ -71,6 +74,7 @@ impl StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeApplication(InvokeApplicationRequest),
+    CreateFunctionCall(FunctionCallRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateApplication(Box<CreateOrUpdateApplicationRequest>),
     TombstoneApplication(DeleteApplicationRequest),
@@ -180,6 +184,16 @@ pub struct InvokeApplicationRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct FunctionCallRequest {
+    pub namespace: String,
+    pub application_name: String,
+    pub request_id: String,
+    pub updates: Vec<ComputeOp>,
+    pub source_function_call_id: FunctionCallId,
+    pub output_function_call_id: FunctionCallId,
+}
+
+#[derive(Debug, Clone)]
 pub struct NamespaceRequest {
     pub name: String,
     pub blob_storage_bucket: Option<String>,
@@ -214,6 +228,7 @@ pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
+    pub watch_function_call_ids: HashSet<String>,
     state_changes: Vec<StateChange>,
 }
 
@@ -229,6 +244,7 @@ impl UpsertExecutorRequest {
         executor: ExecutorMetadata,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
+        watch_function_call_ids: HashSet<String>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
         let state_change_id_seq = indexify_state.state_change_id_seq();
@@ -252,6 +268,7 @@ impl UpsertExecutorRequest {
             allocation_outputs,
             state_changes,
             update_executor_state,
+            watch_function_call_ids,
         })
     }
 }

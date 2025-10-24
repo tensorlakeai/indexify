@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
 use nanoid::nanoid;
@@ -351,6 +351,7 @@ impl TestExecutor<'_> {
             executor,
             vec![],
             update_executor_state,
+            HashSet::new(),
             self.test_service.service.indexify_state.clone(),
         )?;
 
@@ -514,6 +515,7 @@ impl TestExecutor<'_> {
             self.executor_metadata.clone(),
             vec![ingest_task_outputs_request],
             false,
+            HashSet::new(),
             self.test_service.service.indexify_state.clone(),
         )?;
 

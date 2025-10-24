@@ -217,6 +217,7 @@ pub async fn invoke_application_with_object_v1(
         function_call_id,
         vec![data_payload.clone()],
         Bytes::new(),
+        None,
     );
     let app_version = state
         .indexify_state

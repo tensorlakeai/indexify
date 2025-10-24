@@ -253,6 +253,18 @@ impl ApplicationProcessor {
         let req = match &state_change.change_type {
             ChangeType::InvokeApplication(_) => {
                 let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
+                }
+            }
+            ChangeType::CreateFunctionCall(req) => {
+                let mut scheduler_update =
+                    task_creator.handle_blocking_function_call(&mut indexes_guard, req)?;
+
+                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((

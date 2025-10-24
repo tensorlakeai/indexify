@@ -181,7 +181,6 @@ def _fe_startup_failure_reason_to_alloc_failure_reason(
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
     ):
-        # This fe termination reason is used when FE gets deleted by Server from desired state while it's starting up.
         return (
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED
         )
