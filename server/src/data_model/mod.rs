@@ -74,7 +74,7 @@ impl AllocationTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
-pub struct AllocationId(pub String);
+pub struct AllocationId(String);
 
 impl Default for AllocationId {
     fn default() -> Self {

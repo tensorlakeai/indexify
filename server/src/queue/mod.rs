@@ -63,7 +63,10 @@ impl Queue {
         })
     }
 
-    pub async fn send_json<P: serde::Serialize + Sync>(&self, payload: &P) -> anyhow::Result<()> {
+    pub async fn send_json<P: serde::Serialize + Sync>(
+        &self,
+        payload: &P,
+    ) -> omniqueue::Result<()> {
         let send_result = self.producer.send_serde_json(payload).await;
 
         match send_result {
@@ -74,18 +77,18 @@ impl Queue {
             Err(queue_error) => {
                 let attrs = &[KeyValue::new(
                     "queue.error_type",
-                    queue_error_type(queue_error),
+                    queue_error_type(&queue_error),
                 )];
 
                 Increment::inc(&self.metrics.send_errors, attrs);
 
-                Err(anyhow::anyhow!("failed to send message to queue"))
+                Err(queue_error)
             }
         }
     }
 }
 
-fn queue_error_type(queue_error: QueueError) -> String {
+fn queue_error_type(queue_error: &QueueError) -> String {
     match queue_error {
         QueueError::Generic(inner_error) => {
             error!("sqs error: {}", inner_error);

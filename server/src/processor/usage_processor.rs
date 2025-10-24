@@ -224,7 +224,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
 
         usage_event_builder
             .project_id(allocation_usage.namespace)
-            .event_id(allocation_usage.allocation_id.0.clone())
+            .event_id(allocation_usage.allocation_id.clone().to_string())
             .service("applications".to_string())
             .timestamp(now.to_rfc3339());
 
@@ -237,7 +237,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         let cpu_usage = ApplicationResourceUsageBuilder::default()
             .resource(ApplicationsResourceType::Cpu)
             .application(allocation_usage.application.clone())
-            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .allocation_id(allocation_usage.allocation_id.clone().to_string())
             .request_id(allocation_usage.request_id.clone())
             .amount(cpu_amount)
             .build()?;
@@ -249,7 +249,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         let disk_usage = ApplicationResourceUsageBuilder::default()
             .resource(ApplicationsResourceType::DiskMb)
             .application(allocation_usage.application.clone())
-            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .allocation_id(allocation_usage.allocation_id.clone().to_string())
             .request_id(allocation_usage.request_id.clone())
             .amount(disk_amount)
             .build()?;
@@ -262,7 +262,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
         let memory_usage = ApplicationResourceUsageBuilder::default()
             .resource(ApplicationsResourceType::MemoryMb)
             .application(allocation_usage.application.clone())
-            .allocation_id(allocation_usage.allocation_id.0.clone())
+            .allocation_id(allocation_usage.allocation_id.clone().to_string())
             .request_id(allocation_usage.request_id.clone())
             .amount(memory_amount)
             .build()?;
@@ -276,7 +276,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
 
             gpu_usage_builder
                 .application(allocation_usage.application.clone())
-                .allocation_id(allocation_usage.allocation_id.0.clone())
+                .allocation_id(allocation_usage.allocation_id.clone().to_string())
                 .request_id(allocation_usage.request_id.clone())
                 .amount(gpu_amount);
 
