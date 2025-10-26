@@ -29,34 +29,41 @@ pub fn fn_call_outcome_to_pb(
         FunctionRunOutcome::Failure(_) => executor_api_pb::AllocationOutcomeCode::Failure,
         FunctionRunOutcome::Unknown => executor_api_pb::AllocationOutcomeCode::Unknown,
     };
-    let failure_reason = function_call_outcome.failure_reason.map(|failure_reason| match failure_reason {
-            FunctionRunFailureReason::Unknown => executor_api_pb::AllocationFailureReason::Unknown,
-            FunctionRunFailureReason::InternalError => {
-                executor_api_pb::AllocationFailureReason::InternalError
-            }
-            FunctionRunFailureReason::FunctionError => {
-                executor_api_pb::AllocationFailureReason::FunctionError
-            }
-            FunctionRunFailureReason::FunctionTimeout => {
-                executor_api_pb::AllocationFailureReason::FunctionTimeout
-            }
-            FunctionRunFailureReason::RequestError => {
-                executor_api_pb::AllocationFailureReason::RequestError
-            }
-            FunctionRunFailureReason::FunctionRunCancelled => {
-                executor_api_pb::AllocationFailureReason::AllocationCancelled
-            }
-            FunctionRunFailureReason::FunctionExecutorTerminated => {
-                executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
-            }
-            FunctionRunFailureReason::ConstraintUnsatisfiable => {
-                executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
-            }
-            FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
-            FunctionRunFailureReason::ExecutorRemoved => {
-                executor_api_pb::AllocationFailureReason::ExecutorRemoved
-            }
-        });
+    let failure_reason =
+        function_call_outcome
+            .failure_reason
+            .map(|failure_reason| match failure_reason {
+                FunctionRunFailureReason::Unknown => {
+                    executor_api_pb::AllocationFailureReason::Unknown
+                }
+                FunctionRunFailureReason::InternalError => {
+                    executor_api_pb::AllocationFailureReason::InternalError
+                }
+                FunctionRunFailureReason::FunctionError => {
+                    executor_api_pb::AllocationFailureReason::FunctionError
+                }
+                FunctionRunFailureReason::FunctionTimeout => {
+                    executor_api_pb::AllocationFailureReason::FunctionTimeout
+                }
+                FunctionRunFailureReason::RequestError => {
+                    executor_api_pb::AllocationFailureReason::RequestError
+                }
+                FunctionRunFailureReason::FunctionRunCancelled => {
+                    executor_api_pb::AllocationFailureReason::AllocationCancelled
+                }
+                FunctionRunFailureReason::FunctionExecutorTerminated => {
+                    executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
+                }
+                FunctionRunFailureReason::ConstraintUnsatisfiable => {
+                    executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
+                }
+                FunctionRunFailureReason::OutOfMemory => {
+                    executor_api_pb::AllocationFailureReason::Oom
+                }
+                FunctionRunFailureReason::ExecutorRemoved => {
+                    executor_api_pb::AllocationFailureReason::ExecutorRemoved
+                }
+            });
 
     let return_value = function_call_outcome
         .return_value

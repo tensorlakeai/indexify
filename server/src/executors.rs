@@ -495,7 +495,8 @@ impl ExecutorManager {
                         size: Some(input_arg.data_payload.size),
                         sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
                         encoding: Some(
-                            DataPayloadEncoding::from(input_arg.data_payload.encoding.clone()).into()
+                            DataPayloadEncoding::from(input_arg.data_payload.encoding.clone())
+                                .into(),
                         ),
                         encoding_version: Some(0),
                         offset: Some(input_arg.data_payload.offset),
@@ -544,7 +545,7 @@ impl ExecutorManager {
             function_executors: function_executors_pb,
             allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
-            function_call_results: vec![],
+            function_call_results: function_call_results_pb,
         }
     }
 

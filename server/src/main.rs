@@ -26,13 +26,13 @@ use tracing::setup_tracing;
 mod pb_helpers;
 mod utils;
 
-mod queue;
 #[cfg(test)]
 mod integration_test;
 #[cfg(test)]
 mod integration_test_blocking_calls;
 #[cfg(test)]
 mod integration_test_executor_catalog;
+mod queue;
 #[cfg(test)]
 mod reconciliation_test;
 #[cfg(test)]

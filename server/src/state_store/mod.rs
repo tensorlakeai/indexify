@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-mod executor_watches;
+pub mod executor_watches;
 use executor_watches::ExecutorWatches;
 
 #[derive(Debug, Clone, Default)]
@@ -292,7 +292,7 @@ impl IndexifyState {
                 self.executor_watches
                     .sync_watches(
                         request.executor.id.get().to_string(),
-                        request.watch_function_call_ids.clone(),
+                        request.watch_function_calls.clone(),
                     )
                     .await;
             }
@@ -345,7 +345,10 @@ impl IndexifyState {
         if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
             let impacted_executors = self
                 .executor_watches
-                .impacted_executors(request.updated_function_runs.keys().cloned().collect())
+                .impacted_executors(
+                    &request.updated_function_runs,
+                    &request.updated_request_states,
+                )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }

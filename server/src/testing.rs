@@ -26,6 +26,7 @@ use crate::{
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
+        executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
@@ -488,12 +489,20 @@ impl TestExecutor<'_> {
         application: &str,
         request_id: &str,
         source_function_call_id: FunctionCallId,
-    ) -> Result<()> {
+    ) -> Result<FunctionCallId> {
+        use crate::data_model::ComputeOp;
+        let graph_updates = mock_blocking_function_call(&function_name, &source_function_call_id);
+        let function_call_id =
+            if let Some(ComputeOp::FunctionCall(fc)) = graph_updates.request_updates.first() {
+                fc.function_call_id.clone()
+            } else {
+                return Err(anyhow::anyhow!("No function call in graph updates"));
+            };
         let request = FunctionCallRequest {
             namespace: namespace.to_string(),
             application_name: application.to_string(),
             request_id: request_id.to_string(),
-            graph_updates: mock_blocking_function_call(&function_name, &source_function_call_id),
+            graph_updates,
             source_function_call_id,
         };
         self.test_service
@@ -501,6 +510,25 @@ impl TestExecutor<'_> {
             .indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateFunctionCall(request),
+            })
+            .await?;
+        Ok(function_call_id)
+    }
+
+    pub async fn update_watches(&self, executor_watches: HashSet<ExecutorWatch>) -> Result<()> {
+        let request = UpsertExecutorRequest::build(
+            self.executor_metadata.clone(),
+            vec![],
+            false,
+            executor_watches,
+            self.test_service.service.indexify_state.clone(),
+        )?;
+
+        self.test_service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::UpsertExecutor(request),
             })
             .await?;
         Ok(())

@@ -56,6 +56,7 @@ use crate::{
     pb_helpers::blob_store_url_to_path,
     state_store::{
         IndexifyState,
+        executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,
             FunctionCallRequest,
@@ -507,6 +508,41 @@ fn to_internal_compute_op(
     }
 }
 
+impl TryFrom<&executor_api_pb::FunctionCallWatch> for ExecutorWatch {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &executor_api_pb::FunctionCallWatch) -> Result<Self> {
+        let namespace = value
+            .namespace
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Missing namespace in FunctionCallWatch"))?
+            .clone();
+        let application = value
+            .application
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Missing application in FunctionCallWatch"))?
+            .clone();
+        let request_id = value
+            .request_id
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Missing request_id in FunctionCallWatch"))?
+            .clone();
+        let function_call_id = value
+            .function_call_id
+            .as_ref()
+            .ok_or(anyhow::anyhow!(
+                "Missing function_call_id in FunctionCallWatch"
+            ))?
+            .clone();
+        Ok(ExecutorWatch {
+            namespace,
+            application,
+            request_id,
+            function_call_id,
+        })
+    }
+}
+
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
@@ -805,12 +841,11 @@ impl ExecutorApi for ExecutorAPIService {
             .clone()
             .ok_or(Status::invalid_argument("executor_update is required"))?;
 
-        let watch_function_call_ids = request
-            .get_ref()
-            .watch_function_call_ids
-            .clone()
-            .into_iter()
-            .collect::<HashSet<_>>();
+        let mut watch_function_calls = HashSet::new();
+        for function_call_watch in &request.get_ref().function_call_watches {
+            let executor_watch: ExecutorWatch = function_call_watch.try_into().unwrap();
+            watch_function_calls.insert(executor_watch);
+        }
 
         trace!(
             executor_id = executor_id.get(),
@@ -835,7 +870,7 @@ impl ExecutorApi for ExecutorAPIService {
             executor_metadata,
             allocation_outputs,
             update_executor_state,
-            watch_function_call_ids,
+            watch_function_calls,
             self.indexify_state.clone(),
         )
         .map_err(|e| Status::internal(e.to_string()))?;

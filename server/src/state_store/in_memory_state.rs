@@ -41,6 +41,7 @@ use crate::{
     metrics::low_latency_boundaries,
     state_store::{
         ExecutorCatalog,
+        executor_watches::ExecutorWatch,
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
@@ -157,6 +158,18 @@ pub struct CandidateFunctionExecutors {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionRunKey(String);
+
+impl From<&ExecutorWatch> for FunctionRunKey {
+    fn from(executor_watch: &ExecutorWatch) -> Self {
+        FunctionRunKey(format!(
+            "{}|{}|{}|{}",
+            executor_watch.namespace,
+            executor_watch.application,
+            executor_watch.request_id,
+            executor_watch.function_call_id
+        ))
+    }
+}
 
 impl From<&FunctionRun> for FunctionRunKey {
     fn from(function_run: &FunctionRun) -> Self {
@@ -1386,17 +1399,17 @@ impl InMemoryState {
     pub fn desired_state(
         &self,
         executor_id: &ExecutorId,
-        fn_call_watches: HashSet<String>,
+        executor_watches: HashSet<ExecutorWatch>,
     ) -> DesiredExecutorState {
         let mut function_call_outcomes = Vec::new();
-        for function_call_id in fn_call_watches.iter() {
-            let Some(function_run) = self
-                .function_runs
-                .get(&FunctionRunKey(function_call_id.clone()))
-            else {
+        for executor_watch in executor_watches.iter() {
+            let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
                 error!(
-                    function_call_id = function_call_id.clone(),
-                    "function run not found for function call watch",
+                    namspace = executor_watch.namespace.clone(),
+                    app = executor_watch.application.clone(),
+                    request_id = executor_watch.request_id.clone(),
+                    function_call_id = executor_watch.function_call_id.clone(),
+                    "function run not found for executor watch",
                 );
                 continue;
             };
