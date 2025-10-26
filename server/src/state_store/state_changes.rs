@@ -61,10 +61,6 @@ pub fn create_function_call(
     request: &FunctionCallRequest,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let graph_updates = GraphUpdates {
-        graph_updates: request.updates.clone(),
-        output_function_call_id: request.output_function_call_id.clone(),
-    };
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.namespace.clone()))
         .application(Some(request.application_name.clone()))
@@ -74,7 +70,10 @@ pub fn create_function_call(
             request_id: request.request_id.clone(),
             application: request.application_name.clone(),
             source_function_call_id: request.source_function_call_id.clone(),
-            graph_updates,
+            graph_updates: GraphUpdates {
+                graph_updates: request.graph_updates.request_updates.clone(),
+                output_function_call_id: request.graph_updates.output_function_call_id.clone(),
+            },
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.request_id.clone())

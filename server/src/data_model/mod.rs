@@ -921,13 +921,11 @@ impl RequestCtx {
         let function_call_ids = self.function_calls.keys().collect::<HashSet<_>>();
         let function_run_ids = self.function_runs.keys().collect::<HashSet<_>>();
 
-        let pending_function_calls = function_call_ids
+        function_call_ids
             .difference(&function_run_ids)
             .cloned()
             .map(|id| id.clone())
-            .collect::<HashSet<_>>();
-
-        pending_function_calls
+            .collect::<HashSet<_>>()
     }
 
     pub fn is_request_completed(&self) -> bool {

@@ -3,7 +3,6 @@ mod tests {
     use anyhow::Result;
 
     use crate::{
-        assert_function_run_counts,
         data_model::{
             FunctionRunOutcome,
             test_objects::tests::{
@@ -11,7 +10,6 @@ mod tests {
                 TEST_NAMESPACE,
                 mock_data_payload,
                 mock_executor_metadata,
-                mock_updates,
             },
         },
         service::Service,
@@ -34,67 +32,98 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // finalize the starting node task
-        {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1,);
-            let allocation = desired_state.allocations.first().unwrap();
-            executor
-                .finalize_allocation(
-                    allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        Some(mock_updates()),
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
+        // Add fn_b and fn_c for execution as a blocking function call
+        // get the function call id from the desired state
+        let desired_state = executor.desired_state().await;
+        let allocation_fn_a = desired_state
+            .allocations
+            .clone()
+            .into_iter()
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_a")
+            .next()
+            .unwrap();
+        let function_call_id = allocation_fn_a.function_call_id.clone().unwrap();
+        executor
+            .invoke_blocking_function_call(
+                "fn_b",
+                TEST_NAMESPACE,
+                "graph_A",
+                &request_id,
+                function_call_id.into(),
+            )
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        let desired_state = executor.desired_state().await;
+        let allocation_fn_b = desired_state
+            .allocations
+            .clone()
+            .into_iter()
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_b")
+            .next()
+            .unwrap();
+
+        let function_call_id = allocation_fn_b.function_call_id.clone().unwrap();
+        executor
+            .invoke_blocking_function_call(
+                "fn_c",
+                TEST_NAMESPACE,
+                "graph_A",
+                &request_id,
+                function_call_id.into(),
+            )
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        let desired_state = executor.desired_state().await;
+        let allocation_fn_c = desired_state
+            .allocations
+            .clone()
+            .into_iter()
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_c")
+            .next()
+            .unwrap();
+
+        // Add fn_c for execution as a blocking function call
+        executor
+            .finalize_allocation(
+                &allocation_fn_c,
+                FinalizeFunctionRunArgs::new(
+                    allocation_key_from_proto(&allocation_fn_c),
+                    None,
+                    Some(mock_data_payload()),
                 )
-                .await?;
+                .function_run_outcome(FunctionRunOutcome::Success),
+            )
+            .await?;
 
-            test_srv.process_all_state_changes().await?;
-
-            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
-        }
-
-        // finalize tasks for fn_b and fn_c
-        {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 2,);
-
-            for allocation in desired_state.allocations {
-                executor
-                    .finalize_allocation(
-                        &allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
-                    .await?;
-            }
-
-            test_srv.process_all_state_changes().await?;
-        }
-        // finalize task for fn_d
-        {
-            let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.allocations.first().unwrap();
-            executor
-                .finalize_allocation(
-                    task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
+        test_srv.process_all_state_changes().await?;
+        executor
+            .finalize_allocation(
+                &allocation_fn_b,
+                FinalizeFunctionRunArgs::new(
+                    allocation_key_from_proto(&allocation_fn_b),
+                    None,
+                    Some(mock_data_payload()),
                 )
-                .await?;
+                .function_run_outcome(FunctionRunOutcome::Success),
+            )
+            .await?;
 
-            test_srv.process_all_state_changes().await?;
-        }
+        test_srv.process_all_state_changes().await?;
+        executor
+            .finalize_allocation(
+                &allocation_fn_a,
+                FinalizeFunctionRunArgs::new(
+                    allocation_key_from_proto(&allocation_fn_a),
+                    None,
+                    Some(mock_data_payload()),
+                )
+                .function_run_outcome(FunctionRunOutcome::Success),
+            )
+            .await?;
+
+        test_srv.process_all_state_changes().await?;
 
         // check for completion
         {
@@ -107,12 +136,12 @@ mod tests {
                 .values()
                 .cloned()
                 .collect::<Vec<_>>();
-            assert_eq!(function_runs.len(), 4, "{function_runs:#?}");
+            assert_eq!(function_runs.len(), 3, "{function_runs:#?}");
             let successful_tasks = function_runs
                 .into_iter()
                 .filter(|t| t.outcome == Some(FunctionRunOutcome::Success))
                 .collect::<Vec<_>>();
-            assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
+            assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
 
             let desired_state = executor.desired_state().await;
             assert!(
@@ -133,7 +162,7 @@ mod tests {
             let (allocation_usage, cursor) =
                 indexify_state.reader().allocation_usage(None).unwrap();
 
-            assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
+            assert_eq!(allocation_usage.len(), 3, "{allocation_usage:#?}");
             assert!(cursor.is_none());
         }
 

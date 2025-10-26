@@ -13,12 +13,14 @@ use crate::{
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        FunctionCallId,
         FunctionExecutor,
         FunctionExecutorState,
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
         RequestCtx,
+        test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
@@ -27,6 +29,7 @@ use crate::{
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
+            FunctionCallRequest,
             RequestPayload,
             RequestUpdates,
             StateMachineUpdateRequest,
@@ -473,6 +476,31 @@ impl TestExecutor<'_> {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: self.executor_id.clone(),
                 }),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn invoke_blocking_function_call(
+        &self,
+        function_name: &str,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        source_function_call_id: FunctionCallId,
+    ) -> Result<()> {
+        let request = FunctionCallRequest {
+            namespace: namespace.to_string(),
+            application_name: application.to_string(),
+            request_id: request_id.to_string(),
+            graph_updates: mock_blocking_function_call(&function_name, &source_function_call_id),
+            source_function_call_id,
+        };
+        self.test_service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateFunctionCall(request),
             })
             .await?;
         Ok(())

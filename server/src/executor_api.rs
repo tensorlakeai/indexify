@@ -953,10 +953,12 @@ impl ExecutorApi for ExecutorAPIService {
             payload: RequestPayload::CreateFunctionCall(FunctionCallRequest {
                 namespace,
                 application_name,
-                request_id: request_id.into(),
-                updates: compute_ops,
+                request_id,
+                graph_updates: RequestUpdates {
+                    request_updates: compute_ops,
+                    output_function_call_id: FunctionCallId(root_function_call_id),
+                },
                 source_function_call_id: FunctionCallId(source_function_call_id),
-                output_function_call_id: FunctionCallId(root_function_call_id),
             }),
         };
         if let Err(e) = self.indexify_state.write(sm_req).await {

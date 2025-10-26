@@ -188,9 +188,8 @@ pub struct FunctionCallRequest {
     pub namespace: String,
     pub application_name: String,
     pub request_id: String,
-    pub updates: Vec<ComputeOp>,
+    pub graph_updates: RequestUpdates,
     pub source_function_call_id: FunctionCallId,
-    pub output_function_call_id: FunctionCallId,
 }
 
 #[derive(Debug, Clone)]
