@@ -110,7 +110,7 @@ impl FunctionRunCreator {
         scheduler_update.extend(self.create_function_runs(
             &mut request_ctx,
             pending_function_calls,
-            &application_version,
+            application_version,
         )?);
         in_memory_state.update_state(
             self.clock,

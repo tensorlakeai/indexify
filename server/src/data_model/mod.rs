@@ -923,8 +923,7 @@ impl RequestCtx {
 
         function_call_ids
             .difference(&function_run_ids)
-            .cloned()
-            .map(|id| id.clone())
+            .cloned().cloned()
             .collect::<HashSet<_>>()
     }
 

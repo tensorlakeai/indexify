@@ -342,15 +342,12 @@ impl IndexifyState {
             .update_state(current_state_id, &request.payload, "state_store")
             .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
 
-        match &request.payload {
-            RequestPayload::SchedulerUpdate((request, _)) => {
-                let impacted_executors = self
-                    .executor_watches
-                    .impacted_executors(request.updated_function_runs.keys().cloned().collect())
-                    .await;
-                changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
-            }
-            _ => {}
+        if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
+            let impacted_executors = self
+                .executor_watches
+                .impacted_executors(request.updated_function_runs.keys().cloned().collect())
+                .await;
+            changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
         // Notify the executors with state changes
         {

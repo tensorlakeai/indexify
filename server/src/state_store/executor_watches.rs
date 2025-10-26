@@ -106,11 +106,10 @@ impl ExecutorWatches {
             if let Some(executors) = requests_guard.get(fc_id) {
                 for ex in executors {
                     // Include executor only if it currently has any watches
-                    if let Some(watches) = executors_guard.get(ex) {
-                        if !watches.is_empty() {
+                    if let Some(watches) = executors_guard.get(ex)
+                        && !watches.is_empty() {
                             impacted_executors.insert(ex.clone());
                         }
-                    }
                 }
             }
         }

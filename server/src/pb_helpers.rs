@@ -29,8 +29,7 @@ pub fn fn_call_outcome_to_pb(
         FunctionRunOutcome::Failure(_) => executor_api_pb::AllocationOutcomeCode::Failure,
         FunctionRunOutcome::Unknown => executor_api_pb::AllocationOutcomeCode::Unknown,
     };
-    let failure_reason = match function_call_outcome.failure_reason {
-        Some(failure_reason) => Some(match failure_reason {
+    let failure_reason = function_call_outcome.failure_reason.map(|failure_reason| match failure_reason {
             FunctionRunFailureReason::Unknown => executor_api_pb::AllocationFailureReason::Unknown,
             FunctionRunFailureReason::InternalError => {
                 executor_api_pb::AllocationFailureReason::InternalError
@@ -57,9 +56,7 @@ pub fn fn_call_outcome_to_pb(
             FunctionRunFailureReason::ExecutorRemoved => {
                 executor_api_pb::AllocationFailureReason::ExecutorRemoved
             }
-        }),
-        None => None,
-    };
+        });
 
     let return_value = function_call_outcome
         .return_value
