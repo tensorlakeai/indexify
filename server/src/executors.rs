@@ -495,9 +495,7 @@ impl ExecutorManager {
                         size: Some(input_arg.data_payload.size),
                         sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
                         encoding: Some(
-                            DataPayloadEncoding::try_from(input_arg.data_payload.encoding.clone())
-                                .unwrap_or(DataPayloadEncoding::Raw)
-                                .into(),
+                            DataPayloadEncoding::from(input_arg.data_payload.encoding.clone()).into()
                         ),
                         encoding_version: Some(0),
                         offset: Some(input_arg.data_payload.offset),

@@ -79,10 +79,9 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        if request_ctx
+        if !request_ctx
             .function_calls
-            .get(&function_call_event.source_function_call_id)
-            .is_none()
+            .contains_key(&function_call_event.source_function_call_id)
         {
             trace!("source function call not found, stopping scheduling of child function runs");
             return Ok(SchedulerUpdateRequest::default());
@@ -367,7 +366,7 @@ impl FunctionRunCreator {
         &self,
         request_ctx: &mut RequestCtx,
         pending_function_calls: HashSet<FunctionCallId>,
-        application_version: &Box<ApplicationVersion>,
+        application_version: &ApplicationVersion,
     ) -> Result<SchedulerUpdateRequest> {
         let mut scheduler_update = SchedulerUpdateRequest::default();
         for function_call_id in pending_function_calls {

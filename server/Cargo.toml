@@ -65,7 +65,7 @@ derive_builder = "0.20.2"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 json-subscriber = "0.2.6"
-omniqueue = "0.2.0"
+omniqueue = {version="0.2.0", features=["sqs", "in_memory"], default-features = false}
 chrono = "0.4.42"
 prost-types = "0.14.1"
 
