@@ -1,0 +1,18 @@
+[package]
+name = "dataplane-core"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+tonic = "0.14.2"
+prost = "0.14.1"
+tonic-prost = "0.14.2"
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+figment = { version = "0.10", features = ["yaml"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14.2"
+anyhow = "1.0"

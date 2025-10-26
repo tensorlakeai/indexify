@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["dataplane-cli","dataplane-core",
     "server",
 ]
 resolver = "2"

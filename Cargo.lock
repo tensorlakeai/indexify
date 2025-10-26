@@ -1118,6 +1118,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "dataplane-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dataplane-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "dataplane-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "figment",
+ "prost 0.14.1",
+ "serde",
+ "tokio",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
