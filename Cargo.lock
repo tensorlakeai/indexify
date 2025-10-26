@@ -1135,10 +1135,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "figment",
- "prost 0.14.1",
+ "prost",
+ "prost-types",
  "serde",
  "tokio",
- "tonic 0.14.2",
+ "tonic",
  "tonic-prost",
  "tonic-prost-build",
 ]
