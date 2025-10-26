@@ -4,7 +4,10 @@ use omniqueue::QueueError;
 use opentelemetry::KeyValue;
 use tracing::{error, info};
 
-use crate::{config::{QueueConfig, QueueBackend}, metrics::{self, Increment}};
+use crate::{
+    config::{QueueBackend, QueueConfig},
+    metrics::{self, Increment},
+};
 
 pub struct Queue {
     producer: Arc<omniqueue::DynProducer>,
