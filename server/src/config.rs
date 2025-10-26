@@ -20,9 +20,7 @@ const LOCAL_ENV: &str = "local";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueBackend {
-    AmazonSqs {
-        queue_url: String,
-    },
+    AmazonSqs { queue_url: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
