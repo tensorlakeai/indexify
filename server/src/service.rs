@@ -159,7 +159,7 @@ impl Service {
         let instance_id = self.config.instance_id();
         tokio::task::spawn_blocking(move || {
             let span = info_span!(
-                "Initializing Graph Processor",
+                "initializing application processor",
                 env,
                 "indexify-instance" = instance_id
             );

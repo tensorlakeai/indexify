@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{debug, info_span, warn};
+use tracing::{debug, error, info_span, warn};
 
 use crate::{
     data_model::{
@@ -36,8 +36,9 @@ impl<'a> FunctionRunProcessor<'a> {
         application: &str,
         request_id: &str,
     ) -> Result<SchedulerUpdateRequest> {
-        let request_key = format!("{namespace}/{application}/{request_id}");
+        let request_key = format!("{namespace}|{application}|{request_id}");
         let Some(request_ctx) = in_memory_state.request_ctx.get(&request_key.into()) else {
+            error!("request context not found for request_id: {}", request_id);
             return Ok(SchedulerUpdateRequest::default());
         };
         let function_runs: Vec<FunctionRun> = request_ctx

@@ -2409,6 +2409,7 @@ mod tests {
                 )),
                 fn_name: function_name.to_string(),
                 call_metadata: bytes::Bytes::new(),
+                parent_function_call_id: None,
             }))
             .status(FunctionRunStatus::Pending)
             .outcome(None)
