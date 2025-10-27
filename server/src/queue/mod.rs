@@ -107,6 +107,11 @@ fn queue_error_type(queue_error: &QueueError) -> String {
 
             "unsupported".to_string()
         }
+        QueueError::PayloadTooLarge { actual, limit } => {
+            error!("sqs payload too large: {} > {}", actual, limit);
+
+            "payload_too_large".to_string()
+        }
         QueueError::CannotCreateHalf => "cannot_create_half".to_string(),
     }
 }

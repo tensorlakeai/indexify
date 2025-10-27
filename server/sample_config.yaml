@@ -49,3 +49,4 @@ executor_catalog:
     disk_gb: 100
     regions:
       - 'eu-west-1'
+  
