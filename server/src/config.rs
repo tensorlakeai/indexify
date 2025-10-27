@@ -35,7 +35,7 @@ pub struct ExecutorCatalogEntry {
     pub memory_gb: u64,
     pub disk_gb: u64,
     #[serde(default)]
-    pub gpu_models: Vec<String>,
+    pub gpu_model: Option<String>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,
 }
@@ -44,8 +44,8 @@ impl Display for ExecutorCatalogEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_models: {:?}, labels: {:?})",
-            self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_models, self.labels
+            "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_model: {:?}, labels: {:?})",
+            self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_model, self.labels
         )
     }
 }

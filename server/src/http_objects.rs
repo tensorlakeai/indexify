@@ -750,7 +750,7 @@ pub struct ExecutorCatalogEntry {
     pub memory_gb: u64,
     pub disk_gb: u64,
     #[serde(default)]
-    pub gpu_models: Vec<String>,
+    pub gpu_model: Option<String>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,
 }
@@ -778,7 +778,7 @@ impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
                     cpu_cores: entry.cpu_cores,
                     memory_gb: entry.memory_gb,
                     disk_gb: entry.disk_gb,
-                    gpu_models: entry.gpu_models.clone(),
+                    gpu_model: entry.gpu_model.clone(),
                     labels: entry.labels.clone(),
                 })
                 .collect(),

@@ -315,6 +315,10 @@ pub struct InMemoryState {
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
 
+    // Index: Executor Catalog Entry Name -> Set of Function Run Keys
+    // Maps executor catalog entry names to function runs that match those catalog entry labels
+    pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
+
     // Histogram metrics for task latency measurements for direct recording
     function_run_pending_latency: Histogram<f64>,
     allocation_running_latency: Histogram<f64>,
@@ -633,7 +637,11 @@ impl InMemoryState {
             }
         }
 
-        let in_memory_state = Self {
+        // Build the index of function runs by catalog entry
+        let function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>> =
+            im::HashMap::new();
+
+        let mut in_memory_state = Self {
             clock,
             namespaces,
             applications,
@@ -647,11 +655,19 @@ impl InMemoryState {
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
+            function_runs_by_catalog_entry,
             // metrics
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
         };
+
+        // Populate the catalog index for all existing function runs
+        let function_runs_to_index: Vec<_> =
+            in_memory_state.function_runs.values().cloned().collect();
+        for function_run in function_runs_to_index {
+            in_memory_state.index_function_run_by_catalog(&function_run);
+        }
 
         Ok(in_memory_state)
     }
@@ -677,6 +693,8 @@ impl InMemoryState {
                         .insert(function_run.clone().into(), Box::new(function_run.clone()));
                     self.unallocated_function_runs
                         .insert(function_run.clone().into());
+                    // Index the function run by catalog entry
+                    self.index_function_run_by_catalog(function_run);
                 }
             }
             RequestPayload::CreateNameSpace(req) => {
@@ -827,6 +845,8 @@ impl InMemoryState {
                         }
                         self.function_runs
                             .insert(function_run.clone().into(), Box::new(function_run.clone()));
+                        // Index the function run by catalog entry
+                        self.index_function_run_by_catalog(&function_run);
                     }
                 }
                 for (key, request_ctx) in &req.updated_request_states {
@@ -1179,6 +1199,8 @@ impl InMemoryState {
             self.function_runs.remove(&function_run.clone().into());
             self.unallocated_function_runs
                 .remove(&function_run.clone().into());
+            // Remove from catalog entry index
+            self.unindex_function_run_from_catalog(function_run);
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -1508,6 +1530,7 @@ impl InMemoryState {
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
+            function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
             // metrics
             function_run_pending_latency: self.function_run_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
@@ -1561,6 +1584,133 @@ impl InMemoryState {
                 None
             })
     }
+
+    /// Add a function run to the catalog entry index if it matches any catalog
+    /// entry labels and resources
+    fn index_function_run_by_catalog(&mut self, function_run: &FunctionRun) {
+        // Get the application version to check placement constraints
+        let Some(app_version) = self.get_existing_application_version(function_run) else {
+            debug!(
+                fn_call_id = function_run.id.to_string(),
+                "Skipping catalog indexing: application version not found"
+            );
+            return;
+        };
+
+        let Some(function) = app_version.functions.get(&function_run.name).cloned() else {
+            debug!(
+                fn_call_id = function_run.id.to_string(),
+                fn_name = &function_run.name,
+                "Skipping catalog indexing: function not found"
+            );
+            return;
+        };
+
+        // Clone catalog entries to avoid borrow issues
+        let catalog_entries = self.executor_catalog.entries.clone();
+
+        // Check each catalog entry to see if this function run matches
+        for catalog_entry in &catalog_entries {
+            // Check if the function's placement constraints match this catalog entry's
+            // labels
+            if !function
+                .placement_constraints
+                .matches(&catalog_entry.labels)
+            {
+                continue;
+            }
+
+            // Check if the catalog entry has sufficient resources for this function
+            if !function
+                .resources
+                .can_be_handled_by_catalog_entry(catalog_entry)
+            {
+                continue;
+            }
+
+            // Both labels and resources match - add to index
+            self.function_runs_by_catalog_entry
+                .entry(catalog_entry.name.clone())
+                .or_default()
+                .insert(function_run.into());
+        }
+    }
+
+    /// Remove a function run from the catalog entry index
+    fn unindex_function_run_from_catalog(&mut self, function_run: &FunctionRun) {
+        let function_run_key: FunctionRunKey = function_run.into();
+
+        // Remove from all catalog entries
+        for catalog_entry in &self.executor_catalog.entries {
+            self.function_runs_by_catalog_entry
+                .entry(catalog_entry.name.clone())
+                .and_modify(|run_keys| {
+                    run_keys.remove(&function_run_key);
+                });
+        }
+    }
+
+    /// Get all function runs that match a specific catalog entry by executor ID
+    pub fn unallocated_function_runs_for_executor_catalog(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Vec<FunctionRun> {
+        let Some(executor) = self.executors.get(executor_id) else {
+            return Vec::new();
+        };
+        let Some(catalog_entry_name) = executor.catalog_name.as_ref().map(|name| name.to_string())
+        else {
+            return self.unallocated_function_runs();
+        };
+
+        let Some(run_keys) = self.function_runs_by_catalog_entry.get(&catalog_entry_name) else {
+            return Vec::new();
+        };
+
+        let mut results = Vec::new();
+        for run_key in run_keys.iter() {
+            if let Some(function_run) = self.function_runs.get(run_key) {
+                results.push(*function_run.clone());
+            }
+        }
+        results
+    }
+
+    /// Get all function runs that match a specific catalog entry by name
+    #[cfg(test)]
+    fn function_runs_for_catalog_entry(&self, catalog_entry_name: &str) -> Vec<FunctionRun> {
+        let Some(run_keys) = self.function_runs_by_catalog_entry.get(catalog_entry_name) else {
+            return Vec::new();
+        };
+
+        let mut results = Vec::new();
+        for run_key in run_keys.iter() {
+            if let Some(function_run) = self.function_runs.get(run_key) {
+                results.push(*function_run.clone());
+            }
+        }
+        results
+    }
+
+    /// Get all function runs grouped by catalog entry
+    #[cfg(test)]
+    fn all_function_runs_by_catalog_entry(&self) -> HashMap<String, Vec<FunctionRun>> {
+        let mut result = HashMap::new();
+
+        for (catalog_entry_name, run_keys) in self.function_runs_by_catalog_entry.iter() {
+            let mut function_runs = Vec::new();
+            for run_key in run_keys.iter() {
+                if let Some(function_run) = self.function_runs.get(run_key) {
+                    function_runs.push(*function_run.clone());
+                }
+            }
+            if !function_runs.is_empty() {
+                result.insert(catalog_entry_name.clone(), function_runs);
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -1596,6 +1746,7 @@ mod test_helpers {
                 allocations_by_executor: im::HashMap::new(),
                 request_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
+                function_runs_by_catalog_entry: im::HashMap::new(),
                 function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
@@ -1972,5 +2123,299 @@ mod tests {
 
         let last = candidates.last().unwrap();
         assert_eq!(last.allocation_count, 10);
+    }
+
+    #[test]
+    fn test_function_run_catalog_indexing() {
+        use std::collections::HashMap;
+
+        use crate::{
+            config::ExecutorCatalogEntry,
+            data_model::{
+                ApplicationEntryPoint,
+                ApplicationState,
+                ApplicationVersionBuilder,
+                Function,
+                FunctionResources,
+                GPUResources,
+                filter::{Expression, LabelsFilter, Operator},
+                test_objects::tests::mock_data_payload,
+            },
+            in_memory_state_bootstrap,
+            state_store::ExecutorCatalog,
+        };
+
+        // Create executor catalog entries with different resource capacities and labels
+        let catalog_entry_small = ExecutorCatalogEntry {
+            name: "small".to_string(),
+            cpu_cores: 2, // 2000 ms/sec
+            memory_gb: 4, // 4096 MB
+            disk_gb: 10,  // 10240 MB
+            gpu_model: None,
+            labels: HashMap::new(),
+        };
+
+        let mut catalog_entry_large_labels = HashMap::new();
+        catalog_entry_large_labels.insert("region".to_string(), "us-west".to_string());
+        catalog_entry_large_labels.insert("tier".to_string(), "premium".to_string());
+        let catalog_entry_large = ExecutorCatalogEntry {
+            name: "large".to_string(),
+            cpu_cores: 16, // 16000 ms/sec
+            memory_gb: 64, // 65536 MB
+            disk_gb: 500,  // 512000 MB
+            gpu_model: None,
+            labels: catalog_entry_large_labels,
+        };
+
+        let mut catalog_entry_gpu_labels = HashMap::new();
+        catalog_entry_gpu_labels.insert("has_gpu".to_string(), "true".to_string());
+        catalog_entry_gpu_labels.insert("region".to_string(), "us-east".to_string());
+        let catalog_entry_gpu = ExecutorCatalogEntry {
+            name: "gpu-node".to_string(),
+            cpu_cores: 8,
+            memory_gb: 32,
+            disk_gb: 100,
+            gpu_model: Some("nvidia-a100".to_string()),
+            labels: catalog_entry_gpu_labels,
+        };
+
+        let executor_catalog = ExecutorCatalog {
+            entries: vec![
+                catalog_entry_small.clone(),
+                catalog_entry_large.clone(),
+                catalog_entry_gpu.clone(),
+            ],
+        };
+
+        // Create functions with different resource requirements and placement
+        // constraints
+        let mut function_light = Function::default();
+        function_light.name = "light".to_string();
+        function_light.placement_constraints = LabelsFilter::default(); // Matches all labels
+        function_light.resources = FunctionResources {
+            cpu_ms_per_sec: 1000, // 1 core
+            memory_mb: 2048,      // 2 GB
+            ephemeral_disk_mb: 5000,
+            gpu_configs: vec![],
+        };
+
+        let mut function_heavy = Function::default();
+        function_heavy.name = "heavy".to_string();
+        function_heavy.placement_constraints = LabelsFilter(vec![
+            Expression {
+                key: "region".to_string(),
+                value: "us-west".to_string(),
+                operator: Operator::Eq,
+            },
+            Expression {
+                key: "tier".to_string(),
+                value: "premium".to_string(),
+                operator: Operator::Eq,
+            },
+        ]);
+        function_heavy.resources = FunctionResources {
+            cpu_ms_per_sec: 10000, // 10 cores - only fits on large
+            memory_mb: 32768,      // 32 GB
+            ephemeral_disk_mb: 100000,
+            gpu_configs: vec![],
+        };
+
+        let mut function_gpu = Function::default();
+        function_gpu.name = "gpu_task".to_string();
+        function_gpu.placement_constraints = LabelsFilter(vec![Expression {
+            key: "region".to_string(),
+            value: "us-east".to_string(),
+            operator: Operator::Eq,
+        }]);
+        function_gpu.resources = FunctionResources {
+            cpu_ms_per_sec: 2000,
+            memory_mb: 8192,
+            ephemeral_disk_mb: 10000,
+            gpu_configs: vec![GPUResources {
+                count: 1,
+                model: "nvidia-a100".to_string(),
+            }],
+        };
+
+        let mut functions = HashMap::new();
+        functions.insert("light".to_string(), function_light);
+        functions.insert("heavy".to_string(), function_heavy);
+        functions.insert("gpu_task".to_string(), function_gpu);
+
+        let app_version = ApplicationVersionBuilder::default()
+            .namespace("test-ns".to_string())
+            .name("test-app".to_string())
+            .created_at(0)
+            .version("1.0".to_string())
+            .functions(functions)
+            .edges(HashMap::new())
+            .code(mock_data_payload())
+            .entrypoint(ApplicationEntryPoint {
+                function_name: "light".to_string(),
+                input_serializer: "cloudpickle".to_string(),
+                output_serializer: "cloudpickle".to_string(),
+                output_type_hints_base64: String::new(),
+            })
+            .state(ApplicationState::Active)
+            .build()
+            .unwrap();
+
+        let mut application_versions = im::OrdMap::new();
+        application_versions.insert(app_version.key(), Box::new(app_version));
+
+        // Create function runs
+        let fn_run_light = create_test_function_run("test-ns", "test-app", "req-1", "light", "1.0");
+        let fn_run_heavy = create_test_function_run("test-ns", "test-app", "req-2", "heavy", "1.0");
+        let fn_run_gpu =
+            create_test_function_run("test-ns", "test-app", "req-3", "gpu_task", "1.0");
+
+        let mut function_runs = im::OrdMap::new();
+        function_runs.insert(fn_run_light.clone().into(), Box::new(fn_run_light.clone()));
+        function_runs.insert(fn_run_heavy.clone().into(), Box::new(fn_run_heavy.clone()));
+        function_runs.insert(fn_run_gpu.clone().into(), Box::new(fn_run_gpu.clone()));
+
+        let mut state = in_memory_state_bootstrap! {
+            clock: 1,
+            application_versions: application_versions,
+            function_runs: function_runs,
+            executor_catalog: executor_catalog,
+        };
+
+        // Manually index all function runs
+        let function_runs_to_index: Vec<_> = state.function_runs.values().cloned().collect();
+        for function_run in function_runs_to_index {
+            state.index_function_run_by_catalog(&function_run);
+        }
+
+        // Test 1: Light function (no label constraints) should be in small catalog only
+        // (large and gpu have labels, but light has no constraints so matches empty
+        // labels in small)
+        let small_runs = state.function_runs_for_catalog_entry("small");
+        assert_eq!(
+            small_runs.len(),
+            1,
+            "Small catalog should have 1 function run (light)"
+        );
+        assert!(small_runs.iter().any(|fr| fr.id == fn_run_light.id));
+
+        // Test 2: Large catalog should have light + heavy (labels match, resources fit)
+        let large_runs = state.function_runs_for_catalog_entry("large");
+        assert_eq!(
+            large_runs.len(),
+            2,
+            "Large catalog should have 2 function runs (light + heavy)"
+        );
+        assert!(large_runs.iter().any(|fr| fr.id == fn_run_light.id));
+        assert!(large_runs.iter().any(|fr| fr.id == fn_run_heavy.id));
+
+        // Test 3: Heavy function should ONLY be in large catalog
+        // - Labels match (region=us-west, tier=premium)
+        // - Resources match (requires 10 cores, 32GB - only large has 16 cores, 64GB)
+        assert!(
+            !small_runs.iter().any(|fr| fr.id == fn_run_heavy.id),
+            "Heavy function should not be in small catalog (insufficient resources)"
+        );
+
+        // Test 4: GPU function should ONLY be in gpu-node catalog
+        // - Labels match (region=us-east)
+        // - Resources match (requires GPU, only gpu-node has nvidia-a100)
+        let gpu_runs = state.function_runs_for_catalog_entry("gpu-node");
+        assert_eq!(
+            gpu_runs.len(),
+            2,
+            "GPU catalog should have 2 function runs (light + gpu_task)"
+        );
+        assert!(gpu_runs.iter().any(|fr| fr.id == fn_run_gpu.id));
+        assert!(gpu_runs.iter().any(|fr| fr.id == fn_run_light.id));
+
+        // GPU task should not be in other catalogs (they don't have GPUs or don't match
+        // labels)
+        assert!(
+            !small_runs.iter().any(|fr| fr.id == fn_run_gpu.id),
+            "GPU function should not be in small catalog (no GPU)"
+        );
+        assert!(
+            !large_runs.iter().any(|fr| fr.id == fn_run_gpu.id),
+            "GPU function should not be in large catalog (no GPU)"
+        );
+
+        // Test 5: Query non-existent catalog entry
+        let non_existent = state.function_runs_for_catalog_entry("non-existent");
+        assert_eq!(
+            non_existent.len(),
+            0,
+            "Non-existent catalog should return empty"
+        );
+
+        // Test 6: Get all function runs by catalog entry
+        let all_by_catalog = state.all_function_runs_by_catalog_entry();
+        assert_eq!(
+            all_by_catalog.len(),
+            3,
+            "All three catalogs have at least one function"
+        );
+        assert_eq!(all_by_catalog.get("small").unwrap().len(), 1); // light
+        assert_eq!(all_by_catalog.get("large").unwrap().len(), 2); // light + heavy
+        assert_eq!(all_by_catalog.get("gpu-node").unwrap().len(), 2); // light + gpu_task
+        assert!(all_by_catalog.contains_key("small"));
+        assert!(all_by_catalog.contains_key("large"));
+        assert!(all_by_catalog.contains_key("gpu-node"));
+
+        // Test 7: Remove a function run and verify index update
+        state.delete_function_runs(vec![fn_run_heavy.clone()]);
+        let large_runs_after_delete = state.function_runs_for_catalog_entry("large");
+        assert_eq!(
+            large_runs_after_delete.len(),
+            1,
+            "After delete, large catalog should have 1 function run (light)"
+        );
+        assert!(
+            !large_runs_after_delete
+                .iter()
+                .any(|fr| fr.id == fn_run_heavy.id),
+            "Deleted function should not be in index"
+        );
+        assert!(
+            large_runs_after_delete
+                .iter()
+                .any(|fr| fr.id == fn_run_light.id),
+            "Other functions should remain in index"
+        );
+    }
+
+    // Helper function to create a test function run
+    fn create_test_function_run(
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_name: &str,
+        version: &str,
+    ) -> FunctionRun {
+        FunctionRunBuilder::default()
+            .id(FunctionCallId(format!(
+                "{}-{}-{}-{}",
+                namespace, application, request_id, function_name
+            )))
+            .request_id(request_id.to_string())
+            .namespace(namespace.to_string())
+            .application(application.to_string())
+            .name(function_name.to_string())
+            .version(version.to_string())
+            .compute_op(ComputeOp::FunctionCall(FunctionCall {
+                inputs: vec![],
+                function_call_id: FunctionCallId(format!(
+                    "{}-{}-{}-{}",
+                    namespace, application, request_id, function_name
+                )),
+                fn_name: function_name.to_string(),
+                call_metadata: bytes::Bytes::new(),
+            }))
+            .status(FunctionRunStatus::Pending)
+            .outcome(None)
+            .input_args(vec![])
+            .attempt_number(0)
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .unwrap()
     }
 }

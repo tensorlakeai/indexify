@@ -30,7 +30,7 @@ mod tests {
             cpu_cores: 1,
             memory_gb: 1,
             disk_gb: 1,
-            gpu_models: vec![],
+            gpu_model: None,
             labels,
         };
 
@@ -166,7 +166,7 @@ mod tests {
             cpu_cores: 1,
             memory_gb: 1,
             disk_gb: 1,
-            gpu_models: vec![],
+            gpu_model: None,
             labels,
         };
 
@@ -332,7 +332,7 @@ mod tests {
             cpu_cores: 2, // 2 cores
             memory_gb: 2, // 2 GB
             disk_gb: 2,   // 2 GB
-            gpu_models: vec![GPU_MODEL_NVIDIA_A10.to_string()],
+            gpu_model: Some(GPU_MODEL_NVIDIA_A10.to_string()),
             labels: HashMap::new(),
         };
 

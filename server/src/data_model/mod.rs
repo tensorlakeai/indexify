@@ -328,6 +328,21 @@ impl Default for FunctionResources {
     }
 }
 
+impl FunctionResources {
+    pub fn can_be_handled_by_catalog_entry(
+        &self,
+        catalog_entry: &crate::config::ExecutorCatalogEntry,
+    ) -> bool {
+        // Convert catalog entry to HostResources and use existing validation
+        let catalog_resources = HostResources::from_catalog_entry(catalog_entry);
+
+        // Use existing can_handle_function_resources method
+        catalog_resources
+            .can_handle_function_resources(self)
+            .is_ok()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionRetryPolicy {
     pub max_retries: u32,
@@ -557,11 +572,17 @@ impl Application {
                 has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
                 has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
                 has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
-                has_gpu_models = node
-                    .resources
-                    .gpu_configs
-                    .iter()
-                    .all(|gpu| entry.gpu_models.contains(&gpu.model));
+                has_gpu_models = if node.resources.gpu_configs.is_empty() {
+                    true // No GPU required
+                } else {
+                    // Check if any requested GPU matches the catalog entry's GPU model
+                    entry.gpu_model.as_ref().is_some_and(|catalog_gpu| {
+                        node.resources
+                            .gpu_configs
+                            .iter()
+                            .any(|gpu| &gpu.model == catalog_gpu)
+                    })
+                };
 
                 if met_placement_constraints && has_cpu && has_mem && has_disk && has_gpu_models {
                     info!(
@@ -1164,6 +1185,20 @@ pub struct HostResources {
 }
 
 impl HostResources {
+    fn from_catalog_entry(catalog_entry: &crate::config::ExecutorCatalogEntry) -> Self {
+        let gpu = catalog_entry.gpu_model.as_ref().map(|model| GPUResources {
+            count: u32::MAX, // Unlimited count since catalog doesn't specify
+            model: model.clone(),
+        });
+
+        HostResources {
+            cpu_ms_per_sec: catalog_entry.cpu_cores * 1000,
+            memory_bytes: catalog_entry.memory_gb * 1024 * 1024 * 1024,
+            disk_bytes: catalog_entry.disk_gb * 1024 * 1024 * 1024,
+            gpu,
+        }
+    }
+
     // If can't handle, returns error that describes the reason why.
     fn can_handle_gpu(&self, request: &Option<GPUResources>) -> Result<()> {
         match request {
@@ -1638,6 +1673,8 @@ pub struct ExecutorMetadata {
     pub state_hash: String,
     #[builder(default)]
     pub clock: u64,
+    #[builder(default)]
+    pub catalog_name: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
 }
