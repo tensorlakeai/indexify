@@ -255,10 +255,10 @@ message FunctionCallResult {
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
     repeated Allocation allocations = 2;
+    repeated FunctionCallResult function_call_results = 3;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
-    optional uint64 clock = 3;
-    repeated FunctionCallResult function_call_results = 4;
+    optional uint64 clock = 4;
 }
 
 enum AllocationOutcomeCode {
