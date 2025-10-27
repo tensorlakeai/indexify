@@ -49,16 +49,6 @@ impl<'a> FunctionRunProcessor<'a> {
         self.allocate_function_runs(in_memory_state, function_runs)
     }
 
-    /// Allocate attempts to allocate unallocated tasks to function executors.
-    #[tracing::instrument(skip(self, in_memory_state))]
-    pub fn _allocate_all(
-        &self,
-        in_memory_state: &mut InMemoryState,
-    ) -> Result<SchedulerUpdateRequest> {
-        let function_runs = in_memory_state.unallocated_function_runs();
-        self.allocate_function_runs(in_memory_state, function_runs)
-    }
-
     #[tracing::instrument(skip(self, in_memory_state))]
     pub fn allocate_function_runs(
         &self,
