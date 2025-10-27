@@ -22,7 +22,7 @@ pub struct UsageProcessor {
     indexify_state: Arc<IndexifyState>,
     queue: Arc<Option<Queue>>,
     processing_latency: Histogram<f64>,
-    processed_events_counter: Counter<u64>,
+    usage_events_counter: Counter<u64>,
     max_attempts: u8,
 }
 
@@ -40,15 +40,16 @@ impl UsageProcessor {
             .with_description("usage processor event processing latency in seconds")
             .build();
 
-        let processed_events_counter = meter
-            .u64_counter("indexify.usage.processed_events_total")
+        let usage_events_counter = meter
+            .u64_counter("indexify.usage.events_total")
             .with_description("total number of processed usage events")
             .build();
+
 
         Ok(Self {
             indexify_state,
             processing_latency,
-            processed_events_counter,
+            usage_events_counter,
             max_attempts: 10,
             queue,
         })
@@ -106,6 +107,8 @@ impl UsageProcessor {
         if events.is_empty() {
             return Ok(());
         }
+        
+        self.usage_events_counter.add(events.len() as u64, &[]);
 
         if let Some(c) = new_cursor {
             cursor.replace(c);
@@ -135,9 +138,6 @@ impl UsageProcessor {
         }
 
         if !processed_events.is_empty() {
-            self.processed_events_counter
-                .add(processed_events.len() as u64, &[]);
-
             self.remove_and_commit_with_backoff(processed_events)
                 .await?;
         }
