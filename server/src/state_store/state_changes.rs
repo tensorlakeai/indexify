@@ -12,6 +12,7 @@ use crate::{
         ExecutorId,
         ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
+        FunctionCallEvent,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         GraphUpdates,
@@ -27,6 +28,7 @@ use crate::{
         DeleteApplicationRequest,
         DeleteRequestRequest,
         DeregisterExecutorRequest,
+        FunctionCallRequest,
         InvokeApplicationRequest,
     },
     utils::get_epoch_time_in_ms,
@@ -48,6 +50,33 @@ pub fn invoke_application(
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.ctx.request_id.clone())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn create_function_call(
+    last_change_id: &AtomicU64,
+    request: &FunctionCallRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.namespace.clone()))
+        .application(Some(request.application_name.clone()))
+        .request(Some(request.request_id.clone()))
+        .change_type(ChangeType::CreateFunctionCall(FunctionCallEvent {
+            namespace: request.namespace.clone(),
+            request_id: request.request_id.clone(),
+            application: request.application_name.clone(),
+            source_function_call_id: request.source_function_call_id.clone(),
+            graph_updates: GraphUpdates {
+                graph_updates: request.graph_updates.request_updates.clone(),
+                output_function_call_id: request.graph_updates.output_function_call_id.clone(),
+            },
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.request_id.clone())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

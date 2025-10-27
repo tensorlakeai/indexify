@@ -14,7 +14,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  INDEXIFY_URL: http://localhost:8900
+  TENSORLAKE_API_URL: http://localhost:8900
+
 
 jobs:
   lint_server:

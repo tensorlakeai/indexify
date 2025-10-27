@@ -31,14 +31,30 @@ pub mod tests {
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
 
+    pub fn mock_blocking_function_call(
+        fn_name: &str,
+        source_function_call_id: &FunctionCallId,
+    ) -> RequestUpdates {
+        RequestUpdates {
+            request_updates: vec![ComputeOp::FunctionCall(mock_function_call_with_name(
+                fn_name,
+                vec![FunctionArgs::DataPayload(mock_data_payload())],
+                Some(source_function_call_id.clone()),
+            ))],
+            output_function_call_id: FunctionCallId(nanoid!()),
+        }
+    }
+
     pub fn mock_updates() -> RequestUpdates {
         let fn_b = mock_function_call_with_name(
             "fn_b",
             vec![FunctionArgs::DataPayload(mock_data_payload())],
+            None,
         );
         let fn_c = mock_function_call_with_name(
             "fn_c",
             vec![FunctionArgs::DataPayload(mock_data_payload())],
+            None,
         );
         let fn_d = mock_function_call_with_name(
             "fn_d",
@@ -46,6 +62,7 @@ pub mod tests {
                 FunctionArgs::FunctionRunOutput(fn_b.function_call_id.clone()),
                 FunctionArgs::FunctionRunOutput(fn_c.function_call_id.clone()),
             ],
+            Some(fn_c.function_call_id.clone()),
         );
         let updates = vec![
             ComputeOp::FunctionCall(fn_b),
@@ -155,17 +172,26 @@ pub mod tests {
         mock_app_with_retries(0)
     }
 
-    pub fn mock_function_call_with_name(fn_name: &str, inputs: Vec<FunctionArgs>) -> FunctionCall {
+    pub fn mock_function_call_with_name(
+        fn_name: &str,
+        inputs: Vec<FunctionArgs>,
+        parent_function_call_id: Option<FunctionCallId>,
+    ) -> FunctionCall {
         FunctionCall {
             function_call_id: FunctionCallId(nanoid!()),
             inputs,
             fn_name: fn_name.to_string(),
             call_metadata: Bytes::new(),
+            parent_function_call_id,
         }
     }
 
     pub fn mock_function_call() -> FunctionCall {
-        mock_function_call_with_name("fn_a", vec![FunctionArgs::DataPayload(mock_data_payload())])
+        mock_function_call_with_name(
+            "fn_a",
+            vec![FunctionArgs::DataPayload(mock_data_payload())],
+            None,
+        )
     }
 
     pub fn mock_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
