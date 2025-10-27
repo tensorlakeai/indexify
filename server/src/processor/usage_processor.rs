@@ -2,7 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use derive_builder::Builder;
-use opentelemetry::{KeyValue, metrics::Histogram};
+use opentelemetry::{
+    KeyValue,
+    metrics::{Counter, Histogram},
+};
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tokio::sync::Notify;
@@ -19,6 +22,7 @@ pub struct UsageProcessor {
     indexify_state: Arc<IndexifyState>,
     queue: Arc<Option<Queue>>,
     processing_latency: Histogram<f64>,
+    processed_events_counter: Counter<u64>,
     max_attempts: u8,
 }
 
@@ -36,9 +40,15 @@ impl UsageProcessor {
             .with_description("usage processor event processing latency in seconds")
             .build();
 
+        let processed_events_counter = meter
+            .u64_counter("indexify.usage.processed_events_total")
+            .with_description("total number of processed usage events")
+            .build();
+
         Ok(Self {
             indexify_state,
             processing_latency,
+            processed_events_counter,
             max_attempts: 10,
             queue,
         })
@@ -124,12 +134,10 @@ impl UsageProcessor {
             }
         }
 
-        info!(
-            processed_count = processed_events.len(),
-            "processed allocation usage events"
-        );
-
         if !processed_events.is_empty() {
+            self.processed_events_counter
+                .add(processed_events.len() as u64, &[]);
+
             self.remove_and_commit_with_backoff(processed_events)
                 .await?;
         }
@@ -147,7 +155,7 @@ impl UsageProcessor {
         &self,
         processed_events: Vec<AllocationUsage>,
     ) -> Result<()> {
-        for attempt in 1..=10 {
+        for attempt in 1..=self.max_attempts {
             let txn = self.indexify_state.db.transaction();
 
             if let Err(error) =
