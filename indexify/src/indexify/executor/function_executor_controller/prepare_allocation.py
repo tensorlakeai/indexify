@@ -228,6 +228,7 @@ async def _presign_function_outputs_blob(
         )
 
     return BLOB(
+        id="function_outputs_blob",
         chunks=chunks,
     )
 
@@ -245,13 +246,14 @@ async def _presign_request_error_blob(
         logger=logger,
     )
     return BLOB(
+        id="request_error_blob",
         chunks=[
             BLOBChunk(
                 uri=upload_chunk_uri,
                 size=_REQUEST_ERROR_MAX_SIZE_BYTES,
                 # ETag is only set by FE when returning BLOBs to us
             )
-        ]
+        ],
     )
 
 

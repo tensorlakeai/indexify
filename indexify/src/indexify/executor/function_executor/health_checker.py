@@ -29,6 +29,10 @@ class HealthCheckResult:
         self.is_healthy: bool = is_healthy
         self.reason: str = reason
 
+    @classmethod
+    def healthy(cls) -> "HealthCheckResult":
+        return HealthCheckResult(is_healthy=True, reason="Healthy")
+
 
 class HealthChecker:
     def __init__(

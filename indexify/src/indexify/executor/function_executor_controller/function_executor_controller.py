@@ -506,8 +506,7 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination.append(
                     alloc_info.allocation.allocation_id
                 )
-                alloc_info.output = AllocationOutput.function_executor_startup_failed(
-                    allocation=alloc_info.allocation,
+                alloc_info.output = AllocationOutput.allocation_didn_run_because_function_executor_startup_failed(
                     fe_termination_reason=event.fe_termination_reason,
                     logger=alloc_logger,
                 )
@@ -596,10 +595,7 @@ class FunctionExecutorController:
 
         if alloc_info.is_cancelled:
             alloc_info.output = AllocationOutput.allocation_cancelled(
-                allocation=alloc_info.allocation,
-                # Task alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
             return
@@ -607,10 +603,7 @@ class FunctionExecutorController:
         if not event.is_success:
             # Failed to prepare the alloc inputs.
             alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                # Alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
             return
@@ -655,10 +648,7 @@ class FunctionExecutorController:
 
         if alloc_info.is_cancelled:
             alloc_info.output = AllocationOutput.allocation_cancelled(
-                allocation=alloc_info.allocation,
-                # Alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state in [
@@ -667,8 +657,8 @@ class FunctionExecutorController:
         ]:
             # The output could be set already by FE startup failure handler.
             if alloc_info.output is None:
-                alloc_info.output = AllocationOutput.function_executor_terminated(
-                    alloc_info.allocation
+                alloc_info.output = (
+                    AllocationOutput.allocation_didn_run_because_function_executor_terminated()
                 )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
@@ -723,16 +713,6 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination=[alloc_info.allocation.allocation_id],
             )
 
-        if alloc_info.output is None:
-            # `run_allocation_on_function_executor` guarantees that the output is set in
-            # all cases including allocation cancellations. If this didn't happen then some
-            # internal error occurred in our code.
-            alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                execution_start_time=None,
-                execution_end_time=None,
-            )
-
         self._start_allocation_finalization(alloc_info)
 
     def _start_allocation_finalization(self, alloc_info: AllocationInfo) -> None:
@@ -741,6 +721,14 @@ class FunctionExecutorController:
         Doesn't raise any exceptions. Doesn't block.
         alloc_info.output should not be None.
         """
+        if alloc_info.output is None:
+            allocation_logger(alloc_info.allocation, self._logger).error(
+                "allocation finalization without output, this should never happen"
+            )
+            alloc_info.output = AllocationOutput.internal_error(
+                execution_duration_ms=None,
+            )
+
         next_aio = finalize_allocation(
             alloc_info=alloc_info,
             blob_store=self._blob_store,
@@ -767,9 +755,7 @@ class FunctionExecutorController:
                 alloc_info.output
             )  # Never None here
             alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                execution_start_time=original_alloc_output.execution_start_time,
-                execution_end_time=original_alloc_output.execution_end_time,
+                execution_duration_ms=original_alloc_output.execution_duration_ms,
             )
 
         logger: Any = allocation_logger(alloc_info.allocation, self._logger)
@@ -913,16 +899,6 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
     # Never None here as we're completing the alloc here.
     output: AllocationOutput | None = alloc_info.output
 
-    execution_duration_ms: int | None = None
-    if (
-        output.execution_start_time is not None
-        and output.execution_end_time is not None
-    ):
-        # <= 0.99 ms functions get billed as 1 ms.
-        execution_duration_ms = math.ceil(
-            (output.execution_end_time - output.execution_start_time) * 1000
-        )
-
     request_error_output: DataPayload | None = None
     if output.request_error_output is not None:
         # input can't be None if request_error_output is set because the alloc ran already.
@@ -964,7 +940,7 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
         value=output_value,
         updates=output_updates,
         request_error=request_error_output,
-        execution_duration_ms=execution_duration_ms,
+        execution_duration_ms=output.execution_duration_ms,
     )
 
 

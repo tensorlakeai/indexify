@@ -4,7 +4,7 @@ from typing import Any
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    BLOB,
+    FE_BLOB,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     Allocation as FEAllocation,
@@ -43,11 +43,11 @@ from indexify.proto.executor_api_pb2 import (
 from .allocation_info import AllocationInfo
 from .allocation_output import AllocationMetrics, AllocationOutput
 from .events import AllocationExecutionFinished
-from .metrics.run_allocation import (
-    metric_function_executor_run_allocation_rpc_errors,
+from .metrics.allocation_runner import (
+    metric_allocation_runner_allocation_runs_in_progress,
+    metric_allocation_runner_run_errors,
     metric_function_executor_run_allocation_rpc_latency,
     metric_function_executor_run_allocation_rpcs,
-    metric_function_executor_run_allocation_rpcs_in_progress,
 )
 
 _CREATE_ALLOCATION_TIMEOUT_SECS = 5
@@ -90,7 +90,7 @@ async def run_allocation_on_function_executor(
     )
 
     metric_function_executor_run_allocation_rpcs.inc()
-    metric_function_executor_run_allocation_rpcs_in_progress.inc()
+    metric_allocation_runner_allocation_runs_in_progress.inc()
     # Not None if the Function Executor should be terminated after running the alloc.
     function_executor_termination_reason: FunctionExecutorTerminationReason | None = (
         None
@@ -151,7 +151,7 @@ async def run_allocation_on_function_executor(
             # This is a status from an unsuccessful RPC; this
             # shouldn't happen, but we handle it.
             logger.error("allocation management RPC failed", exc_info=e)
-        metric_function_executor_run_allocation_rpc_errors.inc()
+        metric_allocation_runner_run_errors.inc()
 
         server_status: FunctionExecutorServerStatus = (
             await function_executor.server_status()
@@ -160,14 +160,16 @@ async def run_allocation_on_function_executor(
             function_executor_termination_reason = (
                 FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_OOM
             )
-            alloc_info.output = AllocationOutput.function_executor_out_of_memory(
+            alloc_info.output = AllocationOutput.allocation_ran_out_of_memory(
                 allocation=alloc_info.allocation,
+                execution_start_time=execution_start_time,
+                execution_end_time=time.monotonic(),
             )
         else:
             function_executor_termination_reason = (
                 FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
             )
-            alloc_info.output = AllocationOutput.function_executor_unresponsive(
+            alloc_info.output = AllocationOutput.function_executor_unresponsive_after_running_allocation(
                 allocation=alloc_info.allocation,
                 execution_start_time=execution_start_time,
                 execution_end_time=time.monotonic(),
@@ -201,7 +203,7 @@ async def run_allocation_on_function_executor(
     metric_function_executor_run_allocation_rpc_latency.observe(
         time.monotonic() - execution_start_time
     )
-    metric_function_executor_run_allocation_rpcs_in_progress.dec()
+    metric_allocation_runner_allocation_runs_in_progress.dec()
 
     function_executor.request_state_client().remove_allocation_to_request_id_entry(
         allocation_id=alloc_info.allocation.allocation_id,
@@ -324,7 +326,7 @@ def _allocation_output_from_fe_result(
     )
     failure_reason: AllocationFailureReason | None = None
     request_error_output: SerializedObjectInsideBLOB | None = None
-    uploaded_request_error_blob: BLOB | None = None
+    uploaded_request_error_blob: FE_BLOB | None = None
 
     if outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE:
         response_validator.required_field("failure_reason")

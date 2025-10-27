@@ -13,6 +13,7 @@ from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     ExecutorUpdate,
+    FunctionCallWatch,
     FunctionExecutorState,
     GPUModel,
     GPUResources,
