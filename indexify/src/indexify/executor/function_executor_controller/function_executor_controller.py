@@ -6,29 +6,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ExecutionPlanUpdate as FEExecutionPlanUpdate,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ExecutionPlanUpdates as FEExecutionPlanUpdates,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionArg as FEFunctionArg,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionCall as FEFunctionCall,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionRef as FEFunctionRef,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ReduceOp as FEReduceOp,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    SerializedObjectEncoding,
-    SerializedObjectInsideBLOB,
-)
-
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
@@ -43,17 +20,12 @@ from indexify.proto.executor_api_pb2 import (
     Allocation,
     AllocationResult,
     DataPayload,
-    DataPayloadEncoding,
-    ExecutionPlanUpdate,
     ExecutionPlanUpdates,
-    FunctionArg,
-    FunctionCall,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
     FunctionRef,
-    ReduceOp,
 )
 
 from .allocation_info import AllocationInfo
@@ -77,6 +49,7 @@ from .events import (
     ScheduleAllocationExecution,
     ShutdownInitiated,
 )
+from .execution_plan_updates import to_server_execution_plan_updates
 from .finalize_allocation import finalize_allocation
 from .loggers import allocation_logger, function_executor_logger
 from .metrics.function_executor_controller import (
@@ -918,11 +891,11 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
         )
 
     output_updates: ExecutionPlanUpdates | None = None
+    # TODO: Catch ValueError raised here.
     if output.output_execution_plan_updates is not None:
-        output_updates = _to_execution_plan_updates_proto(
-            fe_updates=output.output_execution_plan_updates,
-            output_blob_uri=input.function_outputs_blob_uri,
-            logger=logger,
+        output_updates = to_server_execution_plan_updates(
+            fe_execution_plan_updates=output.output_execution_plan_updates,
+            args_blob_uri=input.function_outputs_blob_uri,
         )
 
     return AllocationResult(
@@ -942,157 +915,3 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
         request_error=request_error_output,
         execution_duration_ms=output.execution_duration_ms,
     )
-
-
-def _to_execution_plan_updates_proto(
-    fe_updates: FEExecutionPlanUpdates, output_blob_uri: str, logger: Any
-) -> ExecutionPlanUpdates:
-    # TODO: Validate FEExecutionPlanUpdates object.
-    executor_updates: List[ExecutionPlanUpdate] = []
-    for fe_update in fe_updates.updates:
-        fe_update: FEExecutionPlanUpdate
-
-        if fe_update.HasField("function_call"):
-            executor_updates.append(
-                ExecutionPlanUpdate(
-                    function_call=_to_function_call_proto(
-                        fe_function_call=fe_update.function_call,
-                        output_blob_uri=output_blob_uri,
-                        logger=logger,
-                    )
-                )
-            )
-        elif fe_update.HasField("reduce"):
-            executor_updates.append(
-                ExecutionPlanUpdate(
-                    reduce=_to_reduce_op_proto(
-                        reduce=fe_update.reduce,
-                        output_blob_uri=output_blob_uri,
-                        logger=logger,
-                    )
-                )
-            )
-        else:
-            logger.error(
-                "unexpected FEExecutionPlanUpdate with no function_call or reduce set",
-            )
-
-    return ExecutionPlanUpdates(
-        updates=executor_updates,
-        root_function_call_id=fe_updates.root_function_call_id,
-    )
-
-
-def _to_function_call_proto(
-    fe_function_call: FEFunctionCall, output_blob_uri: str, logger: Any
-) -> FunctionCall:
-    args: List[FunctionArg] = []
-    for fe_arg in fe_function_call.args:
-        fe_arg: FEFunctionArg
-        args.append(
-            _to_function_arg_proto(
-                fe_function_arg=fe_arg,
-                output_blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-
-    return FunctionCall(
-        id=fe_function_call.id,
-        target=_to_function_ref_proto(fe_function_call.target),
-        args=args,
-        call_metadata=fe_function_call.call_metadata,
-    )
-
-
-def _to_reduce_op_proto(
-    reduce: FEReduceOp, output_blob_uri: str, logger: Any
-) -> ReduceOp:
-    collection: List[FunctionArg] = []
-    for fe_arg in reduce.collection:
-        fe_arg: FEFunctionArg
-        collection.append(
-            _to_function_arg_proto(
-                fe_function_arg=fe_arg,
-                output_blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-
-    return ReduceOp(
-        id=reduce.id,
-        collection=collection,
-        reducer=_to_function_ref_proto(reduce.reducer),
-        call_metadata=reduce.call_metadata,
-    )
-
-
-def _to_function_ref_proto(fe_function_ref: FEFunctionRef) -> FunctionRef:
-    return FunctionRef(
-        namespace=fe_function_ref.namespace,
-        application_name=fe_function_ref.application_name,
-        function_name=fe_function_ref.function_name,
-        application_version=fe_function_ref.application_version,
-    )
-
-
-def _to_function_arg_proto(
-    fe_function_arg: FEFunctionArg, output_blob_uri: str, logger: Any
-) -> FunctionArg:
-    if fe_function_arg.HasField("function_call_id"):
-        return FunctionArg(function_call_id=fe_function_arg.function_call_id)
-    elif fe_function_arg.HasField("value"):
-        return FunctionArg(
-            inline_data=_so_to_data_payload_proto(
-                so=fe_function_arg.value,
-                blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-    else:
-        logger.error(
-            "unexpected FEFunctionArg with no value or function_call_id set",
-        )
-        return FunctionArg()  # Empty arg as we can't raise here.
-
-
-def _so_to_data_payload_proto(
-    so: SerializedObjectInsideBLOB,
-    blob_uri: str,
-    logger: Any,
-) -> DataPayload:
-    """Converts a serialized object inside BLOB to into a DataPayload."""
-    # TODO: Validate SerializedObjectInsideBLOB.
-    return DataPayload(
-        uri=blob_uri,
-        encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
-        encoding_version=so.manifest.encoding_version,
-        content_type=(
-            so.manifest.content_type if so.manifest.HasField("content_type") else None
-        ),
-        metadata_size=so.manifest.metadata_size,
-        offset=so.offset,
-        size=so.manifest.size,
-        sha256_hash=so.manifest.sha256_hash,
-        source_function_call_id=so.manifest.source_function_call_id,
-        # id is not used
-    )
-
-
-def _so_to_data_payload_encoding(
-    encoding: SerializedObjectEncoding, logger: Any
-) -> DataPayloadEncoding:
-    if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW
-    else:
-        logger.error(
-            "unexpected encoding for SerializedObject",
-            encoding=SerializedObjectEncoding.Name(encoding),
-        )
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN

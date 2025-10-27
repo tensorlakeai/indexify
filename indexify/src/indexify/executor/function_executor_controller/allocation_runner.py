@@ -83,7 +83,7 @@ from ..state_reporter import ExecutorStateReporter
 from .allocation_info import AllocationInfo
 from .allocation_output import AllocationOutput
 from .events import AllocationExecutionFinished
-from .execution_plan_updates import from_fe_execution_plan_updates
+from .execution_plan_updates import to_server_execution_plan_updates
 from .metrics.allocation_runner import (
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
@@ -589,29 +589,39 @@ class AllocationRunner:
         """Creates a function call in the server.
 
         If the creation fails then doesn't do anything."""
+        # It's important to not do anything in this function if user creates a function call watcher then they'll
+        # get error because function call wasn't created.
+        try:
+            server_function_call_request: ServerFunctionCallRequest = (
+                ServerFunctionCallRequest(
+                    namespace=self._alloc_info.allocation.function.namespace,
+                    application=self._alloc_info.allocation.function.application_name,
+                    request_id=self._alloc_info.allocation.request_id,
+                    source_function_call_id=self._alloc_info.allocation.function_call_id,
+                    updates=to_server_execution_plan_updates(fe_function_call.updates),
+                )
+            )
+        except ValueError as e:
+            self._logger.info(
+                "skipping child function call creation due to invalid execution plan updates",
+                exc_info=e,
+                child_function_call_id=fe_function_call.updates.root_function_call_id,
+            )
+            return
+
         runs_left = _SERVER_CALL_FUNCTION_RPC_MAX_RETRIES + 1
         while True:
             try:
                 await ExecutorAPIStub(
                     self._channel_manager.get_shared_channel()
                 ).call_function(
-                    ServerFunctionCallRequest(
-                        namespace=self._alloc_info.allocation.function.namespace,
-                        application=self._alloc_info.allocation.function.application_name,
-                        request_id=self._alloc_info.allocation.request_id,
-                        source_function_call_id=self._alloc_info.allocation.function_call_id,
-                        updates=from_fe_execution_plan_updates(
-                            fe_function_call.updates
-                        ),
-                    ),
+                    server_function_call_request,
                     timeout=_SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS,
                 )
                 break
             except grpc.aio.AioRpcError as e:
                 runs_left -= 1
                 if runs_left == 0:
-                    # It's important to not do anything here. If user creates a function call watcher then they'll
-                    # get error because function call wasn't created.
                     return
                 else:
                     self._logger.error(
