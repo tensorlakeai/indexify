@@ -572,29 +572,29 @@ class FunctionCallResult(_message.Message):
     ) -> None: ...
 
 class DesiredExecutorState(_message.Message):
-    __slots__ = ("function_executors", "allocations", "function_call_results", "clock")
+    __slots__ = ("function_executors", "allocations", "clock", "function_call_results")
     FUNCTION_EXECUTORS_FIELD_NUMBER: _ClassVar[int]
     ALLOCATIONS_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_CALL_RESULTS_FIELD_NUMBER: _ClassVar[int]
     CLOCK_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_RESULTS_FIELD_NUMBER: _ClassVar[int]
     function_executors: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorDescription
     ]
     allocations: _containers.RepeatedCompositeFieldContainer[Allocation]
+    clock: int
     function_call_results: _containers.RepeatedCompositeFieldContainer[
         FunctionCallResult
     ]
-    clock: int
     def __init__(
         self,
         function_executors: _Optional[
             _Iterable[_Union[FunctionExecutorDescription, _Mapping]]
         ] = ...,
         allocations: _Optional[_Iterable[_Union[Allocation, _Mapping]]] = ...,
+        clock: _Optional[int] = ...,
         function_call_results: _Optional[
             _Iterable[_Union[FunctionCallResult, _Mapping]]
         ] = ...,
-        clock: _Optional[int] = ...,
     ) -> None: ...
 
 class ExecutionPlanUpdate(_message.Message):
