@@ -284,7 +284,7 @@ impl ApplicationProcessor {
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                if unallocated_function_runs.len() > 0 {
+                if !unallocated_function_runs.is_empty() {
                     scheduler_update.extend(
                         task_allocator.allocate_function_runs(
                             &mut indexes_guard,
