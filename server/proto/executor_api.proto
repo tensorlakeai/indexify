@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 // Rename with caution. The package name is part of gRPC service name.
 // Existing clients won't find the service if the package name changes.
 package executor_api_pb;
@@ -22,7 +24,7 @@ message DataPayload {
     optional DataPayloadEncoding encoding = 2;
     // Not set and ignored by Server right now.
     optional uint64 encoding_version = 3;
-
+    // MIME type. Only set when raw encoding is used.
     optional string content_type = 4;
 
     // DataPayload metadata is stored at the head of the binary 
@@ -197,9 +199,17 @@ message ExecutorUpdate {
     repeated AllocationResult allocation_results = 2;
 }
 
+message FunctionCallWatch {
+    optional string namespace = 1;
+    optional string application = 2;
+    optional string request_id = 3;
+    optional string function_call_id = 4;
+}
+
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
     optional ExecutorUpdate executor_update = 2;
+    repeated FunctionCallWatch function_call_watches = 3;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
@@ -230,14 +240,25 @@ message GetDesiredExecutorStatesRequest {
     optional string executor_id = 1;
 }
 
+message FunctionCallResult {
+    optional string namespace = 1;
+    optional string request_id = 2;
+    optional string function_call_id = 4;
+    optional AllocationOutcomeCode outcome_code = 5;
+    optional AllocationFailureReason failure_reason = 6;
+    optional DataPayload return_value = 7;
+    optional DataPayload request_error = 9;
+}
+
 // A message sent from Server to Executor that describes the desired state of the Executor at the moment.
 // Executor compares this state with its current state and make necessary changes to match the desired state.
 message DesiredExecutorState {
     repeated FunctionExecutorDescription function_executors = 1;
     repeated Allocation allocations = 2;
+    repeated FunctionCallResult function_call_results = 3;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
-    optional uint64 clock = 3;
+    optional uint64 clock = 4;
 }
 
 enum AllocationOutcomeCode {
@@ -260,10 +281,19 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
     // Server removed the allocation from Executor desired state. The allocation didn't finish before the removal.
     ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
-    // Function Executor terminated - can't run the allocation on it anymore.
+    // Function Executor terminated can't run the allocation on it anymore.
+    // The allocation didn't run on FE.
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
+    // Function run cannot be scheduled given its constraints.
+    // This shouldn't be allocation failure, but since we are reusing 
+    // allocation failure reasons as function run failure reasons, we need to add it here.
+    ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE = 8;
+
+    // Anohter failure reason which doesn't make sense to put here
+    // but this is one of the function run reasons - again shouldn't happen in practice,
+    ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED = 9;
 }
 
 message ExecutionPlanUpdate {
@@ -299,7 +329,7 @@ message ReduceOp {
     // as the id of the ReduceOp.
   optional string id = 1;
   // Contains at least two items.
-  repeated FunctionArg collection = 2; 
+  repeated FunctionArg collection = 2;
   optional FunctionRef reducer = 3;
   // This required metadata allows SDK to restore original function call from the arguments.
   optional bytes call_metadata = 4;
@@ -308,6 +338,8 @@ message ReduceOp {
 message ExecutionPlanUpdates {
   repeated ExecutionPlanUpdate updates = 1;
   optional string root_function_call_id = 2;
+  // Optional timestamp for when to start the plan execution.
+  optional google.protobuf.Timestamp start_at = 3;
 }
 
 message AllocationResult {
@@ -328,35 +360,19 @@ message AllocationResult {
 }
 
 message FunctionCallRequest {
-    // ID of the parent request.
-    // Should be set by the Executor for safety.
-    optional string parent_request_id = 1;
-    // Reference of the target function.
-    optional FunctionRef function = 2;
-
-    // Inputs to the function.
-    repeated DataPayload inputs = 3;
-
-    // Metadata for the function call.
-    optional bytes call_metadata = 4;
-
-    // ID of the source function call.
-    // Should be set by the Executor for safety.
-    optional string source_function_call_id = 5;
-}
-
-message FunctionCallResult {
-    oneof result {
-        DataPayload output = 1;
-        string exception = 2;
-    }
+    optional string namespace = 1;
+    optional string application = 2;
+    // The ID of request in which the function call
+    // needs to run.
+    optional string request_id = 3;
+    // Function call tree.
+    // updates.root_function_call_id is the ID of this function call.
+    optional ExecutionPlanUpdates updates = 4;
+    // ID of the function call that initiated this function call.
+    optional string source_function_call_id = 6;
 }
 
 message FunctionCallResponse {
-    oneof event {
-        string update = 1;
-        FunctionCallResult result = 2;
-    }
 }
 
 // Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
@@ -376,6 +392,5 @@ service ExecutorAPI {
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 
     // Called by the user code to invoke a blocking function call.
-    // returns a stream until the function call is completed.
-    rpc invoke_function(FunctionCallRequest) returns (stream FunctionCallResponse) {}
+    rpc call_function(FunctionCallRequest) returns (FunctionCallResponse) {}
 }

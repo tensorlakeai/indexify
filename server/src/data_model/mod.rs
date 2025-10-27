@@ -3,7 +3,7 @@ pub mod filter;
 pub mod test_objects;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::Hash,
     ops::Deref,
@@ -54,6 +54,12 @@ impl ExecutorId {
 impl From<&str> for ExecutorId {
     fn from(value: &str) -> Self {
         Self::new(value.to_string())
+    }
+}
+
+impl From<String> for ExecutorId {
+    fn from(value: String) -> Self {
+        Self::new(value)
     }
 }
 
@@ -186,12 +192,19 @@ impl From<&str> for FunctionCallId {
     }
 }
 
+impl From<String> for FunctionCallId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub function_call_id: FunctionCallId,
     pub inputs: Vec<FunctionArgs>,
     pub fn_name: String,
     pub call_metadata: bytes::Bytes,
+    pub parent_function_call_id: Option<FunctionCallId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,6 +257,9 @@ pub struct FunctionRun {
     #[builder(default)]
     vector_clock: VectorClock,
     pub call_metadata: bytes::Bytes,
+
+    #[builder(default)]
+    pub request_error: Option<DataPayload>,
 }
 
 impl FunctionRunBuilder {
@@ -395,12 +411,14 @@ impl Function {
         function_call_id: FunctionCallId,
         inputs: Vec<DataPayload>,
         call_metadata: bytes::Bytes,
+        parent_function_call_id: Option<FunctionCallId>,
     ) -> FunctionCall {
         FunctionCall {
             function_call_id,
             inputs: inputs.into_iter().map(FunctionArgs::DataPayload).collect(),
             fn_name: self.name.clone(),
             call_metadata,
+            parent_function_call_id,
         }
     }
 }
@@ -671,6 +689,7 @@ impl ApplicationVersion {
                 inputs: fn_call.inputs.clone(),
                 fn_name: fn_call.fn_name.clone(),
                 call_metadata: fn_call.call_metadata.clone(),
+                parent_function_call_id: fn_call.parent_function_call_id.clone(),
             }))
             .input_args(input_args)
             .name(fn_call.fn_name.clone())
@@ -896,6 +915,29 @@ impl RequestCtx {
 
     pub fn key_prefix_for_application(namespace: &str, application: &str) -> String {
         format!("{namespace}|{application}|")
+    }
+
+    pub fn pending_function_calls(&self) -> HashSet<FunctionCallId> {
+        let function_call_ids = self.function_calls.keys().collect::<HashSet<_>>();
+        let function_run_ids = self.function_runs.keys().collect::<HashSet<_>>();
+
+        function_call_ids
+            .difference(&function_run_ids)
+            .cloned()
+            .cloned()
+            .collect::<HashSet<_>>()
+    }
+
+    pub fn is_request_completed(&self) -> bool {
+        if self.outcome.is_some() {
+            return true;
+        }
+        if self.function_calls.len() != self.function_runs.len() {
+            return false;
+        }
+        self.function_runs
+            .values()
+            .all(|function_run| matches!(function_run.status, FunctionRunStatus::Completed))
     }
 }
 
@@ -1654,6 +1696,15 @@ pub struct AllocationOutputIngestedEvent {
     pub request_exception: Option<DataPayload>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct FunctionCallEvent {
+    pub namespace: String,
+    pub application: String,
+    pub request_id: String,
+    pub source_function_call_id: FunctionCallId,
+    pub graph_updates: GraphUpdates,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ExecutorRemovedEvent {
     pub executor_id: ExecutorId,
@@ -1680,6 +1731,7 @@ pub struct ExecutorUpsertedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeApplication(InvokeApplicationEvent),
+    CreateFunctionCall(FunctionCallEvent),
     AllocationOutputsIngested(Box<AllocationOutputIngestedEvent>),
     TombstoneApplication(TombstoneApplicationEvent),
     TombstoneRequest(TombstoneRequestEvent),
@@ -1695,6 +1747,13 @@ impl fmt::Display for ChangeType {
                     f,
                     "InvokeApplication namespace: {}, request_id: {}, app: {}",
                     ev.namespace, ev.request_id, ev.application
+                )
+            }
+            ChangeType::CreateFunctionCall(ev) => {
+                write!(
+                    f,
+                    "CreateFunctionCall, request_id: {}, source_function_call_id: {}",
+                    ev.request_id, ev.source_function_call_id
                 )
             }
             ChangeType::AllocationOutputsIngested(ev) => write!(

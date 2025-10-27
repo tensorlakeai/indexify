@@ -1,9 +1,9 @@
 #!/bin/bash
 
-if [[ -z "$INDEXIFY_URL" ]]; then
-    echo "Please set INDEXIFY_URL environment variable to specify"\
-    "Indexify Server you are testing." \
-    "Example: 'export INDEXIFY_URL=http://localhost:8900'" 1>&2
+if [[ -z "$TENSORLAKE_API_URL" ]]; then
+    echo "Please set TENSORLAKE_API_URL environment variable to specify"\
+    "Tensorlake SDK you are testing." \
+    "Example: 'export TENSORLAKE_API_URL=http://localhost:8900'" 1>&2
     exit 1
 fi
 

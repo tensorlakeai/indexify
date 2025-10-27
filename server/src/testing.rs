@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
 use nanoid::nanoid;
@@ -13,20 +13,24 @@ use crate::{
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        FunctionCallId,
         FunctionExecutor,
         FunctionExecutorState,
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
         RequestCtx,
+        test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
+        executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,
             DeregisterExecutorRequest,
+            FunctionCallRequest,
             RequestPayload,
             RequestUpdates,
             StateMachineUpdateRequest,
@@ -351,6 +355,7 @@ impl TestExecutor<'_> {
             executor,
             vec![],
             update_executor_state,
+            HashSet::new(),
             self.test_service.service.indexify_state.clone(),
         )?;
 
@@ -477,6 +482,58 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
+    pub async fn invoke_blocking_function_call(
+        &self,
+        function_name: &str,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        source_function_call_id: FunctionCallId,
+    ) -> Result<FunctionCallId> {
+        use crate::data_model::ComputeOp;
+        let graph_updates = mock_blocking_function_call(&function_name, &source_function_call_id);
+        let function_call_id =
+            if let Some(ComputeOp::FunctionCall(fc)) = graph_updates.request_updates.first() {
+                fc.function_call_id.clone()
+            } else {
+                return Err(anyhow::anyhow!("No function call in graph updates"));
+            };
+        let request = FunctionCallRequest {
+            namespace: namespace.to_string(),
+            application_name: application.to_string(),
+            request_id: request_id.to_string(),
+            graph_updates,
+            source_function_call_id,
+        };
+        self.test_service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateFunctionCall(request),
+            })
+            .await?;
+        Ok(function_call_id)
+    }
+
+    pub async fn update_watches(&self, executor_watches: HashSet<ExecutorWatch>) -> Result<()> {
+        let request = UpsertExecutorRequest::build(
+            self.executor_metadata.clone(),
+            vec![],
+            false,
+            executor_watches,
+            self.test_service.service.indexify_state.clone(),
+        )?;
+
+        self.test_service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::UpsertExecutor(request),
+            })
+            .await?;
+        Ok(())
+    }
+
     pub async fn finalize_allocation(
         &self,
         allocation_pb: &AllocationPb,
@@ -514,6 +571,7 @@ impl TestExecutor<'_> {
             self.executor_metadata.clone(),
             vec![ingest_task_outputs_request],
             false,
+            HashSet::new(),
             self.test_service.service.indexify_state.clone(),
         )?;
 

@@ -18,19 +18,17 @@ use tracing::{debug, error, trace};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{self, ApplicationVersion, ExecutorId, ExecutorMetadata},
-    executor_api::{
-        blob_store_path_to_url,
-        executor_api_pb::{
-            self,
-            Allocation,
-            DataPayload,
-            DataPayloadEncoding,
-            DesiredExecutorState,
-            FunctionExecutorDescription,
-            FunctionRef,
-        },
+    executor_api::executor_api_pb::{
+        self,
+        Allocation,
+        DataPayload,
+        DataPayloadEncoding,
+        DesiredExecutorState,
+        FunctionExecutorDescription,
+        FunctionRef,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
+    pb_helpers::*,
     state_store::{
         IndexifyState,
         in_memory_state::DesiredStateFunctionExecutor,
@@ -363,6 +361,11 @@ impl ExecutorManager {
 
     /// Get the desired state for an executor
     pub async fn get_executor_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
+        let fn_call_watches = self
+            .indexify_state
+            .executor_watches
+            .get_watches(executor_id.get())
+            .await;
         let desired_executor_state = self
             .indexify_state
             .in_memory_state
@@ -371,7 +374,23 @@ impl ExecutorManager {
             .clone()
             .read()
             .await
-            .desired_state(executor_id);
+            .desired_state(executor_id, fn_call_watches);
+        let mut function_call_results_pb = vec![];
+        for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
+            let blob_store_url_schema = self
+                .blob_store_registry
+                .get_blob_store(&function_call_outcome.namespace)
+                .get_url_scheme();
+            let blob_store_url = self
+                .blob_store_registry
+                .get_blob_store(&function_call_outcome.namespace)
+                .get_url();
+            function_call_results_pb.push(fn_call_outcome_to_pb(
+                function_call_outcome,
+                &blob_store_url_schema,
+                &blob_store_url,
+            ));
+        }
         let current_fe_hash =
             compute_function_executors_hash(&desired_executor_state.function_executors);
         let mut function_executors_pb = vec![];
@@ -476,8 +495,7 @@ impl ExecutorManager {
                         size: Some(input_arg.data_payload.size),
                         sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
                         encoding: Some(
-                            DataPayloadEncoding::try_from(input_arg.data_payload.encoding.clone())
-                                .unwrap_or(DataPayloadEncoding::Raw)
+                            DataPayloadEncoding::from(input_arg.data_payload.encoding.clone())
                                 .into(),
                         ),
                         encoding_version: Some(0),
@@ -527,6 +545,7 @@ impl ExecutorManager {
             function_executors: function_executors_pb,
             allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
+            function_call_results: function_call_results_pb,
         }
     }
 
@@ -634,6 +653,8 @@ fn compute_function_executors_hash(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use anyhow::Result;
     use tokio::time;
 
@@ -659,6 +680,7 @@ mod tests {
             executor,
             vec![],
             update_executor_state,
+            HashSet::new(),
             test_srv.service.indexify_state.clone(),
         )?;
 

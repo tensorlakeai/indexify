@@ -13,12 +13,9 @@ mod gc_test;
 mod http_objects;
 mod http_objects_v1;
 mod indexify_ui;
-mod integration_test;
-mod integration_test_executor_catalog;
 mod metrics;
 mod middleware;
 mod processor;
-mod reconciliation_test;
 mod routes;
 mod routes_internal;
 mod routes_v1;
@@ -26,9 +23,18 @@ mod service;
 mod state_store;
 mod tracing;
 use tracing::setup_tracing;
+mod pb_helpers;
 mod utils;
 
+#[cfg(test)]
+mod integration_test;
+#[cfg(test)]
+mod integration_test_blocking_calls;
+#[cfg(test)]
+mod integration_test_executor_catalog;
 mod queue;
+#[cfg(test)]
+mod reconciliation_test;
 #[cfg(test)]
 mod testing;
 
