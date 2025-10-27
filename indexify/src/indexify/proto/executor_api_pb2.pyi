@@ -97,6 +97,10 @@ class AllocationFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper)
         AllocationFailureReason
     ]
     ALLOCATION_FAILURE_REASON_OOM: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE: _ClassVar[
+        AllocationFailureReason
+    ]
+    ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED: _ClassVar[AllocationFailureReason]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -148,6 +152,8 @@ ALLOCATION_FAILURE_REASON_REQUEST_ERROR: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_OOM: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED: AllocationFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = (
@@ -440,19 +446,41 @@ class ExecutorUpdate(_message.Message):
         ] = ...,
     ) -> None: ...
 
+class FunctionCallWatch(_message.Message):
+    __slots__ = ("namespace", "application", "request_id", "function_call_id")
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    namespace: str
+    application: str
+    request_id: str
+    function_call_id: str
+    def __init__(
+        self,
+        namespace: _Optional[str] = ...,
+        application: _Optional[str] = ...,
+        request_id: _Optional[str] = ...,
+        function_call_id: _Optional[str] = ...,
+    ) -> None: ...
+
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state", "executor_update", "watch_function_call_ids")
+    __slots__ = ("executor_state", "executor_update", "function_call_watches")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_UPDATE_FIELD_NUMBER: _ClassVar[int]
-    WATCH_FUNCTION_CALL_IDS_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_WATCHES_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
     executor_update: ExecutorUpdate
-    watch_function_call_ids: _containers.RepeatedScalarFieldContainer[str]
+    function_call_watches: _containers.RepeatedCompositeFieldContainer[
+        FunctionCallWatch
+    ]
     def __init__(
         self,
         executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
         executor_update: _Optional[_Union[ExecutorUpdate, _Mapping]] = ...,
-        watch_function_call_ids: _Optional[_Iterable[str]] = ...,
+        function_call_watches: _Optional[
+            _Iterable[_Union[FunctionCallWatch, _Mapping]]
+        ] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
@@ -694,15 +722,27 @@ class AllocationResult(_message.Message):
     ) -> None: ...
 
 class FunctionCallRequest(_message.Message):
-    __slots__ = ("request_id", "updates", "source_function_call_id")
+    __slots__ = (
+        "namespace",
+        "application",
+        "request_id",
+        "updates",
+        "source_function_call_id",
+    )
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    APPLICATION_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     UPDATES_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    namespace: str
+    application: str
     request_id: str
     updates: ExecutionPlanUpdates
     source_function_call_id: str
     def __init__(
         self,
+        namespace: _Optional[str] = ...,
+        application: _Optional[str] = ...,
         request_id: _Optional[str] = ...,
         updates: _Optional[_Union[ExecutionPlanUpdates, _Mapping]] = ...,
         source_function_call_id: _Optional[str] = ...,

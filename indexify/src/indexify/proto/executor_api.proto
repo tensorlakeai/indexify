@@ -199,10 +199,17 @@ message ExecutorUpdate {
     repeated AllocationResult allocation_results = 2;
 }
 
+message FunctionCallWatch {
+    optional string namespace = 1;
+    optional string application = 2;
+    optional string request_id = 3;
+    optional string function_call_id = 4;
+}
+
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
     optional ExecutorUpdate executor_update = 2;
-    repeated string watch_function_call_ids = 3;
+    repeated FunctionCallWatch function_call_watches = 3;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.
@@ -279,6 +286,14 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
+    // Function run cannot be scheduled given its constraints.
+    // This shouldn't be allocation failure, but since we are reusing 
+    // allocation failure reasons as function run failure reasons, we need to add it here.
+    ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE = 8;
+
+    // Anohter failure reason which doesn't make sense to put here
+    // but this is one of the function run reasons - again shouldn't happen in practice,
+    ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED = 9;
 }
 
 message ExecutionPlanUpdate {
@@ -345,14 +360,16 @@ message AllocationResult {
 }
 
 message FunctionCallRequest {
+    optional string namespace = 1;
+    optional string application = 2;
     // The ID of request in which the function call
     // needs to run.
-    optional string request_id = 1;
+    optional string request_id = 3;
     // Function call tree.
     // updates.root_function_call_id is the ID of this function call.
-    optional ExecutionPlanUpdates updates = 2;
+    optional ExecutionPlanUpdates updates = 4;
     // ID of the function call that initiated this function call.
-    optional string source_function_call_id = 5;
+    optional string source_function_call_id = 6;
 }
 
 message FunctionCallResponse {
