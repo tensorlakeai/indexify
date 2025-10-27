@@ -45,7 +45,6 @@ impl UsageProcessor {
             .with_description("total number of processed usage events")
             .build();
 
-
         Ok(Self {
             indexify_state,
             processing_latency,
@@ -107,7 +106,7 @@ impl UsageProcessor {
         if events.is_empty() {
             return Ok(());
         }
-        
+
         self.usage_events_counter.add(events.len() as u64, &[]);
 
         if let Some(c) = new_cursor {
