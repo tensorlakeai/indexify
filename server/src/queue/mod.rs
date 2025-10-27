@@ -2,25 +2,12 @@ use std::sync::Arc;
 
 use omniqueue::QueueError;
 use opentelemetry::KeyValue;
-use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::{metrics, metrics::Increment};
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QueueBackend {
-    #[default]
-    InMemory,
-    AmazonSqs {
-        queue_url: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct QueueConfig {
-    pub backend: QueueBackend,
-}
+use crate::{
+    config::{QueueBackend, QueueConfig},
+    metrics::{self, Increment},
+};
 
 pub struct Queue {
     producer: Arc<omniqueue::DynProducer>,
@@ -30,18 +17,6 @@ pub struct Queue {
 impl Queue {
     pub async fn new(config: QueueConfig) -> anyhow::Result<Self> {
         let producer = match &config.backend {
-            QueueBackend::InMemory => {
-                info!("using in-memory queue backend");
-
-                // We have to build the pair because the in-memory backend
-                // does not allow instantiating a single half
-                let (producer, _) = omniqueue::backends::InMemoryBackend::builder()
-                    .make_dynamic()
-                    .build_pair()
-                    .await?;
-
-                producer
-            }
             QueueBackend::AmazonSqs { queue_url } => {
                 info!("using sqs queue config with url: {queue_url}");
 

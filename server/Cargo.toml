@@ -57,7 +57,7 @@ derive_builder = "0.20.2"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 json-subscriber = "0.2.6"
-omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs", "in_memory"], default-features = false }
+omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
 chrono = "0.4.42"
 prost-types = "0.14.1"
 

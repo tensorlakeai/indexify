@@ -13,13 +13,20 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    blob_store::BlobStorageConfig,
-    queue::QueueConfig,
-    state_store::driver::rocksdb::RocksDBConfig,
-};
+use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
 
 const LOCAL_ENV: &str = "local";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueBackend {
+    AmazonSqs { queue_url: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueConfig {
+    pub backend: QueueBackend,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
