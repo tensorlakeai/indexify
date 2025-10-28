@@ -5,7 +5,7 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-tonic = "0.14.2"
+tonic = { version = "0.14.2", features = ["tls-ring"] }
 prost = "0.14.1"
 prost-types = "0.14.1"
 tonic-prost = "0.14.2"

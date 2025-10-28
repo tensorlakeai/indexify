@@ -5,6 +5,13 @@ use figment::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub ca_bundle_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server_http_addr: String,
     pub server_grpc_addr: String,
@@ -16,6 +23,8 @@ pub struct Config {
     pub monitoring_server_addr: Option<String>,
     #[serde(default)]
     pub labels: Vec<String>,
+    pub catalog_entry_name: Option<String>,
+    pub tls: Option<TlsConfig>,
 }
 
 impl Default for Config {
@@ -27,7 +36,9 @@ impl Default for Config {
             function_uris: vec![],
             cache_dir: "./cache".to_string(),
             monitoring_server_addr: "localhost:7000".to_string().into(),
+            catalog_entry_name: None,
             labels: vec![],
+            tls: None,
         }
     }
 }
