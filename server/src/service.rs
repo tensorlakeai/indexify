@@ -198,13 +198,6 @@ impl Service {
             .instrument(span.clone()),
         );
 
-        let global_meter = opentelemetry::global::meter("server-http");
-        let otel_metrics_service_layer =
-            tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
-                .with_meter(global_meter)
-                .build()
-                .unwrap();
-
         let api_metrics = Arc::new(metrics::api_io_stats::Metrics::new());
 
         let route_state = RouteState {
@@ -285,7 +278,6 @@ impl Service {
         let router = Router::new()
             .merge(internal_routes)
             .merge(v1_routes)
-            .layer(otel_metrics_service_layer)
             .layer(OtelInResponseLayer)
             .layer(OtelAxumLayer::default())
             .layer(instance_trace)
