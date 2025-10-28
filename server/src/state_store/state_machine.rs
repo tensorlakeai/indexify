@@ -13,14 +13,26 @@ use tracing::{debug, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        Allocation, AllocationUsage, AllocationUsageBuilder, AllocationUsageId, Application,
-        ApplicationVersion, FunctionRunOutcome, GcUrl, GcUrlBuilder, NamespaceBuilder, RequestCtx,
+        Allocation,
+        AllocationUsage,
+        AllocationUsageBuilder,
+        AllocationUsageId,
+        Application,
+        ApplicationVersion,
+        FunctionRunOutcome,
+        GcUrl,
+        GcUrlBuilder,
+        NamespaceBuilder,
+        RequestCtx,
         StateChange,
     },
     state_store::{
         driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            AllocationOutput, DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
+            AllocationOutput,
+            DeleteRequestRequest,
+            InvokeApplicationRequest,
+            NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
