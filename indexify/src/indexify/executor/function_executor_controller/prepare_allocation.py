@@ -129,8 +129,6 @@ async def _prepare_alloc_input(
     tags: dict[str, str] = {
         "namespace": alloc.function.namespace,
         "application_name": alloc.function.application_name,
-        "application_version": alloc.function.application_version,
-        "function_name": alloc.function.name,
     }
 
     args: List[SerializedObjectInsideBLOB] = []
