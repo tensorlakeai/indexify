@@ -29,17 +29,3 @@ metric_allocation_runner_allocation_run_latency: prometheus_client.Histogram = (
         "Allocation Runner run allocation",
     )
 )
-
-# Individual FE RPC errors:
-metric_function_executor_create_allocation_rpc_errors: prometheus_client.Counter = (
-    prometheus_client.Counter(
-        "function_executor_create_allocation_rpc_errors",
-        "Number of function executor create allocation RPC errors",
-    )
-)
-metric_function_executor_create_allocation_rpc_latency: prometheus_client.Histogram = (
-    latency_metric_for_fast_operation(
-        "function_executor_create_allocation_rpc",
-        "Function Executor create allocation RPC",
-    )
-)

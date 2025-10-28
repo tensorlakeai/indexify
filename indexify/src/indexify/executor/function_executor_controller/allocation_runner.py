@@ -96,8 +96,6 @@ from .metrics.allocation_runner import (
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
     metric_allocation_runner_allocation_runs_in_progress,
-    metric_function_executor_create_allocation_rpc_errors,
-    metric_function_executor_create_allocation_rpc_latency,
 )
 
 # FE RPC timeouts
@@ -143,21 +141,13 @@ class _BLOBInfo:
 
 @dataclass
 class _FunctionCallWatcherInfo:
-    # We don't trust FE provided ID, so we generate our own.
-    executor_side_id: str
-    fe_watcher: FEAllocationFunctionCallWatcher
+    fe_watcher_id: str
+    server_watch: ServerFunctionCallWatch
     # aio task that wait for the result or cancellation event to appear on the queue.
     task: asyncio.Task
     # Queue where state reconciler puts the function call watcher results.
     # Queue max size is 1.
     result_queue: asyncio.Queue
-
-    @classmethod
-    def make_executor_side_id(
-        cls, namespace: str, request_id: str, fe_watcher_id: str
-    ) -> str:
-        # Scoping with namespace and request_id so this ID can't interact with IDs in other namespaces/requests.
-        return f"{namespace}.{request_id}.{fe_watcher_id}"
 
 
 class AllocationRunner:
@@ -213,19 +203,15 @@ class AllocationRunner:
                 )
 
         for watcher_info in self._pending_function_call_watchers.values():
-            watcher_info.task.cancel()
             try:
-                await watcher_info.task
-                self._state_reporter.remove_function_call_watcher(
-                    watcher_info.executor_side_id
-                )
+                await self._delete_function_call_watcher(watcher_info)
             except asyncio.CancelledError:
                 pass  # Expected during cancellation.
             except BaseException as e:
                 # Also catches any aio cancellations because it's important to clean up all resources.
                 self._logger.error(
                     "failed to cancel pending function call watcher during AllocationRunner destruction",
-                    watcher_id=watcher_info.executor_side_id,
+                    watcher=str(watcher_info.server_watch),
                     exc_info=e,
                 )
 
@@ -428,14 +414,10 @@ class AllocationRunner:
                 raise _AllocationFailedLeavingFEInUndefinedState() from e
 
         try:
-            with (
-                metric_function_executor_create_allocation_rpc_errors.count_exceptions(),
-                metric_function_executor_create_allocation_rpc_latency.time(),
-            ):
-                await fe_stub.create_allocation(
-                    FECreateAllocationRequest(allocation=fe_alloc),
-                    timeout=_CREATE_ALLOCATION_TIMEOUT_SECS,
-                )
+            await fe_stub.create_allocation(
+                FECreateAllocationRequest(allocation=fe_alloc),
+                timeout=_CREATE_ALLOCATION_TIMEOUT_SECS,
+            )
         except grpc.aio.AioRpcError as e:
             _raise_from_grpc_error(e)
 
@@ -784,38 +766,39 @@ class AllocationRunner:
         """Creates a function call watcher in the server.
 
         If the creation fails then doesn't do anything."""
-        executor_watcher_id: str = _FunctionCallWatcherInfo.make_executor_side_id(
-            namespace=self._alloc_info.allocation.function.namespace,
-            request_id=self._alloc_info.allocation.request_id,
-            watcher_id=fe_function_call_watcher.watcher_id,
-        )
-        watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
-            executor_side_id=executor_watcher_id,
-            fe_watcher=fe_function_call_watcher,
-            task=None,
-            result_queue=asyncio.Queue(maxsize=1),
-        )
-        watcher_info.task = asyncio.create_task(
-            self._function_call_watcher_worker(watcher_info),
-            name=f"function_call_result_watcher:{executor_watcher_id}",
-        )
-        self._pending_function_call_watchers[fe_function_call_watcher.watcher_id] = (
-            watcher_info
+        content_derived_key: str = (
+            _FunctionCallWatcherInfo.make_server_watch_content_derived_key(
+                namespace=self._alloc_info.allocation.function.namespace,
+                application=self._alloc_info.allocation.function.application_name,
+                request_id=self._alloc_info.allocation.request_id,
+                function_call_id=fe_function_call_watcher.function_call_id,
+            )
         )
 
-        self._state_reconciler.add_function_call_watcher(
-            function_call_id=fe_function_call_watcher.function_call_id,
-            result_queue=watcher_info.result_queue,
-        )
-        self._state_reporter.add_function_call_watcher(
-            watcher_id=executor_watcher_id,
-            watcher=ServerFunctionCallWatch(
+        watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
+            fe_watcher_id=fe_function_call_watcher.watcher_id,
+            content_derived_key=content_derived_key,
+            server_watch=ServerFunctionCallWatch(
                 namespace=self._alloc_info.allocation.function.namespace,
                 application=self._alloc_info.allocation.function.application_name,
                 request_id=self._alloc_info.allocation.request_id,
                 function_call_id=fe_function_call_watcher.function_call_id,
             ),
+            task=None,
+            result_queue=asyncio.Queue(maxsize=1),
         )
+        watcher_info.task = asyncio.create_task(
+            self._function_call_watcher_worker(watcher_info),
+            name=f"function_call_result_watcher:{watcher_info.fe_watcher_id}",
+        )
+        self._pending_function_call_watchers[watcher_info.fe_watcher_id] = watcher_info
+
+        self._state_reconciler.add_function_call_watcher(
+            watch=watcher_info.server_watch,
+            result_queue=watcher_info.result_queue,
+        )
+        self._state_reporter.add_function_call_watcher(watcher_info.server_watch)
+        self._state_reporter.schedule_state_report()
 
     async def _function_call_watcher_worker(
         self, watcher_info: _FunctionCallWatcherInfo
@@ -847,16 +830,16 @@ class AllocationRunner:
                 )
             if (
                 function_call_result.function_call_id
-                != watcher_info.fe_watcher.function_call_id
+                != watcher_info.server_watch.function_call_id
             ):
                 raise ValueError(
                     "function call result function_call_id doesn't match watcher function_call_id: "
-                    f"{function_call_result.function_call_id} != {watcher_info.fe_watcher.function_call_id}"
+                    f"{function_call_result.function_call_id} != {watcher_info.server_watch.function_call_id}"
                 )
 
             fe_function_call_result: FEAllocationFunctionCallResult = (
                 FEAllocationFunctionCallResult(
-                    function_call_id=watcher_info.fe_watcher.function_call_id,
+                    function_call_id=watcher_info.server_watch.function_call_id,
                     outcome_code=_to_fe_allocation_outcome_code(
                         function_call_result.outcome_code
                     ),
@@ -906,7 +889,7 @@ class AllocationRunner:
             self._logger.error(
                 "failed to send function call result to FE",
                 exc_info=e,
-                watcher_id=watcher_info.executor_side_id,
+                watch=str(watcher_info.server_watch),
             )
 
     async def _delete_function_call_watcher(
@@ -921,11 +904,14 @@ class AllocationRunner:
         except asyncio.CancelledError:
             pass  # Expected.
 
-        self._state_reporter.remove_function_call_watcher(watcher_info.executor_side_id)
+        self._state_reporter.remove_function_call_watcher(watcher_info.server_watch)
+        self._state_reporter.schedule_state_report()
+
         self._state_reconciler.remove_function_call_watcher(
-            function_call_id=watcher_info.fe_watcher.function_call_id
+            watch=watcher_info.server_watch,
+            result_queue=watcher_info.result_queue,
         )
-        del self._pending_function_call_watchers[watcher_info.fe_watcher.watcher_id]
+        del self._pending_function_call_watchers[watcher_info.fe_watcher_id]
 
 
 class RequestStateAuthorizationContextManager:

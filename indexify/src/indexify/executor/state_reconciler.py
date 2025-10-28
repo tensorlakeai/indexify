@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Any,
@@ -15,6 +16,8 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.proto.executor_api_pb2 import (
     Allocation,
     DesiredExecutorState,
+    FunctionCallResult,
+    FunctionCallWatch,
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
 )
@@ -45,6 +48,19 @@ _RECONCILIATION_RETRIES = 3
 # not be healthy due to network disruption. In this case we need to recreate the stream to make
 # sure that Server really doesn't want to send us a new state.
 _DESIRED_EXECUTOR_STATES_TIMEOUT_SEC = 5 * 60  # 5 minutes
+
+
+@dataclass
+class _FunctionCallWatchInfo:
+    watch: FunctionCallWatch
+    result_queues: list[asyncio.Queue]
+
+
+def _function_call_watch_key(
+    namespace: str, request_id: str, function_call_id: str
+) -> str:
+    # Allows to group watches for the same function call id into the same group.
+    return f"{namespace}.{request_id}.{function_call_id}"
 
 
 class ExecutorStateReconciler:
@@ -80,6 +96,8 @@ class ExecutorStateReconciler:
         self._function_executor_controllers: Dict[str, FunctionExecutorController] = {}
         self._shutting_down_fe_ids: Set[str] = set()
         self._last_server_clock: int | None = None
+        # Content derived FunctionCallWatch key -> _FunctionCallWatchInfo
+        self._function_call_watchers: Dict[str, _FunctionCallWatchInfo] = {}
 
         self._last_desired_state_lock = asyncio.Lock()
         self._last_desired_state_change_notifier: asyncio.Condition = asyncio.Condition(
@@ -149,6 +167,62 @@ class ExecutorStateReconciler:
 
         self._function_executor_controllers.clear()
         self._logger.info("state reconciler is shutdown")
+
+    def add_function_call_watcher(
+        self, watch: FunctionCallWatch, result_queue: asyncio.Queue
+    ) -> None:
+        """Adds a function call watcher.
+
+        Doesn't raise any exceptions.
+        """
+        content_derived_key: str = _function_call_watch_key(
+            namespace=watch.namespace,
+            request_id=watch.request_id,
+            function_call_id=watch.function_call_id,
+        )
+        if content_derived_key not in self._function_call_watchers:
+            self._function_call_watchers[content_derived_key] = _FunctionCallWatchInfo(
+                watch=watch,
+                result_queues=[],
+            )
+        self._function_call_watchers[content_derived_key].result_queues.append(
+            result_queue
+        )
+
+    def remove_function_call_watcher(
+        self, watch: FunctionCallWatch, result_queue: asyncio.Queue
+    ) -> None:
+        """Removes a function call watcher.
+
+        Doesn't raise any exceptions. Logs an warning on failure.
+        """
+        content_derived_key: str = _function_call_watch_key(
+            namespace=watch.namespace,
+            request_id=watch.request_id,
+            function_call_id=watch.function_call_id,
+        )
+        watch_info: _FunctionCallWatchInfo | None = self._function_call_watchers.get(
+            content_derived_key
+        )
+        if watch_info is None:
+            self._logger.warning(
+                "attempted to remove non-existing function call watcher",
+                watch=str(watch),
+            )
+            return
+
+        try:
+            watch_info.result_queues.remove(result_queue)
+        except ValueError:
+            self._logger.warning(
+                "attempted to remove non-registered result queue from function call watcher",
+                watch=str(watch),
+            )
+            return
+
+        if len(watch_info.result_queues) == 0:
+            # No more result queues, remove the watcher completely.
+            self._function_call_watchers.pop(content_derived_key, None)
 
     async def _desired_states_reader_loop(self):
         """Reads the desired states stream from Server and processes it.
@@ -263,6 +337,9 @@ class ExecutorStateReconciler:
                 # Reconcile FEs first because allocations depend on them.
                 self._reconcile_function_executors(desired_state.function_executors)
                 self._reconcile_allocations(desired_state.allocations)
+                self._reconcile_function_call_results(
+                    desired_state.function_call_results
+                )
                 return
             except Exception as e:
                 self._logger.error(
@@ -455,3 +532,41 @@ class ExecutorStateReconciler:
             valid_allocations.append(allocation)
 
         return valid_allocations
+
+    def _reconcile_function_call_results(
+        self, function_call_results: Iterable[FunctionCallResult]
+    ):
+        """Reconciles the function call results with the watchers.
+
+        Doesn't raise any exceptions. Doesn't block.
+        """
+        for function_call_result in function_call_results:
+            content_derived_key: str = _function_call_watch_key(
+                namespace=function_call_result.namespace,
+                request_id=function_call_result.request_id,
+                function_call_id=function_call_result.function_call_id,
+            )
+            watch_info: _FunctionCallWatchInfo | None = (
+                self._function_call_watchers.get(content_derived_key)
+            )
+            if watch_info is None:
+                self._logger.warning(
+                    "no watchers found for function call result, ignoring result",
+                    child_fn_call_id=function_call_result.function_call_id,
+                )
+                continue
+
+            for result_queue in watch_info.result_queues:
+                # The queue max size is 1 so if it's full then we already delivered
+                # the result to the FE so just skip delivering it again.
+                if result_queue.full():
+                    continue
+
+                try:
+                    result_queue.put_nowait(function_call_result)
+                except asyncio.QueueFull:
+                    # This should never happen because of the full check above.
+                    self._logger.error(
+                        "unexpectedly failed to deliver function call result to watcher because the result queue is full",
+                        child_fn_call_id=function_call_result.function_call_id,
+                    )
