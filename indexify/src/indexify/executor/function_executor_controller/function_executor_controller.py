@@ -1,10 +1,13 @@
 import asyncio
-import math
 import time
 from collections.abc import Coroutine
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
+
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationResult as FEAllocationResult,
+)
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.executor.function_executor.function_executor import FunctionExecutor
@@ -28,9 +31,13 @@ from indexify.proto.executor_api_pb2 import (
     FunctionRef,
 )
 
+from ..channel_manager import ChannelManager
+from ..state_reconciler import ExecutorStateReconciler
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
+from .allocation_runner import AllocationRunner
+from .blob_utils import to_data_payload
 from .completed_allocation_metrics import emit_completed_allocation_metrics
 from .create_function_executor import create_function_executor
 from .debug_event_loop import (
@@ -67,7 +74,6 @@ from .metrics.function_executor_controller import (
     metric_schedule_allocation_latency,
 )
 from .prepare_allocation import prepare_allocation
-from .run_allocation import run_allocation_on_function_executor
 from .terminate_function_executor import terminate_function_executor
 
 
@@ -87,7 +93,9 @@ class FunctionExecutorController:
         executor_id: str,
         function_executor_description: FunctionExecutorDescription,
         function_executor_server_factory: FunctionExecutorServerFactory,
+        channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
+        state_reconciler: ExecutorStateReconciler,
         blob_store: BLOBStore,
         base_url: str,
         config_path: str,
@@ -106,7 +114,9 @@ class FunctionExecutorController:
         self._fe_server_factory: FunctionExecutorServerFactory = (
             function_executor_server_factory
         )
+        self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
+        self._state_reconciler: ExecutorStateReconciler = state_reconciler
         self._blob_store: BLOBStore = blob_store
         self._base_url: str = base_url
         self._config_path: str = config_path
@@ -635,14 +645,20 @@ class FunctionExecutorController:
                 )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
-            self._running_allocations.append(alloc_info)
-            next_aio = run_allocation_on_function_executor(
+            runner: AllocationRunner = AllocationRunner(
                 alloc_info=alloc_info,
                 function_executor=self._fe,
+                blob_store=self._blob_store,
+                state_reporter=self._state_reporter,
+                state_reconciler=self._state_reconciler,
+                channel_manager=self._channel_manager,
                 logger=allocation_logger(alloc_info.allocation, self._logger),
             )
+            alloc_info.runner = runner
+            self._running_allocations.append(alloc_info)
+
             self._spawn_aio_for_allocation(
-                aio=next_aio,
+                aio=runner.run(),
                 alloc_info=alloc_info,
                 on_exception=AllocationExecutionFinished(
                     alloc_info=alloc_info,
@@ -740,7 +756,7 @@ class FunctionExecutorController:
         )
         # Reconciler will call .remove_allocation() once Server signals that it processed this update.
         self._state_reporter.add_completed_allocation_result(
-            _to_alloc_result_proto(alloc_info, logger)
+            _to_server_alloc_result(alloc_info, logger)
         )
         self._state_reporter.schedule_state_report()
 
@@ -818,6 +834,13 @@ class FunctionExecutorController:
             state=_to_fe_state_metric_label(self._internal_state, self._logger)
         ).dec()
 
+        # Cleanup all allocation runners.
+        for alloc_info in self._allocations.values():
+            if alloc_info.runner is not None:
+                runner: AllocationRunner = alloc_info.runner
+                await runner.destroy()
+                alloc_info.runner = None
+
         self._state_reporter.remove_function_executor_state(self.function_executor_id())
         self._state_reporter.schedule_state_report()
 
@@ -865,7 +888,9 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> AllocationResult:
+def _to_server_alloc_result(
+    alloc_info: AllocationInfo, logger: Any
+) -> AllocationResult:
     allocation: Allocation = alloc_info.allocation
     # Might be None if the alloc wasn't prepared successfully.
     input: AllocationInput | None = alloc_info.input
@@ -873,30 +898,37 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
     output: AllocationOutput | None = alloc_info.output
 
     request_error_output: DataPayload | None = None
-    if output.request_error_output is not None:
-        # input can't be None if request_error_output is set because the alloc ran already.
-        request_error_output = _so_to_data_payload_proto(
-            so=output.request_error_output,
-            blob_uri=input.request_error_blob_uri,
-            logger=logger,
-        )
-
     output_value: DataPayload | None = None
-    if output.output_value is not None:
-        # input can't be None if output_value is set because the alloc ran already.
-        output_value = _so_to_data_payload_proto(
-            so=output.output_value,
-            blob_uri=input.function_outputs_blob_uri,
-            logger=logger,
-        )
-
     output_updates: ExecutionPlanUpdates | None = None
-    # TODO: Catch ValueError raised here.
-    if output.output_execution_plan_updates is not None:
-        output_updates = to_server_execution_plan_updates(
-            fe_execution_plan_updates=output.output_execution_plan_updates,
-            args_blob_uri=input.function_outputs_blob_uri,
-        )
+
+    if output.fe_result is not None:
+        fe_result: FEAllocationResult = output.fe_result
+        if fe_result.HasField("request_error_output"):
+            # input can't be None if request_error_output is set because the alloc ran already.
+            request_error_output = to_data_payload(
+                so=fe_result.request_error_output,
+                blob_uri=input.request_error_blob_uri,
+                logger=logger,
+            )
+
+        if output.function_outputs_blob_uri is not None:
+            if fe_result.HasField("value"):
+                output_value = to_data_payload(
+                    so=fe_result.value,
+                    blob_uri=output.function_outputs_blob_uri,
+                    logger=logger,
+                )
+            elif fe_result.HasField("updates"):
+                try:
+                    output_updates = to_server_execution_plan_updates(
+                        fe_execution_plan_updates=fe_result.updates,
+                        args_blob_uri=output.function_outputs_blob_uri,
+                    )
+                except ValueError as e:
+                    logger.error(
+                        "Failed to convert function executor updates from FE to Server",
+                        exc_info=e,
+                    )
 
     return AllocationResult(
         function=FunctionRef(

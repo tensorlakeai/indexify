@@ -46,7 +46,7 @@ def to_server_execution_plan_updates(
 
     Raises ValueError on validation error.
     """
-    # TODO: Validate FEExecutionPlanUpdates object.
+    # TODO: Validate FEExecutionPlanUpdates object properly.
     server_execution_plan_updates: list[ServerExecutionPlanUpdate] = []
     for fe_update in fe_execution_plan_updates.updates:
         fe_update: FEExecutionPlanUpdate

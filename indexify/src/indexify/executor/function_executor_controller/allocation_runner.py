@@ -185,10 +185,11 @@ class AllocationRunner:
     async def destroy(self) -> None:
         """Releases all the resources held by the AllocationRunner.
 
-        Doesn't raise any exceptions.
+        Doesn't raise any exceptions. Idempotent.
         """
-        for output_blob in self._pending_output_blobs.values():
+        while len(self._pending_output_blobs) > 0:
             try:
+                output_blob: _BLOBInfo = self._pending_output_blobs.popitem()[1]
                 await self._blob_store.abort_multipart_upload(
                     uri=output_blob.uri,
                     upload_id=output_blob.upload_id,
@@ -202,8 +203,11 @@ class AllocationRunner:
                     exc_info=e,
                 )
 
-        for watcher_info in self._pending_function_call_watchers.values():
+        while len(self._pending_function_call_watchers) > 0:
             try:
+                watcher_info: _FunctionCallWatcherInfo = (
+                    self._pending_function_call_watchers.popitem()[1]
+                )
                 await self._delete_function_call_watcher(watcher_info)
             except asyncio.CancelledError:
                 pass  # Expected during cancellation.
@@ -243,9 +247,12 @@ class AllocationRunner:
                 ),
             ):
                 metric_allocation_runner_allocation_runs.inc()
-                fe_alloc_result: FEAllocationResult = await self._run_allocation_on_fe()
+                fe_alloc_result, function_outputs_blob_uri = (
+                    await self._run_allocation_on_fe()
+                )
                 return AllocationOutput.from_allocation_result(
                     fe_result=fe_alloc_result,
+                    function_outputs_blob_uri=function_outputs_blob_uri,
                     execution_duration_ms=_execution_duration(
                         execution_start_time, time.monotonic()
                     ),
@@ -261,6 +268,7 @@ class AllocationRunner:
             function_executor_termination_reason = (
                 FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
             )
+            self._alloc_info.is_cancelled = True
             self._alloc_info.output = AllocationOutput.allocation_cancelled(
                 execution_duration_ms=_execution_duration(
                     execution_start_time, time.monotonic()
@@ -387,12 +395,14 @@ class AllocationRunner:
             function_executor_termination_reason=function_executor_termination_reason,
         )
 
-    async def _run_allocation_on_fe(self) -> FEAllocationResult:
+    async def _run_allocation_on_fe(self) -> tuple[FEAllocationResult, str | None]:
         """Runs the allocation on the Function Executor via RPCs.
 
         In case of allocation failure raises either _AllocationTimeoutError or
         _AllocationFailedLeavingFEInUndefinedState. Raises an Exception if an
         internal error occured on Executor side.
+        Returns the FEAllocationResult and optional function outputs BLOB URI
+        allocation uploaded output into it.
         """
         # Timeout in seconds for detecting no progress in allocation execution.
         no_progress_timeout_sec: float = self._alloc_info.allocation_timeout_ms / 1000.0
@@ -494,6 +504,7 @@ class AllocationRunner:
         except grpc.aio.AioRpcError as e:
             _raise_from_grpc_error(e)
 
+        function_outputs_blob_uri: str | None = None
         if allocation_result.HasField("uploaded_function_outputs_blob"):
             blob_info: _BLOBInfo | None = self._pending_output_blobs.get(
                 allocation_result.uploaded_function_outputs_blob.id
@@ -507,7 +518,8 @@ class AllocationRunner:
                 )
                 raise _AllocationFailedDueToUserError()
 
-            # No need to catch exceptions because this is going to be our internal error.
+            function_outputs_blob_uri = blob_info.uri
+            # Any failure here is internal error, so no need to catch exceptions.
             # aio cancellation will also propagate to caller.
             await self._complete_blob_upload(
                 blob_info, allocation_result.uploaded_function_outputs_blob
@@ -517,7 +529,7 @@ class AllocationRunner:
                 # Validate FE updates by converting them to Server Updates. This is inefficient but works.
                 try:
                     to_server_execution_plan_updates(
-                        allocation_result.updates, blob_info.uri
+                        allocation_result.updates, function_outputs_blob_uri
                     )
                 except Exception as e:
                     self._logger.info(
@@ -527,7 +539,7 @@ class AllocationRunner:
                     # As this is FE error it's okay to mark it as unhealthy.
                     raise _AllocationFailedDueToUserError()
 
-        return allocation_result
+        return allocation_result, function_outputs_blob_uri
 
     async def _reconcile_output_blobs(
         self,

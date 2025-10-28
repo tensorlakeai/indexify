@@ -25,29 +25,33 @@ class AllocationOutput:
         outcome_code: AllocationOutcomeCode,
         failure_reason: AllocationFailureReason | None,
         fe_result: FEAllocationResult | None,
+        function_outputs_blob_uri: str | None,
         execution_duration_ms: int | None,
     ):
         self.outcome_code: AllocationOutcomeCode = outcome_code
         self.failure_reason: AllocationFailureReason = failure_reason
         self.fe_result: FEAllocationResult | None = fe_result
+        self.function_outputs_blob_uri: str | None = function_outputs_blob_uri
         self.execution_duration_ms: int | None = execution_duration_ms
 
     @classmethod
     def from_allocation_result(
         cls,
         fe_result: FEAllocationResult,
+        function_outputs_blob_uri: str | None,
         execution_duration_ms: int,
         logger: Any,
     ) -> "AllocationOutput":
         """Creates a AllocationOutput from Function Executor's AllocationResult."""
         return AllocationOutput(
-            outcome_code=_from_fe_alloc_outcome_code(
+            outcome_code=_to_server_alloc_outcome_code(
                 fe_alloc_outcome_code=fe_result.outcome_code, logger=logger
             ),
-            failure_reason=_from_fe_alloc_failure_reason(
+            failure_reason=_to_server_alloc_failure_reason(
                 fe_alloc_failure_reason=fe_result.failure_reason, logger=logger
             ),
             fe_result=fe_result,
+            function_outputs_blob_uri=function_outputs_blob_uri,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -61,6 +65,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -74,6 +79,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -103,6 +109,7 @@ class AllocationOutput:
             # This is to prevent service abuse by intentionally misbehaving functions.
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -119,6 +126,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -131,6 +139,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=None,
         )
 
@@ -144,6 +153,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 
@@ -160,6 +170,7 @@ class AllocationOutput:
                 fe_termination_reason, logger
             ),
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=None,
         )
 
@@ -205,7 +216,7 @@ def _fe_startup_failure_reason_to_alloc_failure_reason(
         return AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
 
 
-def _from_fe_alloc_outcome_code(
+def _to_server_alloc_outcome_code(
     fe_alloc_outcome_code: FEAllocationOutcomeCode, logger
 ) -> AllocationOutcomeCode:
     if fe_alloc_outcome_code == FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS:
@@ -222,7 +233,7 @@ def _from_fe_alloc_outcome_code(
         return AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_UNKNOWN
 
 
-def _from_fe_alloc_failure_reason(
+def _to_server_alloc_failure_reason(
     fe_alloc_failure_reason: FEAllocationFailureReason, logger: Any
 ) -> AllocationFailureReason:
     if (

@@ -10,6 +10,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import (
+    Allocation,
     DataPayload,
     DataPayloadEncoding,
 )
@@ -53,11 +54,20 @@ async def presign_read_only_blob_for_data_payload(
     )
 
 
+def allocation_blob_tags(alloc: Allocation) -> dict[str, str]:
+    # These tags are used for usage tracking and billing purposes.
+    return {
+        "namespace": alloc.function.namespace,
+        "application_name": alloc.function.application_name,
+    }
+
+
 async def presign_write_only_blob(
     blob_id: str,
     blob_uri: str,
     upload_id: str,
     size: int,
+    tags: dict[str, str],
     blob_store: BLOBStore,
     logger: Any,
 ) -> BLOB:
@@ -71,6 +81,7 @@ async def presign_write_only_blob(
             part_number=len(chunks) + 1,
             upload_id=upload_id,
             expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
+            tags=tags,
             logger=logger,
         )
 
@@ -151,3 +162,45 @@ def serialized_object_manifest_from_data_payload(
         )
 
     return so_manifest
+
+
+def to_data_payload(
+    so: SerializedObjectInsideBLOB,
+    blob_uri: str,
+    logger: Any,
+) -> DataPayload:
+    """Converts a serialized object inside BLOB to into a DataPayload."""
+    # TODO: Validate SerializedObjectInsideBLOB.
+    return DataPayload(
+        uri=blob_uri,
+        encoding=_to_data_payload_encoding(so.manifest.encoding, logger),
+        encoding_version=so.manifest.encoding_version,
+        content_type=(
+            so.manifest.content_type if so.manifest.HasField("content_type") else None
+        ),
+        metadata_size=so.manifest.metadata_size,
+        offset=so.offset,
+        size=so.manifest.size,
+        sha256_hash=so.manifest.sha256_hash,
+        source_function_call_id=so.manifest.source_function_call_id,
+        # id is not used
+    )
+
+
+def _to_data_payload_encoding(
+    encoding: SerializedObjectEncoding, logger: Any
+) -> DataPayloadEncoding:
+    if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
+    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW
+    else:
+        logger.error(
+            "unexpected encoding for SerializedObject",
+            encoding=SerializedObjectEncoding.Name(encoding),
+        )
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN

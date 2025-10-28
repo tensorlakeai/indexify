@@ -3,21 +3,16 @@ import time
 from typing import Any
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ExecutionPlanUpdate,
-    FunctionArg,
-    FunctionCall,
-    ReduceOp,
+    AllocationResult as FEAllocationResult,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
-from indexify.proto.executor_api_pb2 import (
-    AllocationFailureReason,
-    AllocationOutcomeCode,
-)
 
+from .aio_utils import shielded_await
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
+from .allocation_runner import AllocationRunner
 from .events import AllocationFinalizationFinished
 from .metrics.finalize_allocation import (
     metric_allocation_finalization_errors,
@@ -30,9 +25,8 @@ from .metrics.finalize_allocation import (
 async def finalize_allocation(
     alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
 ) -> AllocationFinalizationFinished:
-    """Prepares the alloc output for getting it reported to Server.
+    """Does post-processing of allocation output, cleans up its resources.
 
-    The alloc output is either coming from a failed alloc or from its finished execution on the Function Executor.
     Doesn't raise any Exceptions.
     """
     logger = logger.bind(module=__name__)
@@ -72,16 +66,6 @@ async def finalize_allocation(
             )
 
 
-class _AllocationOutputSummary:
-    def __init__(self):
-        self.values_count: int = 0
-        self.values_bytes: int = 0
-        self.function_calls_count: int = 0
-        self.reducer_calls_count: int = 0
-        self.is_request_error: bool = False
-        self.request_error_bytes: int = 0
-
-
 async def _finalize_alloc_output(
     alloc_info: AllocationInfo, blob_store: BLOBStore, logger: Any
 ) -> None:
@@ -100,134 +84,49 @@ async def _finalize_alloc_output(
     input: AllocationInput = alloc_info.input
     output: AllocationOutput = alloc_info.output
 
-    output_summary: _AllocationOutputSummary = _alloc_output_summary(output)
-    logger.info(
-        "allocation output summary",
-        values_count=output_summary.values_count,
-        values_bytes=output_summary.values_bytes,
-        function_calls_count=output_summary.function_calls_count,
-        reducer_calls_count=output_summary.reducer_calls_count,
-        is_request_error=output_summary.is_request_error,
-        request_error_bytes=output_summary.request_error_bytes,
-    )
+    if alloc_info.runner is not None:
+        runner: AllocationRunner = alloc_info.runner
+        await shielded_await(
+            asyncio.create_task(
+                runner.destroy(),
+                name=f"allocation_runner_destroy:{alloc_info.allocation.allocation_id}",
+            ),
+            logger,
+        )
+        alloc_info.runner = None
 
-    _log_function_metrics(output, logger)
+    if output.fe_result is not None:
+        _log_function_metrics(output.fe_result, logger)
 
-    if output.outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS:
-        if len(output.uploaded_function_outputs_blob.chunks) == 0:
-            # A function always returns at least None so this branch should never be taken
-            # unless FE misbehaved. No outputs were uploaded by function so
-            # complete_multipart_upload will fail. So we abort the upload instead.
-            await blob_store.abort_multipart_upload(
-                uri=input.function_outputs_blob_uri,
-                upload_id=input.function_outputs_blob_upload_id,
-                logger=logger,
-            )
-        else:
-            await blob_store.complete_multipart_upload(
-                uri=input.function_outputs_blob_uri,
-                upload_id=input.function_outputs_blob_upload_id,
-                parts_etags=[
-                    blob_chunk.etag
-                    for blob_chunk in output.uploaded_function_outputs_blob.chunks
-                ],
-                logger=logger,
-            )
+    if output.fe_result is not None and output.fe_result.HasField(
+        "request_error_output"
+    ):
+        await blob_store.complete_multipart_upload(
+            uri=input.request_error_blob_uri,
+            upload_id=input.request_error_blob_upload_id,
+            parts_etags=[
+                blob_chunk.etag
+                for blob_chunk in output.fe_result.uploaded_request_error_blob.chunks
+            ],
+            logger=logger,
+        )
+    else:
         await blob_store.abort_multipart_upload(
             uri=input.request_error_blob_uri,
             upload_id=input.request_error_blob_upload_id,
             logger=logger,
         )
-    elif output.outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE:
-        await blob_store.abort_multipart_upload(
-            uri=input.function_outputs_blob_uri,
-            upload_id=input.function_outputs_blob_upload_id,
-            logger=logger,
-        )
-        if (
-            output.failure_reason
-            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_REQUEST_ERROR
-        ):
-            if len(output.uploaded_request_error_blob.chunks) == 0:
-                # A function that fails with request error always returns at least one request error output
-                # so this branch should never be taken unless FE misbehaved. No request error outputs were
-                # uploaded by function so complete_multipart_upload will fail. So we abort the upload instead.
-                await blob_store.abort_multipart_upload(
-                    uri=input.request_error_blob_uri,
-                    upload_id=input.request_error_blob_upload_id,
-                    logger=logger,
-                )
-            else:
-                await blob_store.complete_multipart_upload(
-                    uri=input.request_error_blob_uri,
-                    upload_id=input.request_error_blob_upload_id,
-                    parts_etags=[
-                        blob_chunk.etag
-                        for blob_chunk in output.uploaded_request_error_blob.chunks
-                    ],
-                    logger=logger,
-                )
-        else:
-            await blob_store.abort_multipart_upload(
-                uri=input.request_error_blob_uri,
-                upload_id=input.request_error_blob_upload_id,
-                logger=logger,
-            )
-    else:
-        raise ValueError(
-            f"Unexpected alloction outcome code: {AllocationOutcomeCode.Name(output.outcome_code)}"
-        )
-
-
-def _alloc_output_summary(
-    alloc_output: AllocationOutput,
-) -> _AllocationOutputSummary:
-    # self.values_count: int = 0
-    # self.values_bytes: int = 0
-    # self.function_calls_count: int = 0
-    # self.reducer_calls_count: int = 0
-    summary: _AllocationOutputSummary = _AllocationOutputSummary()
-
-    if alloc_output.output_value is not None:
-        summary.values_count += 1
-        summary.values_bytes += alloc_output.output_value.manifest.size
-
-    if alloc_output.output_execution_plan_updates is not None:
-        for update in alloc_output.output_execution_plan_updates.updates:
-            update: ExecutionPlanUpdate
-            if update.HasField("function_call"):
-                summary.function_calls_count += 1
-                func_call: FunctionCall = update.function_call
-                for arg in func_call.args:
-                    arg: FunctionArg
-                    if arg.HasField("value"):
-                        summary.values_count += 1
-                        summary.values_bytes += arg.value.manifest.size
-            elif update.HasField("reduce"):
-                summary.reducer_calls_count += 1
-                reduce_op: ReduceOp = update.reduce
-                for arg in reduce_op.collection:
-                    arg: FunctionArg
-                    if arg.HasField("value"):
-                        summary.values_count += 1
-                        summary.values_bytes += arg.value.manifest.size
-
-    if alloc_output.request_error_output is not None:
-        summary.is_request_error = True
-        summary.request_error_bytes = alloc_output.request_error_output.manifest.size
-
-    return summary
 
 
 # Temporary workaround is logging customer metrics until we store them somewhere
 # for future retrieval and processing.
-def _log_function_metrics(output: AllocationOutput, logger: Any):
-    if output.metrics is None:
+def _log_function_metrics(fe_result: FEAllocationResult, logger: Any):
+    if not fe_result.HasField("metrics"):
         return
 
-    for counter_name, counter_value in output.metrics.counters.items():
+    for counter_name, counter_value in fe_result.metrics.counters.items():
         logger.info(
             "function_metric", counter_name=counter_name, counter_value=counter_value
         )
-    for timer_name, timer_value in output.metrics.timers.items():
+    for timer_name, timer_value in fe_result.metrics.timers.items():
         logger.info("function_metric", timer_name=timer_name, timer_value=timer_value)

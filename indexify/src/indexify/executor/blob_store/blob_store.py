@@ -46,9 +46,7 @@ class BLOBStore:
             else:
                 return await self._s3.get(uri, logger)
 
-    async def presign_get_uri(
-        self, uri: str, expires_in_sec: int, tags: dict[str, str], logger: Any
-    ) -> str:
+    async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
         """Returns a presigned URI for getting the BLOB with the supplied URI.
 
         The URI allows to read any byte range in the BLOB."""
@@ -60,7 +58,7 @@ class BLOBStore:
             if _is_file_uri(uri):
                 return await self._local.presign_get_uri(uri, expires_in_sec, logger)
             else:
-                return await self._s3.presign_get_uri(uri, expires_in_sec, tags, logger)
+                return await self._s3.presign_get_uri(uri, expires_in_sec, logger)
 
     async def upload(self, uri: str, value: bytes, logger: Any) -> None:
         """Stores the supplied binary value in a BLOB with the supplied URI.
