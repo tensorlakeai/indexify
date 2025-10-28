@@ -13,26 +13,14 @@ use tracing::{debug, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        Allocation,
-        AllocationUsage,
-        AllocationUsageBuilder,
-        AllocationUsageId,
-        Application,
-        ApplicationVersion,
-        FunctionRunOutcome,
-        GcUrl,
-        GcUrlBuilder,
-        NamespaceBuilder,
-        RequestCtx,
+        Allocation, AllocationUsage, AllocationUsageBuilder, AllocationUsageId, Application,
+        ApplicationVersion, FunctionRunOutcome, GcUrl, GcUrlBuilder, NamespaceBuilder, RequestCtx,
         StateChange,
     },
     state_store::{
         driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            AllocationOutput,
-            DeleteRequestRequest,
-            InvokeApplicationRequest,
-            NamespaceRequest,
+            AllocationOutput, DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
@@ -184,16 +172,6 @@ pub(crate) fn record_allocation_usage(
         allocation_usage.key(),
         &serialized_usage,
     )?;
-
-    info!(
-        allocation_id = %allocation.id,
-        application = %allocation.application,
-        namespace = %allocation.namespace,
-        request_id = %allocation.request_id,
-        function = %allocation.function,
-        fn_call_id = allocation.function_call_id.to_string(),
-        "recorded allocation usage"
-    );
 
     Ok(())
 }
