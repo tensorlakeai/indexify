@@ -148,6 +148,9 @@ class FunctionExecutor:
         return self._health_checker
 
     async def server_status(self) -> FunctionExecutorServerStatus:
+        """Returns the current status of the Function Executor Server.
+
+        Doesn't raise any exceptions."""
         return await self._server.status()
 
     async def destroy(self):

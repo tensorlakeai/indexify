@@ -169,7 +169,7 @@ async def run_allocation_on_function_executor(
             function_executor_termination_reason = (
                 FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY
             )
-            alloc_info.output = AllocationOutput.function_executor_unresponsive_after_running_allocation(
+            alloc_info.output = AllocationOutput.function_executor_is_in_undefined_state_after_running_allocation(
                 allocation=alloc_info.allocation,
                 execution_start_time=execution_start_time,
                 execution_end_time=time.monotonic(),

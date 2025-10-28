@@ -42,6 +42,6 @@ class FunctionExecutorServer:
         By default, it returns a healthy status.
 
         Classes that inherit from FunctionExecutorServer should override this method to provide
-        their own implementation.
+        their own implementation. Doesn't raise any exceptions.
         """
         return FunctionExecutorServerStatus.healthy()

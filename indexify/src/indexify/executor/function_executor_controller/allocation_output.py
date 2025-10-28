@@ -78,11 +78,24 @@ class AllocationOutput:
         )
 
     @classmethod
-    def function_executor_unresponsive_after_running_allocation(
+    def function_error_with_healthy_function_executor(
         cls,
         execution_duration_ms: int,
     ) -> "AllocationOutput":
-        """Creates a AllocationOutput for an unresponsive FE aka health check failure."""
+        """Creates a AllocationOutput for a function error with healthy Function Executor."""
+        return AllocationOutput(
+            outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+            failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
+            fe_result=None,
+            execution_duration_ms=execution_duration_ms,
+        )
+
+    @classmethod
+    def function_executor_is_in_undefined_state_after_running_allocation(
+        cls,
+        execution_duration_ms: int,
+    ) -> "AllocationOutput":
+        """Creates a AllocationOutput for an FE in undefined state after running allocation on it."""
         # When FE is unresponsive we don't know exact cause of the failure.
         return AllocationOutput(
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
