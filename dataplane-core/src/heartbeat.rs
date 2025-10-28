@@ -19,6 +19,7 @@ use crate::{
             ReportExecutorStateRequest,
         },
     },
+    function_executor_manager::FunctionExecutorManager,
     hardware_probe::HardwareProbe,
 };
 
@@ -50,7 +51,11 @@ impl HeartbeatService {
         format!("{:x}", result)
     }
 
-    pub async fn start(&self, mut shutdown_rx: watch::Receiver<bool>) -> anyhow::Result<()> {
+    pub async fn start(
+        &self,
+        mut shutdown_rx: watch::Receiver<bool>,
+        function_executor_manager: Arc<FunctionExecutorManager>,
+    ) -> anyhow::Result<()> {
         let executor_id = self.config.executor_id.clone();
         let heartbeat_interval = Duration::from_secs(self.config.heartbeat_interval_secs);
 
@@ -73,6 +78,11 @@ impl HeartbeatService {
             // Get system resources (cached, no re-probing)
             let resources = self.hardware_probe.get_resources();
 
+            // Get function executor states from the manager
+            let function_executor_states = function_executor_manager
+                .get_function_executor_states()
+                .await;
+
             // Create executor state (without state_hash and server_clock first)
             let mut executor_state = ExecutorState {
                 executor_id: Some(executor_id.clone()),
@@ -82,7 +92,7 @@ impl HeartbeatService {
                 total_resources: Some(resources.clone()),
                 total_function_executor_resources: Some(resources),
                 allowed_functions: vec![],
-                function_executor_states: vec![],
+                function_executor_states,
                 labels: self
                     .config
                     .labels
