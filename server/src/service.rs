@@ -275,11 +275,16 @@ impl Service {
             .allow_origin(Any)
             .allow_headers(Any);
         let instance_trace = TraceLayer::new_for_http().make_span_with(instance_span);
-        let router = Router::new()
-            .merge(internal_routes)
-            .merge(v1_routes)
-            .layer(OtelInResponseLayer)
-            .layer(OtelAxumLayer::default())
+        let mut router = Router::new().merge(internal_routes).merge(v1_routes);
+
+        // Only apply OpenTelemetry middleware layers when telemetry is enabled
+        if self.config.telemetry.enable_tracing {
+            router = router
+                .layer(OtelInResponseLayer)
+                .layer(OtelAxumLayer::default());
+        }
+
+        let router = router
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
