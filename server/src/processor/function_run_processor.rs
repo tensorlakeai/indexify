@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{debug, info_span, warn};
+use tracing::{debug, error, info_span, warn};
 
 use crate::{
     data_model::{
@@ -9,6 +9,7 @@ use crate::{
         FunctionRunOutcome,
         FunctionRunStatus,
         RequestCtx,
+        RequestCtxKey,
         RunningFunctionRunStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
@@ -29,13 +30,33 @@ impl<'a> FunctionRunProcessor<'a> {
         Self { clock, fe_manager }
     }
 
-    /// Allocate attempts to allocate unallocated tasks to function executors.
-    #[tracing::instrument(skip(self, in_memory_state))]
-    pub fn allocate(&self, in_memory_state: &mut InMemoryState) -> Result<SchedulerUpdateRequest> {
-        // Step 1: Fetch unallocated tasks
-        let function_runs = in_memory_state.unallocated_function_runs();
+    pub fn allocate_request(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+    ) -> Result<SchedulerUpdateRequest> {
+        let request_key = RequestCtxKey::new(namespace, application, request_id);
+        let Some(request_ctx) = in_memory_state.request_ctx.get(&request_key) else {
+            error!("request context not found for request_id: {}", request_id);
+            return Ok(SchedulerUpdateRequest::default());
+        };
+        let function_runs: Vec<FunctionRun> = request_ctx
+            .function_runs
+            .values()
+            .filter(|fr| matches!(fr.status, FunctionRunStatus::Pending))
+            .cloned()
+            .collect();
+        self.allocate_function_runs(in_memory_state, function_runs)
+    }
 
-        // Step 2: Allocate tasks
+    #[tracing::instrument(skip(self, in_memory_state))]
+    pub fn allocate_function_runs(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        function_runs: Vec<FunctionRun>,
+    ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
         for function_run in function_runs {

@@ -53,6 +53,7 @@ class Executor:
         monitoring_server_port: int,
         blob_store: BLOBStore,
         host_resources_provider: HostResourcesProvider,
+        catalog_entry_name: str | None,
     ):
         self._logger = structlog.get_logger(module=__name__, executor_id=id)
         protocol: str = "http"
@@ -75,6 +76,7 @@ class Executor:
             channel_manager=self._channel_manager,
             host_resources_provider=host_resources_provider,
             health_checker=health_checker,
+            catalog_entry_name=catalog_entry_name,
             logger=self._logger,
         )
         self._state_reporter.update_executor_status(

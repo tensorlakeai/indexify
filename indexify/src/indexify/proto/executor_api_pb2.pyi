@@ -375,6 +375,7 @@ class ExecutorState(_message.Message):
         "labels",
         "state_hash",
         "server_clock",
+        "catalog_entry_name",
     )
 
     class LabelsEntry(_message.Message):
@@ -398,6 +399,7 @@ class ExecutorState(_message.Message):
     LABELS_FIELD_NUMBER: _ClassVar[int]
     STATE_HASH_FIELD_NUMBER: _ClassVar[int]
     SERVER_CLOCK_FIELD_NUMBER: _ClassVar[int]
+    CATALOG_ENTRY_NAME_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
     hostname: str
     version: str
@@ -411,6 +413,7 @@ class ExecutorState(_message.Message):
     labels: _containers.ScalarMap[str, str]
     state_hash: str
     server_clock: int
+    catalog_entry_name: str
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
@@ -430,6 +433,7 @@ class ExecutorState(_message.Message):
         labels: _Optional[_Mapping[str, str]] = ...,
         state_hash: _Optional[str] = ...,
         server_clock: _Optional[int] = ...,
+        catalog_entry_name: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorUpdate(_message.Message):

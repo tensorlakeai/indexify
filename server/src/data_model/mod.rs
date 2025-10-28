@@ -328,6 +328,21 @@ impl Default for FunctionResources {
     }
 }
 
+impl FunctionResources {
+    pub fn can_be_handled_by_catalog_entry(
+        &self,
+        catalog_entry: &crate::config::ExecutorCatalogEntry,
+    ) -> bool {
+        // Convert catalog entry to HostResources and use existing validation
+        let catalog_resources = HostResources::from_catalog_entry(catalog_entry);
+
+        // Use existing can_handle_function_resources method
+        catalog_resources
+            .can_handle_function_resources(self)
+            .is_ok()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FunctionRetryPolicy {
     pub max_retries: u32,
@@ -557,11 +572,16 @@ impl Application {
                 has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
                 has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
                 has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
-                has_gpu_models = node
-                    .resources
-                    .gpu_configs
-                    .iter()
-                    .all(|gpu| entry.gpu_models.contains(&gpu.model));
+                has_gpu_models = if node.resources.gpu_configs.is_empty() {
+                    true // No GPU required
+                } else {
+                    // Check if any requested GPU matches the catalog entry's GPU model
+                    entry.gpu_model.as_ref().is_some_and(|catalog_gpu| {
+                        node.resources.gpu_configs.iter().any(|gpu| {
+                            gpu.model == catalog_gpu.name && gpu.count <= catalog_gpu.count
+                        })
+                    })
+                };
 
                 if met_placement_constraints && has_cpu && has_mem && has_disk && has_gpu_models {
                     info!(
@@ -843,6 +863,66 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
 pub struct RequestError {
     pub function_name: String,
     pub payload: DataPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestCtxKey(pub String);
+
+impl Display for RequestCtxKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl RequestCtxKey {
+    pub fn new(namespace: &str, application_name: &str, request_id: &str) -> Self {
+        Self(format!("{namespace}|{application_name}|{request_id}"))
+    }
+}
+
+impl From<String> for RequestCtxKey {
+    fn from(key: String) -> Self {
+        RequestCtxKey(key)
+    }
+}
+
+impl From<&String> for RequestCtxKey {
+    fn from(key: &String) -> Self {
+        RequestCtxKey(key.clone())
+    }
+}
+
+impl From<&RequestCtx> for RequestCtxKey {
+    fn from(ctx: &RequestCtx) -> Self {
+        RequestCtxKey(ctx.key())
+    }
+}
+
+impl From<&FunctionRun> for RequestCtxKey {
+    fn from(function_run: &FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<FunctionRun> for RequestCtxKey {
+    fn from(function_run: FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<Box<FunctionRun>> for RequestCtxKey {
+    fn from(function_run: Box<FunctionRun>) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
@@ -1164,6 +1244,20 @@ pub struct HostResources {
 }
 
 impl HostResources {
+    fn from_catalog_entry(catalog_entry: &crate::config::ExecutorCatalogEntry) -> Self {
+        let gpu = catalog_entry.gpu_model.as_ref().map(|model| GPUResources {
+            count: model.count, // Unlimited count since catalog doesn't specify
+            model: model.name.clone(),
+        });
+
+        HostResources {
+            cpu_ms_per_sec: catalog_entry.cpu_cores * 1000,
+            memory_bytes: catalog_entry.memory_gb * 1024 * 1024 * 1024,
+            disk_bytes: catalog_entry.disk_gb * 1024 * 1024 * 1024,
+            gpu,
+        }
+    }
+
     // If can't handle, returns error that describes the reason why.
     fn can_handle_gpu(&self, request: &Option<GPUResources>) -> Result<()> {
         match request {
@@ -1638,6 +1732,8 @@ pub struct ExecutorMetadata {
     pub state_hash: String,
     #[builder(default)]
     pub clock: u64,
+    #[builder(default)]
+    pub catalog_name: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
 }

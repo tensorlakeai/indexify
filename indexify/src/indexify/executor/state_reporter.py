@@ -50,6 +50,7 @@ class ExecutorStateReporter:
         channel_manager: ChannelManager,
         host_resources_provider: HostResourcesProvider,
         health_checker: HealthChecker,
+        catalog_entry_name: str | None,
         logger: Any,
     ):
         self._executor_id: str = executor_id
@@ -63,6 +64,7 @@ class ExecutorStateReporter:
         self._allowed_functions: List[AllowedFunction] = _to_allowed_function_protos(
             function_allowlist
         )
+        self._catalog_entry_name: str | None = catalog_entry_name
         # We need to fetch total resources only once, because they are not changing.
         self._total_host_resources: HostResources = (
             host_resources_provider.total_host_resources(self._logger)
@@ -252,6 +254,8 @@ class ExecutorStateReporter:
             function_executor_states=list(self._function_executor_states.values()),
             labels=self._labels,
         )
+        if self._catalog_entry_name is not None:
+            state.catalog_entry_name = self._catalog_entry_name
         state.state_hash = _state_hash(state)
         # Set fields not included in the state hash.
         state.server_clock = self._last_server_clock

@@ -251,8 +251,15 @@ impl ApplicationProcessor {
         let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
 
         let req = match &state_change.change_type {
-            ChangeType::InvokeApplication(_) => {
-                let scheduler_update = task_allocator.allocate(&mut indexes_guard)?;
+            ChangeType::CreateFunctionCall(req) => {
+                let mut scheduler_update =
+                    task_creator.handle_blocking_function_call(&mut indexes_guard, req)?;
+                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+
+                scheduler_update.extend(
+                    task_allocator
+                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                );
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
                         Box::new(scheduler_update),
@@ -260,11 +267,13 @@ impl ApplicationProcessor {
                     )),
                 }
             }
-            ChangeType::CreateFunctionCall(req) => {
-                let mut scheduler_update =
-                    task_creator.handle_blocking_function_call(&mut indexes_guard, req)?;
-
-                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
+            ChangeType::InvokeApplication(ev) => {
+                let scheduler_update = task_allocator.allocate_request(
+                    &mut indexes_guard,
+                    &ev.namespace,
+                    &ev.application,
+                    &ev.request_id,
+                )?;
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
@@ -277,9 +286,15 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
-
-                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
-
+                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+                if !unallocated_function_runs.is_empty() {
+                    scheduler_update.extend(
+                        task_allocator.allocate_function_runs(
+                            &mut indexes_guard,
+                            unallocated_function_runs,
+                        )?,
+                    );
+                }
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
                         Box::new(scheduler_update),
@@ -290,7 +305,12 @@ impl ApplicationProcessor {
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
-                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
+                let unallocated_function_runs =
+                    indexes_guard.unallocated_function_runs_for_executor_catalog(&ev.executor_id);
+                scheduler_update.extend(
+                    task_allocator
+                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                );
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
@@ -302,7 +322,11 @@ impl ApplicationProcessor {
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
                     fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
-                scheduler_update.extend(task_allocator.allocate(&mut indexes_guard)?);
+                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+                scheduler_update.extend(
+                    task_allocator
+                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                );
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((

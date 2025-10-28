@@ -20,6 +20,7 @@ use crate::{
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
+        FunctionRunStatus,
         GcUrl,
         HostResources,
         RequestCtx,
@@ -155,6 +156,22 @@ impl SchedulerUpdateRequest {
         );
         self.updated_request_states
             .insert(request_ctx.key(), request_ctx.clone());
+    }
+
+    pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
+        let mut function_runs = Vec::new();
+        for (request_ctx_key, function_call_ids) in &self.updated_function_runs {
+            if let Some(request_ctx) = self.updated_request_states.get(request_ctx_key) {
+                for function_call_id in function_call_ids {
+                    if let Some(function_run) = request_ctx.function_runs.get(function_call_id) {
+                        if matches!(function_run.status, FunctionRunStatus::Pending) {
+                            function_runs.push(function_run.clone());
+                        }
+                    }
+                }
+            }
+        }
+        function_runs
     }
 }
 

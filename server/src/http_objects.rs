@@ -683,6 +683,7 @@ pub struct ExecutorMetadata {
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
+    pub catalog_entry_name: Option<String>,
 }
 
 pub fn from_data_model_executor_metadata(
@@ -740,22 +741,29 @@ pub fn from_data_model_executor_metadata(
         tombstoned: executor.tombstoned,
         state_hash: executor.state_hash,
         clock: executor.clock,
+        catalog_entry_name: executor.catalog_name,
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GpuModel {
+    pub name: String,
+    pub num_gpus: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorCatalogEntry {
     pub name: String,
     pub cpu_cores: u32,
     pub memory_gb: u64,
     pub disk_gb: u64,
     #[serde(default)]
-    pub gpu_models: Vec<String>,
+    pub gpu_model: Option<GpuModel>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorCatalog {
     pub entries: Vec<ExecutorCatalogEntry>,
     pub remark: Option<String>,
@@ -778,7 +786,10 @@ impl From<&crate::state_store::ExecutorCatalog> for ExecutorCatalog {
                     cpu_cores: entry.cpu_cores,
                     memory_gb: entry.memory_gb,
                     disk_gb: entry.disk_gb,
-                    gpu_models: entry.gpu_models.clone(),
+                    gpu_model: entry.gpu_model.as_ref().map(|gpu| GpuModel {
+                        name: gpu.name.clone(),
+                        num_gpus: gpu.count,
+                    }),
                     labels: entry.labels.clone(),
                 })
                 .collect(),

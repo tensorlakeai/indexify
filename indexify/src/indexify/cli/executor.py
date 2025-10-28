@@ -102,6 +102,12 @@ from indexify.executor.monitoring.health_checker.generic_health_checker import (
     help="Executor key-value label to be sent to the Server. "
     "Specified as <key>=<value>",
 )
+@click.option(
+    "--catalog-entry-name",
+    "catalog_entry_name",
+    default=None,
+    help="Catalog entry name that this executor is associated with.",
+)
 @click.pass_context
 def executor(
     ctx: click.Context,
@@ -115,6 +121,7 @@ def executor(
     monitoring_server_host: str,
     monitoring_server_port: int,
     labels: List[str],
+    catalog_entry_name: str | None,
 ):
     if verbose or very_verbose:
         configure_development_mode_logging(compact_tracebacks=not very_verbose)
@@ -144,6 +151,7 @@ def executor(
         very_verbose=very_verbose,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
+        catalog_entry_name=catalog_entry_name,
     )
     if ctx.args:
         logger.warning(
@@ -193,4 +201,5 @@ def executor(
         monitoring_server_port=monitoring_server_port,
         blob_store=BLOBStore(),
         host_resources_provider=host_resources_provider,
+        catalog_entry_name=catalog_entry_name,
     ).run()
