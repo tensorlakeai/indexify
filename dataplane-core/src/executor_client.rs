@@ -8,8 +8,11 @@ pub mod executor_api_pb {
 }
 
 use executor_api_pb::{
-    executor_api_client::ExecutorApiClient, DesiredExecutorState, GetDesiredExecutorStatesRequest,
-    ReportExecutorStateRequest, ReportExecutorStateResponse,
+    DesiredExecutorState,
+    GetDesiredExecutorStatesRequest,
+    ReportExecutorStateRequest,
+    ReportExecutorStateResponse,
+    executor_api_client::ExecutorApiClient,
 };
 
 pub struct ExecutorClient {

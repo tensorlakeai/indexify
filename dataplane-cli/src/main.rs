@@ -1,8 +1,8 @@
+use std::{path::PathBuf, sync::Arc};
+
 use anyhow::Result;
 use clap::Parser;
-use dataplane_core::{config::Config, DataplaneService};
-use std::path::PathBuf;
-use std::sync::Arc;
+use dataplane_core::{DataplaneService, config::Config};
 use tracing::info;
 use tracing_subscriber;
 

@@ -1,14 +1,15 @@
 use std::sync::Arc;
+
 use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::{config::Config, heartbeat::HeartbeatService};
 
 pub mod config;
-pub mod executor_client;
-mod heartbeat;
 pub mod containers;
+pub mod executor_client;
 mod hardware_probe;
+mod heartbeat;
 
 pub struct DataplaneService {
     heartbeat_service: Arc<heartbeat::HeartbeatService>,

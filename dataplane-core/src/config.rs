@@ -1,9 +1,9 @@
 use figment::{
-    providers::{Format, Yaml},
     Figment,
+    providers::{Format, Yaml},
 };
-use serde::{Deserialize, Serialize};
 use nanoid::nanoid;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TlsConfig {
@@ -60,9 +60,7 @@ impl Default for Config {
 
 impl Config {
     pub fn from_path(path: &str) -> anyhow::Result<Config> {
-        let config: Config = Figment::new()
-            .merge(Yaml::file(path))
-            .extract()?;
+        let config: Config = Figment::new().merge(Yaml::file(path)).extract()?;
         Ok(config)
     }
 }

@@ -1,16 +1,26 @@
 use std::sync::Arc;
+
 use prost::Message;
 use sha2::{Digest, Sha256};
-use tokio::sync::watch;
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::watch,
+    time::{Duration, sleep},
+};
 use tracing::{error, info};
 
-use crate::config::Config;
-use crate::executor_client::{
-    executor_api_pb::{ExecutorState, ExecutorStatus, ExecutorUpdate, ReportExecutorStateRequest},
-    ExecutorClient,
+use crate::{
+    config::Config,
+    executor_client::{
+        ExecutorClient,
+        executor_api_pb::{
+            ExecutorState,
+            ExecutorStatus,
+            ExecutorUpdate,
+            ReportExecutorStateRequest,
+        },
+    },
+    hardware_probe::HardwareProbe,
 };
-use crate::hardware_probe::HardwareProbe;
 
 pub struct HeartbeatService {
     config: Arc<Config>,
@@ -66,16 +76,17 @@ impl HeartbeatService {
             // Create executor state (without state_hash and server_clock first)
             let mut executor_state = ExecutorState {
                 executor_id: Some(executor_id.clone()),
-                hostname: hostname::get()
-                    .ok()
-                    .and_then(|h| h.into_string().ok()),
+                hostname: hostname::get().ok().and_then(|h| h.into_string().ok()),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 status: Some(ExecutorStatus::Running as i32),
                 total_resources: Some(resources.clone()),
                 total_function_executor_resources: Some(resources),
                 allowed_functions: vec![],
                 function_executor_states: vec![],
-                labels: self.config.labels.iter()
+                labels: self
+                    .config
+                    .labels
+                    .iter()
                     .filter_map(|label| {
                         let parts: Vec<&str> = label.splitn(2, '=').collect();
                         if parts.len() == 2 {
