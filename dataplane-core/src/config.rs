@@ -3,6 +3,7 @@ use figment::{
     Figment,
 };
 use serde::{Deserialize, Serialize};
+use nanoid::nanoid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TlsConfig {
@@ -13,6 +14,8 @@ pub struct TlsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "generate_executor_id")]
+    pub executor_id: String,
     pub server_http_addr: String,
     pub server_grpc_addr: String,
     pub listen_addr: String,
@@ -25,11 +28,22 @@ pub struct Config {
     pub labels: Vec<String>,
     pub catalog_entry_name: Option<String>,
     pub tls: Option<TlsConfig>,
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval_secs: u64,
+}
+
+fn generate_executor_id() -> String {
+    format!("executor-{}", nanoid!(10))
+}
+
+fn default_heartbeat_interval() -> u64 {
+    30
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
+            executor_id: generate_executor_id(),
             server_http_addr: "localhost:8900".to_string(),
             server_grpc_addr: "localhost:8901".to_string(),
             listen_addr: "localhost:8902".to_string(),
@@ -39,6 +53,7 @@ impl Default for Config {
             catalog_entry_name: None,
             labels: vec![],
             tls: None,
+            heartbeat_interval_secs: default_heartbeat_interval(),
         }
     }
 }

@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use dataplane_core::{config::Config, DataplaneService};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber;
 
@@ -32,13 +33,34 @@ async fn main() -> Result<()> {
         }
     };
 
-    let _dataplane = DataplaneService::new(config);
+    info!("Executor ID: {}", config.executor_id);
+
+    let dataplane = Arc::new(DataplaneService::new(config));
 
     info!("Dataplane service started. Press Ctrl-C to stop.");
 
+    // Start the service in a separate task
+    let service_handle = tokio::spawn({
+        let dataplane_clone = dataplane.clone();
+        async move {
+            if let Err(e) = dataplane_clone.start().await {
+                tracing::error!("Dataplane service error: {}", e);
+            }
+        }
+    });
+
+    // Wait for Ctrl+C
     tokio::signal::ctrl_c().await?;
 
-    info!("Shutting down gracefully...");
+    info!("Ctrl-C received, shutting down gracefully...");
+
+    // Shutdown the service
+    dataplane.shutdown().await?;
+
+    // Wait for the service to complete
+    service_handle.await?;
+
+    info!("Dataplane service stopped successfully");
 
     Ok(())
 }
