@@ -190,6 +190,9 @@ message ExecutorState {
     // reconciled by Executor. Not included into state_hash.
     // Initial value on Executor startup is 0.
     optional uint64 server_clock = 12;
+
+    // Catalog entry name that this executor is associated with.
+    optional string catalog_entry_name = 14;
 }
 
 // Updates that Executor wants to report to Server. If report_executor_state RPC is successful

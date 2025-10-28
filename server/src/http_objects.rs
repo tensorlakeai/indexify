@@ -683,6 +683,7 @@ pub struct ExecutorMetadata {
     pub tombstoned: bool,
     pub state_hash: String,
     pub clock: u64,
+    pub catalog_entry_name: Option<String>,
 }
 
 pub fn from_data_model_executor_metadata(
@@ -740,6 +741,7 @@ pub fn from_data_model_executor_metadata(
         tombstoned: executor.tombstoned,
         state_hash: executor.state_hash,
         clock: executor.clock,
+        catalog_entry_name: executor.catalog_name,
     }
 }
 

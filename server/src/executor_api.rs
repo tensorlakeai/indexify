@@ -231,6 +231,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             .clone()
             .map(ExecutorId::new)
             .ok_or(anyhow::anyhow!("executor_id is required"))?;
+        executor_metadata.catalog_name(executor_state.catalog_entry_name.clone());
         executor_metadata.id(executor_id.clone());
         executor_metadata.state(executor_state.status().into());
         if let Some(state_hash) = executor_state.state_hash.clone() {
