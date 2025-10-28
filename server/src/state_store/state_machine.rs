@@ -185,16 +185,6 @@ pub(crate) fn record_allocation_usage(
         &serialized_usage,
     )?;
 
-    info!(
-        allocation_id = %allocation.id,
-        application = %allocation.application,
-        namespace = %allocation.namespace,
-        request_id = %allocation.request_id,
-        function = %allocation.function,
-        fn_call_id = allocation.function_call_id.to_string(),
-        "recorded allocation usage"
-    );
-
     Ok(())
 }
 
