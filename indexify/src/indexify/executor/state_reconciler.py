@@ -15,6 +15,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 
 from indexify.proto.executor_api_pb2 import (
     Allocation,
+    AllocationOutcomeCode,
     DesiredExecutorState,
     FunctionCallResult,
     FunctionCallWatch,
@@ -34,6 +35,9 @@ from .function_executor_controller import (
     function_executor_logger,
     validate_allocation,
     validate_function_executor_description,
+)
+from .function_executor_controller.function_call_watch_dispatcher import (
+    FunctionCallWatchDispatcher,
 )
 from .metrics.state_reconciler import (
     metric_state_reconciliation_errors,
@@ -63,6 +67,13 @@ def _function_call_watch_key(
     return f"{namespace}.{request_id}.{function_call_id}"
 
 
+# Server sends undefined outcomes to us which have no use so we need to filter them out.
+_terminal_allocation_outcome_codes: list[AllocationOutcomeCode] = [
+    AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS,
+    AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+]
+
+
 class ExecutorStateReconciler:
     def __init__(
         self,
@@ -87,6 +98,9 @@ class ExecutorStateReconciler:
         self._blob_store: BLOBStore = blob_store
         self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
+        self._function_call_watch_dispatcher: FunctionCallWatchDispatcher = (
+            FunctionCallWatchDispatcher(self)
+        )
         self._logger: Any = logger.bind(module=__name__)
         self._server_backoff_interval_sec: int = server_backoff_interval_sec
 
@@ -168,7 +182,7 @@ class ExecutorStateReconciler:
         self._function_executor_controllers.clear()
         self._logger.info("state reconciler is shutdown")
 
-    def add_function_call_watcher(
+    def add_function_call_watch(
         self, watch: FunctionCallWatch, result_queue: asyncio.Queue
     ) -> None:
         """Adds a function call watcher.
@@ -189,7 +203,7 @@ class ExecutorStateReconciler:
             result_queue
         )
 
-    def remove_function_call_watcher(
+    def remove_function_call_watch(
         self, watch: FunctionCallWatch, result_queue: asyncio.Queue
     ) -> None:
         """Removes a function call watcher.
@@ -419,7 +433,7 @@ class ExecutorStateReconciler:
                 function_executor_server_factory=self._function_executor_server_factory,
                 channel_manager=self._channel_manager,
                 state_reporter=self._state_reporter,
-                state_reconciler=self,
+                function_call_watch_dispatcher=self._function_call_watch_dispatcher,
                 blob_store=self._blob_store,
                 base_url=self._base_url,
                 config_path=self._config_path,
@@ -543,6 +557,12 @@ class ExecutorStateReconciler:
         Doesn't raise any exceptions. Doesn't block.
         """
         for function_call_result in function_call_results:
+            if (
+                function_call_result.outcome_code
+                not in _terminal_allocation_outcome_codes
+            ):
+                continue
+
             content_derived_key: str = _function_call_watch_key(
                 namespace=function_call_result.namespace,
                 request_id=function_call_result.request_id,

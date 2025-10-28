@@ -47,8 +47,12 @@ class AllocationOutput:
             outcome_code=_to_server_alloc_outcome_code(
                 fe_alloc_outcome_code=fe_result.outcome_code, logger=logger
             ),
-            failure_reason=_to_server_alloc_failure_reason(
-                fe_alloc_failure_reason=fe_result.failure_reason, logger=logger
+            failure_reason=(
+                _to_server_alloc_failure_reason(
+                    fe_alloc_failure_reason=fe_result.failure_reason, logger=logger
+                )
+                if fe_result.HasField("failure_reason")
+                else None
             ),
             fe_result=fe_result,
             function_outputs_blob_uri=function_outputs_blob_uri,

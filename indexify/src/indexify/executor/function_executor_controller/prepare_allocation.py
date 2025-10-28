@@ -2,12 +2,6 @@ import asyncio
 import time
 from typing import Any, List
 
-from blob_utils import (
-    allocation_blob_tags,
-    data_payload_to_serialized_object_inside_blob,
-    presign_read_only_blob_for_data_payload,
-    presign_write_only_blob,
-)
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     BLOB,
     FunctionInputs,
@@ -19,6 +13,12 @@ from indexify.proto.executor_api_pb2 import Allocation, DataPayload
 
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
+from .blob_utils import (
+    allocation_blob_tags,
+    data_payload_to_serialized_object_inside_blob,
+    presign_read_only_blob_for_data_payload,
+    presign_write_only_blob,
+)
 from .events import AllocationPreparationFinished
 from .metrics.prepare_allocation import (
     metric_allocation_preparation_errors,

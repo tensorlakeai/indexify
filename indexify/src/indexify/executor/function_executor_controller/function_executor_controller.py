@@ -32,7 +32,6 @@ from indexify.proto.executor_api_pb2 import (
 )
 
 from ..channel_manager import ChannelManager
-from ..state_reconciler import ExecutorStateReconciler
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
@@ -58,6 +57,7 @@ from .events import (
 )
 from .execution_plan_updates import to_server_execution_plan_updates
 from .finalize_allocation import finalize_allocation
+from .function_call_watch_dispatcher import FunctionCallWatchDispatcher
 from .loggers import allocation_logger, function_executor_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED,
@@ -95,7 +95,7 @@ class FunctionExecutorController:
         function_executor_server_factory: FunctionExecutorServerFactory,
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
-        state_reconciler: ExecutorStateReconciler,
+        function_call_watch_dispatcher: FunctionCallWatchDispatcher,
         blob_store: BLOBStore,
         base_url: str,
         config_path: str,
@@ -116,7 +116,9 @@ class FunctionExecutorController:
         )
         self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
-        self._state_reconciler: ExecutorStateReconciler = state_reconciler
+        self._function_call_watch_dispatcher: FunctionCallWatchDispatcher = (
+            function_call_watch_dispatcher
+        )
         self._blob_store: BLOBStore = blob_store
         self._base_url: str = base_url
         self._config_path: str = config_path
@@ -650,7 +652,7 @@ class FunctionExecutorController:
                 function_executor=self._fe,
                 blob_store=self._blob_store,
                 state_reporter=self._state_reporter,
-                state_reconciler=self._state_reconciler,
+                function_call_watch_dispatcher=self._function_call_watch_dispatcher,
                 channel_manager=self._channel_manager,
                 logger=allocation_logger(alloc_info.allocation, self._logger),
             )

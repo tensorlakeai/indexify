@@ -292,12 +292,14 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
+    // The below failure reasons are only set by Server when reporting function call results
+    // back to Executor.
+    //
     // Function run cannot be scheduled given its constraints.
     // This shouldn't be allocation failure, but since we are reusing 
     // allocation failure reasons as function run failure reasons, we need to add it here.
     ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE = 8;
-
-    // Anohter failure reason which doesn't make sense to put here
+    // Another failure reason which doesn't make sense to put here
     // but this is one of the function run reasons - again shouldn't happen in practice,
     ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED = 9;
 }

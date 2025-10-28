@@ -282,7 +282,9 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT = 3;
     // Function code raised RequestException to mark the request as permanently failed.
     ALLOCATION_FAILURE_REASON_REQUEST_ERROR = 4;
-    // Server removed the allocation from Executor desired state. The allocation didn't finish before the removal.
+    // Server removed the allocation from Executor desired state.
+    // The allocation was either running or didn't start before the removal.
+    // If it started running then its execution duration is set.
     ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
     // Function Executor terminated can't run the allocation on it anymore.
     // The allocation didn't run on FE.

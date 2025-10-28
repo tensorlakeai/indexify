@@ -81,17 +81,18 @@ from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
 from ..blob_store.blob_store import BLOBStore
 from ..channel_manager import ChannelManager
-from ..state_reconciler import ExecutorStateReconciler
 from ..state_reporter import ExecutorStateReporter
 from .allocation_info import AllocationInfo
 from .allocation_output import AllocationOutput
 from .blob_utils import (
+    allocation_blob_tags,
     data_payload_to_serialized_object_inside_blob,
     presign_read_only_blob_for_data_payload,
     presign_write_only_blob,
 )
 from .events import AllocationExecutionFinished
 from .execution_plan_updates import to_server_execution_plan_updates
+from .function_call_watch_dispatcher import FunctionCallWatchDispatcher
 from .metrics.allocation_runner import (
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
@@ -150,6 +151,16 @@ class _FunctionCallWatcherInfo:
     result_queue: asyncio.Queue
 
 
+@dataclass
+class _RunAllocationOnFunctionExecutorResult:
+    """Represents the result of running allocation on Function Executor."""
+
+    fe_result: FEAllocationResult
+    execution_end_time: float
+    # Not None if allocation uploaded its outputs into output BLOB.
+    function_outputs_blob_uri: str | None
+
+
 class AllocationRunner:
     def __init__(
         self,
@@ -157,7 +168,7 @@ class AllocationRunner:
         function_executor: FunctionExecutor,
         blob_store: BLOBStore,
         state_reporter: ExecutorStateReporter,
-        state_reconciler: ExecutorStateReconciler,
+        function_call_watch_dispatcher: FunctionCallWatchDispatcher,
         channel_manager: ChannelManager,
         logger: Any,
     ):
@@ -169,7 +180,9 @@ class AllocationRunner:
         self._function_executor: FunctionExecutor = function_executor
         self._blob_store: BLOBStore = blob_store
         self._state_reporter: ExecutorStateReporter = state_reporter
-        self._state_reconciler: ExecutorStateReconciler = state_reconciler
+        self._function_call_watch_dispatcher: FunctionCallWatchDispatcher = (
+            function_call_watch_dispatcher
+        )
         self._channel_manager: ChannelManager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
         # BLOB ID -> BLOBInfo
@@ -247,14 +260,14 @@ class AllocationRunner:
                 ),
             ):
                 metric_allocation_runner_allocation_runs.inc()
-                fe_alloc_result, function_outputs_blob_uri = (
+                run_result: _RunAllocationOnFunctionExecutorResult = (
                     await self._run_allocation_on_fe()
                 )
-                return AllocationOutput.from_allocation_result(
-                    fe_result=fe_alloc_result,
-                    function_outputs_blob_uri=function_outputs_blob_uri,
+                self._alloc_info.output = AllocationOutput.from_allocation_result(
+                    fe_result=run_result.fe_result,
+                    function_outputs_blob_uri=run_result.function_outputs_blob_uri,
                     execution_duration_ms=_execution_duration(
-                        execution_start_time, time.monotonic()
+                        execution_start_time, run_result.execution_end_time
                     ),
                     logger=self._logger,
                 )
@@ -395,14 +408,12 @@ class AllocationRunner:
             function_executor_termination_reason=function_executor_termination_reason,
         )
 
-    async def _run_allocation_on_fe(self) -> tuple[FEAllocationResult, str | None]:
+    async def _run_allocation_on_fe(self) -> _RunAllocationOnFunctionExecutorResult:
         """Runs the allocation on the Function Executor via RPCs.
 
         In case of allocation failure raises either _AllocationTimeoutError or
         _AllocationFailedLeavingFEInUndefinedState. Raises an Exception if an
         internal error occured on Executor side.
-        Returns the FEAllocationResult and optional function outputs BLOB URI
-        allocation uploaded output into it.
         """
         # Timeout in seconds for detecting no progress in allocation execution.
         no_progress_timeout_sec: float = self._alloc_info.allocation_timeout_ms / 1000.0
@@ -504,6 +515,9 @@ class AllocationRunner:
         except grpc.aio.AioRpcError as e:
             _raise_from_grpc_error(e)
 
+        # Not billing the user for the rest of this function duration.
+        execution_end_time: float = time.monotonic()
+
         function_outputs_blob_uri: str | None = None
         if allocation_result.HasField("uploaded_function_outputs_blob"):
             blob_info: _BLOBInfo | None = self._pending_output_blobs.get(
@@ -539,7 +553,11 @@ class AllocationRunner:
                     # As this is FE error it's okay to mark it as unhealthy.
                     raise _AllocationFailedDueToUserError()
 
-        return allocation_result, function_outputs_blob_uri
+        return _RunAllocationOnFunctionExecutorResult(
+            fe_result=allocation_result,
+            execution_end_time=execution_end_time,
+            function_outputs_blob_uri=function_outputs_blob_uri,
+        )
 
     async def _reconcile_output_blobs(
         self,
@@ -575,6 +593,7 @@ class AllocationRunner:
     async def _create_output_blob(
         self, fe_output_blob_request: FEAllocationOutputBLOBRequest
     ) -> FEBLOB:
+        blob_tags: Dict[str, str] = allocation_blob_tags(self._alloc_info.allocation)
         blob_uri: str = (
             f"{self._alloc_info.allocation.output_payload_uri_prefix}.{self._alloc_info.allocation.allocation_id}.{fe_output_blob_request.id}.output"
         )
@@ -597,6 +616,7 @@ class AllocationRunner:
             blob_uri=blob_info.uri,
             upload_id=blob_info.upload_id,
             size=fe_output_blob_request.size,
+            tags=blob_tags,
             blob_store=self._blob_store,
             logger=self._logger,
         )
@@ -604,7 +624,7 @@ class AllocationRunner:
     async def _complete_blob_upload(
         self, blob_info: _BLOBInfo, uploaded_blob: FEBLOB
     ) -> None:
-        self._blob_store.complete_multipart_upload(
+        await self._blob_store.complete_multipart_upload(
             uri=blob_info.uri,
             upload_id=blob_info.upload_id,
             parts_etags=[blob_chunk.etag for blob_chunk in uploaded_blob.chunks],
@@ -697,8 +717,8 @@ class AllocationRunner:
         runs_left: int = _SERVER_CALL_FUNCTION_RPC_MAX_RETRIES + 1
         while True:
             try:
-                await ExecutorAPIStub(
-                    self._channel_manager.get_shared_channel()
+                ExecutorAPIStub(
+                    await self._channel_manager.get_shared_channel()
                 ).call_function(
                     server_function_call_request,
                     timeout=_SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS,
@@ -778,18 +798,8 @@ class AllocationRunner:
         """Creates a function call watcher in the server.
 
         If the creation fails then doesn't do anything."""
-        content_derived_key: str = (
-            _FunctionCallWatcherInfo.make_server_watch_content_derived_key(
-                namespace=self._alloc_info.allocation.function.namespace,
-                application=self._alloc_info.allocation.function.application_name,
-                request_id=self._alloc_info.allocation.request_id,
-                function_call_id=fe_function_call_watcher.function_call_id,
-            )
-        )
-
         watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
             fe_watcher_id=fe_function_call_watcher.watcher_id,
-            content_derived_key=content_derived_key,
             server_watch=ServerFunctionCallWatch(
                 namespace=self._alloc_info.allocation.function.namespace,
                 application=self._alloc_info.allocation.function.application_name,
@@ -805,7 +815,7 @@ class AllocationRunner:
         )
         self._pending_function_call_watchers[watcher_info.fe_watcher_id] = watcher_info
 
-        self._state_reconciler.add_function_call_watcher(
+        self._function_call_watch_dispatcher.add_function_call_watch(
             watch=watcher_info.server_watch,
             result_queue=watcher_info.result_queue,
         )
@@ -857,13 +867,14 @@ class AllocationRunner:
                     ),
                 )
             )
+
             if function_call_result.HasField("return_value"):
-                fe_function_call_result.value_output = (
+                fe_function_call_result.value_output.CopyFrom(
                     data_payload_to_serialized_object_inside_blob(
                         function_call_result.return_value,
                     )
                 )
-                fe_function_call_result.value_blob = (
+                fe_function_call_result.value_blob.CopyFrom(
                     await presign_read_only_blob_for_data_payload(
                         data_payload=function_call_result.return_value,
                         blob_store=self._blob_store,
@@ -872,12 +883,12 @@ class AllocationRunner:
                 )
 
             if function_call_result.HasField("request_error"):
-                fe_function_call_result.request_error_output = (
+                fe_function_call_result.request_error_output.CopyFrom(
                     data_payload_to_serialized_object_inside_blob(
                         function_call_result.request_error,
                     )
                 )
-                fe_function_call_result.request_error_blob = (
+                fe_function_call_result.request_error_blob.CopyFrom(
                     await presign_read_only_blob_for_data_payload(
                         data_payload=function_call_result.request_error,
                         blob_store=self._blob_store,
@@ -891,7 +902,7 @@ class AllocationRunner:
             await fe_stub.send_allocation_update(
                 FEAllocationUpdate(
                     allocation_id=self._alloc_info.allocation.allocation_id,
-                    function_call_result=function_call_result,
+                    function_call_result=fe_function_call_result,
                 ),
                 timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
             )
@@ -919,7 +930,7 @@ class AllocationRunner:
         self._state_reporter.remove_function_call_watcher(watcher_info.server_watch)
         self._state_reporter.schedule_state_report()
 
-        self._state_reconciler.remove_function_call_watcher(
+        self._function_call_watch_dispatcher.remove_function_call_watch(
             watch=watcher_info.server_watch,
             result_queue=watcher_info.result_queue,
         )
