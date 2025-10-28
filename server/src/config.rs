@@ -29,13 +29,19 @@ pub struct QueueConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuModel {
+    pub name: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutorCatalogEntry {
     pub name: String,
     pub cpu_cores: u32,
     pub memory_gb: u64,
     pub disk_gb: u64,
     #[serde(default)]
-    pub gpu_model: Option<String>,
+    pub gpu_model: Option<GpuModel>,
     #[serde(default)]
     pub labels: std::collections::HashMap<String, String>,
 }

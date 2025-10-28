@@ -36,6 +36,7 @@ use crate::{
         Namespace,
         NamespaceBuilder,
         RequestCtx,
+        RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
@@ -222,54 +223,6 @@ impl From<&Box<Allocation>> for FunctionRunKey {
 impl Display for FunctionRunKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct RequestCtxKey(String);
-
-impl From<String> for RequestCtxKey {
-    fn from(key: String) -> Self {
-        RequestCtxKey(key)
-    }
-}
-
-impl From<&String> for RequestCtxKey {
-    fn from(key: &String) -> Self {
-        RequestCtxKey(key.clone())
-    }
-}
-
-impl From<&RequestCtx> for RequestCtxKey {
-    fn from(ctx: &RequestCtx) -> Self {
-        RequestCtxKey(ctx.key())
-    }
-}
-
-impl From<&FunctionRun> for RequestCtxKey {
-    fn from(function_run: &FunctionRun) -> Self {
-        RequestCtxKey(format!(
-            "{}|{}|{}",
-            function_run.namespace, function_run.application, function_run.request_id
-        ))
-    }
-}
-
-impl From<FunctionRun> for RequestCtxKey {
-    fn from(function_run: FunctionRun) -> Self {
-        RequestCtxKey(format!(
-            "{}|{}|{}",
-            function_run.namespace, function_run.application, function_run.request_id
-        ))
-    }
-}
-
-impl From<Box<FunctionRun>> for RequestCtxKey {
-    fn from(function_run: Box<FunctionRun>) -> Self {
-        RequestCtxKey(format!(
-            "{}|{}|{}",
-            function_run.namespace, function_run.application, function_run.request_id
-        ))
     }
 }
 
@@ -1762,6 +1715,7 @@ mod tests {
     use bytes::Bytes;
 
     use crate::{
+        config::GpuModel,
         data_model::{
             ComputeOp,
             ExecutorId,
@@ -2175,7 +2129,10 @@ mod tests {
             cpu_cores: 8,
             memory_gb: 32,
             disk_gb: 100,
-            gpu_model: Some("nvidia-a100".to_string()),
+            gpu_model: Some(GpuModel {
+                name: "nvidia-a100".to_string(),
+                count: 4,
+            }),
             labels: catalog_entry_gpu_labels,
         };
 

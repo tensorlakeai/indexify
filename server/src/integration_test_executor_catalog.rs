@@ -5,7 +5,7 @@ mod tests {
     use anyhow::Result;
 
     use crate::{
-        config::ExecutorCatalogEntry,
+        config::{ExecutorCatalogEntry, GpuModel},
         data_model::{
             ApplicationState,
             filter::{Expression, LabelsFilter, Operator},
@@ -332,7 +332,10 @@ mod tests {
             cpu_cores: 2, // 2 cores
             memory_gb: 2, // 2 GB
             disk_gb: 2,   // 2 GB
-            gpu_model: Some(GPU_MODEL_NVIDIA_A10.to_string()),
+            gpu_model: Some(GpuModel {
+                name: GPU_MODEL_NVIDIA_A10.to_string(),
+                count: 4,
+            }),
             labels: HashMap::new(),
         };
 

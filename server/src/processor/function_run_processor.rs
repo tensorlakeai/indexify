@@ -9,6 +9,7 @@ use crate::{
         FunctionRunOutcome,
         FunctionRunStatus,
         RequestCtx,
+        RequestCtxKey,
         RunningFunctionRunStatus,
     },
     processor::function_executor_manager::FunctionExecutorManager,
@@ -36,8 +37,8 @@ impl<'a> FunctionRunProcessor<'a> {
         application: &str,
         request_id: &str,
     ) -> Result<SchedulerUpdateRequest> {
-        let request_key = format!("{namespace}|{application}|{request_id}");
-        let Some(request_ctx) = in_memory_state.request_ctx.get(&request_key.into()) else {
+        let request_key = RequestCtxKey::new(namespace, application, request_id);
+        let Some(request_ctx) = in_memory_state.request_ctx.get(&request_key) else {
             error!("request context not found for request_id: {}", request_id);
             return Ok(SchedulerUpdateRequest::default());
         };

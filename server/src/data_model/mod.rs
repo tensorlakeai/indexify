@@ -577,10 +577,9 @@ impl Application {
                 } else {
                     // Check if any requested GPU matches the catalog entry's GPU model
                     entry.gpu_model.as_ref().is_some_and(|catalog_gpu| {
-                        node.resources
-                            .gpu_configs
-                            .iter()
-                            .any(|gpu| &gpu.model == catalog_gpu)
+                        node.resources.gpu_configs.iter().any(|gpu| {
+                            gpu.model == catalog_gpu.name && gpu.count <= catalog_gpu.count
+                        })
                     })
                 };
 
@@ -864,6 +863,66 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
 pub struct RequestError {
     pub function_name: String,
     pub payload: DataPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestCtxKey(pub String);
+
+impl Display for RequestCtxKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl RequestCtxKey {
+    pub fn new(namespace: &str, application_name: &str, request_id: &str) -> Self {
+        Self(format!("{namespace}|{application_name}|{request_id}"))
+    }
+}
+
+impl From<String> for RequestCtxKey {
+    fn from(key: String) -> Self {
+        RequestCtxKey(key)
+    }
+}
+
+impl From<&String> for RequestCtxKey {
+    fn from(key: &String) -> Self {
+        RequestCtxKey(key.clone())
+    }
+}
+
+impl From<&RequestCtx> for RequestCtxKey {
+    fn from(ctx: &RequestCtx) -> Self {
+        RequestCtxKey(ctx.key())
+    }
+}
+
+impl From<&FunctionRun> for RequestCtxKey {
+    fn from(function_run: &FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<FunctionRun> for RequestCtxKey {
+    fn from(function_run: FunctionRun) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
+}
+
+impl From<Box<FunctionRun>> for RequestCtxKey {
+    fn from(function_run: Box<FunctionRun>) -> Self {
+        RequestCtxKey(format!(
+            "{}|{}|{}",
+            function_run.namespace, function_run.application, function_run.request_id
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
@@ -1187,8 +1246,8 @@ pub struct HostResources {
 impl HostResources {
     fn from_catalog_entry(catalog_entry: &crate::config::ExecutorCatalogEntry) -> Self {
         let gpu = catalog_entry.gpu_model.as_ref().map(|model| GPUResources {
-            count: u32::MAX, // Unlimited count since catalog doesn't specify
-            model: model.clone(),
+            count: model.count, // Unlimited count since catalog doesn't specify
+            model: model.name.clone(),
         });
 
         HostResources {
