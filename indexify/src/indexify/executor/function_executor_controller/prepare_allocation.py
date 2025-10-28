@@ -126,6 +126,11 @@ async def _prepare_alloc_input(
             )
         raise
 
+    tags: dict[str, str] = {
+        "namespace": alloc.function.namespace,
+        "application_name": alloc.function.application_name,
+    }
+
     args: List[SerializedObjectInsideBLOB] = []
     arg_blobs: List[BLOB] = []
     for arg in alloc.args:
@@ -134,6 +139,7 @@ async def _prepare_alloc_input(
         arg_blob = await _presign_function_arg_blob(
             arg=arg,
             blob_store=blob_store,
+            tags=tags,
             logger=logger,
         )
         arg_blobs.append(arg_blob)
@@ -146,12 +152,14 @@ async def _prepare_alloc_input(
                 uri=function_outputs_blob_uri,
                 upload_id=function_outputs_blob_upload_id,
                 blob_store=blob_store,
+                tags=tags,
                 logger=logger,
             ),
             request_error_blob=await _presign_request_error_blob(
                 uri=request_error_blob_uri,
                 upload_id=request_error_blob_upload_id,
                 blob_store=blob_store,
+                tags=tags,
                 logger=logger,
             ),
             function_call_metadata=alloc.function_call_metadata,
@@ -164,11 +172,12 @@ async def _prepare_alloc_input(
 
 
 async def _presign_function_arg_blob(
-    arg: DataPayload, blob_store: BLOBStore, logger: Any
+    arg: DataPayload, blob_store: BLOBStore, tags: dict[str, str], logger: Any
 ) -> BLOB:
     get_blob_uri: str = await blob_store.presign_get_uri(
         uri=arg.uri,
         expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
+        tags=tags,
         logger=logger,
     )
     chunks: List[BLOBChunk] = []
@@ -188,7 +197,7 @@ async def _presign_function_arg_blob(
 
 
 async def _presign_function_outputs_blob(
-    uri: str, upload_id: str, blob_store: BLOBStore, logger: Any
+    uri: str, upload_id: str, blob_store: BLOBStore, tags: dict[str, str], logger: Any
 ) -> BLOB:
     """Presigns the output blob for the allocation."""
     chunks: List[BLOBChunk] = []
@@ -201,6 +210,7 @@ async def _presign_function_outputs_blob(
             part_number=len(chunks) + 1,
             upload_id=upload_id,
             expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
+            tags=tags,
             logger=logger,
         )
 
@@ -223,7 +233,7 @@ async def _presign_function_outputs_blob(
 
 
 async def _presign_request_error_blob(
-    uri: str, upload_id: str, blob_store: BLOBStore, logger: Any
+    uri: str, upload_id: str, blob_store: BLOBStore, tags: dict[str, str], logger: Any
 ) -> BLOB:
     """Presigns the output blob for the request error."""
     upload_chunk_uri: str = await blob_store.presign_upload_part_uri(
@@ -231,6 +241,7 @@ async def _presign_request_error_blob(
         part_number=1,
         upload_id=upload_id,
         expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
+        tags=tags,
         logger=logger,
     )
     return BLOB(
