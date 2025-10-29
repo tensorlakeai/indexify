@@ -52,10 +52,8 @@ impl StateMachineUpdateRequest {
             RequestPayload::TombstoneRequest(request) => {
                 state_changes::tombstone_request(state_change_id_seq, request)
             }
-            RequestPayload::DeregisterExecutor(request) => {
-                state_changes::tombstone_executor(state_change_id_seq, request)
-            }
             RequestPayload::SchedulerUpdate((request, _)) => Ok(request.state_changes.clone()),
+            RequestPayload::DeregisterExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::UpsertExecutor(request) => Ok(request.state_changes.clone()),
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
@@ -263,7 +261,7 @@ impl UpsertExecutorRequest {
         watch_function_calls: HashSet<ExecutorWatch>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
-        let state_change_id_seq = indexify_state.state_change_id_seq();
+        let state_change_id_seq = indexify_state.executor_state_change_id_seq();
         let mut state_changes = Vec::new();
 
         if update_executor_state {
@@ -292,4 +290,5 @@ impl UpsertExecutorRequest {
 #[derive(Debug, Clone)]
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
+    pub state_changes: Vec<StateChange>,
 }

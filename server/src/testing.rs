@@ -23,6 +23,7 @@ use crate::{
         test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
+    executors,
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
@@ -470,12 +471,20 @@ impl TestExecutor<'_> {
     }
 
     pub async fn deregister(&self) -> Result<()> {
+        let executor_last_seq = self
+            .test_service
+            .service
+            .indexify_state
+            .executor_state_change_id_seq();
+        let state_changes =
+            executors::tombstone_executor(&executor_last_seq, &self.executor_id).unwrap();
         self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: self.executor_id.clone(),
+                    state_changes,
                 }),
             })
             .await?;

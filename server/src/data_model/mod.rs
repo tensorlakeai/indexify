@@ -30,6 +30,8 @@ pub struct StateMachineMetadata {
     pub last_change_idx: u64,
     #[serde(default)]
     pub last_usage_idx: u64,
+    #[serde(default)]
+    pub last_executor_state_change_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -1901,8 +1903,8 @@ impl Display for StateChangeId {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct UnprocessedStateChanges {
     pub changes: Vec<StateChange>,
-    pub last_global_state_change_cursor: Option<Vec<u8>>,
-    pub last_namespace_state_change_cursor: Option<Vec<u8>>,
+    pub application_state_change_cursor: Option<Vec<u8>>,
+    pub executor_state_change_cursor: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
@@ -1914,7 +1916,6 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    pub request: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
 }
@@ -1926,15 +1927,8 @@ impl Linearizable for StateChange {
 }
 
 impl StateChange {
-    pub fn key(&self) -> Vec<u8> {
-        let mut key = vec![];
-        if let Some(ns) = &self.namespace {
-            key.extend(format!("ns_{}|", &ns).as_bytes());
-        } else {
-            key.extend(b"global|");
-        }
-        key.extend(self.id.0.to_be_bytes());
-        key
+    pub fn key(&self) -> [u8; 8] {
+        self.id.0.to_be_bytes()
     }
 }
 

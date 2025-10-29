@@ -1,8 +1,11 @@
 use std::{
-    cmp::Ordering,
+    cmp,
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
     vec,
 };
@@ -17,7 +20,17 @@ use tracing::{debug, error, trace};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
-    data_model::{self, ApplicationVersion, ExecutorId, ExecutorMetadata},
+    data_model::{
+        self,
+        ApplicationVersion,
+        ChangeType,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorRemovedEvent,
+        StateChange,
+        StateChangeBuilder,
+        StateChangeId,
+    },
     executor_api::executor_api_pb::{
         self,
         Allocation,
@@ -34,7 +47,7 @@ use crate::{
         in_memory_state::DesiredStateFunctionExecutor,
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
     },
-    utils::dynamic_sleep::DynamicSleepFuture,
+    utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
 };
 
 /// Executor timeout duration for heartbeat
@@ -49,13 +62,13 @@ pub const STARTUP_EXECUTOR_TIMEOUT: Duration = Duration::from_secs(60);
 struct ReverseInstant(pub Instant);
 
 impl Ord for ReverseInstant {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         other.0.cmp(&self.0) // Reverse ordering
     }
 }
 
 impl PartialOrd for ReverseInstant {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -334,17 +347,20 @@ impl ExecutorManager {
         Ok(())
     }
 
-    async fn deregister_lapsed_executor(
-        &self,
-        executor_id: ExecutorId,
-    ) -> Result<(), anyhow::Error> {
+    async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
         trace!(
             executor_id = executor_id.get(),
             "Deregistering lapsed executor"
         );
         self.runtime_data.write().await.remove(&executor_id);
+        let last_executor_state_change_id =
+            self.indexify_state.executor_state_change_id_seq().clone();
+        let state_changes = tombstone_executor(&last_executor_state_change_id, &executor_id)?;
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
+            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                executor_id,
+                state_changes,
+            }),
         };
         self.indexify_state.write(sm_req).await?;
         Ok(())
@@ -649,6 +665,26 @@ fn compute_function_executors_hash(
     }
 
     format!("{:x}", hasher.finish())
+}
+
+pub fn tombstone_executor(
+    last_executor_state_change_id: &AtomicU64,
+    executor_id: &ExecutorId,
+) -> Result<Vec<StateChange>> {
+    let last_executor_state_change_id =
+        last_executor_state_change_id.fetch_add(1, Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .change_type(ChangeType::TombStoneExecutor(ExecutorRemovedEvent {
+            executor_id: executor_id.clone(),
+        }))
+        .namespace(None)
+        .application(None)
+        .created_at(get_epoch_time_in_ms())
+        .object_id(executor_id.get().to_string())
+        .id(StateChangeId::new(last_executor_state_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
 }
 
 #[cfg(test)]

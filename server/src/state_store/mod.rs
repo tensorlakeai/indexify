@@ -100,6 +100,7 @@ pub struct IndexifyState {
 
     pub state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
+    pub executor_state_change_id_seq: Arc<AtomicU64>,
 
     pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
@@ -182,6 +183,9 @@ impl IndexifyState {
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
+            executor_state_change_id_seq: Arc::new(AtomicU64::new(
+                sm_meta.last_executor_state_change_idx,
+            )),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             gc_tx,
@@ -215,8 +219,8 @@ impl IndexifyState {
         self.gc_rx.clone()
     }
 
-    pub fn state_change_id_seq(&self) -> Arc<AtomicU64> {
-        self.state_change_id_seq.clone()
+    pub fn executor_state_change_id_seq(&self) -> Arc<AtomicU64> {
+        self.executor_state_change_id_seq.clone()
     }
 
     pub fn can_allocation_output_be_updated(
@@ -326,12 +330,16 @@ impl IndexifyState {
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
+        let executor_state_change_id = self
+            .executor_state_change_id_seq
+            .load(atomic::Ordering::Relaxed);
         migration_runner::write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
                 last_usage_idx: current_usage_sequence_id,
                 db_version: self.db_version,
+                last_executor_state_change_idx: executor_state_change_id,
             },
         )?;
         txn.commit()?;
@@ -352,9 +360,9 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
-            !req.watch_function_calls.is_empty() &&
-            req.update_executor_state
+        if let RequestPayload::UpsertExecutor(req) = &request.payload
+            && !req.watch_function_calls.is_empty()
+            && req.update_executor_state
         {
             changed_executors.insert(req.executor.id.clone());
         }
@@ -369,14 +377,14 @@ impl IndexifyState {
             }
         }
 
-        if !new_state_changes.is_empty() &&
-            let Err(err) = self.change_events_tx.send(())
+        if !new_state_changes.is_empty()
+            && let Err(err) = self.change_events_tx.send(())
         {
             error!("failed to notify of state change event, ignoring: {err:?}",);
         }
 
-        if request.notify_usage_events() &&
-            let Err(err) = self.usage_events_tx.send(())
+        if request.notify_usage_events()
+            && let Err(err) = self.usage_events_tx.send(())
         {
             error!("failed to notify of usage event, ignoring: {err:?}",);
         }
@@ -387,8 +395,8 @@ impl IndexifyState {
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteApplicationRequest(_) |
-            RequestPayload::DeleteRequestRequest(_) => {
+            RequestPayload::DeleteApplicationRequest(_)
+            | RequestPayload::DeleteRequestRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -482,16 +490,9 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        Application,
-        InputArgs,
-        Namespace,
-        RequestCtxBuilder,
-        StateChangeId,
+        Application, InputArgs, Namespace, RequestCtxBuilder, StateChangeId,
         test_objects::tests::{
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-            mock_application,
-            mock_data_payload,
+            TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application, mock_data_payload,
             mock_function_call,
         },
     };
@@ -681,6 +682,8 @@ mod tests {
             "AllocationUsage",
             "GcUrls",
             "Stats",
+            "ExecutorStateChanges",
+            "ApplicationStateChanges",
         ];
 
         let columns_iter = columns

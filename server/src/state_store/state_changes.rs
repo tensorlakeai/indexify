@@ -10,7 +10,6 @@ use crate::{
         AllocationOutputIngestedEvent,
         ChangeType,
         ExecutorId,
-        ExecutorRemovedEvent,
         ExecutorUpsertedEvent,
         FunctionCallEvent,
         FunctionRunFailureReason,
@@ -27,7 +26,6 @@ use crate::{
         AllocationOutput,
         DeleteApplicationRequest,
         DeleteRequestRequest,
-        DeregisterExecutorRequest,
         FunctionCallRequest,
         InvokeApplicationRequest,
     },
@@ -42,7 +40,6 @@ pub fn invoke_application(
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.namespace.clone()))
         .application(Some(request.application_name.clone()))
-        .request(Some(request.ctx.request_id.clone()))
         .change_type(ChangeType::InvokeApplication(InvokeApplicationEvent {
             namespace: request.namespace.clone(),
             request_id: request.ctx.request_id.clone(),
@@ -64,7 +61,6 @@ pub fn create_function_call(
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.namespace.clone()))
         .application(Some(request.application_name.clone()))
-        .request(Some(request.request_id.clone()))
         .change_type(ChangeType::CreateFunctionCall(FunctionCallEvent {
             namespace: request.namespace.clone(),
             request_id: request.request_id.clone(),
@@ -101,7 +97,6 @@ pub fn tombstone_application(
         .created_at(get_epoch_time_in_ms())
         .object_id(request.name.clone())
         .processed_at(None)
-        .request(None)
         .build()?;
     Ok(vec![state_change])
 }
@@ -120,7 +115,6 @@ pub fn tombstone_request(
         }))
         .namespace(Some(request.namespace.clone()))
         .application(Some(request.application.clone()))
-        .request(Some(request.request_id.clone()))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.request_id.clone())
         .processed_at(None)
@@ -143,7 +137,6 @@ pub fn task_outputs_ingested(
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.allocation.namespace.clone()))
         .application(Some(request.allocation.application.clone()))
-        .request(Some(request.request_id.clone()))
         .change_type(ChangeType::AllocationOutputsIngested(Box::new(
             AllocationOutputIngestedEvent {
                 namespace: request.allocation.namespace.clone(),
@@ -171,26 +164,6 @@ pub fn task_outputs_ingested(
     Ok(vec![state_change])
 }
 
-pub fn tombstone_executor(
-    last_state_change_id: &AtomicU64,
-    request: &DeregisterExecutorRequest,
-) -> Result<Vec<StateChange>> {
-    let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let state_change = StateChangeBuilder::default()
-        .change_type(ChangeType::TombStoneExecutor(ExecutorRemovedEvent {
-            executor_id: request.executor_id.clone(),
-        }))
-        .namespace(None)
-        .application(None)
-        .request(None)
-        .created_at(get_epoch_time_in_ms())
-        .object_id(request.executor_id.get().to_string())
-        .id(StateChangeId::new(last_change_id))
-        .processed_at(None)
-        .build()?;
-    Ok(vec![state_change])
-}
-
 pub fn upsert_executor(
     last_state_change_id: &AtomicU64,
     executor_id: &ExecutorId,
@@ -207,7 +180,6 @@ pub fn upsert_executor(
         .processed_at(None)
         .namespace(None)
         .application(None)
-        .request(None)
         .build()?;
 
     Ok(vec![state_change])

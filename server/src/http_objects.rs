@@ -847,7 +847,6 @@ pub struct StateChange {
     pub created_at: u64,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    pub request: Option<String>,
 }
 
 impl From<data_model::StateChange> for StateChange {
@@ -859,7 +858,6 @@ impl From<data_model::StateChange> for StateChange {
             created_at: item.created_at,
             namespace: item.namespace,
             application: item.application,
-            request: item.request,
         }
     }
 }
