@@ -218,8 +218,6 @@ class AllocationRunner:
         for watcher_info in list(self._pending_function_call_watchers.values()):
             try:
                 await self._delete_function_call_watcher(watcher_info)
-            except asyncio.CancelledError:
-                pass  # Expected during cancellation.
             except BaseException as e:
                 # Also catches any aio cancellations because it's important to clean up all resources.
                 self._logger.error(

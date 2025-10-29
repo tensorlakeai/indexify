@@ -254,13 +254,9 @@ class ExecutorStateReporter:
                 try:
                     state: ExecutorState = self._current_executor_state()
                     update: ExecutorUpdate = self._remove_pending_update()
-                    function_call_watches: List[FunctionCallWatch] = (
-                        self._current_function_call_watches()
-                    )
                     request: ReportExecutorStateRequest = ReportExecutorStateRequest(
                         executor_state=state,
                         executor_update=update,
-                        function_call_watches=function_call_watches,
                     )
                     _log_reported_executor_update(update, self._logger)
                     self._last_state_report_request = request
@@ -309,9 +305,9 @@ class ExecutorStateReporter:
             allowed_functions=self._allowed_functions,
             function_executor_states=list(self._function_executor_states.values()),
             labels=self._labels,
+            catalog_entry_name=self._catalog_entry_name,
+            function_call_watches=self._current_function_call_watches(),
         )
-        if self._catalog_entry_name is not None:
-            state.catalog_entry_name = self._catalog_entry_name
         state.state_hash = _state_hash(state)
         # Set fields not included in the state hash.
         state.server_clock = self._last_server_clock

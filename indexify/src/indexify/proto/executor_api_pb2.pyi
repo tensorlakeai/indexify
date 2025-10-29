@@ -376,6 +376,7 @@ class ExecutorState(_message.Message):
         "state_hash",
         "server_clock",
         "catalog_entry_name",
+        "function_call_watches",
     )
 
     class LabelsEntry(_message.Message):
@@ -400,6 +401,7 @@ class ExecutorState(_message.Message):
     STATE_HASH_FIELD_NUMBER: _ClassVar[int]
     SERVER_CLOCK_FIELD_NUMBER: _ClassVar[int]
     CATALOG_ENTRY_NAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_CALL_WATCHES_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
     hostname: str
     version: str
@@ -414,6 +416,9 @@ class ExecutorState(_message.Message):
     state_hash: str
     server_clock: int
     catalog_entry_name: str
+    function_call_watches: _containers.RepeatedCompositeFieldContainer[
+        FunctionCallWatch
+    ]
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
@@ -434,6 +439,9 @@ class ExecutorState(_message.Message):
         state_hash: _Optional[str] = ...,
         server_clock: _Optional[int] = ...,
         catalog_entry_name: _Optional[str] = ...,
+        function_call_watches: _Optional[
+            _Iterable[_Union[FunctionCallWatch, _Mapping]]
+        ] = ...,
     ) -> None: ...
 
 class ExecutorUpdate(_message.Message):
@@ -469,22 +477,15 @@ class FunctionCallWatch(_message.Message):
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):
-    __slots__ = ("executor_state", "executor_update", "function_call_watches")
+    __slots__ = ("executor_state", "executor_update")
     EXECUTOR_STATE_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_UPDATE_FIELD_NUMBER: _ClassVar[int]
-    FUNCTION_CALL_WATCHES_FIELD_NUMBER: _ClassVar[int]
     executor_state: ExecutorState
     executor_update: ExecutorUpdate
-    function_call_watches: _containers.RepeatedCompositeFieldContainer[
-        FunctionCallWatch
-    ]
     def __init__(
         self,
         executor_state: _Optional[_Union[ExecutorState, _Mapping]] = ...,
         executor_update: _Optional[_Union[ExecutorUpdate, _Mapping]] = ...,
-        function_call_watches: _Optional[
-            _Iterable[_Union[FunctionCallWatch, _Mapping]]
-        ] = ...,
     ) -> None: ...
 
 class ReportExecutorStateResponse(_message.Message):
