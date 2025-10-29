@@ -181,7 +181,7 @@ impl IndexifyState {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
-            usage_event_id_seq: Arc::new(AtomicU64::new(0)),
+            usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             gc_tx,
