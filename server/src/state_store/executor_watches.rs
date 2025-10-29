@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use tokio::sync::RwLock;
 
+use crate::data_model::FunctionRunStatus;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExecutorWatch {
     pub namespace: String,
@@ -114,13 +116,18 @@ impl ExecutorWatches {
         updated_request_states: &HashMap<String, crate::data_model::RequestCtx>,
     ) -> HashSet<String> {
         // Build the set of ExecutorWatch objects for all updated function runs
-        let mut executor_watches = HashSet::new();
+        let mut possible_watches = HashSet::new();
         for (ctx_key, function_run_ids) in updated_function_runs {
             let Some(ctx) = updated_request_states.get(ctx_key) else {
                 continue;
             };
             for function_call_id in function_run_ids {
-                executor_watches.insert(ExecutorWatch {
+                if let Some(function_run) = ctx.function_runs.get(function_call_id) {
+                    if function_run.status != FunctionRunStatus::Completed {
+                        continue;
+                    }
+                }
+                possible_watches.insert(ExecutorWatch {
                     namespace: ctx.namespace.clone(),
                     application: ctx.application_name.clone(),
                     request_id: ctx.request_id.clone(),
@@ -133,8 +140,8 @@ impl ExecutorWatches {
         let executors_guard = self.executors.read().await;
 
         let mut impacted_executors: HashSet<String> = HashSet::new();
-        for fc_id in executor_watches.iter() {
-            if let Some(executors) = requests_guard.get(fc_id) {
+        for possible_watch in possible_watches.iter() {
+            if let Some(executors) = requests_guard.get(possible_watch) {
                 for ex in executors {
                     // Include executor only if it currently has any watches
                     if let Some(watches) = executors_guard.get(ex) &&
