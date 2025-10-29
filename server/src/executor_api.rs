@@ -843,7 +843,7 @@ impl ExecutorApi for ExecutorAPIService {
             .ok_or(Status::invalid_argument("executor_update is required"))?;
 
         let mut watch_function_calls = HashSet::new();
-        for function_call_watch in &request.get_ref().function_call_watches {
+        for function_call_watch in &executor_state.function_call_watches {
             let executor_watch: ExecutorWatch = function_call_watch.try_into().unwrap();
             watch_function_calls.insert(executor_watch);
         }

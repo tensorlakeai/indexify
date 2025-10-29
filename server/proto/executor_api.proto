@@ -193,6 +193,8 @@ message ExecutorState {
 
     // Catalog entry name that this executor is associated with.
     optional string catalog_entry_name = 14;
+
+    repeated FunctionCallWatch function_call_watches = 15;
 }
 
 // Updates that Executor wants to report to Server. If report_executor_state RPC is successful
@@ -212,7 +214,6 @@ message FunctionCallWatch {
 message ReportExecutorStateRequest {
     optional ExecutorState executor_state = 1;
     optional ExecutorUpdate executor_update = 2;
-    repeated FunctionCallWatch function_call_watches = 3;
 }
 
 // A message sent by Server to Executor to acknowledge the receipt of ReportExecutorStateRequest.

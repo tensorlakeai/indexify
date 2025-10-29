@@ -352,6 +352,12 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
+        if let RequestPayload::UpsertExecutor(req) = &request.payload {
+            if !req.watch_function_calls.is_empty() && req.update_executor_state {
+                changed_executors.insert(req.executor.id.clone());
+            }
+        }
+
         // Notify the executors with state changes
         {
             let mut executor_states = self.executor_states.write().await;
