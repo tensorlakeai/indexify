@@ -10,7 +10,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     data_model::{self, FunctionExecutorId, FunctionExecutorServerMetadata, FunctionExecutorState},
-    http_objects_v1::FunctionRun,
+    http_objects_v1::{ApplicationState, EntryPointManifest, FunctionRun},
 };
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
@@ -919,6 +919,35 @@ pub struct HealthzResponse {
 pub struct HealthzChecks {
     pub database: HealthzStatus,
     pub executor_manager: HealthzStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApplicationVersion {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub created_at: u64,
+    pub entrypoint: EntryPointManifest,
+    pub functions: HashMap<String, ApplicationFunction>,
+    pub state: ApplicationState,
+}
+
+impl From<data_model::ApplicationVersion> for ApplicationVersion {
+    fn from(application_version: data_model::ApplicationVersion) -> Self {
+        let mut functions = HashMap::new();
+        for (k, v) in application_version.functions.into_iter() {
+            functions.insert(k, v.into());
+        }
+        Self {
+            name: application_version.name,
+            namespace: application_version.namespace,
+            entrypoint: application_version.entrypoint.into(),
+            version: application_version.version,
+            functions,
+            created_at: application_version.created_at,
+            state: application_version.state.into(),
+        }
+    }
 }
 
 #[cfg(test)]

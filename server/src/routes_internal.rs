@@ -16,6 +16,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     http_objects::{
         Allocation,
+        ApplicationVersion,
         CacheKey,
         CreateNamespace,
         ExecutorCatalog,
@@ -586,15 +587,15 @@ async fn change_application_state(
 async fn get_application_by_version(
     State(state): State<RouteState>,
     Path((namespace, application, version)): Path<(String, String, String)>,
-) -> Result<Json<http_objects_v1::Application>, IndexifyAPIError> {
-    let application = state
+) -> Result<Json<ApplicationVersion>, IndexifyAPIError> {
+    let application_version = state
         .indexify_state
         .reader()
-        .get_application_by_version(&namespace, &application, &version)
+        .get_application_version(&namespace, &application, &version)
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("Application version not found"))?;
 
-    Ok(Json(application.into()))
+    Ok(Json(application_version.into()))
 }
 
 /// Health check endpoint that returns the service status and version

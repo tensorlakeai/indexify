@@ -385,20 +385,6 @@ impl StateReader {
         Ok(application)
     }
 
-    pub fn get_application_by_version(
-        &self,
-        namespace: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<Option<Application>> {
-        let kvs = &[KeyValue::new("op", "get_application_by_version")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = ApplicationVersion::key_from(namespace, name, version);
-        let application = self.get_from_cf(&IndexifyObjectsColumns::ApplicationVersions, key)?;
-        Ok(application)
-    }
-
     pub fn get_application_version(
         &self,
         namespace: &str,
