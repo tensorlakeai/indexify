@@ -194,12 +194,12 @@ class TestMetrics(unittest.TestCase):
             "schedule_allocation_latency_seconds_count",
             "schedule_allocation_latency_seconds_sum",
             "runnable_allocations",
-            # Run allocation RPC
-            "function_executor_run_allocation_rpcs_in_progress",
-            "function_executor_run_allocation_rpcs_total",
-            "function_executor_run_allocation_rpc_errors_total",
-            "function_executor_run_allocation_rpc_latency_seconds_count",
-            "function_executor_run_allocation_rpc_latency_seconds_sum",
+            # Allocation runs
+            "allocation_runs_in_progress",
+            "allocation_runs_total",
+            "allocation_run_errors_total",
+            "allocation_run_latency_seconds_count",
+            "allocation_run_latency_seconds_sum",
             # gRPC channel creation
             "grpc_server_channel_creations_total",
             "grpc_server_channel_creation_retries_total",
@@ -389,13 +389,11 @@ class TestMetrics(unittest.TestCase):
             # allocation scheduling
             SampleSpec("schedule_allocation_latency_seconds_count", {}, 1.0),
             SampleSpec("runnable_allocations", {}, 0.0),
-            # Run allocation RPC
-            SampleSpec("function_executor_run_allocation_rpcs_in_progress", {}, 0.0),
-            SampleSpec("function_executor_run_allocation_rpcs_total", {}, 1.0),
-            SampleSpec("function_executor_run_allocation_rpc_errors_total", {}, 0.0),
-            SampleSpec(
-                "function_executor_run_allocation_rpc_latency_seconds_count", {}, 1.0
-            ),
+            # Allocation runs
+            SampleSpec("allocation_runs_in_progress", {}, 0.0),
+            SampleSpec("allocation_runs_total", {}, 1.0),
+            SampleSpec("allocation_run_errors_total", {}, 0.0),
+            SampleSpec("allocation_run_latency_seconds_count", {}, 1.0),
             # Server gRPC channel creation
             SampleSpec("grpc_server_channel_creations_total", {}, 0.0),
             SampleSpec("grpc_server_channel_creation_retries_total", {}, 0.0),

@@ -90,7 +90,7 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(
             fe_info_sample.labels,
             {
-                "version": "0.1.0",
+                "version": "0.1.1",
                 "sdk_version": importlib.metadata.version("tensorlake"),
                 "sdk_language": "python",
                 "sdk_language_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",

@@ -2,13 +2,19 @@ import prometheus_client
 
 from indexify.executor.monitoring.metrics import (
     latency_metric_for_customer_controlled_operation,
-    latency_metric_for_fast_operation,
 )
 
 metric_allocation_runner_allocation_runs: prometheus_client.Counter = (
     prometheus_client.Counter(
         "allocation_runs",
-        "Number of allocation runs by allocation runner",
+        "Number of allocation runs on Function Executor",
+    )
+)
+
+metric_allocation_runner_allocation_run_errors: prometheus_client.Counter = (
+    prometheus_client.Counter(
+        "allocation_run_errors",
+        "Number of allocation run errors on Function Executor",
     )
 )
 
@@ -16,7 +22,7 @@ metric_allocation_runner_allocation_runs: prometheus_client.Counter = (
 metric_allocation_runner_allocation_runs_in_progress: prometheus_client.Gauge = (
     prometheus_client.Gauge(
         "allocation_runs_in_progress",
-        "Number of allocation runner allocation runs in progress",
+        "Number of allocation runs currently in progress on Function Executor",
     )
 )
 
@@ -26,6 +32,6 @@ metric_allocation_runner_allocation_runs_in_progress: prometheus_client.Gauge = 
 metric_allocation_runner_allocation_run_latency: prometheus_client.Histogram = (
     latency_metric_for_customer_controlled_operation(
         "allocation_run",
-        "Allocation Runner run allocation",
+        "Run allocation on Function Executor",
     )
 )

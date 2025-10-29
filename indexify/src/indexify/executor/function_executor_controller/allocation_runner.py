@@ -93,6 +93,7 @@ from .events import AllocationExecutionFinished
 from .execution_plan_updates import to_server_execution_plan_updates
 from .function_call_watch_dispatcher import FunctionCallWatchDispatcher
 from .metrics.allocation_runner import (
+    metric_allocation_runner_allocation_run_errors,
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
     metric_allocation_runner_allocation_runs_in_progress,
@@ -248,6 +249,7 @@ class AllocationRunner:
         try:
             with (
                 metric_allocation_runner_allocation_runs_in_progress.track_inprogress(),
+                metric_allocation_runner_allocation_run_errors.count_exceptions(),
                 RequestStateAuthorizationContextManager(
                     function_executor=self._function_executor,
                     allocation_id=self._alloc_info.allocation.allocation_id,
@@ -266,6 +268,11 @@ class AllocationRunner:
                     ),
                     logger=self._logger,
                 )
+                if (
+                    self._alloc_info.output.outcome_code
+                    == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE
+                ):
+                    metric_allocation_runner_allocation_run_errors.inc()  # No exception, increment metric manually.
         except asyncio.CancelledError as e:
             self._logger.info(
                 "allocation run was cancelled",
