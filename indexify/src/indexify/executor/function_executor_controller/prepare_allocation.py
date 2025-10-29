@@ -14,7 +14,6 @@ from indexify.proto.executor_api_pb2 import Allocation, DataPayload
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .blob_utils import (
-    allocation_blob_tags,
     data_payload_to_serialized_object_inside_blob,
     presign_read_only_blob_for_data_payload,
     presign_write_only_blob,
@@ -96,7 +95,6 @@ async def _prepare_alloc_input(
             blob_uri=request_error_blob_uri,
             upload_id=request_error_blob_upload_id,
             size=_REQUEST_ERROR_MAX_SIZE_BYTES,
-            tags=allocation_blob_tags(alloc),
             blob_store=blob_store,
             logger=logger,
         )

@@ -10,7 +10,6 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import (
-    Allocation,
     DataPayload,
     DataPayloadEncoding,
 )
@@ -54,20 +53,11 @@ async def presign_read_only_blob_for_data_payload(
     )
 
 
-def allocation_blob_tags(alloc: Allocation) -> dict[str, str]:
-    # These tags are used for usage tracking and billing purposes.
-    return {
-        "namespace": alloc.function.namespace,
-        "application_name": alloc.function.application_name,
-    }
-
-
 async def presign_write_only_blob(
     blob_id: str,
     blob_uri: str,
     upload_id: str,
     size: int,
-    tags: dict[str, str],
     blob_store: BLOBStore,
     logger: Any,
 ) -> BLOB:
@@ -81,7 +71,6 @@ async def presign_write_only_blob(
             part_number=len(chunks) + 1,
             upload_id=upload_id,
             expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
-            tags=tags,
             logger=logger,
         )
 

@@ -85,7 +85,6 @@ from ..state_reporter import ExecutorStateReporter
 from .allocation_info import AllocationInfo
 from .allocation_output import AllocationOutput
 from .blob_utils import (
-    allocation_blob_tags,
     data_payload_to_serialized_object_inside_blob,
     presign_read_only_blob_for_data_payload,
     presign_write_only_blob,
@@ -101,7 +100,6 @@ from .metrics.allocation_runner import (
 
 # FE RPC timeouts
 _CREATE_ALLOCATION_TIMEOUT_SECS = 5
-_WATCH_ALLOCATION_STATE_TIMEOUT_SECS = 5
 _SEND_ALLOCATION_UPDATE_TIMEOUT_SECS = 5
 _DELETE_ALLOCATION_TIMEOUT_SECS = 5
 
@@ -216,11 +214,8 @@ class AllocationRunner:
                     exc_info=e,
                 )
 
-        while len(self._pending_function_call_watchers) > 0:
+        for watcher_info in list(self._pending_function_call_watchers.values()):
             try:
-                watcher_info: _FunctionCallWatcherInfo = (
-                    self._pending_function_call_watchers.popitem()[1]
-                )
                 await self._delete_function_call_watcher(watcher_info)
             except asyncio.CancelledError:
                 pass  # Expected during cancellation.
@@ -443,12 +438,12 @@ class AllocationRunner:
             _raise_from_grpc_error(e)
 
         try:
+            # This aio call is non-blocking, so no timeout needed for establishing
+            # the stream. Timeout for each individual read() is set below.
             watch_allocation_state_rpc_stream = fe_stub.watch_allocation_state(
                 FEWatchAllocationStateRequest(
                     allocation_id=self._alloc_info.allocation.allocation_id
                 ),
-                # Timeout for establishing watch_allocation_state_rpc_stream.
-                timeout=_WATCH_ALLOCATION_STATE_TIMEOUT_SECS,
             )
         except grpc.aio.AioRpcError as e:
             _raise_from_grpc_error(e)
@@ -593,7 +588,6 @@ class AllocationRunner:
     async def _create_output_blob(
         self, fe_output_blob_request: FEAllocationOutputBLOBRequest
     ) -> FEBLOB:
-        blob_tags: Dict[str, str] = allocation_blob_tags(self._alloc_info.allocation)
         blob_uri: str = (
             f"{self._alloc_info.allocation.output_payload_uri_prefix}.{self._alloc_info.allocation.allocation_id}.{fe_output_blob_request.id}.output"
         )
@@ -616,7 +610,6 @@ class AllocationRunner:
             blob_uri=blob_info.uri,
             upload_id=blob_info.upload_id,
             size=fe_output_blob_request.size,
-            tags=blob_tags,
             blob_store=self._blob_store,
             logger=self._logger,
         )

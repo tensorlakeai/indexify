@@ -129,7 +129,6 @@ class BLOBStore:
         part_number: int,
         upload_id: str,
         expires_in_sec: int,
-        tags: dict[str, str],
         logger: Any,
     ) -> str:
         """Returns a presigned URI for uploading a part in a multipart upload.
@@ -146,7 +145,7 @@ class BLOBStore:
                 )
             else:
                 return await self._s3.presign_upload_part_uri(
-                    uri, part_number, upload_id, expires_in_sec, tags, logger
+                    uri, part_number, upload_id, expires_in_sec, logger
                 )
 
 

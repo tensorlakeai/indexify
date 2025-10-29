@@ -1,6 +1,5 @@
 import asyncio
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -158,7 +157,6 @@ class S3BLOBStore:
         part_number: int,
         upload_id: str,
         expires_in_sec: int,
-        tags: dict[str, str],
         logger: Any,
     ) -> str:
         """Returns a presigned URI for uploading a part in a multipart upload for S3 object."""
@@ -173,7 +171,6 @@ class S3BLOBStore:
                     "Key": key,
                     "UploadId": upload_id,
                     "PartNumber": part_number,
-                    "Tagging": urlencode(tags),
                 },
                 ExpiresIn=expires_in_sec,
             )
