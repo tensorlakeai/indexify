@@ -923,12 +923,12 @@ pub struct HealthzChecks {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationVersion {
-    pub namespace: String,
     pub name: String,
+    pub namespace: String,
     pub version: String,
-    pub created_at: u64,
-    pub entrypoint: EntryPointManifest,
     pub functions: HashMap<String, ApplicationFunction>,
+    pub entrypoint: EntryPointManifest,
+    pub created_at: u64,
     pub state: ApplicationState,
 }
 
