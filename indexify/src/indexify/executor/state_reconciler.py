@@ -67,7 +67,8 @@ def _function_call_watch_key(
     return f"{namespace}.{request_id}.{function_call_id}"
 
 
-# Server sends undefined outcomes to us which have no use so we need to filter them out.
+# Server sends undefined outcomes to us if watched function is still running.
+# We need to filter those out as AllocationRunner only requires a single terminal outcome.
 _terminal_allocation_outcome_codes: list[AllocationOutcomeCode] = [
     AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS,
     AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
