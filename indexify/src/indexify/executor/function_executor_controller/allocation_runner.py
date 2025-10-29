@@ -669,20 +669,21 @@ class AllocationRunner:
         # TODO: Add a message to FE updates which allows to report function call creation failure back to FE.
         # The FE can raise exception in function call creation call stack so user code can see the exception.
 
-        blob_info: _BLOBInfo | None = self._pending_output_blobs.get(
-            fe_function_call.args_blob.id
-        )
-        if blob_info is None:
-            # Either args blob upload is already completed or FE send an invalid blob ID.
-            self._logger.info(
-                "skipping function call creation because args blob is not found",
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                args_blob_id=fe_function_call.args_blob.id,
-            )
-            return
+        blob_info: _BLOBInfo | None = None
+        if fe_function_call.HasField("args_blob"):
+            blob_info = self._pending_output_blobs.get(fe_function_call.args_blob.id)
+            if blob_info is None:
+                # Either args blob upload is already completed or FE sent an invalid blob ID.
+                self._logger.info(
+                    "skipping function call creation because args blob is not found on Executor side",
+                    child_fn_call_id=fe_function_call.updates.root_function_call_id,
+                    args_blob_id=fe_function_call.args_blob.id,
+                )
+                return
 
         try:
-            await self._complete_blob_upload(blob_info, fe_function_call.args_blob)
+            if blob_info is not None:
+                await self._complete_blob_upload(blob_info, fe_function_call.args_blob)
         except Exception as e:
             self._logger.error(
                 "failed to complete args blob upload for function call creation",
@@ -701,7 +702,7 @@ class AllocationRunner:
                     source_function_call_id=self._alloc_info.allocation.function_call_id,
                     updates=to_server_execution_plan_updates(
                         fe_execution_plan_updates=fe_function_call.updates,
-                        args_blob_uri=blob_info.uri,
+                        args_blob_uri=None if blob_info is None else blob_info.uri,
                     ),
                 )
             )
@@ -1011,7 +1012,7 @@ def _validate_fe_function_call(
     fe_function_call: FEAllocationFunctionCall,
 ) -> bool:
     try:
-        MessageValidator(fe_function_call).required_blob("args_blob").required_field(
+        MessageValidator(fe_function_call).optional_blob("args_blob").required_field(
             "updates"
         )
         # TODO: Validate the update tree.

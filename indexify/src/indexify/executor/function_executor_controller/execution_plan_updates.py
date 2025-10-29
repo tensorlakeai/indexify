@@ -40,11 +40,12 @@ from indexify.proto.executor_api_pb2 import ReduceOp as ServerReduceOp
 
 
 def to_server_execution_plan_updates(
-    fe_execution_plan_updates: FEExecutionPlanUpdates, args_blob_uri: str
+    fe_execution_plan_updates: FEExecutionPlanUpdates, args_blob_uri: str | None
 ) -> ServerExecutionPlanUpdates:
     """Converts from Function Executor's ExecutionPlanUpdates to Server ExecutionPlanUpdates.
 
     Raises ValueError on validation error.
+    args_blob_uri is required if FE execution plan update contains arguments for any function calls.
     """
     # TODO: Validate FEExecutionPlanUpdates object properly.
     server_execution_plan_updates: list[ServerExecutionPlanUpdate] = []
@@ -86,7 +87,7 @@ def to_server_execution_plan_updates(
 
 
 def _to_server_function_call_proto(
-    fe_function_call: FEFunctionCall, args_blob_uri: str
+    fe_function_call: FEFunctionCall, args_blob_uri: str | None
 ) -> ServerFunctionCall:
     server_args: list[ServerFunctionArg] = []
     for fe_arg in fe_function_call.args:
@@ -107,7 +108,7 @@ def _to_server_function_call_proto(
 
 
 def _to_server_reduce_op_proto(
-    reduce: FEReduceOp, args_blob_uri: str
+    reduce: FEReduceOp, args_blob_uri: str | None
 ) -> ServerReduceOp:
     collection: list[ServerFunctionArg] = []
     for fe_arg in reduce.collection:
@@ -137,7 +138,7 @@ def _to_server_function_ref_proto(fe_function_ref: FEFunctionRef) -> ServerFunct
 
 
 def _to_server_function_arg_proto(
-    fe_function_arg: FEFunctionArg, args_blob_uri: str
+    fe_function_arg: FEFunctionArg, args_blob_uri: str | None
 ) -> ServerFunctionArg:
     if fe_function_arg.HasField("function_call_id"):
         return ServerFunctionArg(function_call_id=fe_function_arg.function_call_id)
@@ -156,9 +157,14 @@ def _to_server_function_arg_proto(
 
 def _to_server_data_payload_proto(
     so: FESerializedObjectInsideBLOB,
-    blob_uri: str,
+    blob_uri: str | None,
 ) -> ServerDataPayload:
     """Converts a serialized object inside BLOB to into a DataPayload."""
+    if blob_uri is None:
+        raise ValueError(
+            "blob_uri is required to convert SerializedObjectInsideBLOB to DataPayload",
+        )
+
     # TODO: Validate SerializedObjectInsideBLOB.
     return ServerDataPayload(
         uri=blob_uri,

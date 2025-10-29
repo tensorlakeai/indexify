@@ -169,7 +169,7 @@ def to_data_payload(
     blob_uri: str,
     logger: Any,
 ) -> DataPayload:
-    """Converts a serialized object inside BLOB to into a DataPayload."""
+    """Converts a serialized object inside BLOB into a DataPayload."""
     # TODO: Validate SerializedObjectInsideBLOB.
     return DataPayload(
         uri=blob_uri,

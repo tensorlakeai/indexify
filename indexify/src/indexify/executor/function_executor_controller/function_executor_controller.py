@@ -913,24 +913,28 @@ def _to_server_alloc_result(
                 logger=logger,
             )
 
-        if output.function_outputs_blob_uri is not None:
-            if fe_result.HasField("value"):
+        if fe_result.HasField("value"):
+            if output.function_outputs_blob_uri is None:
+                logger.error(
+                    "function output value blob URI is not set, this should never happen",
+                )
+            else:
                 output_value = to_data_payload(
                     so=fe_result.value,
                     blob_uri=output.function_outputs_blob_uri,
                     logger=logger,
                 )
-            elif fe_result.HasField("updates"):
-                try:
-                    output_updates = to_server_execution_plan_updates(
-                        fe_execution_plan_updates=fe_result.updates,
-                        args_blob_uri=output.function_outputs_blob_uri,
-                    )
-                except ValueError as e:
-                    logger.error(
-                        "Failed to convert function executor updates from FE to Server",
-                        exc_info=e,
-                    )
+        elif fe_result.HasField("updates"):
+            try:
+                output_updates = to_server_execution_plan_updates(
+                    fe_execution_plan_updates=fe_result.updates,
+                    args_blob_uri=output.function_outputs_blob_uri,
+                )
+            except ValueError as e:
+                logger.error(
+                    "Failed to convert function executor updates from FE to Server",
+                    exc_info=e,
+                )
 
     return AllocationResult(
         function=FunctionRef(
