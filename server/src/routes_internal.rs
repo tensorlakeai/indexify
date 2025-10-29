@@ -33,7 +33,7 @@ use crate::{
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
     },
-    http_objects_v1::{self, ApplicationState},
+    http_objects_v1::{self, Application, ApplicationState},
     indexify_ui::Assets as UiAssets,
     routes::routes_state::RouteState,
     state_store::{
@@ -57,6 +57,7 @@ use crate::{
             list_unallocated_function_runs,
             list_unprocessed_state_changes,
             list_executor_catalog,
+            get_application_by_version,
             healthz_handler,
         ),
         components(
@@ -76,6 +77,7 @@ use crate::{
                 ExecutorCatalog,
                 HealthzChecks,
                 HealthzResponse,
+                Application,
             )
         ),
         tags(
@@ -135,6 +137,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/state",
             put(change_application_state).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/namespaces/{namespace}/applications/{application}/version/{version}",
+            get(get_application_by_version).with_state(route_state.clone()),
         )
         .route("/healthz", get(healthz_handler).with_state(route_state.clone()))
         .route("/ui", get(ui_index_handler))
@@ -564,6 +570,31 @@ async fn change_application_state(
         .status(StatusCode::NO_CONTENT)
         .body(Body::empty())
         .unwrap())
+}
+
+/// Get application definition for a specific version
+#[utoipa::path(
+    get,
+    path = "/internal/namespaces/{namespace}/applications/{application}/version/{version}",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Get application definition for a specific version", body = Application),
+        (status = 404, description = "Application version not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn get_application_by_version(
+    State(state): State<RouteState>,
+    Path((namespace, application, version)): Path<(String, String, String)>,
+) -> Result<Json<http_objects_v1::Application>, IndexifyAPIError> {
+    let application = state
+        .indexify_state
+        .reader()
+        .get_application_by_version(&namespace, &application, &version)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("Application version not found"))?;
+
+    Ok(Json(application.into()))
 }
 
 /// Health check endpoint that returns the service status and version
