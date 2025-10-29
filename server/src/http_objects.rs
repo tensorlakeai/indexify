@@ -934,10 +934,11 @@ pub struct ApplicationVersion {
 
 impl From<data_model::ApplicationVersion> for ApplicationVersion {
     fn from(application_version: data_model::ApplicationVersion) -> Self {
-        let mut functions = HashMap::new();
-        for (k, v) in application_version.functions.into_iter() {
-            functions.insert(k, v.into());
-        }
+        let functions = application_version
+            .functions
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect();
         Self {
             name: application_version.name,
             namespace: application_version.namespace,
