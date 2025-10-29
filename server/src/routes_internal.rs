@@ -140,7 +140,7 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             put(change_application_state).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/{namespace}/applications/{application}/version/{version}",
+            "/internal/namespaces/{namespace}/applications/{application}/versions/{version}",
             get(get_application_by_version).with_state(route_state.clone()),
         )
         .route("/healthz", get(healthz_handler).with_state(route_state.clone()))
@@ -576,7 +576,7 @@ async fn change_application_state(
 /// Get application definition for a specific version
 #[utoipa::path(
     get,
-    path = "/internal/namespaces/{namespace}/applications/{application}/version/{version}",
+    path = "/internal/namespaces/{namespace}/applications/{application}/versions/{version}",
     tag = "operations",
     responses(
         (status = 200, description = "Get application definition for a specific version", body = Application),
