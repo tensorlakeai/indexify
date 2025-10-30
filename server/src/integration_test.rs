@@ -26,6 +26,7 @@ mod tests {
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
+                DeleteRequestRequest,
                 RequestPayload,
                 StateMachineUpdateRequest,
             },
@@ -933,6 +934,85 @@ mod tests {
             "Application is not enabled: disabled in test",
             err.to_string()
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_tombstone_application() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // create the application without invoking
+        test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
+
+        // verify the application was created
+        let (applications, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, None, None)
+            .unwrap();
+        assert_eq!(1, applications.len());
+        assert_eq!("app_1", applications[0].name);
+
+        // tombstone the application
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "app_1".to_string(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the application was tombstoned (deleted)
+        let application = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .get_application(TEST_NAMESPACE, "app_1")
+            .unwrap();
+        assert!(application.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_tombstone_request() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the application to create a request
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was created
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_some());
+
+        // tombstone the request
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneRequest(DeleteRequestRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    application: "graph_A".to_string(),
+                    request_id: request_id.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was deleted
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_none());
 
         Ok(())
     }
