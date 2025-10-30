@@ -248,6 +248,33 @@ mod tests {
             assert!(cursor.is_none());
         }
 
+        // Tombstone the request
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneRequest(DeleteRequestRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    application: "graph_A".to_string(),
+                    request_id: request_id.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was deleted
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_none());
+
+        let all_function_runs = test_srv.get_all_function_runs().await?;
+        assert_eq!(0, all_function_runs.len());
+        let all_allocations = indexify_state
+            .reader()
+            .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
+            .unwrap();
+        assert_eq!(0, all_allocations.len());
+
         Ok(())
     }
 
@@ -994,6 +1021,9 @@ mod tests {
                 .reader()
                 .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
         assert!(request_ctx.is_some());
+
+        // We should have an unallocated task
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // tombstone the request
         indexify_state
