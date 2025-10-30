@@ -424,8 +424,10 @@ class AllocationRunner:
             inputs=self._alloc_info.input.function_inputs,
         )
 
-        channel: grpc.aio.Channel = self._function_executor.channel()
-        fe_stub = FunctionExecutorStub(channel)
+        fe_channel: grpc.aio.Channel | None = self._function_executor.channel()
+        if fe_channel is None:
+            raise asyncio.CancelledError()
+        fe_stub = FunctionExecutorStub(fe_channel)
 
         # Exception handling logic specific to this function.
         def _raise_from_grpc_error(e: grpc.aio.AioRpcError) -> None:
@@ -895,9 +897,16 @@ class AllocationRunner:
                     )
                 )
 
+            # NB: aio cancel() can be called on us but we won't get the aio.CancelledError until we await.
+            # So we have to check if FE is still alive here.
+
             # If we fail to send the result to FE we're not currently stopping the allocation execution.
             # This leaves FE in undefined state. Allocation timeout should handle that.
-            fe_stub = FunctionExecutorStub(self._function_executor.channel())
+            fe_channel: grpc.aio.Channel | None = self._function_executor.channel()
+            if fe_channel is None:
+                raise asyncio.CancelledError()
+            fe_stub = FunctionExecutorStub(fe_channel)
+
             await fe_stub.send_allocation_update(
                 FEAllocationUpdate(
                     allocation_id=self._alloc_info.allocation.allocation_id,

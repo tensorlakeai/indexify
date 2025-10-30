@@ -138,7 +138,11 @@ class FunctionExecutor:
             await self.destroy()
             raise
 
-    def channel(self) -> grpc.aio.Channel:
+    def channel(self) -> grpc.aio.Channel | None:
+        """Returns the gRPC channel to communicate with the Function Executor Server.
+
+        Returns None if FE is destroyed or not yet initialized.
+        """
         return self._channel
 
     def request_state_client(self) -> RequestStateClient:
