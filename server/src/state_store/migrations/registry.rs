@@ -1,7 +1,10 @@
 use anyhow::{Result, anyhow};
 
 use super::migration_trait::Migration;
-use crate::state_store::migrations::v1_fake_migration::V1FakeMigration;
+use crate::state_store::migrations::{
+    v1_fake_migration::V1FakeMigration,
+    v9_separate_executor_and_app_state_changes::V9SeparateExecutorAndAppStateChanges,
+};
 // Import all migration implementations
 
 /// Registry for all available migrations
@@ -20,6 +23,7 @@ impl MigrationRegistry {
         // Removing the migrations since we assume new state store is being used
         // Add new migrations here
         registry.register(Box::new(V1FakeMigration {}));
+        registry.register(Box::new(V9SeparateExecutorAndAppStateChanges));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

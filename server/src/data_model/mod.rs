@@ -1900,6 +1900,12 @@ impl Display for StateChangeId {
     }
 }
 
+impl AsRef<u64> for StateChangeId {
+    fn as_ref(&self) -> &u64 {
+        &self.0
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct UnprocessedStateChanges {
     pub changes: Vec<StateChange>,
