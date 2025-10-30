@@ -21,8 +21,10 @@ class Payload(BaseModel):
 @application()
 @function()
 def sum_numbers_api(payload: Payload) -> int:
-    return sum_numbers(
-        generate_numbers(payload.count, payload.generate_numbers_runs_file_path)
+    return sum_numbers.awaitable(
+        generate_numbers.awaitable(
+            payload.count, payload.generate_numbers_runs_file_path
+        )
     )
 
 
