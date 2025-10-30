@@ -288,10 +288,8 @@ impl ApplicationProcessor {
                     .await?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
                 scheduler_update.extend(
-                    task_allocator.allocate_function_runs(
-                        &mut indexes_guard,
-                        unallocated_function_runs,
-                    )?,
+                    task_allocator
+                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
                 );
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
