@@ -67,11 +67,6 @@ impl Migration for V9SeparateExecutorAndAppStateChanges {
                     anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
                 };
 
-                let k = str::from_utf8(key)?;
-                let n = str::from_utf8(prefix)?;
-                let i = str::from_utf8(id)?;
-                dbg!(k, n, i);
-
                 if prefix == b"global" {
                     ctx.txn.put(
                         IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
