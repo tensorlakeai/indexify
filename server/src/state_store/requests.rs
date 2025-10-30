@@ -261,7 +261,7 @@ impl UpsertExecutorRequest {
         watch_function_calls: HashSet<ExecutorWatch>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
-        let state_change_id_seq = indexify_state.executor_state_change_id_seq();
+        let state_change_id_seq = indexify_state.application_state_change_id_seq();
         let mut state_changes = Vec::new();
 
         if update_executor_state {

@@ -98,7 +98,7 @@ pub struct IndexifyState {
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
 
-    pub state_change_id_seq: Arc<AtomicU64>,
+    pub application_state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
     pub executor_state_change_id_seq: Arc<AtomicU64>,
 
@@ -181,7 +181,7 @@ impl IndexifyState {
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
-            state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
+            application_state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             executor_state_change_id_seq: Arc::new(AtomicU64::new(
                 sm_meta.last_executor_state_change_idx,
@@ -201,16 +201,21 @@ impl IndexifyState {
         });
 
         info!(
-            "initialized state store with last state change id: {}",
-            s.state_change_id_seq.load(atomic::Ordering::Relaxed)
+            application_state_change_id = s
+                .application_state_change_id_seq
+                .load(atomic::Ordering::Relaxed),
+            executor_state_change_id = s
+                .executor_state_change_id_seq
+                .load(atomic::Ordering::Relaxed),
+            "initialized state store with last state change ids",
         );
 
         info!(
-            "initialized state store with last usage id: {}",
-            s.usage_event_id_seq.load(atomic::Ordering::Relaxed)
+            usage_event_id = s.usage_event_id_seq.load(atomic::Ordering::Relaxed),
+            "initialized state store with last usage id",
         );
 
-        info!("db version discovered: {}", sm_meta.db_version);
+        info!(db_version = sm_meta.db_version, "db version discovered");
 
         Ok(s)
     }
@@ -221,6 +226,10 @@ impl IndexifyState {
 
     pub fn executor_state_change_id_seq(&self) -> Arc<AtomicU64> {
         self.executor_state_change_id_seq.clone()
+    }
+
+    pub fn application_state_change_id_seq(&self) -> Arc<AtomicU64> {
+        self.application_state_change_id_seq.clone()
     }
 
     pub fn can_allocation_output_be_updated(
@@ -323,12 +332,14 @@ impl IndexifyState {
             _ => {} // Handle other request types as needed
         };
 
-        let new_state_changes = request.state_changes(&self.state_change_id_seq)?;
+        let new_state_changes = request.state_changes(&self.application_state_change_id_seq)?;
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes)?;
         }
 
-        let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
+        let current_state_id = self
+            .application_state_change_id_seq
+            .load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         let executor_state_change_id = self
             .executor_state_change_id_seq
@@ -613,7 +624,7 @@ mod tests {
             .application_version("1".to_string())
             .build()?;
         let state_change_1 = state_changes::invoke_application(
-            &indexify_state.state_change_id_seq,
+            &indexify_state.application_state_change_id_seq,
             &InvokeApplicationRequest {
                 namespace: "namespace".to_string(),
                 application_name: "graph_A".to_string(),
@@ -626,7 +637,7 @@ mod tests {
 
         let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
-            &indexify_state.state_change_id_seq,
+            &indexify_state.application_state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
         )
         .unwrap();
@@ -635,7 +646,7 @@ mod tests {
 
         let tx = indexify_state.db.transaction();
         let state_change_3 = state_changes::invoke_application(
-            &indexify_state.state_change_id_seq,
+            &indexify_state.application_state_change_id_seq,
             &InvokeApplicationRequest {
                 namespace: "namespace".to_string(),
                 application_name: "graph_A".to_string(),
