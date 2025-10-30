@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
     use anyhow::Result;
     use strum::IntoEnumIterator;
@@ -1044,6 +1047,43 @@ mod tests {
                 .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
         assert!(request_ctx.is_none());
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_application_and_requests() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        let new_app = test_state_store::mock_application("graph_A", "2");
+
+        let request = CreateOrUpdateApplicationRequest {
+            namespace: TEST_NAMESPACE.to_string(),
+            application: new_app,
+            upgrade_requests_to_current_version: true,
+        };
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(request)),
+            })
+            .await
+            .unwrap();
+        test_srv.process_all_state_changes().await?;
+
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .unwrap()
+            .unwrap();
+        let versions = request_ctx
+            .function_runs
+            .values()
+            .map(|r| r.version.clone())
+            .collect::<HashSet<_>>();
+        assert_eq!(1, versions.len());
+        assert_eq!("2", versions.iter().next().unwrap());
         Ok(())
     }
 }

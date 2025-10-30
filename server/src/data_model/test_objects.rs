@@ -125,7 +125,7 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_app_with_retries(app_name: &str, max_retries: u32) -> Application {
+    pub fn mock_app_with_retries(app_name: &str, version: &str, max_retries: u32) -> Application {
         let fn_a = test_function("fn_a", max_retries);
         let fn_b = test_function("fn_b", max_retries);
         let fn_c = test_function("fn_c", max_retries);
@@ -146,7 +146,7 @@ pub mod tests {
                 ("fn_a".to_string(), fn_a.clone()),
                 ("fn_d".to_string(), fn_d),
             ]))
-            .version("1".to_string())
+            .version(version.to_string())
             .description(format!("description {}", app_name))
             .code(DataPayload {
                 id: "code_id".to_string(),
@@ -169,7 +169,7 @@ pub mod tests {
     }
 
     pub fn mock_application() -> Application {
-        mock_app_with_retries("graph_A", 0)
+        mock_app_with_retries("graph_A", "1", 0)
     }
 
     pub fn mock_function_call_with_name(
