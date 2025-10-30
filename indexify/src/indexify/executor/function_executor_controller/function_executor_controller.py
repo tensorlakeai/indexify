@@ -1,5 +1,4 @@
 import asyncio
-import math
 import time
 from collections.abc import Coroutine
 from enum import Enum
@@ -7,26 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ExecutionPlanUpdate as FEExecutionPlanUpdate,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ExecutionPlanUpdates as FEExecutionPlanUpdates,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionArg as FEFunctionArg,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionCall as FEFunctionCall,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    FunctionRef as FEFunctionRef,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    ReduceOp as FEReduceOp,
-)
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    SerializedObjectEncoding,
-    SerializedObjectInsideBLOB,
+    AllocationResult as FEAllocationResult,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
@@ -43,22 +23,20 @@ from indexify.proto.executor_api_pb2 import (
     Allocation,
     AllocationResult,
     DataPayload,
-    DataPayloadEncoding,
-    ExecutionPlanUpdate,
     ExecutionPlanUpdates,
-    FunctionArg,
-    FunctionCall,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
     FunctionRef,
-    ReduceOp,
 )
 
+from ..channel_manager import ChannelManager
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
+from .allocation_runner import run_allocation_on_function_executor
+from .blob_utils import to_data_payload
 from .completed_allocation_metrics import emit_completed_allocation_metrics
 from .create_function_executor import create_function_executor
 from .debug_event_loop import (
@@ -77,7 +55,9 @@ from .events import (
     ScheduleAllocationExecution,
     ShutdownInitiated,
 )
+from .execution_plan_updates import to_server_execution_plan_updates
 from .finalize_allocation import finalize_allocation
+from .function_call_watch_dispatcher import FunctionCallWatchDispatcher
 from .loggers import allocation_logger, function_executor_logger
 from .metrics.function_executor_controller import (
     METRIC_FUNCTION_EXECUTORS_WITH_STATE_LABEL_NOT_STARTED,
@@ -94,7 +74,6 @@ from .metrics.function_executor_controller import (
     metric_schedule_allocation_latency,
 )
 from .prepare_allocation import prepare_allocation
-from .run_allocation import run_allocation_on_function_executor
 from .terminate_function_executor import terminate_function_executor
 
 
@@ -114,7 +93,9 @@ class FunctionExecutorController:
         executor_id: str,
         function_executor_description: FunctionExecutorDescription,
         function_executor_server_factory: FunctionExecutorServerFactory,
+        channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
+        function_call_watch_dispatcher: FunctionCallWatchDispatcher,
         blob_store: BLOBStore,
         base_url: str,
         config_path: str,
@@ -133,7 +114,11 @@ class FunctionExecutorController:
         self._fe_server_factory: FunctionExecutorServerFactory = (
             function_executor_server_factory
         )
+        self._channel_manager: ChannelManager = channel_manager
         self._state_reporter: ExecutorStateReporter = state_reporter
+        self._function_call_watch_dispatcher: FunctionCallWatchDispatcher = (
+            function_call_watch_dispatcher
+        )
         self._blob_store: BLOBStore = blob_store
         self._base_url: str = base_url
         self._config_path: str = config_path
@@ -506,8 +491,7 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination.append(
                     alloc_info.allocation.allocation_id
                 )
-                alloc_info.output = AllocationOutput.function_executor_startup_failed(
-                    allocation=alloc_info.allocation,
+                alloc_info.output = AllocationOutput.allocation_didn_run_because_function_executor_startup_failed(
                     fe_termination_reason=event.fe_termination_reason,
                     logger=alloc_logger,
                 )
@@ -596,10 +580,7 @@ class FunctionExecutorController:
 
         if alloc_info.is_cancelled:
             alloc_info.output = AllocationOutput.allocation_cancelled(
-                allocation=alloc_info.allocation,
-                # Task alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
             return
@@ -607,10 +588,7 @@ class FunctionExecutorController:
         if not event.is_success:
             # Failed to prepare the alloc inputs.
             alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                # Alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
             return
@@ -655,10 +633,7 @@ class FunctionExecutorController:
 
         if alloc_info.is_cancelled:
             alloc_info.output = AllocationOutput.allocation_cancelled(
-                allocation=alloc_info.allocation,
-                # Alloc was never executed
-                execution_start_time=None,
-                execution_end_time=None,
+                execution_duration_ms=None,
             )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state in [
@@ -667,8 +642,8 @@ class FunctionExecutorController:
         ]:
             # The output could be set already by FE startup failure handler.
             if alloc_info.output is None:
-                alloc_info.output = AllocationOutput.function_executor_terminated(
-                    alloc_info.allocation
+                alloc_info.output = (
+                    AllocationOutput.allocation_didn_run_because_function_executor_terminated()
                 )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
@@ -676,6 +651,10 @@ class FunctionExecutorController:
             next_aio = run_allocation_on_function_executor(
                 alloc_info=alloc_info,
                 function_executor=self._fe,
+                blob_store=self._blob_store,
+                state_reporter=self._state_reporter,
+                function_call_watch_dispatcher=self._function_call_watch_dispatcher,
+                channel_manager=self._channel_manager,
                 logger=allocation_logger(alloc_info.allocation, self._logger),
             )
             self._spawn_aio_for_allocation(
@@ -723,16 +702,6 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination=[alloc_info.allocation.allocation_id],
             )
 
-        if alloc_info.output is None:
-            # `run_allocation_on_function_executor` guarantees that the output is set in
-            # all cases including allocation cancellations. If this didn't happen then some
-            # internal error occurred in our code.
-            alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                execution_start_time=None,
-                execution_end_time=None,
-            )
-
         self._start_allocation_finalization(alloc_info)
 
     def _start_allocation_finalization(self, alloc_info: AllocationInfo) -> None:
@@ -741,6 +710,14 @@ class FunctionExecutorController:
         Doesn't raise any exceptions. Doesn't block.
         alloc_info.output should not be None.
         """
+        if alloc_info.output is None:
+            allocation_logger(alloc_info.allocation, self._logger).error(
+                "allocation finalization without output, this should never happen"
+            )
+            alloc_info.output = AllocationOutput.internal_error(
+                execution_duration_ms=None,
+            )
+
         next_aio = finalize_allocation(
             alloc_info=alloc_info,
             blob_store=self._blob_store,
@@ -767,9 +744,7 @@ class FunctionExecutorController:
                 alloc_info.output
             )  # Never None here
             alloc_info.output = AllocationOutput.internal_error(
-                allocation=alloc_info.allocation,
-                execution_start_time=original_alloc_output.execution_start_time,
-                execution_end_time=original_alloc_output.execution_end_time,
+                execution_duration_ms=original_alloc_output.execution_duration_ms,
             )
 
         logger: Any = allocation_logger(alloc_info.allocation, self._logger)
@@ -781,7 +756,7 @@ class FunctionExecutorController:
         )
         # Reconciler will call .remove_allocation() once Server signals that it processed this update.
         self._state_reporter.add_completed_allocation_result(
-            _to_alloc_result_proto(alloc_info, logger)
+            _to_server_alloc_result(alloc_info, logger)
         )
         self._state_reporter.schedule_state_report()
 
@@ -906,48 +881,51 @@ def _termination_reason_to_short_name(value: FunctionExecutorTerminationReason) 
     return _termination_reason_to_short_name_map.get(value, "UNEXPECTED")
 
 
-def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> AllocationResult:
+def _to_server_alloc_result(
+    alloc_info: AllocationInfo, logger: Any
+) -> AllocationResult:
     allocation: Allocation = alloc_info.allocation
     # Might be None if the alloc wasn't prepared successfully.
     input: AllocationInput | None = alloc_info.input
     # Never None here as we're completing the alloc here.
     output: AllocationOutput | None = alloc_info.output
 
-    execution_duration_ms: int | None = None
-    if (
-        output.execution_start_time is not None
-        and output.execution_end_time is not None
-    ):
-        # <= 0.99 ms functions get billed as 1 ms.
-        execution_duration_ms = math.ceil(
-            (output.execution_end_time - output.execution_start_time) * 1000
-        )
-
     request_error_output: DataPayload | None = None
-    if output.request_error_output is not None:
-        # input can't be None if request_error_output is set because the alloc ran already.
-        request_error_output = _so_to_data_payload_proto(
-            so=output.request_error_output,
-            blob_uri=input.request_error_blob_uri,
-            logger=logger,
-        )
-
     output_value: DataPayload | None = None
-    if output.output_value is not None:
-        # input can't be None if output_value is set because the alloc ran already.
-        output_value = _so_to_data_payload_proto(
-            so=output.output_value,
-            blob_uri=input.function_outputs_blob_uri,
-            logger=logger,
-        )
-
     output_updates: ExecutionPlanUpdates | None = None
-    if output.output_execution_plan_updates is not None:
-        output_updates = _to_execution_plan_updates_proto(
-            fe_updates=output.output_execution_plan_updates,
-            output_blob_uri=input.function_outputs_blob_uri,
-            logger=logger,
-        )
+
+    if output.fe_result is not None:
+        fe_result: FEAllocationResult = output.fe_result
+        if fe_result.HasField("request_error_output"):
+            # input can't be None if request_error_output is set because the alloc ran already.
+            request_error_output = to_data_payload(
+                so=fe_result.request_error_output,
+                blob_uri=input.request_error_blob_uri,
+                logger=logger,
+            )
+
+        if fe_result.HasField("value"):
+            if output.function_outputs_blob_uri is None:
+                logger.error(
+                    "function output value blob URI is not set, this should never happen",
+                )
+            else:
+                output_value = to_data_payload(
+                    so=fe_result.value,
+                    blob_uri=output.function_outputs_blob_uri,
+                    logger=logger,
+                )
+        elif fe_result.HasField("updates"):
+            try:
+                output_updates = to_server_execution_plan_updates(
+                    fe_execution_plan_updates=fe_result.updates,
+                    args_blob_uri=output.function_outputs_blob_uri,
+                )
+            except ValueError as e:
+                logger.error(
+                    "Failed to convert function executor updates from FE to Server",
+                    exc_info=e,
+                )
 
     return AllocationResult(
         function=FunctionRef(
@@ -964,159 +942,5 @@ def _to_alloc_result_proto(alloc_info: AllocationInfo, logger: Any) -> Allocatio
         value=output_value,
         updates=output_updates,
         request_error=request_error_output,
-        execution_duration_ms=execution_duration_ms,
+        execution_duration_ms=output.execution_duration_ms,
     )
-
-
-def _to_execution_plan_updates_proto(
-    fe_updates: FEExecutionPlanUpdates, output_blob_uri: str, logger: Any
-) -> ExecutionPlanUpdates:
-    # TODO: Validate FEExecutionPlanUpdates object.
-    executor_updates: List[ExecutionPlanUpdate] = []
-    for fe_update in fe_updates.updates:
-        fe_update: FEExecutionPlanUpdate
-
-        if fe_update.HasField("function_call"):
-            executor_updates.append(
-                ExecutionPlanUpdate(
-                    function_call=_to_function_call_proto(
-                        fe_function_call=fe_update.function_call,
-                        output_blob_uri=output_blob_uri,
-                        logger=logger,
-                    )
-                )
-            )
-        elif fe_update.HasField("reduce"):
-            executor_updates.append(
-                ExecutionPlanUpdate(
-                    reduce=_to_reduce_op_proto(
-                        reduce=fe_update.reduce,
-                        output_blob_uri=output_blob_uri,
-                        logger=logger,
-                    )
-                )
-            )
-        else:
-            logger.error(
-                "unexpected FEExecutionPlanUpdate with no function_call or reduce set",
-            )
-
-    return ExecutionPlanUpdates(
-        updates=executor_updates,
-        root_function_call_id=fe_updates.root_function_call_id,
-    )
-
-
-def _to_function_call_proto(
-    fe_function_call: FEFunctionCall, output_blob_uri: str, logger: Any
-) -> FunctionCall:
-    args: List[FunctionArg] = []
-    for fe_arg in fe_function_call.args:
-        fe_arg: FEFunctionArg
-        args.append(
-            _to_function_arg_proto(
-                fe_function_arg=fe_arg,
-                output_blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-
-    return FunctionCall(
-        id=fe_function_call.id,
-        target=_to_function_ref_proto(fe_function_call.target),
-        args=args,
-        call_metadata=fe_function_call.call_metadata,
-    )
-
-
-def _to_reduce_op_proto(
-    reduce: FEReduceOp, output_blob_uri: str, logger: Any
-) -> ReduceOp:
-    collection: List[FunctionArg] = []
-    for fe_arg in reduce.collection:
-        fe_arg: FEFunctionArg
-        collection.append(
-            _to_function_arg_proto(
-                fe_function_arg=fe_arg,
-                output_blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-
-    return ReduceOp(
-        id=reduce.id,
-        collection=collection,
-        reducer=_to_function_ref_proto(reduce.reducer),
-        call_metadata=reduce.call_metadata,
-    )
-
-
-def _to_function_ref_proto(fe_function_ref: FEFunctionRef) -> FunctionRef:
-    return FunctionRef(
-        namespace=fe_function_ref.namespace,
-        application_name=fe_function_ref.application_name,
-        function_name=fe_function_ref.function_name,
-        application_version=fe_function_ref.application_version,
-    )
-
-
-def _to_function_arg_proto(
-    fe_function_arg: FEFunctionArg, output_blob_uri: str, logger: Any
-) -> FunctionArg:
-    if fe_function_arg.HasField("function_call_id"):
-        return FunctionArg(function_call_id=fe_function_arg.function_call_id)
-    elif fe_function_arg.HasField("value"):
-        return FunctionArg(
-            inline_data=_so_to_data_payload_proto(
-                so=fe_function_arg.value,
-                blob_uri=output_blob_uri,
-                logger=logger,
-            )
-        )
-    else:
-        logger.error(
-            "unexpected FEFunctionArg with no value or function_call_id set",
-        )
-        return FunctionArg()  # Empty arg as we can't raise here.
-
-
-def _so_to_data_payload_proto(
-    so: SerializedObjectInsideBLOB,
-    blob_uri: str,
-    logger: Any,
-) -> DataPayload:
-    """Converts a serialized object inside BLOB to into a DataPayload."""
-    # TODO: Validate SerializedObjectInsideBLOB.
-    return DataPayload(
-        uri=blob_uri,
-        encoding=_so_to_data_payload_encoding(so.manifest.encoding, logger),
-        encoding_version=so.manifest.encoding_version,
-        content_type=(
-            so.manifest.content_type if so.manifest.HasField("content_type") else None
-        ),
-        metadata_size=so.manifest.metadata_size,
-        offset=so.offset,
-        size=so.manifest.size,
-        sha256_hash=so.manifest.sha256_hash,
-        source_function_call_id=so.manifest.source_function_call_id,
-        # id is not used
-    )
-
-
-def _so_to_data_payload_encoding(
-    encoding: SerializedObjectEncoding, logger: Any
-) -> DataPayloadEncoding:
-    if encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT
-    elif encoding == SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW:
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW
-    else:
-        logger.error(
-            "unexpected encoding for SerializedObject",
-            encoding=SerializedObjectEncoding.Name(encoding),
-        )
-        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UNKNOWN

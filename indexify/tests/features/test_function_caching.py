@@ -21,8 +21,10 @@ class Payload(BaseModel):
 @application()
 @function()
 def sum_numbers_api(payload: Payload) -> int:
-    return sum_numbers(
-        generate_numbers(payload.count, payload.generate_numbers_runs_file_path)
+    return sum_numbers.awaitable(
+        generate_numbers.awaitable(
+            payload.count, payload.generate_numbers_runs_file_path
+        )
     )
 
 
@@ -31,7 +33,9 @@ def sum_numbers(numbers: List[int]) -> int:
     return sum(numbers)
 
 
-@function(cacheable=True)
+# cacheable function attribute is hidden right now because it's not implemented yet.
+# @function(cacheable=True)
+@function()
 def generate_numbers(count: int, cache_file_path: str) -> List[int]:
     with open(cache_file_path, "a") as cache_file:
         cache_file.write("generate_numbers run\n")

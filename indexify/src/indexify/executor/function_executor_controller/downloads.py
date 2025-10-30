@@ -6,17 +6,14 @@ from typing import Any
 import nanoid
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObject,
-    SerializedObjectEncoding,
-    SerializedObjectManifest,
 )
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 from indexify.proto.executor_api_pb2 import (
-    DataPayload,
-    DataPayloadEncoding,
     FunctionExecutorDescription,
 )
 
+from .blob_utils import serialized_object_manifest_from_data_payload
 from .metrics.downloads import (
     metric_application_download_errors,
     metric_application_download_latency,
@@ -72,7 +69,7 @@ async def _download_application_code(
         uri=function_executor_description.application.uri, logger=logger
     )
     application: SerializedObject = SerializedObject(
-        manifest=serialized_object_manifest_from_data_payload_proto(
+        manifest=serialized_object_manifest_from_data_payload(
             function_executor_description.application
         ),
         data=data,
@@ -121,53 +118,3 @@ def _write_cached_application(
     # are atomic operations at filesystem level.
     # This also allows to share the same cache between multiple Executors.
     os.replace(tmp_path, path)
-
-
-def serialized_object_manifest_from_data_payload_proto(
-    data_payload: DataPayload,
-) -> SerializedObjectManifest:
-    """Converts the given data payload into SerializedObjectManifest accepted by Function Executor.
-
-    Raises ValueError if the supplied data payload can't be converted.
-    """
-    so_manifest: SerializedObjectManifest = SerializedObjectManifest(
-        # Server currently ignores encoding version so we set it to default 0.
-        encoding_version=(
-            data_payload.encoding_version
-            if data_payload.HasField("encoding_version")
-            else 0
-        ),
-        sha256_hash=data_payload.sha256_hash,
-        size=data_payload.size,
-        metadata_size=data_payload.metadata_size,
-    )
-    if data_payload.HasField("content_type"):
-        so_manifest.content_type = data_payload.content_type
-    if data_payload.HasField("source_function_call_id"):
-        so_manifest.source_function_call_id = data_payload.source_function_call_id
-    # data_payload.id is not used.
-
-    if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:
-        so_manifest.encoding = (
-            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_PICKLE
-        )
-    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT:
-        so_manifest.encoding = (
-            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_TEXT
-        )
-    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON:
-        so_manifest.encoding = (
-            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_UTF8_JSON
-        )
-    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_ZIP:
-        so_manifest.encoding = (
-            SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_BINARY_ZIP
-        )
-    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_RAW:
-        so_manifest.encoding = SerializedObjectEncoding.SERIALIZED_OBJECT_ENCODING_RAW
-    else:
-        raise ValueError(
-            f"Can't convert data payload {data_payload} into serialized object"
-        )
-
-    return so_manifest

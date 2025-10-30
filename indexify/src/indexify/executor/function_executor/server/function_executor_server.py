@@ -12,6 +12,10 @@ class FunctionExecutorServerStatus:
         self.running: bool = running
         self.oom_killed: bool = oom_killed
 
+    @classmethod
+    def healthy(cls) -> "FunctionExecutorServerStatus":
+        return cls(running=True, oom_killed=False)
+
 
 class FunctionExecutorServer:
     """
@@ -35,9 +39,9 @@ class FunctionExecutorServer:
     async def status(self) -> FunctionExecutorServerStatus:
         """
         Returns the status information about the Function Executor Server.
-        By default, it returns a status with running=False and oom_killed=False.
+        By default, it returns a healthy status.
 
         Classes that inherit from FunctionExecutorServer should override this method to provide
-        their own implementation.
+        their own implementation. Doesn't raise any exceptions.
         """
-        return FunctionExecutorServerStatus(running=False, oom_killed=False)
+        return FunctionExecutorServerStatus.healthy()

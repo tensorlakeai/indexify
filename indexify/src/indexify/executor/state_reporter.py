@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import platform
 import sys
+from dataclasses import dataclass
 from socket import gethostname
 from typing import Any, Dict, List
 
@@ -13,6 +14,7 @@ from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     ExecutorUpdate,
+    FunctionCallWatch,
     FunctionExecutorState,
     GPUModel,
     GPUResources,
@@ -38,6 +40,17 @@ from .monitoring.health_checker.health_checker import HealthChecker
 _REPORTING_INTERVAL_SEC = 5
 _REPORTING_BACKOFF_SEC = 5
 _REPORT_RPC_TIMEOUT_SEC = 5
+
+
+@dataclass
+class _FunctionCallWatchInfo:
+    watch: FunctionCallWatch
+    ref_counter: int
+
+
+def _function_call_watch_key(watch: FunctionCallWatch) -> str:
+    # Allows to group watches for the same function call id into the same group.
+    return f"{watch.namespace}.{watch.application}.{watch.request_id}.{watch.function_call_id}"
 
 
 class ExecutorStateReporter:
@@ -87,8 +100,12 @@ class ExecutorStateReporter:
         self._last_server_clock: int = (
             0  # Server expects initial value to be 0 until it is set by Server.
         )
+        # Alloc ID -> AllocationResult
         self._pending_allocation_results: List[AllocationResult] = []
+        # FE ID -> FunctionExecutorState
         self._function_executor_states: Dict[str, FunctionExecutorState] = {}
+        # Watch content based key -> _FunctionCallWatchInfo
+        self._function_call_watches: Dict[str, _FunctionCallWatchInfo] = {}
         self._last_state_report_request: ReportExecutorStateRequest | None = None
 
     def last_state_report_request(self) -> ReportExecutorStateRequest | None:
@@ -119,11 +136,45 @@ class ExecutorStateReporter:
     def add_completed_allocation_result(self, alloc_result: AllocationResult) -> None:
         self._pending_allocation_results.append(alloc_result)
 
+    def add_function_call_watcher(self, watch: FunctionCallWatch) -> None:
+        content_derived_key: str = _function_call_watch_key(watch)
+        if content_derived_key not in self._function_call_watches:
+            self._function_call_watches[content_derived_key] = _FunctionCallWatchInfo(
+                watch=watch,
+                ref_counter=0,
+            )
+        self._function_call_watches[content_derived_key].ref_counter += 1
+
+    def _current_function_call_watches(self) -> List[FunctionCallWatch]:
+        return [watch_info.watch for watch_info in self._function_call_watches.values()]
+
+    def remove_function_call_watcher(self, watch: FunctionCallWatch) -> None:
+        """Removes a function call watcher.
+
+        If the watcher ref counter reaches zero, the watcher is removed completely.
+        If the watcher doesn't exist, a warning is logged.
+        """
+        content_derived_key: str = _function_call_watch_key(watch)
+        watch_info: _FunctionCallWatchInfo | None = self._function_call_watches.get(
+            content_derived_key
+        )
+        if watch_info is None:
+            self._logger.warning(
+                "attempted to remove non-existing function call watcher",
+                watch=str(watch),
+            )
+            return
+
+        watch_info.ref_counter -= 1
+        if watch_info.ref_counter == 0:
+            self._function_call_watches.pop(content_derived_key)
+
     def schedule_state_report(self) -> None:
         """Schedules a state report to be sent to the server asap.
 
         This method is called when the executor state changes and it needs to get reported.
         The call doesn't block and returns immediately.
+        Doesn't raise any exceptions.
         """
         self._state_report_scheduled_event.set()
 
@@ -204,7 +255,8 @@ class ExecutorStateReporter:
                     state: ExecutorState = self._current_executor_state()
                     update: ExecutorUpdate = self._remove_pending_update()
                     request: ReportExecutorStateRequest = ReportExecutorStateRequest(
-                        executor_state=state, executor_update=update
+                        executor_state=state,
+                        executor_update=update,
                     )
                     _log_reported_executor_update(update, self._logger)
                     self._last_state_report_request = request
@@ -253,9 +305,9 @@ class ExecutorStateReporter:
             allowed_functions=self._allowed_functions,
             function_executor_states=list(self._function_executor_states.values()),
             labels=self._labels,
+            catalog_entry_name=self._catalog_entry_name,
+            function_call_watches=self._current_function_call_watches(),
         )
-        if self._catalog_entry_name is not None:
-            state.catalog_entry_name = self._catalog_entry_name
         state.state_hash = _state_hash(state)
         # Set fields not included in the state hash.
         state.server_clock = self._last_server_clock

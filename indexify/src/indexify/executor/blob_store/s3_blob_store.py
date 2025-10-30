@@ -1,6 +1,5 @@
 import asyncio
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -60,9 +59,7 @@ class S3BLOBStore:
             logger.error("failed to get S3 object", uri=uri, exc_info=e)
             raise
 
-    async def presign_get_uri(
-        self, uri: str, expires_in_sec: int, tags: dict[str, str], logger: Any
-    ) -> str:
+    async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
         """Returns a presigned URI for getting the S3 object at the supplied URI."""
         self._lazy_create_client()
         bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
@@ -70,7 +67,7 @@ class S3BLOBStore:
             s3_uri: str = await asyncio.to_thread(
                 self._s3_client.generate_presigned_url,
                 ClientMethod="get_object",
-                Params={"Bucket": bucket_name, "Key": key, "Tagging": urlencode(tags)},
+                Params={"Bucket": bucket_name, "Key": key},
                 ExpiresIn=expires_in_sec,
             )
             return s3_uri.replace("https://", "s3://", 1)
@@ -160,7 +157,6 @@ class S3BLOBStore:
         part_number: int,
         upload_id: str,
         expires_in_sec: int,
-        tags: dict[str, str],
         logger: Any,
     ) -> str:
         """Returns a presigned URI for uploading a part in a multipart upload for S3 object."""
@@ -175,7 +171,6 @@ class S3BLOBStore:
                     "Key": key,
                     "UploadId": upload_id,
                     "PartNumber": part_number,
-                    "Tagging": urlencode(tags),
                 },
                 ExpiresIn=expires_in_sec,
             )

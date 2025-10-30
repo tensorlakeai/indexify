@@ -15,7 +15,8 @@ concurrency_counter: int = 0
 
 
 @application()
-@function(max_concurrency=MAX_CONCURRENCY)
+# @function(max_concurrency=MAX_CONCURRENCY)
+@function()
 def concurrent_function(_i: int) -> int:
     global concurrency_counter
     concurrency_counter += 1
@@ -24,6 +25,11 @@ def concurrent_function(_i: int) -> int:
     time.sleep(10)
     concurrency_counter -= 1
     return observed_max_concurrency
+
+
+# A workaround to set max_concurrency since it's hidden right now in SDK interface
+# because Telemetry doesn't support concurrent allocation runs yet.
+concurrent_function._function_config.max_concurrency = MAX_CONCURRENCY
 
 
 class TestFunctionConcurrency(unittest.TestCase):
