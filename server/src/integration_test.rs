@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
     use anyhow::Result;
     use strum::IntoEnumIterator;
@@ -26,6 +29,7 @@ mod tests {
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
+                DeleteRequestRequest,
                 RequestPayload,
                 StateMachineUpdateRequest,
             },
@@ -246,6 +250,33 @@ mod tests {
             assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
             assert!(cursor.is_none());
         }
+
+        // Tombstone the request
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneRequest(DeleteRequestRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    application: "graph_A".to_string(),
+                    request_id: request_id.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was deleted
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_none());
+
+        let all_function_runs = test_srv.get_all_function_runs().await?;
+        assert_eq!(0, all_function_runs.len());
+        let all_allocations = indexify_state
+            .reader()
+            .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
+            .unwrap();
+        assert_eq!(0, all_allocations.len());
 
         Ok(())
     }
@@ -907,7 +938,8 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // create the application
-        let mut app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        let mut app =
+            test_state_store::create_or_update_application(&indexify_state, "graph_A", 0).await;
         assert_eq!(ApplicationState::Active, app.state);
 
         app.state = ApplicationState::Disabled {
@@ -933,6 +965,125 @@ mod tests {
             err.to_string()
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_tombstone_application() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // create the application without invoking
+        test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
+
+        // verify the application was created
+        let (applications, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, None, None)
+            .unwrap();
+        assert_eq!(1, applications.len());
+        assert_eq!("app_1", applications[0].name);
+
+        // tombstone the application
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "app_1".to_string(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the application was tombstoned (deleted)
+        let application = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .get_application(TEST_NAMESPACE, "app_1")
+            .unwrap();
+        assert!(application.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_tombstone_request() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        // invoke the application to create a request
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was created
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_some());
+
+        // We should have an unallocated task
+        assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
+
+        // tombstone the request
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneRequest(DeleteRequestRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    application: "graph_A".to_string(),
+                    request_id: request_id.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // verify the request was deleted
+        let request_ctx =
+            indexify_state
+                .reader()
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        assert!(request_ctx.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_application_and_requests() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        let new_app = test_state_store::mock_application("graph_A", "2");
+
+        let request = CreateOrUpdateApplicationRequest {
+            namespace: TEST_NAMESPACE.to_string(),
+            application: new_app,
+            upgrade_requests_to_current_version: true,
+        };
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(request)),
+            })
+            .await
+            .unwrap();
+        test_srv.process_all_state_changes().await?;
+
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .unwrap()
+            .unwrap();
+        let versions = request_ctx
+            .function_runs
+            .values()
+            .map(|r| r.version.clone())
+            .collect::<HashSet<_>>();
+        assert_eq!(1, versions.len());
+        assert_eq!("2", versions.iter().next().unwrap());
         Ok(())
     }
 }

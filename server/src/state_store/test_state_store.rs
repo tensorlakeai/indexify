@@ -40,7 +40,7 @@ pub async fn with_simple_retry_application(
     indexify_state: &IndexifyState,
     max_retries: u32,
 ) -> String {
-    let app = create_or_update_application(indexify_state, max_retries).await;
+    let app = create_or_update_application(indexify_state, "graph_A", max_retries).await;
     invoke_application(indexify_state, &app).await.unwrap()
 }
 
@@ -50,9 +50,10 @@ pub async fn with_simple_application(indexify_state: &IndexifyState) -> String {
 
 pub async fn create_or_update_application(
     indexify_state: &IndexifyState,
+    app_name: &str,
     max_retries: u32,
 ) -> Application {
-    let app = tests::mock_app_with_retries(max_retries);
+    let app = tests::mock_app_with_retries(app_name, "1", max_retries);
     let request = CreateOrUpdateApplicationRequest {
         namespace: TEST_NAMESPACE.to_string(),
         application: app.clone(),
@@ -66,6 +67,10 @@ pub async fn create_or_update_application(
         .unwrap();
 
     app
+}
+
+pub fn mock_application(app_name: &str, version: &str) -> Application {
+    tests::mock_app_with_retries(app_name, version, 0)
 }
 
 pub async fn invoke_application(

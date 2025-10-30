@@ -32,6 +32,8 @@ mod integration_test;
 mod integration_test_blocking_calls;
 #[cfg(test)]
 mod integration_test_executor_catalog;
+#[cfg(test)]
+mod integration_test_scanner;
 mod queue;
 #[cfg(test)]
 mod reconciliation_test;
