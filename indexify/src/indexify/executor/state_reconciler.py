@@ -558,10 +558,18 @@ class ExecutorStateReconciler:
         Doesn't raise any exceptions. Doesn't block.
         """
         for function_call_result in function_call_results:
+            # Filter out function call result updates Executor is not interested in.
             if (
                 function_call_result.outcome_code
                 not in _terminal_allocation_outcome_codes
             ):
+                continue
+            if (
+                function_call_result.outcome_code
+                == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_SUCCESS
+                and not function_call_result.HasField("return_value")
+            ):
+                # This function call is waiting for tail call that it returned to resolve to a value.
                 continue
 
             content_derived_key: str = _function_call_watch_key(
