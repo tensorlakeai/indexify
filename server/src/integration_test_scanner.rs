@@ -4,7 +4,6 @@ mod tests {
 
     use anyhow::Result;
     use mock_instant::global::MockClock;
-    use tracing_subscriber::fmt::time;
 
     use crate::{
         data_model::{
@@ -230,17 +229,43 @@ mod tests {
         assert_eq!(apps.len(), 0);
         assert!(cursor.is_none());
 
-        // Create an application
-        test_state_store::with_simple_application(&indexify_state).await;
+        // Create an applications
+        test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
+        test_state_store::create_or_update_application(&indexify_state, "app_2", 0).await;
+        test_state_store::create_or_update_application(&indexify_state, "app_3", 0).await;
+        test_state_store::create_or_update_application(&indexify_state, "app_4", 0).await;
 
-        // Should have the application
+        // Should list all applications
         let (apps, cursor) =
             indexify_state
                 .reader()
                 .list_applications(TEST_NAMESPACE, None, None)?;
-        assert_eq!(apps.len(), 1);
-        assert!(apps.iter().any(|app| app.name == "graph_A"));
+        assert_eq!(4, apps.len());
         assert!(cursor.is_none());
+        assert_eq!("app_1", apps[0].name);
+        assert_eq!("app_2", apps[1].name);
+        assert_eq!("app_3", apps[2].name);
+        assert_eq!("app_4", apps[3].name);
+
+        // Should list only the first two applications
+        let (apps, cursor) =
+            indexify_state
+                .reader()
+                .list_applications(TEST_NAMESPACE, None, Some(2))?;
+        assert_eq!(2, apps.len());
+        assert!(cursor.is_some());
+        assert_eq!("app_1", apps[0].name);
+        assert_eq!("app_2", apps[1].name);
+
+        // Should list only the next two applications
+        let (apps, cursor) =
+            indexify_state
+                .reader()
+                .list_applications(TEST_NAMESPACE, cursor.as_deref(), None)?;
+        assert_eq!(2, apps.len());
+        assert!(cursor.is_none());
+        assert_eq!("app_3", apps[0].name);
+        assert_eq!("app_4", apps[1].name);
 
         Ok(())
     }
@@ -395,7 +420,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create an application to generate requests
-        let app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        let app = test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
         test_srv.process_all_state_changes().await?;
         let request_id = test_state_store::invoke_application(&indexify_state, &app).await?;
         test_srv.process_all_state_changes().await?;
@@ -421,7 +446,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create an application
-        let app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        let app = test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
         test_srv.process_all_state_changes().await?;
 
         // Invoke the application multiple times to create multiple requests

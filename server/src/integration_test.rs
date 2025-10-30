@@ -907,7 +907,8 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
 
         // create the application
-        let mut app = test_state_store::create_or_update_application(&indexify_state, 0).await;
+        let mut app =
+            test_state_store::create_or_update_application(&indexify_state, "graph_A", 0).await;
         assert_eq!(ApplicationState::Active, app.state);
 
         app.state = ApplicationState::Disabled {
