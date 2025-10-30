@@ -35,7 +35,7 @@ from ..channel_manager import ChannelManager
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
-from .allocation_runner import AllocationRunner
+from .allocation_runner import run_allocation_on_function_executor
 from .blob_utils import to_data_payload
 from .completed_allocation_metrics import emit_completed_allocation_metrics
 from .create_function_executor import create_function_executor
@@ -647,7 +647,8 @@ class FunctionExecutorController:
                 )
             self._start_allocation_finalization(alloc_info)
         elif self._internal_state == _FE_CONTROLLER_STATE.RUNNING:
-            runner: AllocationRunner = AllocationRunner(
+            self._running_allocations.append(alloc_info)
+            next_aio = run_allocation_on_function_executor(
                 alloc_info=alloc_info,
                 function_executor=self._fe,
                 blob_store=self._blob_store,
@@ -656,11 +657,8 @@ class FunctionExecutorController:
                 channel_manager=self._channel_manager,
                 logger=allocation_logger(alloc_info.allocation, self._logger),
             )
-            alloc_info.runner = runner
-            self._running_allocations.append(alloc_info)
-
             self._spawn_aio_for_allocation(
-                aio=runner.run(),
+                aio=next_aio,
                 alloc_info=alloc_info,
                 on_exception=AllocationExecutionFinished(
                     alloc_info=alloc_info,
@@ -835,13 +833,6 @@ class FunctionExecutorController:
         metric_function_executors_with_state.labels(
             state=_to_fe_state_metric_label(self._internal_state, self._logger)
         ).dec()
-
-        # Cleanup all allocation runners.
-        for alloc_info in self._allocations.values():
-            if alloc_info.runner is not None:
-                runner: AllocationRunner = alloc_info.runner
-                await runner.destroy()
-                alloc_info.runner = None
 
         self._state_reporter.remove_function_executor_state(self.function_executor_id())
         self._state_reporter.schedule_state_report()

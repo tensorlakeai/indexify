@@ -8,11 +8,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 
 from indexify.executor.blob_store.blob_store import BLOBStore
 
-from .aio_utils import shielded_await
 from .allocation_info import AllocationInfo
 from .allocation_input import AllocationInput
 from .allocation_output import AllocationOutput
-from .allocation_runner import AllocationRunner
 from .events import AllocationFinalizationFinished
 from .metrics.finalize_allocation import (
     metric_allocation_finalization_errors,
@@ -83,17 +81,6 @@ async def _finalize_alloc_output(
 
     input: AllocationInput = alloc_info.input
     output: AllocationOutput = alloc_info.output
-
-    if alloc_info.runner is not None:
-        runner: AllocationRunner = alloc_info.runner
-        await shielded_await(
-            asyncio.create_task(
-                runner.destroy(),
-                name=f"allocation_runner_destroy:{alloc_info.allocation.allocation_id}",
-            ),
-            logger,
-        )
-        alloc_info.runner = None
 
     if output.fe_result is not None:
         _log_function_metrics(output.fe_result, logger)

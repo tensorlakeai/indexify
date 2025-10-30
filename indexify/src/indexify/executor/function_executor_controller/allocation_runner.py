@@ -82,6 +82,7 @@ from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 from ..blob_store.blob_store import BLOBStore
 from ..channel_manager import ChannelManager
 from ..state_reporter import ExecutorStateReporter
+from .aio_utils import shielded_await
 from .allocation_info import AllocationInfo
 from .allocation_output import AllocationOutput
 from .blob_utils import (
@@ -160,6 +161,44 @@ class _RunAllocationOnFunctionExecutorResult:
     function_outputs_blob_uri: str | None
 
 
+async def run_allocation_on_function_executor(
+    alloc_info: AllocationInfo,
+    function_executor: FunctionExecutor,
+    blob_store: BLOBStore,
+    state_reporter: ExecutorStateReporter,
+    function_call_watch_dispatcher: FunctionCallWatchDispatcher,
+    channel_manager: ChannelManager,
+    logger: Any,
+) -> AllocationExecutionFinished:
+    """Runs the allocation on the Function Executor and sets alloc_info.output with the result.
+
+    Doesn't raise any exceptions.
+    """
+    logger = logger.bind(module=__name__)
+    runner: AllocationRunner = AllocationRunner(
+        alloc_info=alloc_info,
+        function_executor=function_executor,
+        blob_store=blob_store,
+        state_reporter=state_reporter,
+        function_call_watch_dispatcher=function_call_watch_dispatcher,
+        channel_manager=channel_manager,
+        logger=logger,
+    )
+
+    try:
+        return await runner.run()
+    finally:
+        # We have to complete runner destroy before returning because FE Controller assumes
+        # that no allocation aio tasks are running on return.
+        await shielded_await(
+            asyncio.create_task(
+                runner.destroy(),
+                name=f"allocation_runner_destroy:{alloc_info.allocation.allocation_id}",
+            ),
+            logger,
+        )
+
+
 class AllocationRunner:
     def __init__(
         self,
@@ -183,7 +222,7 @@ class AllocationRunner:
             function_call_watch_dispatcher
         )
         self._channel_manager: ChannelManager = channel_manager
-        self._logger: Any = logger.bind(module=__name__)
+        self._logger: Any = logger
         # BLOB ID -> BLOBInfo
         # Output BLOBs with pending multipart uploads.
         # BLOB is deleted once its upload is either completed or aborted.

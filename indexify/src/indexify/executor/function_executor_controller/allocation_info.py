@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any
 
 from indexify.proto.executor_api_pb2 import Allocation
 
@@ -25,9 +24,6 @@ class AllocationInfo:
     aio_task: asyncio.Task | None = None
     # Input of the function if task allocation was prepared successfully.
     input: AllocationInput | None = None
-    # AllocationRunner that is running this allocation or finished running it but
-    # wasn't destroyed yet. Use Any type to avoid circular import.
-    runner: Any | None = None
     # Output of the task allocation, always set when the allocation is completed.
     output: AllocationOutput | None = None
     # True if the task allocation is fully completed and was added to state reporter.

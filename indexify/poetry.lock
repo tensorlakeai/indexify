@@ -1857,14 +1857,14 @@ py = ">=1.4.26,<2.0.0"
 
 [[package]]
 name = "rich"
-version = "14.1.0"
+version = "14.2.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
 optional = false
 python-versions = ">=3.8.0"
 groups = ["main"]
 files = [
-    {file = "rich-14.1.0-py3-none-any.whl", hash = "sha256:536f5f1785986d6dbdea3c75205c473f970777b4a0d6c6dd1b696aa05a3fa04f"},
-    {file = "rich-14.1.0.tar.gz", hash = "sha256:e497a48b844b0320d45007cdebfeaeed8db2a4f4bcf49f15e455cfc4af11eaa8"},
+    {file = "rich-14.2.0-py3-none-any.whl", hash = "sha256:76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd"},
+    {file = "rich-14.2.0.tar.gz", hash = "sha256:73ff50c7c0c1c77c8243079283f4edb376f0f6442433aecb8ce7e6d0b92d1fe4"},
 ]
 
 [package.dependencies]
@@ -1954,14 +1954,14 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "tensorlake"
-version = "0.2.70"
+version = "0.2.71"
 description = "Tensorlake SDK for Document Ingestion API and Serverless Applications"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.2.70-py3-none-any.whl", hash = "sha256:57276cf01d376d1872b4fe1cb6d006b24bf7ff1d9912b038464243f12f71e590"},
-    {file = "tensorlake-0.2.70.tar.gz", hash = "sha256:7923435148eb0545dd53df243da5b060434a104329b3eaf101b36c47985a3aa5"},
+    {file = "tensorlake-0.2.71-py3-none-any.whl", hash = "sha256:105a47cddc4a394d3c060fbfcb4f2ee970f9250ded06085aeaaed6dbf2f7379d"},
+    {file = "tensorlake-0.2.71.tar.gz", hash = "sha256:c161859217da3d9d4d878e89bc37990ecb38256203c3e2869ad3918cd8e1580c"},
 ]
 
 [package.dependencies]
@@ -1976,7 +1976,7 @@ pydantic = ">=2.0,<3.0"
 python-magic = ">=0.4.27,<0.5.0"
 pyyaml = ">=6.0.3,<7.0.0"
 retry = ">=0.9.2,<0.10.0"
-rich = "14.1.0"
+rich = "14.2.0"
 tomlkit = ">=0.13.3,<0.14.0"
 tqdm = ">=4.67.1,<5.0.0"
 
@@ -2261,4 +2261,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "212d6680157419ee32e5822850d9687c0a1e9f2af8fb50dc62f8d3581e4672a9"
+content-hash = "2e602800d55fd34587c1eff0a37e83d23d79b4afede2e03d6d8507d12ce94019"
