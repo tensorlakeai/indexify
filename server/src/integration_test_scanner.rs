@@ -325,6 +325,14 @@ mod tests {
         assert!(app_version.is_some());
         assert_eq!(app_version.unwrap().version, "v1.0");
 
+        // Should be able to get the latest version without specifying the version
+        let app_version =
+            indexify_state
+                .reader()
+                .get_application_version(TEST_NAMESPACE, "test_app", "")?;
+        assert!(app_version.is_some());
+        assert_eq!(app_version.unwrap().version, "v1.0");
+
         Ok(())
     }
 
