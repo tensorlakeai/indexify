@@ -83,7 +83,7 @@ pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Resu
         "create_request",
         namespace = req.namespace,
         app = req.application_name,
-        request_id = req.ctx.request_id
+        request_id = req.ctx.request_id,
     );
     let _guard = span.enter();
 

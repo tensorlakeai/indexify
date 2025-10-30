@@ -122,10 +122,10 @@ impl ExecutorWatches {
                 continue;
             };
             for function_call_id in function_run_ids {
-                if let Some(function_run) = ctx.function_runs.get(function_call_id) {
-                    if function_run.status != FunctionRunStatus::Completed {
-                        continue;
-                    }
+                if let Some(function_run) = ctx.function_runs.get(function_call_id) &&
+                    function_run.status != FunctionRunStatus::Completed
+                {
+                    continue;
                 }
                 possible_watches.insert(ExecutorWatch {
                     namespace: ctx.namespace.clone(),
