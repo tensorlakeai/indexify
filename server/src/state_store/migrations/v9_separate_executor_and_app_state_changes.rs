@@ -27,19 +27,25 @@ impl Migration for V9SeparateExecutorAndAppStateChanges {
     }
 
     fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+        let existing_cfs = ctx.list_cfs()?;
         ctx.reopen_with_cf_operations(|db| {
             // Create fresh
-            info!("Creating executor state changes column family");
-            db.create(
-                IndexifyObjectsColumns::ExecutorStateChanges,
-                &Default::default(),
-            )?;
+            if !existing_cfs.contains(&IndexifyObjectsColumns::ExecutorStateChanges.to_string()) {
+                info!("Creating executor state changes column family");
+                db.create(
+                    IndexifyObjectsColumns::ExecutorStateChanges,
+                    &Default::default(),
+                )?;
+            }
 
-            info!("Creating app state changes column family");
-            db.create(
-                IndexifyObjectsColumns::ApplicationStateChanges,
-                &Default::default(),
-            )?;
+            if !existing_cfs.contains(&IndexifyObjectsColumns::ApplicationStateChanges.to_string())
+            {
+                info!("Creating app state changes column family");
+                db.create(
+                    IndexifyObjectsColumns::ApplicationStateChanges,
+                    &Default::default(),
+                )?;
+            }
 
             Ok(())
         })
