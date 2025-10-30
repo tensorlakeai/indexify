@@ -149,7 +149,7 @@ impl ApplicationProcessor {
             let unprocessed_state_changes = self
                 .indexify_state
                 .reader()
-                .unprocessed_state_changes(&executor_events_cursor, &application_events_cursor)?;
+                .unprocessed_state_changes(executor_events_cursor, application_events_cursor)?;
             if let Some(cursor) = unprocessed_state_changes.application_state_change_cursor {
                 application_events_cursor.replace(cursor);
             };
