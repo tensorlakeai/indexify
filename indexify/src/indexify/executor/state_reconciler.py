@@ -348,7 +348,12 @@ class ExecutorStateReconciler:
         doesn't allow us to return errors to the Server if it supplied invalid messages.
         """
         print("Reconciling desired state FEs:")
-        print(desired_state.function_executors)
+        print(
+            [
+                f"{fe.function.application_name}:{fe.function.function_name}"
+                for fe in desired_state.function_executors
+            ]
+        )
         for attempt in range(_RECONCILIATION_RETRIES):
             try:
                 # Reconcile FEs first because allocations depend on them.

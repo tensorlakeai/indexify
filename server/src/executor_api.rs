@@ -720,7 +720,13 @@ fn log_desired_executor_state_delta(
     last_sent_state: &DesiredExecutorState,
     desired_state: &DesiredExecutorState,
 ) {
-    info!(?desired_state, "got desired state");
+    debug!(?desired_state, "got desired state");
+        let function_names: Vec<_> = desired_state
+            .function_executors
+            .iter()
+            .flat_map(|fe| fe.function.as_ref().map(|f| format!("{:?}:{:?}", f.application_name, f.function_name)))
+            .collect();
+        info!(?function_names, "List of function names in desired state");
 
     let mut last_assignments: HashMap<String, String> = HashMap::default();
     for ta in &last_sent_state.allocations {
