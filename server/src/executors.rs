@@ -353,9 +353,8 @@ impl ExecutorManager {
             "Deregistering lapsed executor"
         );
         self.runtime_data.write().await.remove(&executor_id);
-        let last_executor_state_change_id =
-            self.indexify_state.executor_state_change_id_seq().clone();
-        let state_changes = tombstone_executor(&last_executor_state_change_id, &executor_id)?;
+        let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
+        let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                 executor_id,

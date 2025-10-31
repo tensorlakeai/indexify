@@ -475,7 +475,8 @@ impl TestExecutor<'_> {
             .test_service
             .service
             .indexify_state
-            .executor_state_change_id_seq();
+            .state_change_id_seq
+            .clone();
         let state_changes =
             executors::tombstone_executor(&executor_last_seq, &self.executor_id).unwrap();
         self.test_service
