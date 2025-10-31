@@ -54,5 +54,7 @@
 
 # cat $summary_file
 # exit $tests_exit_code
+echo "Running test_regional_routing.py"
 poetry run python ./cli/test_regional_routing.py
+echo "Running test_function_caching.py"
 poetry run python ./features/test_function_caching.py
