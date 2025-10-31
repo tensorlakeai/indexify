@@ -325,16 +325,26 @@ class ExecutorStateReconciler:
         Never raises any exceptions. Get cancelled via aio task cancellation."""
         last_reconciled_state: DesiredExecutorState | None = None
         while True:
+            self._logger.info("Reconciliation loop iteration 1")
             async with self._last_desired_state_lock:
+                self._logger.info("Reconciliation loop iteration 2")
                 # Comparing object identities (references) is enough here to not reconcile
                 # the same state twice.
                 while self._last_desired_state is last_reconciled_state:
                     await self._last_desired_state_change_notifier.wait()
+                self._logger.info(
+                    "Reconciliation loop iteration 3",
+                    last_reconciled_state=str(last_reconciled_state),
+                    new_state=str(self._last_desired_state),
+                )
                 last_reconciled_state = self._last_desired_state
 
+            self._logger.info("Reconciliation loop iteration 4")
             with metric_state_reconciliation_latency.time():
                 metric_state_reconciliations.inc()
+                self._logger.info("Reconciliation loop iteration 5")
                 await self._reconcile_state(last_reconciled_state)
+                self._logger.info("Reconciliation loop iteration 6")
                 # Update the clock regardless of success or failure.
                 # This is to show Server that we actually processed the message.
                 self._state_reporter.update_last_server_clock(
@@ -347,7 +357,7 @@ class ExecutorStateReconciler:
         Doesn't raise any exceptions. Logs all errors for future investigation becase the gRPC protocol
         doesn't allow us to return errors to the Server if it supplied invalid messages.
         """
-        self._logger(
+        self._logger.info(
             "Reconciling desired state FEs",
             fes=str(
                 [
