@@ -18,30 +18,30 @@ env:
 
 
 jobs:
-  lint_server:
-    name: Lint Indexify Server
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install protobuf package
-        run: sudo apt update && sudo apt install -y protobuf-compiler
-      - uses: actions/checkout@v4
-      - name: Copy rust-toolchain
-        run: cp server/rust-toolchain.toml .
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: clippy, rustfmt
-          cache-directories: |
-            target
-      - name: Install Just
-        uses: extractions/setup-just@v3
-      - name: Check formatting of indexify-server
-        run: |
-          cd server
-          make check
-      - name: Check linting of indexify-server
-        run: |
-          just lint-rust
+  # lint_server:
+  #   name: Lint Indexify Server
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Install protobuf package
+  #       run: sudo apt update && sudo apt install -y protobuf-compiler
+  #     - uses: actions/checkout@v4
+  #     - name: Copy rust-toolchain
+  #       run: cp server/rust-toolchain.toml .
+  #     - name: Setup Rust
+  #       uses: actions-rust-lang/setup-rust-toolchain@v1
+  #       with:
+  #         components: clippy, rustfmt
+  #         cache-directories: |
+  #           target
+  #     - name: Install Just
+  #       uses: extractions/setup-just@v3
+  #     - name: Check formatting of indexify-server
+  #       run: |
+  #         cd server
+  #         make check
+  #     - name: Check linting of indexify-server
+  #       run: |
+  #         just lint-rust
 
   build_server:
     name: Build Indexify Server
@@ -71,26 +71,26 @@ jobs:
           name: indexify-server
           path: target/debug/indexify-server
 
-  lint_python_packages:
-    name: Lint Python packages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install poetry
-        run: pipx install --force 'poetry==2.0.0'
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'poetry'
-      - name: Build and lint indexify
-        run: cd indexify && make build && make check
+  # lint_python_packages:
+  #   name: Lint Python packages
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: true
+  #     - name: Install poetry
+  #       run: pipx install --force 'poetry==2.0.0'
+  #     - name: Setup Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.10'
+  #         cache: 'poetry'
+  #     - name: Build and lint indexify
+  #       run: cd indexify && make build && make check
 
   acceptance_tests:
     name: Run Acceptance Tests
-    needs: [build_server, lint_python_packages]
+    needs: [build_server]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

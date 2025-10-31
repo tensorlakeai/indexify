@@ -258,6 +258,8 @@ class ExecutorStateReporter:
                         executor_state=state,
                         executor_update=update,
                     )
+                    print(f"Reporting executor FEs:")
+                    print(state.function_executor_states)
                     _log_reported_executor_update(update, self._logger)
                     self._last_state_report_request = request
 

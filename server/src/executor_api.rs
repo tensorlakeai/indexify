@@ -720,7 +720,7 @@ fn log_desired_executor_state_delta(
     last_sent_state: &DesiredExecutorState,
     desired_state: &DesiredExecutorState,
 ) {
-    debug!(?desired_state, "got desired state");
+    info!(?desired_state, "got desired state");
 
     let mut last_assignments: HashMap<String, String> = HashMap::default();
     for ta in &last_sent_state.allocations {
