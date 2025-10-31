@@ -301,8 +301,7 @@ impl ApplicationProcessor {
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs =
-                    indexes_guard.unallocated_function_runs_for_executor_catalog(&ev.executor_id);
+                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(
                     task_allocator
                         .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,

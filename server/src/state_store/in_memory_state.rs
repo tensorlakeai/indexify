@@ -1074,6 +1074,11 @@ impl InMemoryState {
                 continue;
             };
             if executor.tombstoned || !executor.is_function_allowed(function_run) {
+                error!(
+                    executor_id = executor.id.get(),
+                    fn_call_id = function_run.id.to_string(),
+                    "executor is tombstoned or function not allowed on executor",
+                );
                 continue;
             }
 
@@ -1603,31 +1608,31 @@ impl InMemoryState {
         }
     }
 
-    /// Get all function runs that match a specific catalog entry by executor ID
-    pub fn unallocated_function_runs_for_executor_catalog(
-        &self,
-        executor_id: &ExecutorId,
-    ) -> Vec<FunctionRun> {
-        let Some(executor) = self.executors.get(executor_id) else {
-            return Vec::new();
-        };
-        let Some(catalog_entry_name) = executor.catalog_name.as_ref().map(|name| name.to_string())
-        else {
-            return self.unallocated_function_runs();
-        };
+    // /// Get all function runs that match a specific catalog entry by executor ID
+    // pub fn unallocated_function_runs_for_executor_catalog(
+    //     &self,
+    //     executor_id: &ExecutorId,
+    // ) -> Vec<FunctionRun> {
+    //     let Some(executor) = self.executors.get(executor_id) else {
+    //         return Vec::new();
+    //     };
+    //     let Some(catalog_entry_name) = executor.catalog_name.as_ref().map(|name| name.to_string())
+    //     else {
+    //         return self.unallocated_function_runs();
+    //     };
 
-        let Some(run_keys) = self.function_runs_by_catalog_entry.get(&catalog_entry_name) else {
-            return Vec::new();
-        };
+    //     let Some(run_keys) = self.function_runs_by_catalog_entry.get(&catalog_entry_name) else {
+    //         return Vec::new();
+    //     };
 
-        let mut results = Vec::new();
-        for run_key in run_keys.iter() {
-            if let Some(function_run) = self.function_runs.get(run_key) {
-                results.push(*function_run.clone());
-            }
-        }
-        results
-    }
+    //     let mut results = Vec::new();
+    //     for run_key in run_keys.iter() {
+    //         if let Some(function_run) = self.function_runs.get(run_key) {
+    //             results.push(*function_run.clone());
+    //         }
+    //     }
+    //     results
+    // }
 
     /// Get all function runs that match a specific catalog entry by name
     #[cfg(test)]
