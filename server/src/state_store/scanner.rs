@@ -157,11 +157,20 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
+        let mut state_changes = Vec::new();
         let iter = self.db.iter(
-            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
+            IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
             Default::default(),
         );
-        let mut state_changes = Vec::new();
+        for (_, value) in iter.flatten() {
+            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            state_changes.push(state_change);
+        }
+
+        let iter = self.db.iter(
+            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+            Default::default(),
+        );
         for (_, value) in iter.flatten() {
             let state_change = JsonEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
