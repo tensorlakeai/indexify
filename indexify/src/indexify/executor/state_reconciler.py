@@ -332,11 +332,7 @@ class ExecutorStateReconciler:
                 # the same state twice.
                 while self._last_desired_state is last_reconciled_state:
                     await self._last_desired_state_change_notifier.wait()
-                self._logger.info(
-                    "Reconciliation loop iteration 3",
-                    last_reconciled_state=str(last_reconciled_state),
-                    new_state=str(self._last_desired_state),
-                )
+                self._logger.info("Reconciliation loop iteration 3")
                 last_reconciled_state = self._last_desired_state
 
             self._logger.info("Reconciliation loop iteration 4")
