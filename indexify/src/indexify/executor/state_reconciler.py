@@ -347,12 +347,14 @@ class ExecutorStateReconciler:
         Doesn't raise any exceptions. Logs all errors for future investigation becase the gRPC protocol
         doesn't allow us to return errors to the Server if it supplied invalid messages.
         """
-        print("Reconciling desired state FEs:")
-        print(
-            [
-                f"{fe.function.application_name}:{fe.function.function_name}"
-                for fe in desired_state.function_executors
-            ]
+        self._logger(
+            "Reconciling desired state FEs",
+            fes=str(
+                [
+                    f"{fe.function.application_name}:{fe.function.function_name}"
+                    for fe in desired_state.function_executors
+                ]
+            ),
         )
         for attempt in range(_RECONCILIATION_RETRIES):
             try:
