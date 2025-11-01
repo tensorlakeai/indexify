@@ -265,6 +265,7 @@ pub enum RequestFailureReason {
     RequestError,
     ConstraintUnsatisfiable,
     Cancelled,
+    OutOfMemory,
 }
 
 impl From<data_model::RequestFailureReason> for RequestFailureReason {
@@ -278,6 +279,7 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
             data_model::RequestFailureReason::Cancelled => RequestFailureReason::Cancelled,
+            data_model::RequestFailureReason::OutOfMemory => RequestFailureReason::OutOfMemory,
         }
     }
 }
