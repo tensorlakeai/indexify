@@ -37,7 +37,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, ToSchema)]
-// TODO: use #[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ApplicationState {
     #[default]
     Active,
@@ -239,8 +239,7 @@ impl FunctionRun {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-// TODO: change from "lowercase" to "snake_case"
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum RequestOutcome {
     Undefined,
     Success,
@@ -258,8 +257,7 @@ impl From<data_model::RequestOutcome> for RequestOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-// TODO: change from "lowercase" to "snake_case"
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     Unknown,
     InternalError,

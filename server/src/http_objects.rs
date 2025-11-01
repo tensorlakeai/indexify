@@ -67,7 +67,7 @@ impl From<serde_json::Error> for IndexifyAPIError {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-// TODO: Use #[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum CursorDirection {
     #[serde(rename = "forward")]
     Forward,
@@ -566,7 +566,7 @@ impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-// TODO: use #[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum FunctionRunOutcome {
     Undefined,
     Success,
@@ -584,7 +584,7 @@ impl From<data_model::FunctionRunOutcome> for FunctionRunOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-// TODO: use #[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum FunctionRunStatus {
     Pending,
     Running,
