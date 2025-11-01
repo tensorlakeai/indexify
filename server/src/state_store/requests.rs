@@ -58,16 +58,6 @@ impl StateMachineUpdateRequest {
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
-
-    pub fn notify_usage_events(&self) -> bool {
-        match self.payload {
-            RequestPayload::UpsertExecutor(ref req) => req
-                .allocation_outputs
-                .iter()
-                .any(|o| matches!(o.allocation.outcome, FunctionRunOutcome::Success)),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, strum::Display)]
@@ -261,20 +251,12 @@ impl UpsertExecutorRequest {
         watch_function_calls: HashSet<ExecutorWatch>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
-        let state_change_id_seq = indexify_state.state_change_id_seq.clone();
         let mut state_changes = Vec::new();
 
         if update_executor_state {
-            let changes = state_changes::upsert_executor(&state_change_id_seq, &executor.id)?;
+            let changes =
+                state_changes::upsert_executor(&indexify_state.state_change_id_seq, &executor.id)?;
             state_changes = changes;
-        }
-
-        for allocation_output in &allocation_outputs {
-            if indexify_state.can_allocation_output_be_updated(allocation_output)? {
-                let changes =
-                    state_changes::task_outputs_ingested(&state_change_id_seq, allocation_output)?;
-                state_changes.extend(changes);
-            }
         }
 
         Ok(Self {

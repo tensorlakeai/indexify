@@ -51,7 +51,7 @@ impl<'a> FunctionRunProcessor<'a> {
         self.allocate_function_runs(in_memory_state, function_runs)
     }
 
-    #[tracing::instrument(skip(self, in_memory_state))]
+    #[tracing::instrument(skip(self, in_memory_state, function_runs))]
     pub fn allocate_function_runs(
         &self,
         in_memory_state: &mut InMemoryState,

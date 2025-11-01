@@ -463,6 +463,7 @@ impl FunctionExecutorManager {
         in_memory_state: &mut InMemoryState,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
+        let mut scheduler_update = SchedulerUpdateRequest::default();
         let Some(mut executor_server_metadata) =
             in_memory_state.executor_states.get(executor_id).cloned()
         else {
@@ -472,7 +473,72 @@ impl FunctionExecutorManager {
                 "executor {} not found while removing function executors",
                 executor_id.get()
             );
-            return Ok(SchedulerUpdateRequest::default());
+            let allocations = in_memory_state
+                .allocations_by_executor
+                .get(executor_id)
+                .cloned()
+                .unwrap_or_default();
+
+            for allocs_by_fe in allocations.values() {
+                for alloc in allocs_by_fe {
+                    info!(
+                        target: targets::SCHEDULER,
+                        alloc_id = alloc.id.to_string(),
+                        request_id = alloc.request_id.clone(),
+                        namespace = alloc.namespace.clone(),
+                        app = alloc.application.clone(),
+                        fn_call_id = alloc.function_call_id.to_string(),
+                        "marking allocation as failed due to deregistered executor",
+                    );
+                    let mut updated_alloc = *alloc.clone();
+                    updated_alloc.outcome =
+                        FunctionRunOutcome::Failure(FunctionRunFailureReason::ExecutorRemoved);
+                    let Some(function_run) = in_memory_state
+                        .function_runs
+                        .get(&FunctionRunKey::from(alloc))
+                        .cloned()
+                    else {
+                        warn!(
+                            target: targets::SCHEDULER,
+                            fn_call_id = alloc.id.to_string(),
+                            "function run not found while removing allocations for deregistered executor",
+                        );
+                        continue;
+                    };
+
+                    let Some(mut request_ctx) = in_memory_state
+                        .request_ctx
+                        .get(&function_run.clone().into())
+                        .cloned()
+                    else {
+                        warn!(
+                            target: targets::SCHEDULER,
+                            fn_call_id = alloc.id.to_string(),
+                            "request context not found while removing allocations for deregistered executor",
+                        );
+                        continue;
+                    };
+                    let Some(application_version) = in_memory_state
+                        .get_existing_application_version(&function_run)
+                        .cloned()
+                    else {
+                        warn!(
+                            target: targets::SCHEDULER,
+                            fn_call_id = alloc.id.to_string(),
+                            "application version not found while removing allocations for deregistered executor",
+                        );
+                        continue;
+                    };
+                    FunctionRunRetryPolicy::handle_allocation_outcome(
+                        &mut function_run.clone(),
+                        &updated_alloc,
+                        &application_version,
+                    );
+                    scheduler_update.updated_allocations.push(updated_alloc);
+                    scheduler_update.add_function_run(*function_run.clone(), &mut request_ctx);
+                }
+            }
+            return Ok(scheduler_update);
         };
 
         // Get all function executors to remove
