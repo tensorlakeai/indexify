@@ -89,8 +89,6 @@ function FunctionRunRow({
   const hasAllocations =
     functionRun.allocations && functionRun.allocations.length > 0
 
-  console.log('FunctionRunRow render:', functionRun)
-
   return (
     <>
       <TableRow>
