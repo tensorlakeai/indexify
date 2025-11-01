@@ -68,7 +68,7 @@ impl PrepareContext {
     }
 
     /// Get list of all column families
-    pub fn _list_cfs(&self) -> Result<Vec<String>> {
+    pub fn list_cfs(&self) -> Result<Vec<String>> {
         DB::list_cf(&self.db_opts, &self.path)
             .map_err(|e| anyhow!("Failed to list column families: {e}"))
     }
@@ -225,7 +225,7 @@ mod tests {
         )?;
 
         // Test listing CFs
-        let cfs = ctx._list_cfs()?;
+        let cfs = ctx.list_cfs()?;
         assert!(cfs.contains(&"test_cf".to_string()));
         assert!(cfs.contains(&"default".to_string()));
 

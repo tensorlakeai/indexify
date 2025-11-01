@@ -135,8 +135,8 @@ impl ApplicationProcessor {
     pub async fn write_sm_update(
         &self,
         cached_state_changes: &mut Vec<StateChange>,
-        last_global_state_change_cursor: &mut Option<Vec<u8>>,
-        last_namespace_state_change_cursor: &mut Option<Vec<u8>>,
+        application_events_cursor: &mut Option<Vec<u8>>,
+        executor_events_cursor: &mut Option<Vec<u8>>,
         notify: &Arc<Notify>,
     ) -> Result<()> {
         debug!("Waking up to process state changes; cached_state_changes={cached_state_changes:?}");
@@ -149,12 +149,12 @@ impl ApplicationProcessor {
             let unprocessed_state_changes = self
                 .indexify_state
                 .reader()
-                .unprocessed_state_changes(&None, &None)?;
-            if let Some(cursor) = unprocessed_state_changes.last_global_state_change_cursor {
-                last_global_state_change_cursor.replace(cursor);
+                .unprocessed_state_changes(executor_events_cursor, application_events_cursor)?;
+            if let Some(cursor) = unprocessed_state_changes.application_state_change_cursor {
+                application_events_cursor.replace(cursor);
             };
-            if let Some(cursor) = unprocessed_state_changes.last_namespace_state_change_cursor {
-                last_namespace_state_change_cursor.replace(cursor);
+            if let Some(cursor) = unprocessed_state_changes.executor_state_change_cursor {
+                executor_events_cursor.replace(cursor);
             };
             let mut state_changes = unprocessed_state_changes.changes;
             state_changes.reverse();

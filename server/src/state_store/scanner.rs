@@ -157,11 +157,20 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
+        let mut state_changes = Vec::new();
         let iter = self.db.iter(
-            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
+            IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
             Default::default(),
         );
-        let mut state_changes = Vec::new();
+        for (_, value) in iter.flatten() {
+            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            state_changes.push(state_change);
+        }
+
+        let iter = self.db.iter(
+            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+            Default::default(),
+        );
         for (_, value) in iter.flatten() {
             let state_change = JsonEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
@@ -171,56 +180,56 @@ impl StateReader {
 
     pub fn unprocessed_state_changes(
         &self,
-        global_index: &Option<Vec<u8>>,
-        ns_index: &Option<Vec<u8>>,
+        executor_events_cursor: &Option<Vec<u8>>,
+        application_events_cursor: &Option<Vec<u8>>,
     ) -> Result<UnprocessedStateChanges> {
         let kvs = &[KeyValue::new("op", "unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let mut state_changes = Vec::new();
-        let (global_state_changes, global_state_change_cursor) = self
+        let (executor_events, executor_events_cursor) = self
             .get_rows_from_cf_with_limits::<StateChange>(
-                "global".as_bytes(),
-                global_index.as_deref(),
-                IndexifyObjectsColumns::UnprocessedStateChanges,
+                &[],
+                executor_events_cursor.as_deref(),
+                IndexifyObjectsColumns::ExecutorStateChanges,
                 None,
             )?;
-        let global_count = global_state_changes.len();
-        state_changes.extend(global_state_changes);
+        let num_executor_events = executor_events.len();
+        state_changes.extend(executor_events);
         if state_changes.len() >= 100 {
             trace!(
                 total = state_changes.len(),
-                global = global_count,
-                ns = 0,
+                executor_events = num_executor_events,
+                application_events = 0,
                 "Returning unprocessed state changes (no ns messages fetched)",
             );
             return Ok(UnprocessedStateChanges {
                 changes: state_changes,
-                last_global_state_change_cursor: global_state_change_cursor,
+                executor_state_change_cursor: executor_events_cursor,
                 // returning previous ns cursor as we did not fetch ns messages
-                last_namespace_state_change_cursor: ns_index.clone(),
+                application_state_change_cursor: application_events_cursor.clone(),
             });
         }
 
-        let (ns_state_changes, ns_state_change_cursor) = self
+        let (application_events, application_events_cursor) = self
             .get_rows_from_cf_with_limits::<StateChange>(
-                "ns".as_bytes(),
-                ns_index.as_deref(),
-                IndexifyObjectsColumns::UnprocessedStateChanges,
+                &[],
+                application_events_cursor.as_deref(),
+                IndexifyObjectsColumns::ApplicationStateChanges,
                 Some(100 - state_changes.len()),
             )?;
-        let ns_count = ns_state_changes.len();
-        state_changes.extend(ns_state_changes);
+        let num_application_events = application_events.len();
+        state_changes.extend(application_events);
 
         trace!(
             total = state_changes.len(),
-            global = global_count,
-            ns = ns_count,
-            "Returning unprocessed state changes",
+            executor_events = num_executor_events,
+            application_events = num_application_events,
+            "returning unprocessed state changes",
         );
         Ok(UnprocessedStateChanges {
             changes: state_changes,
-            last_global_state_change_cursor: global_state_change_cursor,
-            last_namespace_state_change_cursor: ns_state_change_cursor,
+            application_state_change_cursor: application_events_cursor,
+            executor_state_change_cursor: executor_events_cursor,
         })
     }
 

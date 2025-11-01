@@ -197,26 +197,22 @@ impl IndexifyState {
         });
 
         info!(
-            "initialized state store with last state change id: {}",
-            s.state_change_id_seq.load(atomic::Ordering::Relaxed)
+            application_state_change_id = s.state_change_id_seq.load(atomic::Ordering::Relaxed),
+            "initialized state store with last state change ids",
         );
 
         info!(
-            "initialized state store with last usage id: {}",
-            s.usage_event_id_seq.load(atomic::Ordering::Relaxed)
+            usage_event_id = s.usage_event_id_seq.load(atomic::Ordering::Relaxed),
+            "initialized state store with last usage id",
         );
 
-        info!("db version discovered: {}", sm_meta.db_version);
+        info!(db_version = sm_meta.db_version, "db version discovered");
 
         Ok(s)
     }
 
     pub fn get_gc_watcher(&self) -> tokio::sync::watch::Receiver<()> {
         self.gc_rx.clone()
-    }
-
-    pub fn state_change_id_seq(&self) -> Arc<AtomicU64> {
-        self.state_change_id_seq.clone()
     }
 
     pub fn can_allocation_output_be_updated(
@@ -681,6 +677,8 @@ mod tests {
             "AllocationUsage",
             "GcUrls",
             "Stats",
+            "ExecutorStateChanges",
+            "ApplicationStateChanges",
         ];
 
         let columns_iter = columns

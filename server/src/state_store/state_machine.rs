@@ -19,6 +19,7 @@ use crate::{
         AllocationUsageId,
         Application,
         ApplicationVersion,
+        ChangeType,
         FunctionRunOutcome,
         GcUrl,
         GcUrlBuilder,
@@ -59,6 +60,12 @@ pub enum IndexifyObjectsColumns {
     GcUrls, // List of URLs pending deletion
 
     Stats, // Stats
+
+    // State changes for executors -> Upsert and Removal
+    ExecutorStateChanges,
+
+    // State changes for applications -> Request updates
+    ApplicationStateChanges,
 }
 
 pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
@@ -614,11 +621,13 @@ pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange
     for state_change in state_changes {
         let key = &state_change.key();
         let serialized_state_change = JsonEncoder::encode(&state_change)?;
-        txn.put(
-            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-            key,
-            serialized_state_change,
-        )?;
+        let cf = match &state_change.change_type {
+            ChangeType::ExecutorUpserted(_) | ChangeType::TombStoneExecutor(_) => {
+                IndexifyObjectsColumns::ExecutorStateChanges.as_ref()
+            }
+            _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+        };
+        txn.put(cf, key, serialized_state_change)?;
     }
     Ok(())
 }
@@ -633,10 +642,13 @@ pub(crate) fn mark_state_changes_processed(
             "marking state change as processed"
         );
         let key = &state_change.key();
-        txn.delete(
-            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-            key,
-        )?;
+        let cf = match &state_change.change_type {
+            ChangeType::ExecutorUpserted(_) | ChangeType::TombStoneExecutor(_) => {
+                IndexifyObjectsColumns::ExecutorStateChanges.as_ref()
+            }
+            _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+        };
+        txn.delete(cf, key)?;
     }
     Ok(())
 }
