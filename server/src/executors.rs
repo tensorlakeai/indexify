@@ -375,7 +375,10 @@ impl ExecutorManager {
     }
 
     /// Get the desired state for an executor
-    pub async fn get_executor_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
+    pub async fn get_executor_state(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Option<DesiredExecutorState> {
         let fn_call_watches = self
             .indexify_state
             .executor_watches
@@ -389,7 +392,7 @@ impl ExecutorManager {
             .clone()
             .read()
             .await
-            .desired_state(executor_id, fn_call_watches);
+            .desired_state(executor_id, fn_call_watches)?;
         let mut function_call_results_pb = vec![];
         for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
             let blob_store_url_schema = self
@@ -556,12 +559,12 @@ impl ExecutorManager {
                 .update_function_executors_state(current_fe_hash, desired_executor_state.clock);
         }
 
-        DesiredExecutorState {
+        Some(DesiredExecutorState {
             function_executors: function_executors_pb,
             allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
             function_call_results: function_call_results_pb,
-        }
+        })
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
