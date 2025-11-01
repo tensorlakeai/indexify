@@ -5,6 +5,7 @@ export type Allocation = {
   created_at: number
   execution_duration_ms?: number | null
   executor_id: string
+  failure_reason?: null | FunctionRunFailureReason
   function_executor_id: string
   function_name: string
   id: string
@@ -78,6 +79,7 @@ export type ExecutorAllocations = {
 
 export type ExecutorMetadata = {
   addr: string
+  catalog_entry_name?: string | null
   clock: number
   executor_version: string
   free_resources: HostResources
@@ -155,6 +157,7 @@ export type FunctionRun = {
   application: string
   application_version: string
   created_at: number
+  failure_reason?: null | FunctionRunFailureReason
   id: string
   name: string
   namespace: string
@@ -162,9 +165,21 @@ export type FunctionRun = {
   status: FunctionRunStatus
 }
 
-export type FunctionRunOutcome = 'Undefined' | 'Success' | 'Failure'
+export type FunctionRunFailureReason =
+  | 'unknown'
+  | 'internal_error'
+  | 'function_error'
+  | 'function_timeout'
+  | 'request_error'
+  | 'function_run_cancelled'
+  | 'function_executor_terminated'
+  | 'constraint_unsatisfiable'
+  | 'executor_removed'
+  | 'out_of_memory'
 
-export type FunctionRunStatus = 'Pending' | 'Running' | 'Completed'
+export type FunctionRunOutcome = 'undefined' | 'success' | 'failure'
+
+export type FunctionRunStatus = 'pending' | 'running' | 'completed'
 
 export type GpuResources = {
   count: number
@@ -223,6 +238,7 @@ export type PlacementConstraints = {
 export type Request = {
   application_version: string
   created_at: number
+  failure_reason?: null | RequestFailureReason
   function_runs: Array<FunctionRun>
   id: string
   outcome?: null | RequestOutcome
@@ -236,10 +252,11 @@ export type RequestError = {
 
 export type RequestFailureReason =
   | 'unknown'
-  | 'internalerror'
-  | 'functionerror'
-  | 'requesterror'
-  | 'constraintunsatisfiable'
+  | 'internal_error'
+  | 'function_error'
+  | 'request_error'
+  | 'constraint_unsatisfiable'
+  | 'cancelled'
 
 export type RequestOutcome =
   | 'undefined'
@@ -263,7 +280,6 @@ export type StateChange = {
   id: string
   namespace?: string | null
   object_id: string
-  request?: string | null
 }
 
 export type StateChangesResponse = {
