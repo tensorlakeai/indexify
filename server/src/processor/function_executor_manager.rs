@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use anyhow::{Result, anyhow};
 use rand::seq::IndexedRandom;
 use tracing::{debug, error, info, info_span, warn};
@@ -72,11 +70,12 @@ impl FunctionExecutorManager {
 
             info!(
                 target: targets::SCHEDULER,
+                app = fe.function_executor.application_name,
+                fn = fe.function_executor.function_name,
+                namespace = fe.function_executor.namespace,
                 fn_executor_id = fe.function_executor.id.get(),
                 executor_id = fe.executor_id.get(),
-                "Marked function executor {} on executor {} for termination",
-                fe.function_executor.id.get(),
-                fe.executor_id.get()
+                "marked function executor for termination",
             );
         }
         Ok(update)
@@ -405,19 +404,13 @@ impl FunctionExecutorManager {
                     update.updated_allocations.push(updated_alloc);
                 }
 
-                update
-                    .updated_function_runs
-                    .entry(ctx.key())
-                    .or_insert(HashSet::new())
-                    .insert(function_run.id.clone());
-                ctx.function_runs
-                    .insert(function_run.id.clone(), *function_run.clone());
+                update.add_function_run(*function_run.clone(), &mut ctx);
+
                 if function_run.status == FunctionRunStatus::Completed {
-                    ctx.outcome = function_run.outcome.map(|o| o.into());
+                    update
+                        .updated_request_states
+                        .insert(ctx.key(), *ctx.clone());
                 }
-                update
-                    .updated_request_states
-                    .insert(ctx.key(), *ctx.clone());
             }
         }
 
@@ -628,6 +621,11 @@ impl FunctionExecutorManager {
             remove_executors: vec![executor_id.clone()],
             ..Default::default()
         };
+        info!(
+            target: targets::SCHEDULER,
+            executor_id = executor_id.get(),
+            "de-registering executor",
+        );
 
         // Remove all function executors for this executor
         update

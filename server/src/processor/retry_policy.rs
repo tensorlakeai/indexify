@@ -1,5 +1,3 @@
-use if_chain::if_chain;
-
 use crate::data_model::{
     Allocation,
     ApplicationVersion,
@@ -22,23 +20,20 @@ impl FunctionRunRetryPolicy {
         application_version: &ApplicationVersion,
     ) {
         let uses_attempt = alloc_failure_reason.should_count_against_function_run_retry_attempts();
-
-        if_chain! {
-            if let Some(max_retries) = application_version.function_run_max_retries(run);
-            if alloc_failure_reason.is_retriable();
-        if run.attempt_number < max_retries || !uses_attempt;
-            then {
-                // Task can be retried
-                run.status = FunctionRunStatus::Pending;
-                if uses_attempt {
-                    run.attempt_number += 1;
+        if let Some(max_retries) = application_version.function_run_max_retries(run) {
+            if alloc_failure_reason.is_retriable() {
+                if run.attempt_number < max_retries {
+                    run.status = FunctionRunStatus::Pending;
+                    if uses_attempt {
+                        run.attempt_number += 1;
+                    }
+                    return;
                 }
             }
-            else {
-                // Task cannot be retried - either no max retries, not retriable, or exhausted attempts.
-                run.status = FunctionRunStatus::Completed;
-                run.outcome = Some(FunctionRunOutcome::Failure(alloc_failure_reason));
-            }
+        } else {
+            run.status = FunctionRunStatus::Completed;
+            run.outcome = Some(FunctionRunOutcome::Failure(alloc_failure_reason));
+            return;
         }
     }
 
