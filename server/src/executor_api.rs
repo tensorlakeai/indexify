@@ -799,7 +799,13 @@ async fn executor_update_loop(
         }
 
         // Get the latest state
-        let desired_state = executor_manager.get_executor_state(&executor_id).await;
+        let Some(desired_state) = executor_manager.get_executor_state(&executor_id).await else {
+            warn!(
+                executor_id = executor_id.get(),
+                "executor not found during get_desired_executor_states"
+            );
+            continue;
+        };
 
         // Log the state delta
         log_desired_executor_state_delta(&last_sent_state, &desired_state);

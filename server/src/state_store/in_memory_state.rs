@@ -10,7 +10,7 @@ use opentelemetry::{
     metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
@@ -489,6 +489,10 @@ impl InMemoryMetrics {
 
 impl InMemoryState {
     pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
+        info!(
+            "initializing in-memory state from state store at clock {}",
+            clock
+        );
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -580,9 +584,6 @@ impl InMemoryState {
         let mut unallocated_function_runs = im::OrdSet::new();
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
-                if function_run.outcome.is_some() {
-                    continue;
-                }
                 if function_run.status == FunctionRunStatus::Pending {
                     unallocated_function_runs.insert(function_run.clone().into());
                 }
@@ -622,6 +623,10 @@ impl InMemoryState {
             in_memory_state.index_function_run_by_catalog(&function_run);
         }
 
+        info!(
+            "completed in-memory state initialization from state store at clock {}",
+            clock
+        );
         Ok(in_memory_state)
     }
 
@@ -1375,7 +1380,14 @@ impl InMemoryState {
         &self,
         executor_id: &ExecutorId,
         executor_watches: HashSet<ExecutorWatch>,
-    ) -> DesiredExecutorState {
+    ) -> Option<DesiredExecutorState> {
+        if let Some(executor) = self.executors.get(executor_id) {
+            if executor.tombstoned {
+                return None;
+            }
+        } else {
+            return None;
+        }
         let mut function_call_outcomes = Vec::new();
         for executor_watch in executor_watches.iter() {
             let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
@@ -1463,12 +1475,12 @@ impl InMemoryState {
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
 
-        DesiredExecutorState {
+        Some(DesiredExecutorState {
             function_executors,
             function_run_allocations: task_allocations,
             clock: self.clock,
             function_call_outcomes,
-        }
+        })
     }
 
     pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
