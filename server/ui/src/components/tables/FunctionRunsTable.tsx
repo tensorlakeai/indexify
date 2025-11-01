@@ -41,9 +41,9 @@ const renderStatus = (status: FunctionRunStatus) => {
     FunctionRunStatus,
     { label: string; color: 'default' | 'info' | 'success' }
   > = {
-    Pending: { label: 'Pending', color: 'default' },
-    Running: { label: 'Running', color: 'info' },
-    Completed: { label: 'Completed', color: 'success' },
+    pending: { label: 'pending', color: 'default' },
+    running: { label: 'running', color: 'info' },
+    completed: { label: 'completed', color: 'success' },
   }
 
   const config = statusConfig[status] || {
@@ -62,9 +62,9 @@ const renderOutcome = (outcome?: FunctionRunOutcome | null) => {
     FunctionRunOutcome,
     { label: string; color: 'success' | 'error' | 'default' }
   > = {
-    Success: { label: 'Success', color: 'success' },
-    Failure: { label: 'Failure', color: 'error' },
-    Undefined: { label: 'Undefined', color: 'default' },
+    success: { label: 'success', color: 'success' },
+    failure: { label: 'failure', color: 'error' },
+    undefined: { label: 'undefined', color: 'default' },
   }
 
   const config = outcomeConfig[outcome] || {
