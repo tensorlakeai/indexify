@@ -3,7 +3,7 @@ use std::{sync::Arc, vec};
 use anyhow::Result;
 use opentelemetry::{KeyValue, metrics::Histogram};
 use tokio::sync::Notify;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
@@ -191,6 +191,15 @@ impl ApplicationProcessor {
             Err(err) => {
                 // TODO: Determine if error is transient or not to determine if retrying should
                 // be done.
+                if err.to_string().contains("Operation timed out") {
+                    warn!(
+                        "transient error processing state change {}, retrying later: {:?}",
+                        state_change.change_type, err
+                    );
+                    cached_state_changes.push(state_change);
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    return Ok(());
+                }
                 error!(
                     "error processing state change {}, marking as processed: {:?}",
                     state_change.change_type, err

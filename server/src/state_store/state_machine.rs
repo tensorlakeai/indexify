@@ -20,7 +20,6 @@ use crate::{
         Application,
         ApplicationVersion,
         ChangeType,
-        FunctionRunOutcome,
         GcUrl,
         GcUrlBuilder,
         NamespaceBuilder,
@@ -28,9 +27,8 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{Reader, Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            AllocationOutput,
             DeleteRequestRequest,
             InvokeApplicationRequest,
             NamespaceRequest,
@@ -127,44 +125,98 @@ pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Resu
     Ok(())
 }
 
-pub(crate) fn upsert_allocation(txn: &Transaction, allocation: &Allocation) -> Result<()> {
+pub struct AllocationUpsertResult {
+    pub usage_recorded: bool,
+    pub create_state_change: bool,
+}
+
+pub(crate) fn upsert_allocation(
+    txn: &Transaction,
+    allocation: &Allocation,
+    usage_event_sequence_id: Option<&AtomicU64>,
+) -> Result<AllocationUpsertResult> {
+    let span = info_span!(
+        "upsert_allocation",
+        namespace = &allocation.namespace,
+        app = &allocation.application,
+        request_id = &allocation.request_id,
+        "fn" = &allocation.function,
+        fn_call_id = allocation.function_call_id.to_string(),
+    );
+    let _guard = span.enter();
+
+    let mut allocation_upsert_result = AllocationUpsertResult {
+        usage_recorded: false,
+        create_state_change: false,
+    };
+    let existing_allocation = txn.get(
+        IndexifyObjectsColumns::Allocations.as_ref(),
+        allocation.key(),
+    )?;
+    let Some(existing_allocation) = existing_allocation else {
+        info!("Allocation not found",);
+        return Ok(allocation_upsert_result);
+    };
+    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
+    // idempotency check guaranteeing that we emit a finalizing state change only
+    // once.
+    if existing_allocation.is_terminal() {
+        warn!("allocation already terminal, skipping setting outputs");
+        return Ok(allocation_upsert_result);
+    }
+
     let serialized_allocation = JsonEncoder::encode(&allocation)?;
     txn.put(
         IndexifyObjectsColumns::Allocations.as_ref(),
         allocation.key().as_bytes(),
         &serialized_allocation,
     )?;
-
-    Ok(())
-}
-
-pub(crate) fn record_allocation_usage(
-    txn: &Transaction,
-    usage_event_sequence_id: &AtomicU64,
-    allocation: &Allocation,
-) -> Result<()> {
-    if !matches!(allocation.outcome, FunctionRunOutcome::Success) {
-        return Ok(());
-    }
-
-    let Some(execution_duration_ms) = allocation.execution_duration_ms else {
-        warn!(
-            allocation_id = %allocation.id,
-            fn_call_id = allocation.function_call_id.to_string(),
-            "Allocation usage_ms is None, skipping recording usage",
-        );
-        return Ok(());
+    allocation_upsert_result.create_state_change = true;
+    let Some(usage_event_sequence_id) = usage_event_sequence_id else {
+        return Ok(allocation_upsert_result);
     };
-
-    let application = txn
+    let Some(execution_duration_ms) = allocation.execution_duration_ms else {
+        return Ok(allocation_upsert_result);
+    };
+    // Check if the application exists before proceeding since
+    // the application might have been deleted before the task completes
+    let application_key = Application::key_from(&allocation.namespace, &allocation.application);
+    let Some(application_bytes) = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
-            Application::key_from(&allocation.namespace, &allocation.application),
-        )?
-        .ok_or(anyhow!("Application not found for allocation"))?;
+            &application_key,
+        )
+        .map_err(|e| anyhow!("failed to get application: {e}"))?
+    else {
+        info!("Application not found: {}", &allocation.application);
+        return Ok(allocation_upsert_result);
+    };
+    let application = JsonEncoder::decode::<Application>(&application_bytes)?;
 
-    let application = JsonEncoder::decode::<Application>(&application)?;
-
+    // Check if the request was deleted before the task completes
+    let request_ctx_key = RequestCtx::key_from(
+        &allocation.namespace,
+        &allocation.application,
+        &allocation.request_id,
+    );
+    let request = txn
+        .get(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            &request_ctx_key,
+        )
+        .map_err(|e| anyhow!("failed to get request: {e}"))?;
+    let request = match request {
+        Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
+        None => {
+            info!("Request not found: {}", &allocation.request_id);
+            return Ok(allocation_upsert_result);
+        }
+    };
+    // Skip finalize task if it's request is already completed
+    if request.outcome.is_some() {
+        warn!("Request already completed, skipping setting outputs");
+        return Ok(allocation_upsert_result);
+    }
     let function = application
         .functions
         .get(&allocation.function)
@@ -192,7 +244,9 @@ pub(crate) fn record_allocation_usage(
         &serialized_usage,
     )?;
 
-    Ok(())
+    allocation_upsert_result.create_state_change = true;
+    allocation_upsert_result.usage_recorded = true;
+    Ok(allocation_upsert_result)
 }
 
 pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
@@ -526,95 +580,10 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
     for alloc in &request.updated_allocations {
-        upsert_allocation(txn, alloc)?;
+        upsert_allocation(txn, alloc, None)?;
     }
 
     Ok(())
-}
-
-/// Check if an allocation output can be updated in the state store.
-/// Returns true if the following conditions are met:
-/// - The app exists.
-/// - The request exists and is not completed.
-/// - The allocation exists and is not terminal.
-/// - The allocation output is not already set.
-///
-/// If any of these conditions are not met, it returns false.
-///
-/// This is used to ensure that we do not update outputs for function runs that
-/// have already completed or for which the compute graph or request has been
-/// deleted.
-pub fn can_allocation_output_be_updated(
-    db: Arc<RocksDBDriver>,
-    req: &AllocationOutput,
-) -> Result<bool> {
-    let span = info_span!(
-        "can_allocation_output_be_updated",
-        namespace = &req.allocation.namespace,
-        app = &req.allocation.application,
-        request_id = &req.request_id,
-        "fn" = &req.allocation.function,
-        fn_call_id = req.allocation.function_call_id.to_string(),
-    );
-    let _guard = span.enter();
-
-    // Check if the application exists before proceeding since
-    // the application might have been deleted before the task completes
-    let application_key =
-        Application::key_from(&req.allocation.namespace, &req.allocation.application);
-    let application = db
-        .get(
-            IndexifyObjectsColumns::Applications.as_ref(),
-            &application_key,
-        )
-        .map_err(|e| anyhow!("failed to get application: {e}"))?;
-    if application.is_none() {
-        info!("Application not found: {}", &req.allocation.application);
-        return Ok(false);
-    }
-
-    // Check if the request was deleted before the task completes
-    let request_ctx_key = RequestCtx::key_from(
-        &req.allocation.namespace,
-        &req.allocation.application,
-        &req.request_id,
-    );
-    let request = db
-        .get(
-            IndexifyObjectsColumns::RequestCtx.as_ref(),
-            &request_ctx_key,
-        )
-        .map_err(|e| anyhow!("failed to get request: {e}"))?;
-    let request = match request {
-        Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
-        None => {
-            info!("Request not found: {}", &req.request_id);
-            return Ok(false);
-        }
-    };
-    // Skip finalize task if it's request is already completed
-    if request.outcome.is_some() {
-        warn!("Request already completed, skipping setting outputs");
-        return Ok(false);
-    }
-
-    let existing_allocation = db.get(
-        IndexifyObjectsColumns::Allocations.as_ref(),
-        req.allocation.key(),
-    )?;
-    let Some(existing_allocation) = existing_allocation else {
-        info!("Allocation not found",);
-        return Ok(false);
-    };
-    let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
-    // idempotency check guaranteeing that we emit a finalizing state change only
-    // once.
-    if existing_allocation.is_terminal() {
-        warn!("allocation already terminal, skipping setting outputs");
-        return Ok(false);
-    }
-
-    Ok(true)
 }
 
 pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange]) -> Result<()> {

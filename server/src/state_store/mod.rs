@@ -215,13 +215,6 @@ impl IndexifyState {
         self.gc_rx.clone()
     }
 
-    pub fn can_allocation_output_be_updated(
-        &self,
-        request: &requests::AllocationOutput,
-    ) -> Result<bool> {
-        state_machine::can_allocation_output_be_updated(self.db.clone(), request)
-    }
-
     #[tracing::instrument(
         skip(self, request),
         fields(
@@ -233,6 +226,9 @@ impl IndexifyState {
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
         let txn = self.db.transaction();
+
+        let mut should_notify_usage_reporter = false;
+        let mut allocation_ingestion_events = Vec::new();
 
         match &request.payload {
             RequestPayload::InvokeApplication(invoke_application_request) => {
@@ -269,12 +265,25 @@ impl IndexifyState {
             }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
-                    state_machine::upsert_allocation(&txn, &allocation_output.allocation)?;
-                    state_machine::record_allocation_usage(
+                    let allocation_upsert_result = state_machine::upsert_allocation(
                         &txn,
-                        &self.usage_event_id_seq,
                         &allocation_output.allocation,
+                        Some(&self.usage_event_id_seq),
                     )?;
+                    info!(
+                        allocation_id = allocation_output.allocation.id.to_string(),
+                        "upserted allocation from executor",
+                    );
+                    if allocation_upsert_result.create_state_change {
+                        let changes = state_changes::task_outputs_ingested(
+                            &self.state_change_id_seq,
+                            allocation_output,
+                        )?;
+                        allocation_ingestion_events.extend(changes);
+                    }
+                    if allocation_upsert_result.usage_recorded {
+                        should_notify_usage_reporter = true;
+                    }
                 }
 
                 if request.update_executor_state {
@@ -315,7 +324,8 @@ impl IndexifyState {
             _ => {} // Handle other request types as needed
         };
 
-        let new_state_changes = request.state_changes(&self.state_change_id_seq)?;
+        let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
+        new_state_changes.extend(allocation_ingestion_events);
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes)?;
         }
@@ -371,9 +381,7 @@ impl IndexifyState {
             error!("failed to notify of state change event, ignoring: {err:?}",);
         }
 
-        if request.notify_usage_events() &&
-            let Err(err) = self.usage_events_tx.send(())
-        {
+        if should_notify_usage_reporter && let Err(err) = self.usage_events_tx.send(()) {
             error!("failed to notify of usage event, ignoring: {err:?}",);
         }
 
