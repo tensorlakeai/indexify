@@ -1604,6 +1604,7 @@ impl InMemoryState {
     }
 
     /// Get all function runs that match a specific catalog entry by executor ID
+    #[allow(dead_code)]
     pub fn unallocated_function_runs_for_executor_catalog(
         &self,
         executor_id: &ExecutorId,
