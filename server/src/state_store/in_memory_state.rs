@@ -489,7 +489,10 @@ impl InMemoryMetrics {
 
 impl InMemoryState {
     pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
-        info!("initializing in-memory state from state store at clock {}", clock);
+        info!(
+            "initializing in-memory state from state store at clock {}",
+            clock
+        );
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -620,7 +623,10 @@ impl InMemoryState {
             in_memory_state.index_function_run_by_catalog(&function_run);
         }
 
-        info!("completed in-memory state initialization from state store at clock {}", clock);
+        info!(
+            "completed in-memory state initialization from state store at clock {}",
+            clock
+        );
         Ok(in_memory_state)
     }
 

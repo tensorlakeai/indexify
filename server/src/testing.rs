@@ -263,7 +263,8 @@ macro_rules! assert_executor_state {
             .service
             .executor_manager
             .get_executor_state(&$executor.executor_id)
-            .await;
+            .await
+            .unwrap();
 
         // Check function executor count
         let func_executors_count = desired_state.function_executors.len();
@@ -466,7 +467,8 @@ impl TestExecutor<'_> {
             .service
             .executor_manager
             .get_executor_state(&self.executor_id)
-            .await;
+            .await
+            .unwrap();
         desired_state
     }
 
