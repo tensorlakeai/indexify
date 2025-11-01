@@ -384,7 +384,7 @@ impl ExecutorManager {
             .executor_watches
             .get_watches(executor_id.get())
             .await;
-        let Some(desired_executor_state) = self
+        let desired_executor_state = self
             .indexify_state
             .in_memory_state
             .read()
@@ -392,10 +392,7 @@ impl ExecutorManager {
             .clone()
             .read()
             .await
-            .desired_state(executor_id, fn_call_watches)
-        else {
-            return None;
-        };
+            .desired_state(executor_id, fn_call_watches)?;
         let mut function_call_results_pb = vec![];
         for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
             let blob_store_url_schema = self
