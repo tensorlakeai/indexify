@@ -46,7 +46,7 @@ const renderStatus = (status: FunctionRunStatus) => {
     completed: { label: 'completed', color: 'success' },
   }
 
-  const config = statusConfig[status] || {
+  const config = statusConfig[status.toLowerCase() as FunctionRunStatus] || {
     label: 'Unknown',
     color: 'default' as const,
   }
@@ -67,7 +67,7 @@ const renderOutcome = (outcome?: FunctionRunOutcome | null) => {
     undefined: { label: 'undefined', color: 'default' },
   }
 
-  const config = outcomeConfig[outcome] || {
+  const config = outcomeConfig[outcome.toLowerCase() as FunctionRunOutcome] || {
     label: 'Unknown',
     color: 'default' as const,
   }
@@ -88,6 +88,8 @@ function FunctionRunRow({
   const [open, setOpen] = useState(false)
   const hasAllocations =
     functionRun.allocations && functionRun.allocations.length > 0
+
+  console.log('FunctionRunRow render:', functionRun)
 
   return (
     <>
