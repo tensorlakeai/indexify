@@ -58,6 +58,7 @@ json-subscriber = "0.2.6"
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
 chrono = "0.4.42"
 prost-types = "0.14.1"
+foundationdb = { version = "0.10.0", features = ["embedded-fdb-include", "fdb-7_4", "num-bigint", "serde", "serde_bytes", "serde_json"] }
 
 
 [dev-dependencies]

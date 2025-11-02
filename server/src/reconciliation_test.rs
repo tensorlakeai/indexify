@@ -4,18 +4,12 @@ mod tests {
     use anyhow::Result;
 
     use crate::{
-        assert_executor_state,
-        assert_function_run_counts,
+        assert_executor_state, assert_function_run_counts,
         data_model::{
-            FunctionAllowlist,
-            FunctionExecutorState,
-            FunctionExecutorTerminationReason,
+            FunctionAllowlist, FunctionExecutorState, FunctionExecutorTerminationReason,
             FunctionRunOutcome,
             test_objects::tests::{
-                TEST_EXECUTOR_ID,
-                TEST_NAMESPACE,
-                mock_executor_metadata,
-                mock_updates,
+                TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_executor_metadata, mock_updates,
             },
         },
         service::Service,
@@ -325,7 +319,8 @@ mod tests {
 
             let request = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request.outcome.is_some());

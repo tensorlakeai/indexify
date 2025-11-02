@@ -14,38 +14,17 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
-        Allocation,
-        Application,
-        ApplicationState,
-        ApplicationVersion,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorServerMetadata,
-        FunctionCallId,
-        FunctionExecutorId,
-        FunctionExecutorResources,
-        FunctionExecutorServerMetadata,
-        FunctionExecutorState,
-        FunctionResources,
-        FunctionRun,
-        FunctionRunFailureReason,
-        FunctionRunOutcome,
-        FunctionRunStatus,
-        FunctionURI,
-        Namespace,
-        NamespaceBuilder,
-        RequestCtx,
-        RequestCtxKey,
+        Allocation, Application, ApplicationState, ApplicationVersion, DataPayload, ExecutorId,
+        ExecutorMetadata, ExecutorServerMetadata, FunctionCallId, FunctionExecutorId,
+        FunctionExecutorResources, FunctionExecutorServerMetadata, FunctionExecutorState,
+        FunctionResources, FunctionRun, FunctionRunFailureReason, FunctionRunOutcome,
+        FunctionRunStatus, FunctionURI, Namespace, NamespaceBuilder, RequestCtx, RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
     metrics::low_latency_boundaries,
     state_store::{
-        ExecutorCatalog,
-        executor_watches::ExecutorWatch,
-        requests::RequestPayload,
-        scanner::StateReader,
-        state_machine::IndexifyObjectsColumns,
+        ExecutorCatalog, executor_watches::ExecutorWatch, requests::RequestPayload,
+        scanner::StateReader, state_machine::IndexifyObjectsColumns,
     },
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
@@ -488,7 +467,11 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
+    pub async fn new(
+        clock: u64,
+        reader: StateReader,
+        executor_catalog: ExecutorCatalog,
+    ) -> Result<Self> {
         info!(
             "initializing in-memory state from state store at clock {}",
             clock
@@ -521,13 +504,13 @@ impl InMemoryState {
         let mut namespaces = im::HashMap::new();
         let mut applications = im::HashMap::new();
         {
-            let all_ns = reader.get_all_namespaces()?;
+            let all_ns = reader.get_all_namespaces().await?;
             for ns in &all_ns {
                 // Creating Namespaces
                 namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
 
                 // Creating Compute Graphs and Versions
-                let cgs = reader.list_applications(&ns.name, None, None)?.0;
+                let cgs = reader.list_applications(&ns.name, None, None).await?.0;
                 for cg in cgs {
                     applications.insert(cg.key(), Box::new(cg));
                 }
@@ -536,8 +519,9 @@ impl InMemoryState {
 
         let mut application_versions = im::OrdMap::new();
         {
-            let all_cg_versions: Vec<(String, ApplicationVersion)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)?;
+            let all_cg_versions: Vec<(String, ApplicationVersion)> = reader
+                .get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)
+                .await?;
             for (id, cg) in all_cg_versions {
                 application_versions.insert(id, Box::new(cg));
             }
@@ -548,12 +532,14 @@ impl InMemoryState {
             HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
         > = im::HashMap::new();
         {
-            let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
-                &[],
-                None,
-                IndexifyObjectsColumns::Allocations,
-                None,
-            )?;
+            let (allocations, _) = reader
+                .get_rows_from_cf_with_limits::<Allocation>(
+                    &[],
+                    None,
+                    IndexifyObjectsColumns::Allocations,
+                    None,
+                )
+                .await?;
             for allocation in allocations {
                 if allocation.is_terminal() {
                     continue;
@@ -569,8 +555,9 @@ impl InMemoryState {
 
         let mut request_ctx = im::OrdMap::new();
         {
-            let all_app_request_ctx: Vec<(String, RequestCtx)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)?;
+            let all_app_request_ctx: Vec<(String, RequestCtx)> = reader
+                .get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)
+                .await?;
             for (_id, ctx) in all_app_request_ctx {
                 // Do not cache completed requests
                 if ctx.outcome.is_some() {
@@ -1115,8 +1102,8 @@ impl InMemoryState {
         let mut num_pending_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for (_, metadata) in function_executors.iter() {
-                if metadata.function_executor.state == FunctionExecutorState::Pending ||
-                    metadata.function_executor.state == FunctionExecutorState::Unknown
+                if metadata.function_executor.state == FunctionExecutorState::Pending
+                    || metadata.function_executor.state == FunctionExecutorState::Unknown
                 {
                     num_pending_function_executors += 1;
                 }
@@ -1136,8 +1123,8 @@ impl InMemoryState {
                     .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
                     .map(|allocs| allocs.len())
                     .unwrap_or(0);
-                if (allocation_count as u32) <
-                    capacity_threshold * metadata.function_executor.max_concurrency
+                if (allocation_count as u32)
+                    < capacity_threshold * metadata.function_executor.max_concurrency
                 {
                     candidates.insert(CandidateFunctionExecutor {
                         executor_id: metadata.executor_id.clone(),
@@ -1308,8 +1295,8 @@ impl InMemoryState {
                     let mut found_allowlist_match = false;
                     if let Some(allowlist) = executor.function_allowlist.as_ref() {
                         for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe) &&
-                                fe.version == latest_cg_version
+                            if allowlist_entry.matches_function_executor(fe)
+                                && fe.version == latest_cg_version
                             {
                                 found_allowlist_match = true;
                                 break;
@@ -1371,8 +1358,8 @@ impl InMemoryState {
             .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.function_name &&
-                    v.version == fe_meta.function_executor.version
+                v.name == fe_meta.function_executor.function_name
+                    && v.version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| v.outcome.is_none())
     }
@@ -1731,20 +1718,10 @@ mod tests {
     use crate::{
         config::GpuModel,
         data_model::{
-            ComputeOp,
-            ExecutorId,
-            FunctionCall,
-            FunctionCallId,
-            FunctionExecutorBuilder,
-            FunctionExecutorId,
-            FunctionExecutorResources,
-            FunctionExecutorServerMetadata,
-            FunctionExecutorState,
-            FunctionRun,
-            FunctionRunBuilder,
-            FunctionRunFailureReason,
-            FunctionRunOutcome,
-            FunctionRunStatus,
+            ComputeOp, ExecutorId, FunctionCall, FunctionCallId, FunctionExecutorBuilder,
+            FunctionExecutorId, FunctionExecutorResources, FunctionExecutorServerMetadata,
+            FunctionExecutorState, FunctionRun, FunctionRunBuilder, FunctionRunFailureReason,
+            FunctionRunOutcome, FunctionRunStatus,
         },
         in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
@@ -1922,9 +1899,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "test-function" &&
-                    function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|")
+                    && function_run.name == "test-function"
+                    && function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -1968,9 +1945,9 @@ mod tests {
             .function_runs
             .iter()
             .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "different-function" &&
-                    function_run.outcome.is_none()
+                key.0.starts_with("test-namespace|test-graph|")
+                    && function_run.name == "different-function"
+                    && function_run.outcome.is_none()
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -2100,12 +2077,8 @@ mod tests {
         use crate::{
             config::ExecutorCatalogEntry,
             data_model::{
-                ApplicationEntryPoint,
-                ApplicationState,
-                ApplicationVersionBuilder,
-                Function,
-                FunctionResources,
-                GPUResources,
+                ApplicationEntryPoint, ApplicationState, ApplicationVersionBuilder, Function,
+                FunctionResources, GPUResources,
                 filter::{Expression, LabelsFilter, Operator},
                 test_objects::tests::mock_data_payload,
             },

@@ -15,12 +15,13 @@ use derive_builder::Builder;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    data_model::clocks::Linearizable,
-    metrics::StateStoreMetrics,
+    data_model::clocks::Linearizable, metrics::StateStoreMetrics,
     state_store::scanner::CursorDirection,
 };
 
+pub mod foundationdb;
 pub mod rocksdb;
+use foundationdb::*;
 use rocksdb::*;
 
 pub type KVBytes = (Box<[u8]>, Box<[u8]>);
@@ -47,6 +48,15 @@ pub enum Error {
         #[from]
         source: rocksdb::Error,
     },
+
+    #[error(transparent)]
+    FoundationDBFailure {
+        #[from]
+        source: foundationdb::Error,
+    },
+
+    #[error("Generic driver error: {}", message)]
+    GenericFailure { message: String },
 }
 
 impl Error {
@@ -70,33 +80,31 @@ impl Error {
 
 /// Writer defines all the write operations for a given driver.
 #[allow(dead_code)]
+#[async_trait::async_trait]
 pub trait Writer {
     /// Start a new Transaction in the database.
     fn transaction(&self) -> Transaction<'_>;
 
-    fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>;
+    async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
 
-    fn drop<N>(&mut self, cf: N) -> Result<(), Error>
-    where
-        N: AsRef<str>;
+    fn drop(&mut self, cf: &str) -> Result<(), Error>;
 
-    fn create<N>(&mut self, cf: N, opts: &CreateOptions) -> Result<(), Error>
-    where
-        N: AsRef<str>;
+    fn create(&mut self, cf: &str, opts: &CreateOptions) -> Result<(), Error>;
 }
 
 #[allow(dead_code)]
 pub enum CreateOptions {
     RocksDB(rocksdb::RocksDBOptions),
+    FoundationDB(foundationdb::Options),
 }
 
 impl CreateOptions {
     pub fn new_rocksdb_options() -> Self {
         Self::RocksDB(Default::default())
+    }
+
+    pub fn new_foundationdb_options() -> Self {
+        Self::FoundationDB(Default::default())
     }
 }
 
@@ -107,29 +115,25 @@ impl Default for CreateOptions {
 }
 
 /// Reader defines all the read operations for a give driver.
+#[async_trait::async_trait]
 pub trait Reader {
     // Get an item from the database.
-    fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>;
+    async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
     /// Return the items in the database that match the keys passed as
     /// arguments. If the key does not exist in the database, the value is
     /// not returned, it's just ignored.
-    fn list_existent_items<N>(&self, cf: N, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>
-    where
-        N: AsRef<str>;
+    async fn list_existent_items(&self, cf: &str, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, Error>;
 
     /// Return a list of keys from a given range in an iterator.
-    fn get_key_range<N>(&self, cf: N, options: RangeOptions) -> Result<Range, Error>
-    where
-        N: AsRef<str>;
+    async fn get_key_range(&self, cf: &str, options: RangeOptions) -> Result<Range, Error>;
 
     /// Iterate over a list of Key/Value pairs.
-    fn iter<N>(&self, cf: N, options: IterOptions) -> impl Iterator<Item = Result<KVBytes, Error>>
-    where
-        N: AsRef<str>;
+    fn iter(
+        &self,
+        cf: &str,
+        options: IterOptions,
+    ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + '_>;
 }
 
 /// Struct that holds the information returned by `Reader::get_key_range`.
@@ -143,9 +147,9 @@ pub struct Range {
 
 /// Options that you can provide to perform a key range search.
 #[derive(Builder, Clone, Debug, Default)]
-pub struct RangeOptions<'db> {
+pub struct RangeOptions {
     #[builder(default)]
-    cursor: Option<&'db [u8]>,
+    cursor: Option<Bytes>,
     #[builder(setter(strip_option), default)]
     upper_bound: Option<Bytes>,
     #[builder(setter(strip_option), default)]
@@ -159,6 +163,7 @@ pub struct RangeOptions<'db> {
 /// Options that you can provide to iterate over a Key/Value pair.
 pub enum IterOptions<'db> {
     RocksDB((rocksdb::ReadOptions, Option<rocksdb::IteratorMode<'db>>)),
+    FoundationDB(()), // FoundationDB doesn't need special iteration options
 }
 
 impl<'db> IterOptions<'db> {
@@ -174,13 +179,19 @@ impl<'db> IterOptions<'db> {
         IterOptions::RocksDB((read_options, None))
     }
 
+    pub fn new_foundationdb_options() -> Self {
+        IterOptions::FoundationDB(())
+    }
+
     pub fn with_block_size(self, block_size: usize) -> Self {
-        let Self::RocksDB(this) = self;
-
-        let mut read_options = this.0;
-        read_options.set_readahead_size(block_size);
-
-        IterOptions::RocksDB((read_options, this.1))
+        match self {
+            Self::RocksDB(this) => {
+                let mut read_options = this.0;
+                read_options.set_readahead_size(block_size);
+                IterOptions::RocksDB((read_options, this.1))
+            }
+            Self::FoundationDB(_) => self, // FoundationDB doesn't use block size
+        }
     }
 
     pub fn starting_at(self, token: &'db [u8]) -> Self {
@@ -189,18 +200,22 @@ impl<'db> IterOptions<'db> {
     }
 
     fn with_mode(self, mode: rocksdb::IteratorMode<'db>) -> Self {
-        let Self::RocksDB(this) = self;
-        IterOptions::RocksDB((this.0, Some(mode)))
+        match self {
+            Self::RocksDB(this) => IterOptions::RocksDB((this.0, Some(mode))),
+            Self::FoundationDB(_) => self, // FoundationDB doesn't use iterator modes
+        }
     }
 
     #[cfg(test)]
     pub fn scan_fully(self) -> Self {
-        let Self::RocksDB(this) = self;
-
-        let mut read_options = this.0;
-        read_options.set_total_order_seek(true);
-
-        IterOptions::RocksDB((read_options, this.1))
+        match self {
+            Self::RocksDB(this) => {
+                let mut read_options = this.0;
+                read_options.set_total_order_seek(true);
+                IterOptions::RocksDB((read_options, this.1))
+            }
+            Self::FoundationDB(_) => self, // FoundationDB doesn't need special scan options
+        }
     }
 }
 
@@ -210,63 +225,105 @@ impl<'db> Default for IterOptions<'db> {
     }
 }
 
-/// AtomicComparator defines atomic functions that compare
-/// incoming records with existent records in the database.
-///
-/// These comparisons often use `crate::data_model::clocks::VectorClock`
-/// and `crate::data_model::clocks::Linearizable` structs to check
-/// the "happens-before" relationship between two records.
-pub trait AtomicComparator {
-    /// Compare a persisted record's vector clock against
-    /// the vector clock from an incoming new record, and commit
-    /// the new record if the clocks match.
-    ///
-    /// This function returns an error if the clock in the persisted
-    /// record is higher than the incoming one. This means that
-    /// a different event updated the record before, and the client
-    /// needs to reconcile the changes before trying to write its
-    /// changes.
-    #[allow(dead_code)]
-    fn compare_and_swap<N, K, R>(
-        &self,
-        tx: Arc<Transaction>,
-        cf: N,
-        key: K,
-        record: R,
-    ) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        R: Linearizable + Serialize + DeserializeOwned + fmt::Debug;
-}
-
 /// Driver defines all the operations a database driver needs to support.
 /// It combines Writer + Reader to make implementing a driver more ergonomic.
-#[allow(dead_code)]
+#[expect(unused)]
 pub trait Driver: Writer + Reader {}
 
+/// Enum to hold different driver implementations
+#[allow(dead_code)]
+pub enum DriverEnum {
+    RocksDB(RocksDBDriver),
+    FoundationDB(FoundationDBDriver),
+}
+
+impl DriverEnum {
+    pub fn transaction(&self) -> Transaction<'_> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.transaction(),
+            DriverEnum::FoundationDB(driver) => driver.transaction(),
+        }
+    }
+
+    /// Extract the RocksDB driver from the enum.
+    /// This is used for migration purposes which are currently hardcoded to
+    /// RocksDB.
+    pub fn as_rocksdb(&self) -> Result<&RocksDBDriver, Error> {
+        match self {
+            DriverEnum::RocksDB(driver) => Ok(driver),
+            DriverEnum::FoundationDB(_) => Err(Error::GenericFailure {
+                message: "Migrations are not supported with FoundationDB driver".to_string(),
+            }),
+        }
+    }
+
+    pub async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.put(cf, key, value).await,
+            DriverEnum::FoundationDB(driver) => driver.put(cf, key, value).await,
+        }
+    }
+
+    pub async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.get(cf, key).await,
+            DriverEnum::FoundationDB(driver) => driver.get(cf, key).await,
+        }
+    }
+
+    pub async fn list_existent_items(
+        &self,
+        cf: &str,
+        keys: Vec<&[u8]>,
+    ) -> Result<Vec<Bytes>, Error> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.list_existent_items(cf, keys).await,
+            DriverEnum::FoundationDB(driver) => driver.list_existent_items(cf, keys).await,
+        }
+    }
+
+    pub async fn get_key_range(&self, cf: &str, options: RangeOptions) -> Result<Range, Error> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.get_key_range(cf, options).await,
+            DriverEnum::FoundationDB(driver) => driver.get_key_range(cf, options).await,
+        }
+    }
+
+    pub fn iter(
+        &self,
+        cf: &str,
+        options: IterOptions<'_>,
+    ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + '_> {
+        match self {
+            DriverEnum::RocksDB(driver) => driver.iter(cf, options),
+            DriverEnum::FoundationDB(driver) => driver.iter(cf, options),
+        }
+    }
+}
+
 /// Multiple options to configure different database drivers.
-///
-/// The only option at the moment is RocksDB
 #[non_exhaustive]
 pub enum ConnectionOptions {
     RocksDB(rocksdb::Options),
+    FoundationDB(foundationdb::Options),
 }
 
 /// Open a connection to a database.
 ///
 /// This is the main entry point to connect Indexify server with a database to
 /// keep the state.
-///
-/// It returns a `RocksDBDriver` at the moment because there is no other option
-/// supported. This helps keep the code backward compatible.
 pub fn open_database(
     options: ConnectionOptions,
     metrics: Arc<StateStoreMetrics>,
-) -> Result<RocksDBDriver, Error> {
+) -> Result<DriverEnum, Error> {
     match options {
-        ConnectionOptions::RocksDB(options) => {
-            rocksdb::RocksDBDriver::open(options, metrics).map_err(Into::into)
+        ConnectionOptions::RocksDB(options) => rocksdb::RocksDBDriver::open(options, metrics)
+            .map(DriverEnum::RocksDB)
+            .map_err(Into::into),
+        ConnectionOptions::FoundationDB(options) => {
+            foundationdb::FoundationDBDriver::open(options, metrics)
+                .map(DriverEnum::FoundationDB)
+                .map_err(Into::into)
         }
     }
 }
@@ -279,61 +336,57 @@ pub fn open_database(
 /// We use an enum instead of a trait because it easier to validate
 /// that the inner transaction uses the right driver.
 pub enum Transaction<'db> {
-    RocksDB(RocksDBTransaction<'db>),
+    RocksDB(Arc<RocksDBTransaction<'db>>),
+    FoundationDB(FoundationDBTransaction<'db>),
 }
 
 impl fmt::Debug for Transaction<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Transaction::RocksDB(_) => write!(f, "Transaction::RocksDB"),
+            Transaction::FoundationDB(_) => write!(f, "Transaction::FoundationDB"),
         }
     }
 }
 
 impl<'db> Transaction<'db> {
-    pub fn commit(self) -> Result<(), Error> {
-        let Self::RocksDB(tx) = self;
-        tx.commit()
+    pub async fn commit(self) -> Result<(), Error> {
+        match self {
+            Self::RocksDB(tx) => tx.commit().await,
+            Self::FoundationDB(tx) => tx.commit().await,
+        }
     }
 
-    pub fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.get(cf, key)
+    pub async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        match self {
+            Self::RocksDB(tx) => tx.get(cf, key).await,
+            Self::FoundationDB(tx) => tx.get(cf, key).await,
+        }
     }
 
-    pub fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.put(cf, key, value)
+    pub async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        match self {
+            Self::RocksDB(tx) => tx.put(cf, key, value).await,
+            Self::FoundationDB(tx) => tx.put(cf, key, value).await,
+        }
     }
 
-    pub fn delete<N, K>(&self, cf: N, key: K) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.delete(cf, key)
+    pub async fn delete(&self, cf: &str, key: &[u8]) -> Result<(), Error> {
+        match self {
+            Self::RocksDB(tx) => tx.delete(cf, key).await,
+            Self::FoundationDB(tx) => tx.delete(cf, key).await,
+        }
     }
 
-    pub fn iter<N>(
+    pub async fn iter(
         &'db self,
-        cf: N,
+        cf: &'db str,
         prefix: &'db [u8],
-        options: IterOptions,
-    ) -> impl Iterator<Item = Result<KVBytes, Error>> + 'db
-    where
-        N: AsRef<str>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.iter(cf, prefix, options)
+        options: IterOptions<'db>,
+    ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + 'db> {
+        match self {
+            Self::RocksDB(tx) => tx.iter(cf, prefix, options),
+            Self::FoundationDB(tx) => tx.iter(cf, prefix, options),
+        }
     }
 }

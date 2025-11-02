@@ -32,13 +32,8 @@ use crate::{
         StateChangeId,
     },
     executor_api::executor_api_pb::{
-        self,
-        Allocation,
-        DataPayload,
-        DataPayloadEncoding,
-        DesiredExecutorState,
-        FunctionExecutorDescription,
-        FunctionRef,
+        self, Allocation, DataPayload, DataPayloadEncoding, DesiredExecutorState,
+        FunctionExecutorDescription, FunctionRef,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     pb_helpers::*,
@@ -720,7 +715,8 @@ mod tests {
             update_executor_state,
             HashSet::new(),
             test_srv.service.indexify_state.clone(),
-        )?;
+        )
+        .await?;
 
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(request),

@@ -26,8 +26,8 @@ pub async fn download_request_error(
         .get(
             &request_error.payload.path,
             Some(
-                request_error.payload.offset..
-                    request_error.payload.offset + request_error.payload.size,
+                request_error.payload.offset
+                    ..request_error.payload.offset + request_error.payload.size,
             ),
         )
         .await
@@ -70,6 +70,7 @@ pub async fn v1_download_fn_output_payload(
         .indexify_state
         .reader()
         .request_ctx(&namespace, &application, &request_id)
+        .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
         })?
@@ -107,6 +108,7 @@ pub async fn v1_download_fn_output_payload_simple(
         .indexify_state
         .reader()
         .request_ctx(&namespace, &application, &request_id)
+        .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
         })?
@@ -145,6 +147,7 @@ pub async fn v1_download_fn_output_payload_head(
         .indexify_state
         .reader()
         .request_ctx(&namespace, &application, &request_id)
+        .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}",))
         })?

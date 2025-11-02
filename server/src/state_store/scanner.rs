@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use bytes::Bytes;
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
@@ -8,19 +9,12 @@ use tracing::{debug, trace};
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
-        Allocation,
-        AllocationUsageEvent,
-        Application,
-        ApplicationVersion,
-        GcUrl,
-        Namespace,
-        RequestCtx,
-        StateChange,
-        UnprocessedStateChanges,
+        Allocation, AllocationUsageEvent, Application, ApplicationVersion, GcUrl, Namespace,
+        RequestCtx, StateChange, UnprocessedStateChanges,
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
+        driver::{DriverEnum, IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -46,16 +40,16 @@ impl CursorDirection {
 }
 
 pub struct StateReader {
-    db: Arc<RocksDBDriver>,
+    db: Arc<DriverEnum>,
     metrics: Arc<metrics::StateStoreMetrics>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<RocksDBDriver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
+    pub fn new(db: Arc<DriverEnum>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
         Self { db, metrics }
     }
 
-    pub fn get_rows_from_cf_multi_key<V>(
+    pub async fn get_rows_from_cf_multi_key<V>(
         &self,
         keys: Vec<&[u8]>,
         column: IndexifyObjectsColumns,
@@ -66,7 +60,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_rows_from_cf_multi_key")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let result = self.db.list_existent_items(column.as_ref(), keys)?;
+        let result = self.db.list_existent_items(column.as_ref(), keys).await?;
         let mut items: Vec<V> = Vec::with_capacity(result.len());
         for v in result {
             let de = JsonEncoder::decode(v.as_ref())?;
@@ -76,7 +70,7 @@ impl StateReader {
         Ok(items)
     }
 
-    pub fn get_rows_from_cf_with_limits<V>(
+    pub async fn get_rows_from_cf_with_limits<V>(
         &self,
         key_prefix: &[u8],
         restart_key: Option<&[u8]>,
@@ -117,7 +111,7 @@ impl StateReader {
     }
 
     /// This method fetches a key from a specific column family
-    pub fn get_from_cf<T, K>(
+    pub async fn get_from_cf<T, K>(
         &self,
         column: &IndexifyObjectsColumns,
         key: K,
@@ -129,7 +123,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let result_bytes = match self.db.get(column.as_ref(), key)? {
+        let result_bytes = match self.db.get(column.as_ref(), key.as_ref()).await? {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
@@ -139,21 +133,23 @@ impl StateReader {
         Ok(Some(result))
     }
 
-    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
+    pub async fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "get_gc_urls")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let limit = limit.unwrap_or(usize::MAX);
-        let (urls, cursor) = self.get_rows_from_cf_with_limits::<GcUrl>(
-            &[],
-            None,
-            IndexifyObjectsColumns::GcUrls,
-            Some(limit),
-        )?;
+        let (urls, cursor) = self
+            .get_rows_from_cf_with_limits::<GcUrl>(
+                &[],
+                None,
+                IndexifyObjectsColumns::GcUrls,
+                Some(limit),
+            )
+            .await?;
         Ok((urls, cursor))
     }
 
-    pub fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+    pub async fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
@@ -178,7 +174,7 @@ impl StateReader {
         Ok(state_changes)
     }
 
-    pub fn unprocessed_state_changes(
+    pub async fn unprocessed_state_changes(
         &self,
         executor_events_cursor: &Option<Vec<u8>>,
         application_events_cursor: &Option<Vec<u8>>,
@@ -241,7 +237,7 @@ impl StateReader {
     /// Returns a tuple containing:
     /// - A vector of `AllocationUsage` records.
     /// - An optional cursor for the next page (if more records are available).
-    pub fn allocation_usage(
+    pub async fn allocation_usage(
         &self,
         cursor: Option<&Vec<u8>>,
     ) -> Result<(Vec<AllocationUsageEvent>, Option<Vec<u8>>)> {
@@ -250,17 +246,19 @@ impl StateReader {
 
         let cursor = cursor.map(|c| c.as_slice());
 
-        let (events, cursor) = self.get_rows_from_cf_with_limits::<AllocationUsageEvent>(
-            &[],
-            cursor,
-            IndexifyObjectsColumns::AllocationUsage,
-            Some(MAX_FETCH_LIMIT),
-        )?;
+        let (events, cursor) = self
+            .get_rows_from_cf_with_limits::<AllocationUsageEvent>(
+                &[],
+                cursor,
+                IndexifyObjectsColumns::AllocationUsage,
+                Some(MAX_FETCH_LIMIT),
+            )
+            .await?;
 
         Ok((events, cursor))
     }
 
-    pub fn get_all_rows_from_cf<V>(
+    pub async fn get_all_rows_from_cf<V>(
         &self,
         column: IndexifyObjectsColumns,
     ) -> Result<Vec<(String, V)>>
@@ -285,29 +283,33 @@ impl StateReader {
         .collect::<Result<Vec<(String, V)>, _>>()
     }
 
-    pub fn get_namespace(&self, namespace: &str) -> Result<Option<Namespace>> {
+    pub async fn get_namespace(&self, namespace: &str) -> Result<Option<Namespace>> {
         let kvs = &[KeyValue::new("op", "get_namespace")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let ns = self.get_from_cf(&IndexifyObjectsColumns::Namespaces, namespace)?;
+        let ns = self
+            .get_from_cf(&IndexifyObjectsColumns::Namespaces, namespace)
+            .await?;
         Ok(ns)
     }
 
-    pub fn get_all_namespaces(&self) -> Result<Vec<Namespace>> {
+    pub async fn get_all_namespaces(&self) -> Result<Vec<Namespace>> {
         let kvs = &[KeyValue::new("op", "get_all_namespaces")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let (namespaces, _) = self.get_rows_from_cf_with_limits::<Namespace>(
-            &[],
-            None,
-            IndexifyObjectsColumns::Namespaces,
-            None,
-        )?;
+        let (namespaces, _) = self
+            .get_rows_from_cf_with_limits::<Namespace>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Namespaces,
+                None,
+            )
+            .await?;
         Ok(namespaces)
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn list_requests(
+    pub async fn list_requests(
         &self,
         namespace: &str,
         application: &str,
@@ -329,14 +331,17 @@ impl StateReader {
             .upper_bound(upper_bound.into())
             .lower_bound(lower_bound.into())
             .direction(direction.clone())
-            .cursor(cursor)
+            .cursor(cursor.map(Bytes::copy_from_slice))
             .limit(limit)
             .build()?;
 
-        let range = self.db.get_key_range(
-            IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
-            range_options,
-        )?;
+        let range = self
+            .db
+            .get_key_range(
+                IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
+                range_options,
+            )
+            .await?;
 
         // Process the collected keys
         let mut request_prefixes = range
@@ -355,10 +360,12 @@ impl StateReader {
             request_prefixes.reverse();
         }
 
-        let requests = self.get_rows_from_cf_multi_key::<RequestCtx>(
-            request_prefixes.iter().map(|v| v.as_slice()).collect(),
-            IndexifyObjectsColumns::RequestCtx,
-        )?;
+        let requests = self
+            .get_rows_from_cf_multi_key::<RequestCtx>(
+                request_prefixes.iter().map(|v| v.as_slice()).collect(),
+                IndexifyObjectsColumns::RequestCtx,
+            )
+            .await?;
 
         Ok((
             requests,
@@ -367,7 +374,7 @@ impl StateReader {
         ))
     }
 
-    pub fn list_applications(
+    pub async fn list_applications(
         &self,
         namespace: &str,
         cursor: Option<&[u8]>,
@@ -376,25 +383,33 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "list_applications")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let (applications, cursor) = self.get_rows_from_cf_with_limits::<Application>(
-            namespace.as_bytes(),
-            cursor,
-            IndexifyObjectsColumns::Applications,
-            limit,
-        )?;
+        let (applications, cursor) = self
+            .get_rows_from_cf_with_limits::<Application>(
+                namespace.as_bytes(),
+                cursor,
+                IndexifyObjectsColumns::Applications,
+                limit,
+            )
+            .await?;
         Ok((applications, cursor))
     }
 
-    pub fn get_application(&self, namespace: &str, name: &str) -> Result<Option<Application>> {
+    pub async fn get_application(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<Application>> {
         let kvs = &[KeyValue::new("op", "get_application")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key = Application::key_from(namespace, name);
-        let application = self.get_from_cf(&IndexifyObjectsColumns::Applications, key)?;
+        let application = self
+            .get_from_cf(&IndexifyObjectsColumns::Applications, key)
+            .await?;
         Ok(application)
     }
 
-    pub fn get_application_version(
+    pub async fn get_application_version(
         &self,
         namespace: &str,
         name: &str,
@@ -404,8 +419,9 @@ impl StateReader {
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key = ApplicationVersion::key_from(namespace, name, version);
-        let application_version =
-            self.get_from_cf(&IndexifyObjectsColumns::ApplicationVersions, key)?;
+        let application_version = self
+            .get_from_cf(&IndexifyObjectsColumns::ApplicationVersions, key)
+            .await?;
         if application_version.is_some() {
             return Ok(application_version);
         }
@@ -414,22 +430,24 @@ impl StateReader {
             "Falling back to application to get version for application {}",
             name
         );
-        let application = self.get_application(namespace, name)?;
+        let application = self.get_application(namespace, name).await?;
         match application {
             Some(application) => application.to_version().map(Some),
             None => Ok(None),
         }
     }
 
-    pub fn get_allocation(&self, allocation_id: &str) -> Result<Option<Allocation>> {
+    pub async fn get_allocation(&self, allocation_id: &str) -> Result<Option<Allocation>> {
         let kvs = &[KeyValue::new("op", "get_allocation")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let allocation = self.get_from_cf(&IndexifyObjectsColumns::Allocations, allocation_id)?;
+        let allocation = self
+            .get_from_cf(&IndexifyObjectsColumns::Allocations, allocation_id)
+            .await?;
         Ok(allocation)
     }
 
-    pub fn get_allocations_by_request_id(
+    pub async fn get_allocations_by_request_id(
         &self,
         namespace: &str,
         application: &str,
@@ -440,16 +458,18 @@ impl StateReader {
 
         let prefix = Allocation::key_prefix_from_request(namespace, application, request_id);
 
-        let (allocations, _) = self.get_rows_from_cf_with_limits::<Allocation>(
-            prefix.as_bytes(),
-            None,
-            IndexifyObjectsColumns::Allocations,
-            None,
-        )?;
+        let (allocations, _) = self
+            .get_rows_from_cf_with_limits::<Allocation>(
+                prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::Allocations,
+                None,
+            )
+            .await?;
         Ok(allocations)
     }
 
-    pub fn request_ctx(
+    pub async fn request_ctx(
         &self,
         namespace: &str,
         application: &str,
@@ -460,7 +480,7 @@ impl StateReader {
 
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
         let key = RequestCtx::key_from(namespace, application, request_id);
-        let value = self.db.get(cf, &key)?;
+        let value = self.db.get(cf, key.as_bytes()).await?;
         if value.is_none() {
             return Ok(None);
         }
@@ -505,6 +525,7 @@ mod tests {
                 IndexifyObjectsColumns::Namespaces,
                 Some(3),
             )
+            .await
             .unwrap();
         let cursor = String::from_utf8(result.1.unwrap().clone()).unwrap();
 
@@ -518,6 +539,7 @@ mod tests {
                 IndexifyObjectsColumns::Namespaces,
                 Some(3),
             )
+            .await
             .unwrap();
         let cursor = result.1;
         assert_eq!(result.0.len(), 2);
@@ -552,6 +574,7 @@ mod tests {
         ];
         let result = reader
             .get_rows_from_cf_multi_key::<Namespace>(keys, IndexifyObjectsColumns::Namespaces)
+            .await
             .unwrap();
 
         assert_eq!(3, result.len());

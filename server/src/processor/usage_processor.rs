@@ -190,7 +190,8 @@ impl UsageProcessor {
         let (events, new_cursor) = self
             .indexify_state
             .reader()
-            .allocation_usage(cursor.clone().as_ref())?;
+            .allocation_usage(cursor.clone().as_ref())
+            .await?;
 
         if events.is_empty() {
             return Ok(());
@@ -248,6 +249,7 @@ impl UsageProcessor {
 
             if let Err(error) =
                 state_machine::remove_allocation_usage_events(&txn, processed_events.as_slice())
+                    .await
             {
                 error!(
                     %error,
@@ -263,7 +265,7 @@ impl UsageProcessor {
                 tokio::time::sleep(delay).await;
             }
 
-            match txn.commit() {
+            match txn.commit().await {
                 Ok(_) => return Ok(()),
                 Err(commit_error) => {
                     error!(

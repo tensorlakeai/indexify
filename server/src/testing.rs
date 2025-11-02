@@ -9,17 +9,8 @@ use crate::{
     blob_store::BlobStorageConfig,
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
-        Allocation,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        FunctionCallId,
-        FunctionExecutor,
-        FunctionExecutorState,
-        FunctionRun,
-        FunctionRunOutcome,
-        FunctionRunStatus,
-        RequestCtx,
+        Allocation, DataPayload, ExecutorId, ExecutorMetadata, FunctionCallId, FunctionExecutor,
+        FunctionExecutorState, FunctionRun, FunctionRunOutcome, FunctionRunStatus, RequestCtx,
         test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
@@ -29,13 +20,8 @@ use crate::{
         driver::rocksdb::RocksDBConfig,
         executor_watches::ExecutorWatch,
         requests::{
-            AllocationOutput,
-            DeregisterExecutorRequest,
-            FunctionCallRequest,
-            RequestPayload,
-            RequestUpdates,
-            StateMachineUpdateRequest,
-            UpsertExecutorRequest,
+            AllocationOutput, DeregisterExecutorRequest, FunctionCallRequest, RequestPayload,
+            RequestUpdates, StateMachineUpdateRequest, UpsertExecutorRequest,
         },
         state_machine::IndexifyObjectsColumns,
     },
@@ -96,7 +82,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?
+            .unprocessed_state_changes(&None, &None)
+            .await?
             .changes
             .is_empty()
         {
@@ -111,7 +98,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?
+            .unprocessed_state_changes(&None, &None)
+            .await?
             .changes;
         while !cached_state_changes.is_empty() {
             self.service
@@ -140,7 +128,7 @@ impl TestService {
             .indexify_state
             .reader()
             .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
-            .unwrap()
+            .await?
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
             .flatten()
@@ -210,8 +198,8 @@ impl TestService {
         let completed_success_tasks = function_runs
             .into_iter()
             .filter(|t| {
-                t.status == FunctionRunStatus::Completed &&
-                    t.outcome == Some(FunctionRunOutcome::Success)
+                t.status == FunctionRunStatus::Completed
+                    && t.outcome == Some(FunctionRunOutcome::Success)
             })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)
@@ -359,7 +347,8 @@ impl TestExecutor<'_> {
             update_executor_state,
             HashSet::new(),
             self.test_service.service.indexify_state.clone(),
-        )?;
+        )
+        .await?;
 
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(request),
@@ -534,7 +523,8 @@ impl TestExecutor<'_> {
             false,
             executor_watches,
             self.test_service.service.indexify_state.clone(),
-        )?;
+        )
+        .await?;
 
         self.test_service
             .service
@@ -557,7 +547,7 @@ impl TestExecutor<'_> {
             .indexify_state
             .reader()
             .get_allocation(&args.allocation_key)
-            .unwrap()
+            .await?
             .unwrap();
 
         allocation.outcome = args.task_outcome;
@@ -585,7 +575,8 @@ impl TestExecutor<'_> {
             false,
             HashSet::new(),
             self.test_service.service.indexify_state.clone(),
-        )?;
+        )
+        .await?;
 
         self.test_service
             .service

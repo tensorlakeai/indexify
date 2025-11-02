@@ -7,24 +7,10 @@ use anyhow::Result;
 
 use crate::{
     data_model::{
-        Allocation,
-        Application,
-        ComputeOp,
-        DataPayload,
-        ExecutorId,
-        ExecutorMetadata,
-        FunctionCall,
-        FunctionCallId,
-        FunctionExecutorId,
-        FunctionExecutorServerMetadata,
-        FunctionRun,
-        FunctionRunFailureReason,
-        FunctionRunOutcome,
-        FunctionRunStatus,
-        GcUrl,
-        HostResources,
-        RequestCtx,
-        StateChange,
+        Allocation, Application, ComputeOp, DataPayload, ExecutorId, ExecutorMetadata,
+        FunctionCall, FunctionCallId, FunctionExecutorId, FunctionExecutorServerMetadata,
+        FunctionRun, FunctionRunFailureReason, FunctionRunOutcome, FunctionRunStatus, GcUrl,
+        HostResources, RequestCtx, StateChange,
     },
     state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
 };
@@ -151,8 +137,8 @@ impl SchedulerUpdateRequest {
         for (request_ctx_key, function_call_ids) in &self.updated_function_runs {
             if let Some(request_ctx) = self.updated_request_states.get(request_ctx_key) {
                 for function_call_id in function_call_ids {
-                    if let Some(function_run) = request_ctx.function_runs.get(function_call_id) &&
-                        matches!(function_run.status, FunctionRunStatus::Pending)
+                    if let Some(function_run) = request_ctx.function_runs.get(function_call_id)
+                        && matches!(function_run.status, FunctionRunStatus::Pending)
                     {
                         function_runs.push(function_run.clone());
                     }
@@ -244,7 +230,7 @@ impl UpsertExecutorRequest {
     /// It will also check if the allocation outputs can be updated
     /// and generate the necessary state changes
     /// for the allocation outputs.
-    pub fn build(
+    pub async fn build(
         executor: ExecutorMetadata,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,

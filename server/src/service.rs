@@ -6,8 +6,7 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
 use tokio::{
-    self,
-    signal,
+    self, signal,
     sync::{Mutex, watch},
 };
 use tonic::transport::Server;
@@ -25,9 +24,7 @@ use crate::{
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
     processor::{
-        application_processor::ApplicationProcessor,
-        gc::Gc,
-        usage_processor::UsageProcessor,
+        application_processor::ApplicationProcessor, gc::Gc, usage_processor::UsageProcessor,
     },
     queue::Queue,
     routes::routes_state::RouteState,
@@ -89,7 +86,7 @@ impl Service {
             config.blob_storage.region.clone(),
         )?);
 
-        let namespaces = indexify_state.reader().get_all_namespaces()?;
+        let namespaces = indexify_state.reader().get_all_namespaces().await?;
         for namespace in namespaces {
             if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
                 blob_storage_registry.create_new_blob_store(
@@ -173,20 +170,12 @@ impl Service {
 
         let usage_processor = self.usage_processor.clone();
         let shutdown_rx = self.shutdown_rx.clone();
-        let env = self.config.env.clone();
-        let instance_id = self.config.instance_id();
-        tokio::spawn(async move {
-            let span = info_span!(
-                "Initializing Usage Processor",
-                env,
-                "indexify-instance" = instance_id
-            );
-
-            let _ = {
+        tokio::spawn(
+            async move {
                 usage_processor.start(shutdown_rx).await;
-                ().instrument(span.clone())
-            };
-        });
+            }
+            .instrument(span.clone()),
+        );
 
         // Spawn monitoring task with shutdown receiver
         let monitor = self.executor_manager.clone();

@@ -13,25 +13,14 @@ use tracing::{debug, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        Allocation,
-        AllocationUsageEvent,
-        AllocationUsageEventBuilder,
-        AllocationUsageId,
-        Application,
-        ApplicationVersion,
-        ChangeType,
-        GcUrl,
-        GcUrlBuilder,
-        NamespaceBuilder,
-        RequestCtx,
-        StateChange,
+        Allocation, AllocationUsageEvent, AllocationUsageEventBuilder, AllocationUsageId,
+        Application, ApplicationVersion, ChangeType, GcUrl, GcUrlBuilder, NamespaceBuilder,
+        RequestCtx, StateChange,
     },
     state_store::{
         driver::{Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
-            DeleteRequestRequest,
-            InvokeApplicationRequest,
-            NamespaceRequest,
+            DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
@@ -66,7 +55,7 @@ pub enum IndexifyObjectsColumns {
     ApplicationStateChanges,
 }
 
-pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
+pub(crate) async fn upsert_namespace(db: Arc<DriverEnum>, req: &NamespaceRequest) -> Result<()> {
     let ns = NamespaceBuilder::default()
         .name(req.name.clone())
         .created_at(get_epoch_time_in_ms())
@@ -76,14 +65,15 @@ pub(crate) fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put(
         IndexifyObjectsColumns::Namespaces.as_ref(),
-        &ns.name,
-        serialized_namespace,
-    )?;
+        ns.name.as_bytes(),
+        &serialized_namespace,
+    )
+    .await?;
     info!(namespace = ns.name, "created namespace: {}", ns.name);
     Ok(())
 }
 
-pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Result<()> {
+pub async fn create_request(txn: &Transaction<'_>, req: &InvokeApplicationRequest) -> Result<()> {
     let span = info_span!(
         "create_request",
         namespace = req.namespace,
@@ -96,8 +86,9 @@ pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Resu
     let cg = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
-            &application_key,
-        )?
+            application_key.as_bytes(),
+        )
+        .await?
         .ok_or(anyhow::anyhow!("Application not found"))?;
     let app: Application = JsonEncoder::decode(&cg)?;
     if let Some(reason) = app.state.as_disabled() {
@@ -108,14 +99,16 @@ pub fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Resu
     }
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
-        req.ctx.key(),
+        req.ctx.key().as_bytes(),
         &JsonEncoder::encode(&req.ctx)?,
-    )?;
+    )
+    .await?;
     txn.put(
         IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
-        req.ctx.secondary_index_key(),
-        [],
-    )?;
+        &req.ctx.secondary_index_key(),
+        &[],
+    )
+    .await?;
 
     info!(
         "created request: namespace: {}, app: {}",
@@ -194,16 +187,20 @@ pub(crate) fn upsert_allocation(
     let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
     txn.put(
         IndexifyObjectsColumns::AllocationUsage.as_ref(),
-        allocation_usage.key(),
+        &allocation_usage.key(),
         &serialized_usage,
-    )?;
+    )
+    .await?;
 
     allocation_upsert_result.create_state_change = true;
     allocation_upsert_result.usage_recorded = true;
     Ok(allocation_upsert_result)
 }
 
-pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
+pub(crate) async fn delete_request(
+    txn: &Transaction<'_>,
+    req: &DeleteRequestRequest,
+) -> Result<()> {
     let span = info_span!(
         "delete_request",
         namespace = req.namespace,
@@ -219,8 +216,9 @@ pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> R
     let request_ctx = txn
         .get(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
-            &request_ctx_key,
+            request_ctx_key.as_bytes(),
         )
+        .await
         .map_err(|e| anyhow!("failed to get request: {e:?}"))?;
     let request_ctx = match request_ctx {
         Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
@@ -252,14 +250,18 @@ pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> R
             IndexifyObjectsColumns::GcUrls.as_ref(),
             gc_url.key().as_bytes(),
             &serialized_gc_url,
-        )?;
+        )
+        .await?;
     }
 
     let allocation_prefix =
         Allocation::key_prefix_from_request(&req.namespace, &req.application, &req.request_id);
     // delete all allocations for this request
     let cf = IndexifyObjectsColumns::Allocations.as_ref();
-    for iter in txn.iter(cf, allocation_prefix.as_bytes(), Default::default()) {
+    for iter in txn
+        .iter(cf, allocation_prefix.as_bytes(), Default::default())
+        .await
+    {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<Allocation>(&value)?;
         if value.request_id == req.request_id {
@@ -269,7 +271,8 @@ pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> R
                 "fn" = value.function,
                 "deleting allocation",
             );
-            txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)?;
+            txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)
+                .await?;
         }
     }
 
@@ -278,18 +281,23 @@ pub(crate) fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> R
         txn,
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         request_ctx_key.as_bytes(),
-    )?;
+    )
+    .await?;
 
     // Delete Request Context Secondary Index
     txn.delete(
         IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
-        request_ctx.secondary_index_key(),
-    )?;
+        &request_ctx.secondary_index_key(),
+    )
+    .await?;
 
     Ok(())
 }
 
-fn update_requests_for_application(txn: &Transaction, application: &Application) -> Result<()> {
+async fn update_requests_for_application(
+    txn: &Transaction<'_>,
+    application: &Application,
+) -> Result<()> {
     let cg_prefix =
         RequestCtx::key_prefix_for_application(&application.namespace, &application.name);
 
@@ -301,11 +309,13 @@ fn update_requests_for_application(txn: &Transaction, application: &Application)
     );
     let _guard = span.enter();
 
-    let iter = txn.iter(
-        IndexifyObjectsColumns::RequestCtx.as_ref(),
-        cg_prefix.as_bytes(),
-        Default::default(),
-    );
+    let iter = txn
+        .iter(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            cg_prefix.as_bytes(),
+            Default::default(),
+        )
+        .await;
 
     let mut request_ctx_to_update = HashMap::new();
     for kv in iter {
@@ -339,13 +349,14 @@ fn update_requests_for_application(txn: &Transaction, application: &Application)
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             &request_id,
             &serialized_task,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub(crate) fn create_or_update_application(
-    txn: &Transaction,
+pub(crate) async fn create_or_update_application(
+    txn: &Transaction<'_>,
     application: Application,
     upgrade_existing_function_runs_to_current_version: bool,
 ) -> Result<()> {
@@ -361,12 +372,14 @@ pub(crate) fn create_or_update_application(
         "creating application: ns: {} name: {}, upgrade requests: {}",
         application.namespace, application.name, upgrade_existing_function_runs_to_current_version
     );
-    let existing_application = txn
+    let existing_application_result = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
-            application.key(),
-        )?
-        .map(|v| JsonEncoder::decode::<Application>(&v));
+            application.key().as_bytes(),
+        )
+        .await?;
+    let existing_application =
+        existing_application_result.map(|v| JsonEncoder::decode::<Application>(&v));
 
     let new_application_version = match existing_application {
         Some(Ok(mut existing_application)) => {
@@ -385,19 +398,21 @@ pub(crate) fn create_or_update_application(
     let serialized_application_version = JsonEncoder::encode(&new_application_version)?;
     txn.put(
         IndexifyObjectsColumns::ApplicationVersions.as_ref(),
-        new_application_version.key(),
+        new_application_version.key().as_bytes(),
         &serialized_application_version,
-    )?;
+    )
+    .await?;
 
     let serialized_application = JsonEncoder::encode(&application)?;
     txn.put(
         IndexifyObjectsColumns::Applications.as_ref(),
-        application.key(),
+        application.key().as_bytes(),
         &serialized_application,
-    )?;
+    )
+    .await?;
 
     if upgrade_existing_function_runs_to_current_version {
-        update_requests_for_application(txn, &application)?;
+        update_requests_for_application(txn, &application).await?;
     }
 
     info!(
@@ -407,19 +422,19 @@ pub(crate) fn create_or_update_application(
     Ok(())
 }
 
-fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
-    let iter = txn.iter(cf, prefix, Default::default());
+async fn delete_cf_prefix(txn: &Transaction<'_>, cf: &str, prefix: &[u8]) -> Result<()> {
+    let iter = txn.iter(cf, prefix, Default::default()).await;
     for key in iter {
         let (key, _) = key?;
         if !key.starts_with(prefix) {
             break;
         }
-        txn.delete(cf, &key)?;
+        txn.delete(cf, &key).await?;
     }
     Ok(())
 }
 
-pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
+pub async fn delete_application(txn: &Transaction<'_>, namespace: &str, name: &str) -> Result<()> {
     let span = info_span!("delete_application", namespace = namespace, app = name);
     let _guard = span.enter();
 
@@ -430,15 +445,19 @@ pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Res
     txn.delete(
         IndexifyObjectsColumns::Applications.as_ref(),
         Application::key_from(namespace, name).as_bytes(),
-    )?;
+    )
+    .await?;
 
     let request_prefix = RequestCtx::key_prefix_for_application(namespace, name);
 
-    for iter in txn.iter(
-        &IndexifyObjectsColumns::RequestCtx.as_ref(),
-        request_prefix.as_bytes(),
-        Default::default(),
-    ) {
+    for iter in txn
+        .iter(
+            &IndexifyObjectsColumns::RequestCtx.as_ref(),
+            request_prefix.as_bytes(),
+            Default::default(),
+        )
+        .await
+    {
         let (_key, value) = iter?;
         let value = JsonEncoder::decode::<RequestCtx>(&value)?;
         delete_request(
@@ -448,14 +467,18 @@ pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Res
                 application: value.application_name,
                 request_id: value.request_id,
             },
-        )?;
+        )
+        .await?;
     }
 
-    for iter in txn.iter(
-        IndexifyObjectsColumns::ApplicationVersions.as_ref(),
-        ApplicationVersion::key_prefix_from(namespace, name).as_bytes(),
-        Default::default(),
-    ) {
+    for iter in txn
+        .iter(
+            IndexifyObjectsColumns::ApplicationVersions.as_ref(),
+            ApplicationVersion::key_prefix_from(namespace, name).as_bytes(),
+            Default::default(),
+        )
+        .await
+    {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<ApplicationVersion>(&value)?;
 
@@ -469,25 +492,28 @@ pub fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Res
             IndexifyObjectsColumns::GcUrls.as_ref(),
             gc_url.key().as_bytes(),
             &serialized_gc_url,
-        )?;
-        txn.delete(IndexifyObjectsColumns::ApplicationVersions.as_ref(), &key)?;
+        )
+        .await?;
+        txn.delete(IndexifyObjectsColumns::ApplicationVersions.as_ref(), &key)
+            .await?;
     }
 
     Ok(())
 }
 
-pub fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
+pub async fn remove_gc_urls(txn: &Transaction<'_>, urls: Vec<GcUrl>) -> Result<()> {
     for url in urls {
         txn.delete(
             IndexifyObjectsColumns::GcUrls.as_ref(),
             url.key().as_bytes(),
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
 
-pub(crate) fn handle_scheduler_update(
-    txn: &Transaction,
+pub(crate) async fn handle_scheduler_update(
+    txn: &Transaction<'_>,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
     for alloc in &request.new_allocations {
@@ -505,9 +531,10 @@ pub(crate) fn handle_scheduler_update(
         let serialized_alloc = JsonEncoder::encode(&alloc)?;
         txn.put(
             IndexifyObjectsColumns::Allocations.as_ref(),
-            alloc.key(),
-            serialized_alloc,
-        )?;
+            alloc.key().as_bytes(),
+            &serialized_alloc,
+        )
+        .await?;
     }
 
     for request_ctx in request.updated_request_states.values() {
@@ -529,9 +556,10 @@ pub(crate) fn handle_scheduler_update(
         let serialized_graph_ctx = JsonEncoder::encode(&request_ctx)?;
         txn.put(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
-            request_ctx.key(),
+            request_ctx.key().as_bytes(),
             &serialized_graph_ctx,
-        )?;
+        )
+        .await?;
     }
     for alloc in &request.updated_allocations {
         upsert_allocation(txn, alloc, None)?;
@@ -555,8 +583,8 @@ pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange
     Ok(())
 }
 
-pub(crate) fn mark_state_changes_processed(
-    txn: &Transaction,
+pub(crate) async fn mark_state_changes_processed(
+    txn: &Transaction<'_>,
     processed_state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in processed_state_changes {
@@ -576,8 +604,8 @@ pub(crate) fn mark_state_changes_processed(
     Ok(())
 }
 
-pub(crate) fn remove_allocation_usage_events(
-    txn: &Transaction,
+pub(crate) async fn remove_allocation_usage_events(
+    txn: &Transaction<'_>,
     usage_events: &[AllocationUsageEvent],
 ) -> Result<()> {
     for usage in usage_events {
@@ -589,7 +617,8 @@ pub(crate) fn remove_allocation_usage_events(
             "removing allocation usage event"
         );
         let key = &usage.key();
-        txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)?;
+        txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)
+            .await?;
     }
 
     Ok(())
