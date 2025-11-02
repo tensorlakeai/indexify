@@ -2316,6 +2316,7 @@ mod tests {
             .function("fn".to_string())
             .request_id("invoc-1".to_string())
             .function_call_id("task-1".into())
+            .application_version("42".to_string())
             .input_args(vec![InputArgs {
                 function_call_id: None,
                 data_payload: DataPayload {
