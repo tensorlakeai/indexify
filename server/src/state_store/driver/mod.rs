@@ -235,27 +235,17 @@ impl DriverEnum {
     }
 }
 
-/// Multiple options to configure different database drivers.
-#[non_exhaustive]
-pub enum ConnectionOptions {
-    FoundationDB(foundationdb::Options),
-}
-
 /// Open a connection to a database.
 ///
 /// This is the main entry point to connect Indexify server with a database to
 /// keep the state.
 pub fn open_database(
-    options: ConnectionOptions,
+    options: foundationdb::Options,
     metrics: Arc<StateStoreMetrics>,
 ) -> Result<DriverEnum, Error> {
-    match options {
-        ConnectionOptions::FoundationDB(options) => {
-            foundationdb::FoundationDBDriver::open(options, metrics)
-                .map(DriverEnum::FoundationDB)
-                .map_err(Into::into)
-        }
-    }
+    foundationdb::FoundationDBDriver::open(options, metrics)
+        .map(DriverEnum::FoundationDB)
+        .map_err(Into::into)
 }
 
 /// Transaction is a wrapper around specific database transactions.

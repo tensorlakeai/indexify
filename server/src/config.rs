@@ -13,7 +13,7 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::blob_store::BlobStorageConfig;
+use crate::{blob_store::BlobStorageConfig, state_store::driver::foundationdb::Options};
 
 const LOCAL_ENV: &str = "local";
 
@@ -67,6 +67,7 @@ pub struct ServerConfig {
     pub usage_queue: Option<QueueConfig>,
     pub telemetry: TelemetryConfig,
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
+    pub db_options: Options,
     pub queue_size: u32,
 }
 
@@ -82,8 +83,9 @@ impl Default for ServerConfig {
             kv_storage: Default::default(),
             telemetry: TelemetryConfig::default(),
             executor_catalog: Vec::new(),
-            queue_size: 1,
             usage_queue: None,
+            db_options: Options::default(),
+            queue_size: 1,
         }
     }
 }

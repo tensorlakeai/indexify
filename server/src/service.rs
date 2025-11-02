@@ -77,7 +77,8 @@ impl Service {
         if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
-        let indexify_state = IndexifyState::new(executor_catalog).await?;
+        let indexify_state =
+            IndexifyState::new(config.db_options.clone(), executor_catalog).await?;
 
         let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
             config.blob_storage.path.as_str(),

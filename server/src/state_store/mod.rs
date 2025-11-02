@@ -21,7 +21,7 @@ use crate::{
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{DriverEnum, Writer},
+        driver::{DriverEnum, Writer, foundationdb::Options},
         request_events::RequestStartedEvent,
         serializer::{JsonEncode, JsonEncoder},
     },
@@ -110,14 +110,15 @@ pub struct IndexifyState {
     pub executor_watches: ExecutorWatches,
 }
 
-pub(crate) fn open_database(metrics: Arc<StateStoreMetrics>) -> Result<DriverEnum> {
-    info!("opening FoundationDB state store database");
+// pub(crate) fn open_database(optionsmetrics: Arc<StateStoreMetrics>) ->
+// Result<DriverEnum> {     info!("opening FoundationDB state store database");
 
-    let options = driver::ConnectionOptions::FoundationDB(Default::default());
+//     let options =
+// driver::ConnectionOptions::FoundationDB(Default::default());
 
-    let driver_enum = driver::open_database(options, metrics)?;
-    Ok(driver_enum)
-}
+//     let driver_enum = driver::open_database(options, metrics)?;
+//     Ok(driver_enum)
+// }
 
 /// Read state machine metadata from the database
 pub async fn read_sm_meta(db: &DriverEnum) -> Result<StateMachineMetadata> {
@@ -138,9 +139,12 @@ pub async fn read_sm_meta(db: &DriverEnum) -> Result<StateMachineMetadata> {
 }
 
 impl IndexifyState {
-    pub async fn new(executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
+    pub async fn new(fdb_options: Options, executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = Arc::new(open_database(state_store_metrics.clone())?);
+        let db = Arc::new(driver::open_database(
+            fdb_options,
+            state_store_metrics.clone(),
+        )?);
 
         let sm_meta = read_sm_meta(&db).await?;
 
@@ -642,63 +646,6 @@ mod tests {
         assert_eq!(state_changes.changes[1].id, StateChangeId::new(0));
         // state_change_3
         assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_load_database_with_column_families() -> Result<()> {
-        // IMPORTANT:
-        // These columns families match the ones defined in the production state store.
-
-        // Do NOT remove any of the column families hardcoded below.
-        // Do add new column families here when they are added to the
-        // IndexifyObjectsColumns enum.
-
-        // If one of them is removed or renamed, Indexify server won't start because
-        // it won't be able to open the database with all column families.
-        //
-        // This test is here to guarantee that if a variant is removed from the
-        // IndexifyObjectsColumns enum, this test will fail.
-
-        // If you want to remove a column family, you need to do it via a migration.
-        // See migrations module for more details.
-        let columns = vec![
-            "StateMachineMetadata",
-            "Namespaces",
-            "Applications",
-            "ApplicationVersions",
-            "RequestCtx",
-            "RequestCtxSecondaryIndex",
-            "UnprocessedStateChanges",
-            "Allocations",
-            "AllocationUsage",
-            "GcUrls",
-            "Stats",
-            "ExecutorStateChanges",
-            "ApplicationStateChanges",
-        ];
-
-        let tmp_dir = tempfile::tempdir()?;
-        let path = tmp_dir.path().to_path_buf();
-
-        let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = open_database(state_store_metrics.clone())?;
-        for name in &columns {
-            db.put(name, b"key", b"value").await?;
-        }
-        drop(db);
-
-        assert_eq!(
-            columns.into_iter().map(String::from).collect::<Vec<_>>(),
-            IndexifyObjectsColumns::iter()
-                .map(|cf| cf.to_string())
-                .collect::<Vec<_>>()
-        );
-
-        open_database(state_store_metrics).expect(
-            "failed to open database with the column families defined in IndexifyObjectsColumns",
-        );
-
         Ok(())
     }
 

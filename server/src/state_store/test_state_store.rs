@@ -8,7 +8,9 @@ use crate::{
         test_objects::tests::{self, TEST_NAMESPACE, mock_request_ctx},
     },
     state_store::{
+        ExecutorCatalog,
         IndexifyState,
+        driver::foundationdb::Options,
         requests::{
             CreateOrUpdateApplicationRequest,
             InvokeApplicationRequest,
@@ -25,7 +27,7 @@ pub struct TestStateStore {
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let indexify_state =
-            IndexifyState::new(crate::state_store::ExecutorCatalog::default()).await?;
+            IndexifyState::new(Options::default(), ExecutorCatalog::default()).await?;
         Ok(TestStateStore { indexify_state })
     }
 }

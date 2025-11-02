@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
 use foundationdb::{
@@ -9,9 +9,11 @@ use foundationdb::{
     Transaction,
     TransactionCommitError,
     api::NetworkAutoStop,
+    options::DatabaseOption,
     tuple::Subspace,
 };
 use opentelemetry::KeyValue;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::{
@@ -35,36 +37,55 @@ pub enum Error {
 }
 
 /// Options to start a connection with FoundationDB.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct Options {
     pub cluster_file: Option<String>,
-    pub database_name: Option<String>,
+    pub transaction_timeout: Option<i32>,
+    pub retry_limit: Option<i32>,
+    pub max_retry_delay: Option<i32>,
 }
 
 /// Driver to connect with a FoundationDB database.
 pub(crate) struct FoundationDBDriver {
-    network: NetworkAutoStop,
     database: Database,
     metrics: Arc<StateStoreMetrics>,
+    _fdb_network: Arc<NetworkAutoStop>,
 }
 
 impl FoundationDBDriver {
     /// Open a new connection with a FoundationDB database.
-    ///
-    /// NOTE: This is a mock implementation. For production use, install
-    /// FoundationDB client libraries and replace this with real implementation.
     pub(crate) fn open(
-        _driver_options: Options,
+        options: Options,
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<FoundationDBDriver, Error> {
-        let network = unsafe { foundationdb::boot() };
-        let database =
-            Database::default().map_err(|source| Error::OpenDatabaseFailed { source })?;
+        // Initialize the FoundationDB Client API
+        static NETWORK: LazyLock<Arc<foundationdb::api::NetworkAutoStop>> =
+            LazyLock::new(|| Arc::new(unsafe { foundationdb::boot() }));
+        // Store the network cancellation handle
+        let _fdb_network = (*NETWORK).clone();
+
+        let database = Database::new(options.cluster_file.as_deref())
+            .map_err(|source| Error::OpenDatabaseFailed { source })?;
+        if let Some(transaction_timeout) = options.transaction_timeout {
+            database
+                .set_option(DatabaseOption::TransactionTimeout(transaction_timeout))
+                .map_err(|source| Error::OpenDatabaseFailed { source })?;
+        }
+        if let Some(retry_limit) = options.retry_limit {
+            database
+                .set_option(DatabaseOption::TransactionRetryLimit(retry_limit))
+                .map_err(|source| Error::OpenDatabaseFailed { source })?;
+        }
+        if let Some(max_retry_delay) = options.max_retry_delay {
+            database
+                .set_option(DatabaseOption::TransactionMaxRetryDelay(max_retry_delay))
+                .map_err(|source| Error::OpenDatabaseFailed { source })?;
+        }
 
         Ok(FoundationDBDriver {
-            network,
             database,
             metrics,
+            _fdb_network,
         })
     }
 }
@@ -378,11 +399,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_foundationdb_driver_basic_operations() {
-        let options = Options::default();
         let metrics = Arc::new(StateStoreMetrics::new());
 
-        let driver =
-            FoundationDBDriver::open(options, metrics).expect("Failed to open FoundationDB driver");
+        let driver = FoundationDBDriver::open(Default::default(), metrics)
+            .expect("Failed to open FoundationDB driver");
 
         // Test basic put/get operations
         let cf = "test_cf";
@@ -400,11 +420,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_foundationdb_driver_transaction() {
-        let options = Options::default();
         let metrics = Arc::new(StateStoreMetrics::new());
 
-        let driver =
-            FoundationDBDriver::open(options, metrics).expect("Failed to open FoundationDB driver");
+        let driver = FoundationDBDriver::open(Default::default(), metrics)
+            .expect("Failed to open FoundationDB driver");
 
         // Test transaction operations
         let cf = "test_cf";
@@ -465,11 +484,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_foundationdb_driver_list_existent_items() {
-        let options = Options::default();
         let metrics = Arc::new(StateStoreMetrics::new());
 
-        let driver =
-            FoundationDBDriver::open(options, metrics).expect("Failed to open FoundationDB driver");
+        let driver = FoundationDBDriver::open(Default::default(), metrics)
+            .expect("Failed to open FoundationDB driver");
 
         // Insert values
         let cf = "test_cf";
