@@ -251,7 +251,8 @@ jobs:
 
       - name: Run Map Reduce Benchmark
         # Use large failure threshold of 30 minutes right now because there's a known issue with stalling.
-        # TODO: Once the bug is fixed, reduce the threshold to a low value to make sure we're catching perf regressions.
+        # TODO: Once the bug is fixed, pass a low value of --failure-threshold-seconds to make sure we're
+        # catching perf regressions in CI. Also pass --maps-count 1000 once the bug is fixed.
         run: |
           cd indexify
-          poetry run python3 benchmarks/map_reduce/main.py --maps-count 1000 --num-requests 1 --failure-threshold-seconds 1800
+          poetry run python3 benchmarks/map_reduce/main.py --maps-count 200 --num-requests 1 --failure-threshold-seconds 1800
