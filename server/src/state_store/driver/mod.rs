@@ -13,10 +13,7 @@ use std::{fmt, sync::Arc};
 use bytes::Bytes;
 use derive_builder::Builder;
 
-use crate::{
-    metrics::StateStoreMetrics,
-    state_store::scanner::CursorDirection,
-};
+use crate::{metrics::StateStoreMetrics, state_store::scanner::CursorDirection};
 
 pub mod foundationdb;
 use foundationdb::*;
@@ -115,7 +112,7 @@ pub trait Reader {
     async fn get_key_range(&self, cf: &str, options: RangeOptions) -> Result<Range, Error>;
 
     /// Iterate over a list of Key/Value pairs.
-    fn iter(
+    async fn iter(
         &self,
         cf: &str,
         options: IterOptions,
@@ -227,13 +224,13 @@ impl DriverEnum {
         }
     }
 
-    pub fn iter(
+    pub async fn iter(
         &self,
         cf: &str,
         options: IterOptions,
     ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + Send + '_> {
         match self {
-            DriverEnum::FoundationDB(driver) => driver.iter(cf, options),
+            DriverEnum::FoundationDB(driver) => driver.iter(cf, options).await,
         }
     }
 }
@@ -312,7 +309,7 @@ impl Transaction {
         options: IterOptions,
     ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + Send + '_> {
         match self {
-            Self::FoundationDB(tx) => tx.iter(cf, prefix, options),
+            Self::FoundationDB(tx) => tx.iter(cf, prefix, options).await,
         }
     }
 }

@@ -52,11 +52,12 @@ mod tests {
         }
         for col in IndexifyObjectsColumns::iter() {
             let count_options = IterOptions::default();
-            let count = db.iter(col.as_ref(), count_options).count();
+            let count = db.iter(col.as_ref(), count_options).await.count();
 
             let scan_options = IterOptions::default().scan_fully();
             let all = db
                 .iter(col.as_ref(), scan_options)
+                .await
                 .filter_map(|result| result.ok())
                 .map(|(k, v)| {
                     format!(

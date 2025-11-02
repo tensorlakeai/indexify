@@ -89,7 +89,7 @@ impl StateReader {
             iter_options = iter_options.with_block_size(IterOptions::LARGE_BLOCK_SIZE);
         }
 
-        let iter = self.db.iter(column.as_ref(), iter_options);
+        let iter = self.db.iter(column.as_ref(), iter_options).await;
 
         let mut items = Vec::new();
         let limit = limit.unwrap_or(usize::MAX);
@@ -154,19 +154,25 @@ impl StateReader {
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let mut state_changes = Vec::new();
-        let iter = self.db.iter(
-            IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
-            Default::default(),
-        );
+        let iter = self
+            .db
+            .iter(
+                IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
+                Default::default(),
+            )
+            .await;
         for (_, value) in iter.flatten() {
             let state_change = JsonEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
         }
 
-        let iter = self.db.iter(
-            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-            Default::default(),
-        );
+        let iter = self
+            .db
+            .iter(
+                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                Default::default(),
+            )
+            .await;
         for (_, value) in iter.flatten() {
             let state_change = JsonEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
@@ -270,7 +276,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_all_rows_from_cf")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let iter = self.db.iter(column.as_ref(), Default::default());
+        let iter = self.db.iter(column.as_ref(), Default::default()).await;
 
         iter.map(|item| {
             item.map_err(|e| anyhow::anyhow!(e.to_string()))

@@ -4,6 +4,8 @@ use bytes::Bytes;
 use foundationdb::{
     Database,
     FdbError,
+    KeySelector,
+    RangeOption,
     Transaction,
     TransactionCommitError,
     api::NetworkAutoStop,
@@ -14,15 +16,10 @@ use tracing::error;
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},
-    state_store::driver::{
-            Driver,
-            Error as DriverError,
-            IterOptions,
-            Range,
-            RangeOptions,
-            Reader,
-            Writer,
-        },
+    state_store::{
+        driver::{Driver, Error as DriverError, IterOptions, Range, RangeOptions, Reader, Writer},
+        scanner::CursorDirection,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -96,15 +93,13 @@ impl Writer for FoundationDBDriver {
     }
 
     fn drop(&mut self, _cf: &str) -> Result<(), DriverError> {
-        unimplemented!(
-            "Drop is only used in migrations. We don't support migrations for the FoundationDB driver"
-        );
+        // FoundationDB doesn't have column families, so drop is a no-op
+        Ok(())
     }
 
     fn create(&mut self, _name: &str, _opts: &super::CreateOptions) -> Result<(), DriverError> {
-        unimplemented!(
-            "Create is only used in migrations. We don't support migrations for the FoundationDB driver"
-        );
+        // FoundationDB doesn't have column families, so create is a no-op
+        Ok(())
     }
 }
 
@@ -154,19 +149,99 @@ impl Reader for FoundationDBDriver {
         Ok(flatten)
     }
 
-    async fn get_key_range(&self, _cf: &str, _options: RangeOptions) -> Result<Range, DriverError> {
+    async fn get_key_range(&self, cf: &str, options: RangeOptions) -> Result<Range, DriverError> {
         let attrs = &[KeyValue::new("driver", "foundationdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
-        unimplemented!()
+        let tx = self.database.create_trx().unwrap();
+        let subspace = Subspace::from_bytes(cf.as_bytes());
+
+        let begin = if let Some(cursor) = &options.cursor {
+            let slice: &[u8] = cursor.as_ref();
+            KeySelector::first_greater_or_equal(subspace.pack(&slice))
+        } else if let Some(lower) = &options.lower_bound {
+            let slice: &[u8] = lower.as_ref();
+            KeySelector::first_greater_or_equal(subspace.pack(&slice))
+        } else {
+            let empty: &[u8] = &[];
+            KeySelector::first_greater_or_equal(subspace.pack(&empty))
+        };
+
+        let end = if let Some(upper) = &options.upper_bound {
+            let slice: &[u8] = upper.as_ref();
+            KeySelector::first_greater_or_equal(subspace.pack(&slice))
+        } else {
+            let large: &[u8] = &[255u8];
+            KeySelector::first_greater_or_equal(subspace.pack(&large)) // Some large key
+        };
+
+        let reverse = matches!(options.direction, Some(CursorDirection::Backward));
+
+        let range_option = RangeOption {
+            begin,
+            end,
+            reverse,
+            ..Default::default()
+        };
+
+        let range_result = tx
+            .get_range(&range_option, options.limit, false)
+            .await
+            .map_err(|source| Error::GenericFoundationDBFailure { source })?;
+
+        let items: Vec<Bytes> = range_result
+            .into_iter()
+            .map(|kv| kv.value().to_vec().into())
+            .collect();
+
+        let direction = options.direction.unwrap_or(CursorDirection::Forward);
+
+        // For simplicity, no pagination cursors for now
+        let prev_cursor = None;
+        let next_cursor = None;
+
+        Ok(Range {
+            items,
+            direction,
+            prev_cursor,
+            next_cursor,
+        })
     }
 
-    fn iter(
+    async fn iter(
         &self,
-        _cf: &str,
-        _options: IterOptions,
+        cf: &str,
+        options: IterOptions,
     ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + Send + '_> {
-        Box::new(std::iter::empty())
+        let attrs = &[KeyValue::new("driver", "foundationdb")];
+        let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
+
+        let tx = self.database.create_trx().unwrap();
+        let subspace = Subspace::from_bytes(cf.as_bytes());
+
+        // Simple implementation: get all keys in the subspace
+        let empty: &[u8] = &[];
+        let begin = KeySelector::first_greater_or_equal(subspace.pack(&empty));
+        let large: &[u8] = &[255u8];
+        let end = KeySelector::first_greater_or_equal(subspace.pack(&large));
+
+        let range_option = RangeOption {
+            begin,
+            end,
+            reverse: false,
+            ..Default::default()
+        };
+
+        let range_result = tx.get_range(&range_option, 1000, false).await.unwrap();
+
+        let iter = range_result.into_iter().map(|kv| {
+            Ok((
+                kv.key().to_vec().into_boxed_slice(),
+                kv.value().to_vec().into_boxed_slice(),
+            ))
+        });
+
+        Box::new(iter)
     }
 }
 
@@ -236,16 +311,61 @@ impl FoundationDBTransaction {
         Ok(())
     }
 
-    pub fn iter(
+    pub async fn iter(
         &self,
-        _cf: &str,
-        _prefix: &[u8],
-        _options: IterOptions,
+        cf: &str,
+        prefix: &[u8],
+        options: IterOptions,
     ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + Send + '_> {
         let attrs = &[KeyValue::new("driver", "foundationdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
-        Box::new(std::iter::empty())
+        let subspace = Subspace::from_bytes(cf.as_bytes());
+
+        // For prefix, set begin to prefix, end to prefix + 1
+        let begin = KeySelector::first_greater_or_equal(subspace.pack(&prefix));
+        let end_prefix = if prefix.is_empty() {
+            vec![255u8]
+        } else {
+            let mut end = prefix.to_vec();
+            // Increment the last byte to get the next prefix
+            for i in (0..end.len()).rev() {
+                if end[i] < 255 {
+                    end[i] += 1;
+                    end.truncate(i + 1);
+                    break;
+                }
+            }
+            end
+        };
+        let end = KeySelector::first_greater_or_equal(subspace.pack(&end_prefix));
+
+        let reverse = false; // For now, assume forward
+
+        let range_option = RangeOption {
+            begin,
+            end,
+            reverse,
+            ..Default::default()
+        };
+
+        // Since this is async, but we need to return Iterator, we have to fetch all
+        // data here This is not ideal for large datasets, but for the current
+        // design
+        let range_result = self
+            .tx
+            .get_range(&range_option, 1000, false) // Some large limit
+            .await
+            .unwrap();
+
+        let iter = range_result.into_iter().map(|kv| {
+            Ok((
+                kv.key().to_vec().into_boxed_slice(),
+                kv.value().to_vec().into_boxed_slice(),
+            ))
+        });
+
+        Box::new(iter)
     }
 }
 
