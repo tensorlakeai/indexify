@@ -194,7 +194,11 @@ jobs:
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download indexify-server
         uses: actions/download-artifact@v4
         with:
@@ -245,5 +249,5 @@ jobs:
       - name: Run Map Reduce Benchmark
         # Use large failure threshold of 30 minutes right now because there's a known issue with stalling.
         run: |
-          cd indexify/indexify/benchmarks/map_reduce
-          poetry run python3 main.py --maps-count 1000 --num-requests 1 --failure-threshold-seconds 1800
+          cd indexify
+          poetry run python3 benchmarks/map_reduce/main.py --maps-count 1000 --num-requests 1 --failure-threshold-seconds 1800
