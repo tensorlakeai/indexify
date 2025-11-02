@@ -18,7 +18,7 @@ use crate::{
         RequestCtx, StateChange,
     },
     state_store::{
-        driver::{Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{DriverEnum, Transaction, Writer},
         requests::{
             DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
             SchedulerUpdateRequest,
@@ -73,7 +73,7 @@ pub(crate) async fn upsert_namespace(db: Arc<DriverEnum>, req: &NamespaceRequest
     Ok(())
 }
 
-pub async fn create_request(txn: &Transaction<'_>, req: &InvokeApplicationRequest) -> Result<()> {
+pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Result<()> {
     let span = info_span!(
         "create_request",
         namespace = req.namespace,
@@ -123,7 +123,7 @@ pub struct AllocationUpsertResult {
     pub create_state_change: bool,
 }
 
-pub(crate) fn upsert_allocation(
+pub(crate) async fn upsert_allocation(
     txn: &Transaction,
     allocation: &Allocation,
     usage_event_sequence_id: Option<&AtomicU64>,
@@ -142,10 +142,12 @@ pub(crate) fn upsert_allocation(
         usage_recorded: false,
         create_state_change: false,
     };
-    let existing_allocation = txn.get(
-        IndexifyObjectsColumns::Allocations.as_ref(),
-        allocation.key(),
-    )?;
+    let existing_allocation = txn
+        .get(
+            IndexifyObjectsColumns::Allocations.as_ref(),
+            allocation.key().as_bytes(),
+        )
+        .await?;
     let Some(existing_allocation) = existing_allocation else {
         info!("Allocation not found",);
         return Ok(allocation_upsert_result);
@@ -163,7 +165,8 @@ pub(crate) fn upsert_allocation(
         IndexifyObjectsColumns::Allocations.as_ref(),
         allocation.key().as_bytes(),
         &serialized_allocation,
-    )?;
+    )
+    .await?;
     allocation_upsert_result.create_state_change = true;
     let Some(usage_event_sequence_id) = usage_event_sequence_id else {
         return Ok(allocation_upsert_result);
@@ -197,10 +200,7 @@ pub(crate) fn upsert_allocation(
     Ok(allocation_upsert_result)
 }
 
-pub(crate) async fn delete_request(
-    txn: &Transaction<'_>,
-    req: &DeleteRequestRequest,
-) -> Result<()> {
+pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
     let span = info_span!(
         "delete_request",
         namespace = req.namespace,
@@ -295,7 +295,7 @@ pub(crate) async fn delete_request(
 }
 
 async fn update_requests_for_application(
-    txn: &Transaction<'_>,
+    txn: &Transaction,
     application: &Application,
 ) -> Result<()> {
     let cg_prefix =
@@ -356,7 +356,7 @@ async fn update_requests_for_application(
 }
 
 pub(crate) async fn create_or_update_application(
-    txn: &Transaction<'_>,
+    txn: &Transaction,
     application: Application,
     upgrade_existing_function_runs_to_current_version: bool,
 ) -> Result<()> {
@@ -422,7 +422,7 @@ pub(crate) async fn create_or_update_application(
     Ok(())
 }
 
-async fn delete_cf_prefix(txn: &Transaction<'_>, cf: &str, prefix: &[u8]) -> Result<()> {
+async fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
     let iter = txn.iter(cf, prefix, Default::default()).await;
     for key in iter {
         let (key, _) = key?;
@@ -434,7 +434,7 @@ async fn delete_cf_prefix(txn: &Transaction<'_>, cf: &str, prefix: &[u8]) -> Res
     Ok(())
 }
 
-pub async fn delete_application(txn: &Transaction<'_>, namespace: &str, name: &str) -> Result<()> {
+pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
     let span = info_span!("delete_application", namespace = namespace, app = name);
     let _guard = span.enter();
 
@@ -452,7 +452,7 @@ pub async fn delete_application(txn: &Transaction<'_>, namespace: &str, name: &s
 
     for iter in txn
         .iter(
-            &IndexifyObjectsColumns::RequestCtx.as_ref(),
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
             request_prefix.as_bytes(),
             Default::default(),
         )
@@ -501,7 +501,7 @@ pub async fn delete_application(txn: &Transaction<'_>, namespace: &str, name: &s
     Ok(())
 }
 
-pub async fn remove_gc_urls(txn: &Transaction<'_>, urls: Vec<GcUrl>) -> Result<()> {
+pub async fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
     for url in urls {
         txn.delete(
             IndexifyObjectsColumns::GcUrls.as_ref(),
@@ -513,7 +513,7 @@ pub async fn remove_gc_urls(txn: &Transaction<'_>, urls: Vec<GcUrl>) -> Result<(
 }
 
 pub(crate) async fn handle_scheduler_update(
-    txn: &Transaction<'_>,
+    txn: &Transaction,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
     for alloc in &request.new_allocations {
@@ -562,13 +562,16 @@ pub(crate) async fn handle_scheduler_update(
         .await?;
     }
     for alloc in &request.updated_allocations {
-        upsert_allocation(txn, alloc, None)?;
+        upsert_allocation(txn, alloc, None).await?;
     }
 
     Ok(())
 }
 
-pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange]) -> Result<()> {
+pub(crate) async fn save_state_changes(
+    txn: &Transaction,
+    state_changes: &[StateChange],
+) -> Result<()> {
     for state_change in state_changes {
         let key = &state_change.key();
         let serialized_state_change = JsonEncoder::encode(&state_change)?;
@@ -578,13 +581,13 @@ pub(crate) fn save_state_changes(txn: &Transaction, state_changes: &[StateChange
             }
             _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
         };
-        txn.put(cf, key, serialized_state_change)?;
+        txn.put(cf, key, &serialized_state_change).await?;
     }
     Ok(())
 }
 
 pub(crate) async fn mark_state_changes_processed(
-    txn: &Transaction<'_>,
+    txn: &Transaction,
     processed_state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in processed_state_changes {
@@ -599,13 +602,13 @@ pub(crate) async fn mark_state_changes_processed(
             }
             _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
         };
-        txn.delete(cf, key)?;
+        txn.delete(cf, key).await?;
     }
     Ok(())
 }
 
 pub(crate) async fn remove_allocation_usage_events(
-    txn: &Transaction<'_>,
+    txn: &Transaction,
     usage_events: &[AllocationUsageEvent],
 ) -> Result<()> {
     for usage in usage_events {

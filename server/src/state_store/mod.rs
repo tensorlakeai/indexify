@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
-    path::PathBuf,
     sync::{
         Arc,
         atomic::{self, AtomicU64},
@@ -13,7 +11,6 @@ use in_memory_state::{InMemoryMetrics, InMemoryState};
 use opentelemetry::KeyValue;
 use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, broadcast, watch};
@@ -24,10 +21,7 @@ use crate::{
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{
-            DriverEnum, Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::{DriverEnum, Writer},
         request_events::RequestStartedEvent,
         serializer::{JsonEncode, JsonEncoder},
     },
@@ -116,26 +110,10 @@ pub struct IndexifyState {
     pub executor_watches: ExecutorWatches,
 }
 
-pub(crate) fn open_database<I>(
-    path: PathBuf,
-    config: RocksDBConfig,
-    column_families: I,
-    metrics: Arc<StateStoreMetrics>,
-) -> Result<DriverEnum>
-where
-    I: Iterator<Item = ColumnFamilyDescriptor>,
-{
-    info!(
-        "opening state store database at {} with config {}",
-        path.display(),
-        config
-    );
+pub(crate) fn open_database(metrics: Arc<StateStoreMetrics>) -> Result<DriverEnum> {
+    info!("opening FoundationDB state store database");
 
-    let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
-        path,
-        config,
-        column_families: column_families.collect::<Vec<_>>(),
-    });
+    let options = driver::ConnectionOptions::FoundationDB(Default::default());
 
     let driver_enum = driver::open_database(options, metrics)?;
     Ok(driver_enum)
@@ -160,24 +138,9 @@ pub async fn read_sm_meta(db: &DriverEnum) -> Result<StateMachineMetadata> {
 }
 
 impl IndexifyState {
-    pub async fn new(
-        path: PathBuf,
-        config: RocksDBConfig,
-        executor_catalog: ExecutorCatalog,
-    ) -> Result<Arc<Self>> {
-        fs::create_dir_all(path.clone())
-            .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
-
-        let sm_column_families = IndexifyObjectsColumns::iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-
+    pub async fn new(executor_catalog: ExecutorCatalog) -> Result<Arc<Self>> {
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = Arc::new(open_database(
-            path,
-            config,
-            sm_column_families,
-            state_store_metrics.clone(),
-        )?);
+        let db = Arc::new(open_database(state_store_metrics.clone())?);
 
         let sm_meta = read_sm_meta(&db).await?;
 
@@ -288,7 +251,8 @@ impl IndexifyState {
                         &txn,
                         &allocation_output.allocation,
                         Some(&self.usage_event_id_seq),
-                    )?;
+                    )
+                    .await?;
                     info!(
                         request_id = allocation_output.allocation.request_id.as_str(),
                         executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
@@ -382,9 +346,9 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload
-            && !req.watch_function_calls.is_empty()
-            && req.update_executor_state
+        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
+            !req.watch_function_calls.is_empty() &&
+            req.update_executor_state
         {
             changed_executors.insert(req.executor.id.clone());
         }
@@ -399,8 +363,8 @@ impl IndexifyState {
             }
         }
 
-        if !new_state_changes.is_empty()
-            && let Err(err) = self.change_events_tx.send(())
+        if !new_state_changes.is_empty() &&
+            let Err(err) = self.change_events_tx.send(())
         {
             error!("failed to notify of state change event, ignoring: {err:?}",);
         }
@@ -415,8 +379,8 @@ impl IndexifyState {
         // runs before the gc urls are written, the gc process will not see the
         // urls.
         match &request.payload {
-            RequestPayload::DeleteApplicationRequest(_)
-            | RequestPayload::DeleteRequestRequest(_) => {
+            RequestPayload::DeleteApplicationRequest(_) |
+            RequestPayload::DeleteRequestRequest(_) => {
                 self.gc_tx.send(()).unwrap();
             }
             _ => {}
@@ -510,9 +474,16 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        Application, InputArgs, Namespace, RequestCtxBuilder, StateChangeId,
+        Application,
+        InputArgs,
+        Namespace,
+        RequestCtxBuilder,
+        StateChangeId,
         test_objects::tests::{
-            TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application, mock_data_payload,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+            mock_application,
+            mock_data_payload,
             mock_function_call,
         },
     };

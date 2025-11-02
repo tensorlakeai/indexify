@@ -9,14 +9,18 @@ use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
-        function_executor_manager, function_run_creator,
+        function_executor_manager,
+        function_run_creator,
         function_run_processor::FunctionRunProcessor,
     },
     state_store::{
         IndexifyState,
         requests::{
-            CreateOrUpdateApplicationRequest, DeleteApplicationRequest, DeleteRequestRequest,
-            RequestPayload, StateMachineUpdateRequest,
+            CreateOrUpdateApplicationRequest,
+            DeleteApplicationRequest,
+            DeleteRequestRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
     },
     utils::{TimeUnit, get_elapsed_time},

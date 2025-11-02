@@ -8,14 +8,18 @@ mod tests {
 
     use crate::{
         data_model::{
-            DataPayload, InputArgs, RequestCtxBuilder,
+            DataPayload,
+            InputArgs,
+            RequestCtxBuilder,
             test_objects::tests::{TEST_NAMESPACE, mock_application, mock_function_call},
         },
         service::Service,
         state_store::{
             driver::Writer,
             requests::{
-                CreateOrUpdateApplicationRequest, DeleteApplicationRequest, RequestPayload,
+                CreateOrUpdateApplicationRequest,
+                DeleteApplicationRequest,
+                RequestPayload,
                 StateMachineUpdateRequest,
             },
             serializer::{JsonEncode, JsonEncoder},

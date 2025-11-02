@@ -9,8 +9,17 @@ use crate::{
     blob_store::BlobStorageConfig,
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
-        Allocation, DataPayload, ExecutorId, ExecutorMetadata, FunctionCallId, FunctionExecutor,
-        FunctionExecutorState, FunctionRun, FunctionRunOutcome, FunctionRunStatus, RequestCtx,
+        Allocation,
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        FunctionCallId,
+        FunctionExecutor,
+        FunctionExecutorState,
+        FunctionRun,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        RequestCtx,
         test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
@@ -20,8 +29,13 @@ use crate::{
         driver::rocksdb::RocksDBConfig,
         executor_watches::ExecutorWatch,
         requests::{
-            AllocationOutput, DeregisterExecutorRequest, FunctionCallRequest, RequestPayload,
-            RequestUpdates, StateMachineUpdateRequest, UpsertExecutorRequest,
+            AllocationOutput,
+            DeregisterExecutorRequest,
+            FunctionCallRequest,
+            RequestPayload,
+            RequestUpdates,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
         },
         state_machine::IndexifyObjectsColumns,
     },
@@ -58,7 +72,6 @@ impl TestService {
                 .to_str()
                 .unwrap()
                 .to_string(),
-            rocksdb_config: RocksDBConfig::default(),
             blob_storage: BlobStorageConfig {
                 path: format!(
                     "file://{}",
@@ -198,8 +211,8 @@ impl TestService {
         let completed_success_tasks = function_runs
             .into_iter()
             .filter(|t| {
-                t.status == FunctionRunStatus::Completed
-                    && t.outcome == Some(FunctionRunOutcome::Success)
+                t.status == FunctionRunStatus::Completed &&
+                    t.outcome == Some(FunctionRunOutcome::Success)
             })
             .collect::<Vec<_>>();
         Ok(completed_success_tasks)

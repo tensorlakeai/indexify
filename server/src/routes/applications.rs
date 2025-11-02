@@ -14,7 +14,9 @@ use crate::{
     http_objects_v1,
     routes::routes_state::RouteState,
     state_store::requests::{
-        CreateOrUpdateApplicationRequest, DeleteApplicationRequest, RequestPayload,
+        CreateOrUpdateApplicationRequest,
+        DeleteApplicationRequest,
+        RequestPayload,
         StateMachineUpdateRequest,
     },
 };

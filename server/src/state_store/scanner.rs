@@ -14,7 +14,7 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{DriverEnum, IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
+        driver::{DriverEnum, IterOptions, RangeOptionsBuilder, Reader},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -188,7 +188,8 @@ impl StateReader {
                 executor_events_cursor.as_deref(),
                 IndexifyObjectsColumns::ExecutorStateChanges,
                 None,
-            )?;
+            )
+            .await?;
         let num_executor_events = executor_events.len();
         state_changes.extend(executor_events);
         if state_changes.len() >= 100 {
@@ -212,7 +213,8 @@ impl StateReader {
                 application_events_cursor.as_deref(),
                 IndexifyObjectsColumns::ApplicationStateChanges,
                 Some(100 - state_changes.len()),
-            )?;
+            )
+            .await?;
         let num_application_events = application_events.len();
         state_changes.extend(application_events);
 

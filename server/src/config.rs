@@ -13,7 +13,7 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+use crate::blob_store::BlobStorageConfig;
 
 const LOCAL_ENV: &str = "local";
 
@@ -60,7 +60,6 @@ impl Display for ExecutorCatalogEntry {
 pub struct ServerConfig {
     pub env: String,
     pub state_store_path: String,
-    pub rocksdb_config: RocksDBConfig,
     pub listen_addr: String,
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
@@ -77,7 +76,6 @@ impl Default for ServerConfig {
         ServerConfig {
             env: LOCAL_ENV.to_string(),
             state_store_path: state_store_path.to_str().unwrap().to_string(),
-            rocksdb_config: RocksDBConfig::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),

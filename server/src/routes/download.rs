@@ -26,8 +26,8 @@ pub async fn download_request_error(
         .get(
             &request_error.payload.path,
             Some(
-                request_error.payload.offset
-                    ..request_error.payload.offset + request_error.payload.size,
+                request_error.payload.offset..
+                    request_error.payload.offset + request_error.payload.size,
             ),
         )
         .await

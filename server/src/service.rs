@@ -6,7 +6,8 @@ use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
 use tokio::{
-    self, signal,
+    self,
+    signal,
     sync::{Mutex, watch},
 };
 use tonic::transport::Server;
@@ -24,7 +25,9 @@ use crate::{
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
     processor::{
-        application_processor::ApplicationProcessor, gc::Gc, usage_processor::UsageProcessor,
+        application_processor::ApplicationProcessor,
+        gc::Gc,
+        usage_processor::UsageProcessor,
     },
     queue::Queue,
     routes::routes_state::RouteState,
@@ -74,12 +77,7 @@ impl Service {
         if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
-        let indexify_state = IndexifyState::new(
-            config.state_store_path.parse()?,
-            config.rocksdb_config.clone(),
-            executor_catalog,
-        )
-        .await?;
+        let indexify_state = IndexifyState::new(executor_catalog).await?;
 
         let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
             config.blob_storage.path.as_str(),

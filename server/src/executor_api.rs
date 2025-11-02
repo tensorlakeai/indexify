@@ -13,10 +13,20 @@ use std::{
 
 use anyhow::Result;
 use executor_api_pb::{
-    Allocation, AllocationResult, AllowedFunction, DataPayload as DataPayloadPb,
-    DataPayloadEncoding, DesiredExecutorState, ExecutorState, ExecutorStatus,
-    FunctionExecutorResources, FunctionExecutorStatus, GetDesiredExecutorStatesRequest,
-    HostResources, ReportExecutorStateRequest, ReportExecutorStateResponse,
+    Allocation,
+    AllocationResult,
+    AllowedFunction,
+    DataPayload as DataPayloadPb,
+    DataPayloadEncoding,
+    DesiredExecutorState,
+    ExecutorState,
+    ExecutorStatus,
+    FunctionExecutorResources,
+    FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest,
+    HostResources,
+    ReportExecutorStateRequest,
+    ReportExecutorStateResponse,
     executor_api_server::ExecutorApi,
 };
 use tokio::sync::watch::{self, Receiver, Sender};
@@ -27,9 +37,19 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
-        self, DataPayload, DataPayloadBuilder, ExecutorId, ExecutorMetadata,
-        ExecutorMetadataBuilder, FunctionAllowlist, FunctionCallId, FunctionExecutorBuilder,
-        FunctionExecutorId, FunctionRunFailureReason, FunctionRunOutcome, GPUResources,
+        self,
+        DataPayload,
+        DataPayloadBuilder,
+        ExecutorId,
+        ExecutorMetadata,
+        ExecutorMetadataBuilder,
+        FunctionAllowlist,
+        FunctionCallId,
+        FunctionExecutorBuilder,
+        FunctionExecutorId,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
+        GPUResources,
     },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
@@ -38,8 +58,12 @@ use crate::{
         IndexifyState,
         executor_watches::ExecutorWatch,
         requests::{
-            AllocationOutput, FunctionCallRequest, RequestPayload, RequestUpdates,
-            StateMachineUpdateRequest, UpsertExecutorRequest,
+            AllocationOutput,
+            FunctionCallRequest,
+            RequestPayload,
+            RequestUpdates,
+            StateMachineUpdateRequest,
+            UpsertExecutorRequest,
         },
     },
 };

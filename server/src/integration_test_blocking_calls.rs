@@ -6,7 +6,10 @@ mod tests {
         data_model::{
             FunctionRunOutcome,
             test_objects::tests::{
-                TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_data_payload, mock_executor_metadata,
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_data_payload,
+                mock_executor_metadata,
             },
         },
         service::Service,

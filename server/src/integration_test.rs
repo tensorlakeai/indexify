@@ -11,19 +11,27 @@ mod tests {
     use crate::{
         assert_function_run_counts,
         data_model::{
-            ApplicationState, FunctionRunFailureReason, FunctionRunOutcome,
+            ApplicationState,
+            FunctionRunFailureReason,
+            FunctionRunOutcome,
             test_objects::tests::{
-                TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_data_payload, mock_executor_metadata,
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_data_payload,
+                mock_executor_metadata,
                 mock_updates,
             },
         },
         executors::EXECUTOR_TIMEOUT,
         service::Service,
         state_store::{
-            driver::{DriverEnum, IterOptions, Reader, rocksdb::RocksDBDriver},
+            driver::{DriverEnum, IterOptions, Reader},
             requests::{
-                CreateOrUpdateApplicationRequest, DeleteApplicationRequest, DeleteRequestRequest,
-                RequestPayload, StateMachineUpdateRequest,
+                CreateOrUpdateApplicationRequest,
+                DeleteApplicationRequest,
+                DeleteRequestRequest,
+                RequestPayload,
+                StateMachineUpdateRequest,
             },
             state_machine::IndexifyObjectsColumns,
             test_state_store::{self, invoke_application},

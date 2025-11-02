@@ -1,7 +1,8 @@
 use anyhow::Result;
 use applications::{applications, delete_application, get_application};
 use axum::{
-    Json, Router,
+    Json,
+    Router,
     extract::{Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
@@ -16,15 +17,28 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        Allocation, CacheKey, CreateNamespace, CursorDirection, ExecutorMetadata,
-        ExecutorsAllocationsResponse, Function, FunctionRunOutcome, IndexifyAPIError, ListParams,
-        Namespace, NamespaceList, StateChangesResponse, UnallocatedFunctionRuns,
+        Allocation,
+        CacheKey,
+        CreateNamespace,
+        CursorDirection,
+        ExecutorMetadata,
+        ExecutorsAllocationsResponse,
+        Function,
+        FunctionRunOutcome,
+        IndexifyAPIError,
+        ListParams,
+        Namespace,
+        NamespaceList,
+        StateChangesResponse,
+        UnallocatedFunctionRuns,
     },
     http_objects_v1::{self, Application, ApplicationRequests, ApplicationsList},
     routes::{
         applications::{self, create_or_update_application},
         download::{
-            self, v1_download_fn_output_payload, v1_download_fn_output_payload_head,
+            self,
+            v1_download_fn_output_payload,
+            v1_download_fn_output_payload_head,
             v1_download_fn_output_payload_simple,
         },
         invoke::{self, progress_stream},
@@ -33,7 +47,10 @@ use crate::{
     state_store::{
         self,
         requests::{
-            DeleteRequestRequest, NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
+            DeleteRequestRequest,
+            NamespaceRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
     },
 };

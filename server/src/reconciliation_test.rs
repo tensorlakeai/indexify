@@ -4,12 +4,18 @@ mod tests {
     use anyhow::Result;
 
     use crate::{
-        assert_executor_state, assert_function_run_counts,
+        assert_executor_state,
+        assert_function_run_counts,
         data_model::{
-            FunctionAllowlist, FunctionExecutorState, FunctionExecutorTerminationReason,
+            FunctionAllowlist,
+            FunctionExecutorState,
+            FunctionExecutorTerminationReason,
             FunctionRunOutcome,
             test_objects::tests::{
-                TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_executor_metadata, mock_updates,
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_executor_metadata,
+                mock_updates,
             },
         },
         service::Service,

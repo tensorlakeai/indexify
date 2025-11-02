@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use axum::{
-    Json, Router,
+    Json,
+    Router,
     body::Body,
     extract::{Multipart, Path, State},
     http::Response,
@@ -14,10 +15,24 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     http_objects::{
-        Allocation, ApplicationVersion, CacheKey, CreateNamespace, ExecutorCatalog,
-        ExecutorMetadata, ExecutorsAllocationsResponse, Function, FunctionRunOutcome,
-        HealthzChecks, HealthzResponse, HealthzStatus, IndexifyAPIError, Namespace, NamespaceList,
-        StateChangesResponse, UnallocatedFunctionRuns, from_data_model_executor_metadata,
+        Allocation,
+        ApplicationVersion,
+        CacheKey,
+        CreateNamespace,
+        ExecutorCatalog,
+        ExecutorMetadata,
+        ExecutorsAllocationsResponse,
+        Function,
+        FunctionRunOutcome,
+        HealthzChecks,
+        HealthzResponse,
+        HealthzStatus,
+        IndexifyAPIError,
+        Namespace,
+        NamespaceList,
+        StateChangesResponse,
+        UnallocatedFunctionRuns,
+        from_data_model_executor_metadata,
     },
     http_objects_v1::{self, Application, ApplicationState},
     indexify_ui::Assets as UiAssets,
@@ -25,7 +40,9 @@ use crate::{
     state_store::{
         kv::{ReadContextData, WriteContextData},
         requests::{
-            CreateOrUpdateApplicationRequest, NamespaceRequest, RequestPayload,
+            CreateOrUpdateApplicationRequest,
+            NamespaceRequest,
+            RequestPayload,
             StateMachineUpdateRequest,
         },
     },
