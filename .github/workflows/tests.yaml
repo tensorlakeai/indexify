@@ -188,3 +188,62 @@ jobs:
             ps aux | grep indexify
             exit 1
           fi
+
+  map_reduce_benchmark:
+    name: Run Map Reduce Benchmark
+    needs: [build_server, lint_python_packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download indexify-server
+        uses: actions/download-artifact@v4
+        with:
+          name: indexify-server
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          tail: true
+          wait-for: 30s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd indexify
+            poetry run indexify-cli executor &
+            echo $! > /tmp/indexify-executor.pid &
+
+          wait-on: |
+            tcp:localhost:7000
+
+          tail: true
+          wait-for: 10s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+
+      - name: Run Map Reduce Benchmark
+        # Use large failure threshold of 30 minutes right now because there's a known issue with stalling.
+        run: |
+          cd indexify/indexify/benchmarks/map_reduce
+          poetry run python3 main.py --maps-count 1000 --num-requests 1 --failure-threshold-seconds 1800
