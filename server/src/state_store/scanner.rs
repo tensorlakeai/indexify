@@ -9,7 +9,7 @@ use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
         Allocation,
-        AllocationUsage,
+        AllocationUsageEvent,
         Application,
         ApplicationVersion,
         GcUrl,
@@ -244,13 +244,13 @@ impl StateReader {
     pub fn allocation_usage(
         &self,
         cursor: Option<&Vec<u8>>,
-    ) -> Result<(Vec<AllocationUsage>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<AllocationUsageEvent>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "allocation_usage")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let cursor = cursor.map(|c| c.as_slice());
 
-        let (events, cursor) = self.get_rows_from_cf_with_limits::<AllocationUsage>(
+        let (events, cursor) = self.get_rows_from_cf_with_limits::<AllocationUsageEvent>(
             &[],
             cursor,
             IndexifyObjectsColumns::AllocationUsage,

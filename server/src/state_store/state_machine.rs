@@ -14,8 +14,8 @@ use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
         Allocation,
-        AllocationUsage,
-        AllocationUsageBuilder,
+        AllocationUsageEvent,
+        AllocationUsageEventBuilder,
         AllocationUsageId,
         Application,
         ApplicationVersion,
@@ -178,63 +178,17 @@ pub(crate) fn upsert_allocation(
     let Some(execution_duration_ms) = allocation.execution_duration_ms else {
         return Ok(allocation_upsert_result);
     };
-    // Check if the application exists before proceeding since
-    // the application might have been deleted before the task completes
-    let application_key = Application::key_from(&allocation.namespace, &allocation.application);
-    let Some(application_bytes) = txn
-        .get(
-            IndexifyObjectsColumns::Applications.as_ref(),
-            &application_key,
-        )
-        .map_err(|e| anyhow!("failed to get application: {e}"))?
-    else {
-        info!("Application not found: {}", &allocation.application);
-        return Ok(allocation_upsert_result);
-    };
-    let application = JsonEncoder::decode::<Application>(&application_bytes)?;
-
-    // Check if the request was deleted before the task completes
-    let request_ctx_key = RequestCtx::key_from(
-        &allocation.namespace,
-        &allocation.application,
-        &allocation.request_id,
-    );
-    let request = txn
-        .get(
-            IndexifyObjectsColumns::RequestCtx.as_ref(),
-            &request_ctx_key,
-        )
-        .map_err(|e| anyhow!("failed to get request: {e}"))?;
-    let request = match request {
-        Some(v) => JsonEncoder::decode::<RequestCtx>(&v)?,
-        None => {
-            info!("Request not found: {}", &allocation.request_id);
-            return Ok(allocation_upsert_result);
-        }
-    };
-    // Skip finalize task if it's request is already completed
-    if request.outcome.is_some() {
-        warn!("Request already completed, skipping setting outputs");
-        return Ok(allocation_upsert_result);
-    }
-    let function = application
-        .functions
-        .get(&allocation.function)
-        .ok_or(anyhow!("Function not found in application for allocation"))?;
-
-    let allocation_usage = AllocationUsageBuilder::default()
+    let allocation_usage = AllocationUsageEventBuilder::default()
         .id(AllocationUsageId::new(
             usage_event_sequence_id.fetch_add(1, Ordering::Relaxed),
         ))
         .namespace(allocation.namespace.clone())
         .application(allocation.application.clone())
+        .application_version(allocation.application_version.clone())
         .request_id(allocation.request_id.clone())
         .allocation_id(allocation.id.clone())
         .execution_duration_ms(execution_duration_ms)
-        .cpu_ms_per_second(function.resources.cpu_ms_per_sec)
-        .memory_mb(function.resources.memory_mb)
-        .disk_mb(function.resources.ephemeral_disk_mb)
-        .gpu_used(function.resources.gpu_configs.clone())
+        .function(allocation.function.clone())
         .build()?;
 
     let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
@@ -624,7 +578,7 @@ pub(crate) fn mark_state_changes_processed(
 
 pub(crate) fn remove_allocation_usage_events(
     txn: &Transaction,
-    usage_events: &[AllocationUsage],
+    usage_events: &[AllocationUsageEvent],
 ) -> Result<()> {
     for usage in usage_events {
         trace!(
