@@ -130,7 +130,7 @@ impl UsageProcessor {
             )
         })?;
         Ok(Some(AllocationUsage {
-            id: event.id.clone(),
+            id: event.id,
             namespace: event.namespace.clone(),
             application: event.application.clone(),
             application_version: event.application_version.clone(),

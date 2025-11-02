@@ -20,18 +20,15 @@ impl FunctionRunRetryPolicy {
         application_version: &ApplicationVersion,
     ) {
         let uses_attempt = alloc_failure_reason.should_count_against_function_run_retry_attempts();
-        if let Some(max_retries) = application_version.function_run_max_retries(run) {
-            if alloc_failure_reason.is_retriable() &&
-                (run.attempt_number < max_retries || !uses_attempt)
-            {
-                if run.attempt_number < max_retries || !uses_attempt {
-                    run.status = FunctionRunStatus::Pending;
-                    if uses_attempt {
-                        run.attempt_number += 1;
-                    }
-                }
-                return;
+        if let Some(max_retries) = application_version.function_run_max_retries(run) &&
+            alloc_failure_reason.is_retriable() &&
+            (run.attempt_number < max_retries || !uses_attempt)
+        {
+            run.status = FunctionRunStatus::Pending;
+            if uses_attempt {
+                run.attempt_number += 1;
             }
+            return;
         }
 
         run.status = FunctionRunStatus::Completed;
