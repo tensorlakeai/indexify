@@ -124,6 +124,7 @@ pub struct Allocation {
     pub function_call_id: FunctionCallId,
     pub namespace: String,
     pub application: String,
+    pub application_version: String,
     pub function: String,
     pub request_id: String,
     #[builder(default = "self.default_created_at()")]
@@ -1987,23 +1988,21 @@ impl Display for AllocationUsageId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct AllocationUsage {
+pub struct AllocationUsageEvent {
     pub id: AllocationUsageId,
     pub namespace: String,
     pub application: String,
+    pub application_version: String,
     pub request_id: String,
     pub allocation_id: AllocationId,
     pub execution_duration_ms: u64,
-    pub cpu_ms_per_second: u32,
-    pub memory_mb: u64,
-    pub disk_mb: u64,
-    pub gpu_used: Vec<GPUResources>,
+    pub function: String,
 
     #[builder(default)]
     vector_clock: VectorClock,
 }
 
-impl AllocationUsage {
+impl AllocationUsageEvent {
     /// Returns a key suitable for use in RocksDB.
     ///
     /// It uses the AllocationUsageId as the key, encoded as big-endian bytes.
@@ -2317,6 +2316,7 @@ mod tests {
             .function("fn".to_string())
             .request_id("invoc-1".to_string())
             .function_call_id("task-1".into())
+            .application_version("42".to_string())
             .input_args(vec![InputArgs {
                 function_call_id: None,
                 data_payload: DataPayload {

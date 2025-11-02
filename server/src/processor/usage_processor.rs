@@ -1,6 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use derive_builder::Builder;
 use opentelemetry::{
     KeyValue,
@@ -9,14 +13,41 @@ use opentelemetry::{
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use tokio::sync::Notify;
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 use crate::{
-    data_model::AllocationUsage,
+    data_model::{
+        AllocationId,
+        AllocationUsageEvent,
+        AllocationUsageId,
+        ApplicationVersion,
+        GPUResources,
+    },
     metrics::{Timer, low_latency_boundaries},
     queue::Queue,
     state_store::{IndexifyState, driver::Writer, state_machine},
 };
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+struct ApplicationDefinitions {
+    name: String,
+    version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct AllocationUsage {
+    pub id: AllocationUsageId,
+    pub namespace: String,
+    pub application: String,
+    pub application_version: String,
+    pub request_id: String,
+    pub allocation_id: AllocationId,
+    pub execution_duration_ms: u64,
+    pub cpu_ms_per_second: u32,
+    pub memory_mb: u64,
+    pub disk_mb: u64,
+    pub gpu_used: Vec<GPUResources>,
+}
 
 pub struct UsageProcessor {
     indexify_state: Arc<IndexifyState>,
@@ -24,6 +55,7 @@ pub struct UsageProcessor {
     processing_latency: Histogram<f64>,
     usage_events_counter: Counter<u64>,
     max_attempts: u8,
+    application_definitions: RwLock<HashMap<ApplicationDefinitions, ApplicationVersion>>,
 }
 
 impl UsageProcessor {
@@ -44,6 +76,7 @@ impl UsageProcessor {
             .u64_counter("indexify.usage.events_total")
             .with_description("total number of processed usage events")
             .build();
+        let application_definitions = RwLock::new(HashMap::new());
 
         Ok(Self {
             indexify_state,
@@ -51,7 +84,64 @@ impl UsageProcessor {
             usage_events_counter,
             max_attempts: 10,
             queue,
+            application_definitions,
         })
+    }
+
+    fn event_to_usage(&self, event: &AllocationUsageEvent) -> Result<Option<AllocationUsage>> {
+        let app_def_key = ApplicationDefinitions {
+            name: event.application.clone(),
+            version: event.application_version.clone(),
+        };
+        let maybe_app_version = self
+            .application_definitions
+            .read()
+            .unwrap()
+            .get(&app_def_key)
+            .cloned();
+        let app_version = match maybe_app_version {
+            Some(v) => v.clone(),
+            None => {
+                let Some(app_version) = self.indexify_state.reader().get_application_version(
+                    &event.namespace,
+                    &event.application,
+                    &event.application_version,
+                )?
+                else {
+                    warn!(
+                        namespace = %event.namespace,
+                        application = %event.application,
+                        application_version = %event.application_version,
+                        "application version not found for usage event"
+                    );
+                    return Ok(None);
+                };
+                self.application_definitions
+                    .write()
+                    .unwrap()
+                    .insert(app_def_key.clone(), app_version.clone());
+                app_version
+            }
+        };
+        let function = app_version.functions.get(&event.function).ok_or_else(|| {
+            anyhow!(
+                "function definition not found for function: {}",
+                event.function
+            )
+        })?;
+        Ok(Some(AllocationUsage {
+            id: event.id,
+            namespace: event.namespace.clone(),
+            application: event.application.clone(),
+            application_version: event.application_version.clone(),
+            request_id: event.request_id.clone(),
+            allocation_id: event.allocation_id.clone(),
+            execution_duration_ms: event.execution_duration_ms,
+            cpu_ms_per_second: function.resources.cpu_ms_per_sec,
+            memory_mb: function.resources.memory_mb,
+            disk_mb: function.resources.ephemeral_disk_mb,
+            gpu_used: function.resources.gpu_configs.clone(),
+        }))
     }
 
     #[instrument(skip_all)]
@@ -71,7 +161,6 @@ impl UsageProcessor {
                             "error processing allocation usage events"
                         );
                     }
-
                 },
                 _ = notify.notified() => {
                     if let Err(error) = self.process_allocation_usage_events(&mut cursor, &notify).await {
@@ -152,7 +241,7 @@ impl UsageProcessor {
 
     async fn remove_and_commit_with_backoff(
         &self,
-        processed_events: Vec<AllocationUsage>,
+        processed_events: Vec<AllocationUsageEvent>,
     ) -> Result<()> {
         for attempt in 1..=self.max_attempts {
             let txn = self.indexify_state.db.transaction();
@@ -196,7 +285,7 @@ impl UsageProcessor {
         Err(anyhow::anyhow!("Failed to remove and commit events"))
     }
 
-    async fn send_to_queue(&self, event: AllocationUsage) -> Result<()> {
+    async fn send_to_queue(&self, event: AllocationUsageEvent) -> Result<()> {
         let queue = match self.queue.as_ref() {
             Some(q) => q,
             None => {
@@ -204,7 +293,15 @@ impl UsageProcessor {
             }
         };
 
-        let usage_event = UsageEvent::try_from(event)?;
+        let Some(allocation_usage) = self.event_to_usage(&event)? else {
+            return Err(anyhow!(
+                "application definition not found for application: {}, version: {}",
+                event.application,
+                event.application_version
+            ));
+        };
+
+        let usage_event = UsageEvent::try_from(allocation_usage)?;
         queue.send_json(&usage_event).await?;
 
         Ok(())

@@ -151,6 +151,7 @@ impl<'a> FunctionRunProcessor<'a> {
         let allocation = AllocationBuilder::default()
             .namespace(function_run.namespace.clone())
             .application(function_run.application.clone())
+            .application_version(ctx.application_version.clone())
             .function(function_run.name.clone())
             .request_id(function_run.request_id.clone())
             .function_call_id(function_run.id.clone())

@@ -873,6 +873,10 @@ impl ExecutorApi for ExecutorAPIService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        if !update_executor_state && allocation_outputs.is_empty() {
+            return Ok(Response::new(ReportExecutorStateResponse {}));
+        }
+
         let request = UpsertExecutorRequest::build(
             executor_metadata,
             allocation_outputs,

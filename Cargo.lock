@@ -2096,12 +2096,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "if_chain"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd62e6b5e86ea8eeeb8db1de02880a6abc01a397b2ebb64b5d74ac255318f5cb"
-
-[[package]]
 name = "im"
 version = "15.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2134,7 +2128,6 @@ dependencies = [
  "figment",
  "futures",
  "hyper 1.7.0",
- "if_chain",
  "im",
  "json-subscriber",
  "mock_instant",
