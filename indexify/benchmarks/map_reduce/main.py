@@ -71,3 +71,10 @@ Test Configuration:
 """,
         file=args.report_output_file,
     )
+
+    if total_time > args.failure_threshold_seconds:
+        print(
+            f"Benchmark failed: total time {total_time:.2f}s exceeded failure threshold of {args.failure_threshold_seconds}s",
+            file=args.report_output_file,
+        )
+        sys.exit(1)
