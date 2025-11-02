@@ -25,10 +25,12 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
+            Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         request_events::RequestStartedEvent,
+        serializer::{JsonEncode, JsonEncoder},
     },
 };
 
@@ -345,7 +347,7 @@ impl IndexifyState {
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
-        migration_runner::write_sm_meta(
+        write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
@@ -774,4 +776,14 @@ mod tests {
             })
             .await
     }
+}
+
+pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
+    let serialized_meta = JsonEncoder::encode(sm_meta)?;
+    txn.put(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+        b"sm_meta",
+        &serialized_meta,
+    )?;
+    Ok(())
 }

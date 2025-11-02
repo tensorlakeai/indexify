@@ -72,7 +72,7 @@ impl Error {
 #[allow(dead_code)]
 pub trait Writer {
     /// Start a new Transaction in the database.
-    fn transaction(&self) -> Transaction<'_>;
+    fn transaction(&self) -> Transaction;
 
     fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
     where
@@ -278,11 +278,11 @@ pub fn open_database(
 ///
 /// We use an enum instead of a trait because it easier to validate
 /// that the inner transaction uses the right driver.
-pub enum Transaction<'db> {
-    RocksDB(RocksDBTransaction<'db>),
+pub enum Transaction {
+    RocksDB(RocksDBTransaction),
 }
 
-impl fmt::Debug for Transaction<'_> {
+impl fmt::Debug for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Transaction::RocksDB(_) => write!(f, "Transaction::RocksDB"),
@@ -290,7 +290,7 @@ impl fmt::Debug for Transaction<'_> {
     }
 }
 
-impl<'db> Transaction<'db> {
+impl Transaction {
     pub fn commit(self) -> Result<(), Error> {
         let Self::RocksDB(tx) = self;
         tx.commit()
@@ -325,11 +325,11 @@ impl<'db> Transaction<'db> {
     }
 
     pub fn iter<N>(
-        &'db self,
+        &self,
         cf: N,
-        prefix: &'db [u8],
+        prefix: &[u8],
         options: IterOptions,
-    ) -> impl Iterator<Item = Result<KVBytes, Error>> + 'db
+    ) -> impl Iterator<Item = Result<KVBytes, Error>>
     where
         N: AsRef<str>,
     {
