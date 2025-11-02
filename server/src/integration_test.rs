@@ -1105,38 +1105,61 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task with OutOfMemory failure
-        {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1);
-            let allocation = desired_state.allocations.first().unwrap();
-            executor
-                .finalize_allocation(
-                    allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        Some(mock_updates()),
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Failure(
-                        FunctionRunFailureReason::OutOfMemory,
-                    )),
+        let desired_state = executor.desired_state().await;
+        assert_eq!(desired_state.allocations.len(), 1);
+        let allocation = desired_state.allocations.first().unwrap();
+        executor
+            .finalize_allocation(
+                allocation,
+                FinalizeFunctionRunArgs::new(
+                    allocation_key_from_proto(allocation),
+                    Some(mock_updates()),
+                    None,
                 )
-                .await?;
-            test_srv.process_all_state_changes().await?;
-        }
+                .function_run_outcome(FunctionRunOutcome::Failure(
+                    FunctionRunFailureReason::OutOfMemory,
+                )),
+            )
+            .await?;
+        test_srv.process_all_state_changes().await?;
 
         // check that the request outcome is Failure(OutOfMemory)
-        {
-            let request_ctx = indexify_state
-                .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
-                .unwrap();
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+            .unwrap();
 
-            assert_eq!(
-                request_ctx.outcome,
-                Some(RequestOutcome::Failure(RequestFailureReason::OutOfMemory))
-            );
-        }
+        assert_eq!(
+            request_ctx.outcome,
+            Some(RequestOutcome::Failure(RequestFailureReason::OutOfMemory))
+        );
+
+        // check that function_runs have the same failure reason
+        let function_runs = request_ctx
+            .function_runs
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(function_runs.len(), 1);
+        let function_run = &function_runs[0];
+        assert_eq!(
+            function_run.outcome,
+            Some(FunctionRunOutcome::Failure(
+                FunctionRunFailureReason::OutOfMemory
+            ))
+        );
+
+        // check that allocations have the same failure reason
+        let allocations = indexify_state
+            .reader()
+            .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
+            .unwrap();
+        assert_eq!(allocations.len(), 1);
+        let allocation = &allocations[0];
+        assert_eq!(
+            allocation.outcome,
+            FunctionRunOutcome::Failure(FunctionRunFailureReason::OutOfMemory)
+        );
 
         Ok(())
     }
