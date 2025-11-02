@@ -9,8 +9,15 @@ use tracing::{debug, trace};
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
     data_model::{
-        Allocation, AllocationUsageEvent, Application, ApplicationVersion, GcUrl, Namespace,
-        RequestCtx, StateChange, UnprocessedStateChanges,
+        Allocation,
+        AllocationUsageEvent,
+        Application,
+        ApplicationVersion,
+        GcUrl,
+        Namespace,
+        RequestCtx,
+        StateChange,
+        UnprocessedStateChanges,
     },
     metrics::{self, Timer},
     state_store::{

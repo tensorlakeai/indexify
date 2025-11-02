@@ -678,21 +678,11 @@ mod tests {
             "ApplicationStateChanges",
         ];
 
-        let columns_iter = columns
-            .clone()
-            .into_iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-
         let tmp_dir = tempfile::tempdir()?;
         let path = tmp_dir.path().to_path_buf();
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = open_database(
-            path.clone(),
-            RocksDBConfig::default(),
-            columns_iter,
-            state_store_metrics.clone(),
-        )?;
+        let db = open_database(state_store_metrics.clone())?;
         for name in &columns {
             db.put(name, b"key", b"value").await?;
         }
@@ -705,16 +695,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let sm_column_families = IndexifyObjectsColumns::iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-
-        open_database(
-            path,
-            RocksDBConfig::default(),
-            sm_column_families,
-            state_store_metrics,
-        )
-        .expect(
+        open_database(state_store_metrics).expect(
             "failed to open database with the column families defined in IndexifyObjectsColumns",
         );
 

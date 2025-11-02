@@ -33,7 +33,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, no GC URLs
-        let (urls, cursor) = indexify_state.reader().get_gc_urls(None)?;
+        let (urls, cursor) = indexify_state.reader().get_gc_urls(None).await?;
         assert_eq!(urls.len(), 0);
         assert!(cursor.is_none());
 
@@ -53,13 +53,13 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Now there should be GC URLs
-        let (urls, cursor) = indexify_state.reader().get_gc_urls(None)?;
+        let (urls, cursor) = indexify_state.reader().get_gc_urls(None).await?;
         assert!(urls.len() > 0);
         assert!(cursor.is_none()); // Since limit is None, all should be returned
 
         // Test with limit
         let limit = Some(urls.len() / 2);
-        let (limited_urls, cursor) = indexify_state.reader().get_gc_urls(limit)?;
+        let (limited_urls, cursor) = indexify_state.reader().get_gc_urls(limit).await?;
         if urls.len() > 1 {
             assert_eq!(limited_urls.len(), limit.unwrap());
             assert!(cursor.is_some());
@@ -74,14 +74,20 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, no unprocessed state changes
-        let changes = indexify_state.reader().all_unprocessed_state_changes()?;
+        let changes = indexify_state
+            .reader()
+            .all_unprocessed_state_changes()
+            .await?;
         assert_eq!(changes.len(), 0);
 
         // Create an application to generate state changes
         test_state_store::with_simple_application(&indexify_state).await;
 
         // Should have state changes now
-        let changes = indexify_state.reader().all_unprocessed_state_changes()?;
+        let changes = indexify_state
+            .reader()
+            .all_unprocessed_state_changes()
+            .await?;
         assert!(changes.len() > 0);
 
         Ok(())
@@ -98,7 +104,8 @@ mod tests {
         // Get unprocessed state changes
         let unprocessed = indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?;
+            .unprocessed_state_changes(&None, &None)
+            .await?;
         assert!(unprocessed.changes.len() > 0);
 
         // Process them
@@ -107,7 +114,8 @@ mod tests {
         // Should be no more unprocessed
         let unprocessed = indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?;
+            .unprocessed_state_changes(&None, &None)
+            .await?;
         assert_eq!(unprocessed.changes.len(), 0);
 
         Ok(())
@@ -119,7 +127,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, no allocation usage
-        let (usage, cursor) = indexify_state.reader().allocation_usage(None)?;
+        let (usage, cursor) = indexify_state.reader().allocation_usage(None).await?;
         assert_eq!(usage.len(), 0);
         assert!(cursor.is_none());
 
@@ -151,7 +159,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Should have allocation usage now
-        let (usage, cursor) = indexify_state.reader().allocation_usage(None)?;
+        let (usage, cursor) = indexify_state.reader().allocation_usage(None).await?;
         assert!(usage.len() > 0);
         assert!(cursor.is_none());
 
@@ -164,7 +172,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, no namespace
-        let ns = indexify_state.reader().get_namespace("nonexistent")?;
+        let ns = indexify_state.reader().get_namespace("nonexistent").await?;
         assert!(ns.is_none());
 
         // Create a namespace
@@ -180,7 +188,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Should be able to get it
-        let ns = indexify_state.reader().get_namespace("test_ns")?;
+        let ns = indexify_state.reader().get_namespace("test_ns").await?;
         assert!(ns.is_some());
         assert_eq!(ns.unwrap().name, "test_ns");
 
@@ -193,7 +201,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, might have some default namespaces
-        let namespaces = indexify_state.reader().get_all_namespaces()?;
+        let namespaces = indexify_state.reader().get_all_namespaces().await?;
         let initial_count = namespaces.len();
 
         // Create a namespace
@@ -209,7 +217,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Should have one more
-        let namespaces = indexify_state.reader().get_all_namespaces()?;
+        let namespaces = indexify_state.reader().get_all_namespaces().await?;
         assert_eq!(namespaces.len(), initial_count + 1);
         assert!(namespaces.iter().any(|ns| ns.name == "test_ns"));
 
@@ -222,10 +230,10 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Initially, no applications in TEST_NAMESPACE
-        let (apps, cursor) =
-            indexify_state
-                .reader()
-                .list_applications(TEST_NAMESPACE, None, None)?;
+        let (apps, cursor) = indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, None, None)
+            .await?;
         assert_eq!(apps.len(), 0);
         assert!(cursor.is_none());
 
@@ -236,10 +244,10 @@ mod tests {
         test_state_store::create_or_update_application(&indexify_state, "app_4", 0).await;
 
         // Should list all applications
-        let (apps, cursor) =
-            indexify_state
-                .reader()
-                .list_applications(TEST_NAMESPACE, None, None)?;
+        let (apps, cursor) = indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, None, None)
+            .await?;
         assert_eq!(4, apps.len());
         assert!(cursor.is_none());
         assert_eq!("app_1", apps[0].name);
@@ -248,20 +256,20 @@ mod tests {
         assert_eq!("app_4", apps[3].name);
 
         // Should list only the first two applications
-        let (apps, cursor) =
-            indexify_state
-                .reader()
-                .list_applications(TEST_NAMESPACE, None, Some(2))?;
+        let (apps, cursor) = indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, None, Some(2))
+            .await?;
         assert_eq!(2, apps.len());
         assert!(cursor.is_some());
         assert_eq!("app_1", apps[0].name);
         assert_eq!("app_2", apps[1].name);
 
         // Should list only the next two applications
-        let (apps, cursor) =
-            indexify_state
-                .reader()
-                .list_applications(TEST_NAMESPACE, cursor.as_deref(), None)?;
+        let (apps, cursor) = indexify_state
+            .reader()
+            .list_applications(TEST_NAMESPACE, cursor.as_deref(), None)
+            .await?;
         assert_eq!(2, apps.len());
         assert!(cursor.is_none());
         assert_eq!("app_3", apps[0].name);
@@ -278,7 +286,8 @@ mod tests {
         // Initially, no application
         let app = indexify_state
             .reader()
-            .get_application(TEST_NAMESPACE, "graph_A")?;
+            .get_application(TEST_NAMESPACE, "graph_A")
+            .await?;
         assert!(app.is_none());
 
         // Create an application
@@ -287,7 +296,8 @@ mod tests {
         // Should be able to get it
         let app = indexify_state
             .reader()
-            .get_application(TEST_NAMESPACE, "graph_A")?;
+            .get_application(TEST_NAMESPACE, "graph_A")
+            .await?;
         assert!(app.is_some());
         assert_eq!(app.unwrap().name, "graph_A");
 
@@ -318,18 +328,18 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Should be able to get the version
-        let app_version =
-            indexify_state
-                .reader()
-                .get_application_version(TEST_NAMESPACE, "test_app", "v1.0")?;
+        let app_version = indexify_state
+            .reader()
+            .get_application_version(TEST_NAMESPACE, "test_app", "v1.0")
+            .await?;
         assert!(app_version.is_some());
         assert_eq!(app_version.unwrap().version, "v1.0");
 
         // Should be able to get the latest version without specifying the version
-        let app_version =
-            indexify_state
-                .reader()
-                .get_application_version(TEST_NAMESPACE, "test_app", "")?;
+        let app_version = indexify_state
+            .reader()
+            .get_application_version(TEST_NAMESPACE, "test_app", "")
+            .await?;
         assert!(app_version.is_some());
         assert_eq!(app_version.unwrap().version, "v1.0");
 
@@ -360,11 +370,15 @@ mod tests {
                 None,
                 IndexifyObjectsColumns::Allocations,
                 Some(1),
-            )?;
+            )
+            .await?;
         assert!(allocations.len() > 0);
 
         let allocation_key = allocations[0].key();
-        let allocation = indexify_state.reader().get_allocation(&allocation_key)?;
+        let allocation = indexify_state
+            .reader()
+            .get_allocation(&allocation_key)
+            .await?;
         assert!(allocation.is_some());
         assert_eq!(allocation.unwrap().id, allocations[0].id);
 
@@ -388,11 +402,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Should have allocations for the request
-        let allocations = indexify_state.reader().get_allocations_by_request_id(
-            TEST_NAMESPACE,
-            "graph_A",
-            &request_id,
-        )?;
+        let allocations = indexify_state
+            .reader()
+            .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?;
         assert!(allocations.len() > 0);
 
         Ok(())
@@ -406,7 +419,8 @@ mod tests {
         // Initially, no request context
         let ctx = indexify_state
             .reader()
-            .request_ctx(TEST_NAMESPACE, "graph_A", "nonexistent")?;
+            .request_ctx(TEST_NAMESPACE, "graph_A", "nonexistent")
+            .await?;
         assert!(ctx.is_none());
 
         // Create an application (which creates a request)
@@ -415,7 +429,8 @@ mod tests {
         // Should have request context
         let ctx = indexify_state
             .reader()
-            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?;
         assert!(ctx.is_some());
         assert_eq!(ctx.unwrap().request_id, request_id);
 
@@ -436,10 +451,10 @@ mod tests {
         MockClock::advance_system_time(Duration::from_secs(1));
 
         // List requests
-        let (requests, prev_cursor, next_cursor) =
-            indexify_state
-                .reader()
-                .list_requests(TEST_NAMESPACE, &app.name, None, 10, None)?;
+        let (requests, prev_cursor, next_cursor) = indexify_state
+            .reader()
+            .list_requests(TEST_NAMESPACE, &app.name, None, 10, None)
+            .await?;
         assert_eq!(1, requests.len());
         assert_eq!(request_id, requests[0].request_id);
         assert!(prev_cursor.is_none()); // First page
@@ -475,13 +490,16 @@ mod tests {
         MockClock::advance_system_time(Duration::from_secs(1));
 
         // List requests with forward direction
-        let (requests, ..) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            None,
-            10,
-            Some(CursorDirection::Forward),
-        )?;
+        let (requests, ..) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                None,
+                10,
+                Some(CursorDirection::Forward),
+            )
+            .await?;
         assert_eq!(4, requests.len());
         assert_eq!(request_id4, requests[0].request_id);
         assert_eq!(request_id3, requests[1].request_id);
@@ -489,13 +507,16 @@ mod tests {
         assert_eq!(request_id1, requests[3].request_id);
 
         // List requests with backward direction
-        let (requests, ..) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            None,
-            10,
-            Some(CursorDirection::Backward),
-        )?;
+        let (requests, ..) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                None,
+                10,
+                Some(CursorDirection::Backward),
+            )
+            .await?;
         // The ordering is the same as the forward direction.
         // See https://github.com/tensorlakeai/indexify/blob/75e392fb2c944631d9f99783ab39d185cd2ac740/server/src/state_store/scanner.rs#L344-L347
         assert_eq!(4, requests.len());
@@ -505,52 +526,64 @@ mod tests {
         assert_eq!(request_id1, requests[3].request_id);
 
         // List requests with a cursor
-        let (requests, prev_cursor, next_cursor) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            None,
-            2,
-            Some(CursorDirection::Forward),
-        )?;
+        let (requests, prev_cursor, next_cursor) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                None,
+                2,
+                Some(CursorDirection::Forward),
+            )
+            .await?;
         assert_eq!(2, requests.len());
         assert_eq!(request_id4, requests[0].request_id);
         assert_eq!(request_id3, requests[1].request_id);
         assert_eq!(None, prev_cursor);
         assert!(next_cursor.is_some());
 
-        let (requests, prev_cursor, next_cursor) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            next_cursor.as_deref(),
-            2,
-            Some(CursorDirection::Forward),
-        )?;
+        let (requests, prev_cursor, next_cursor) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                next_cursor.as_deref(),
+                2,
+                Some(CursorDirection::Forward),
+            )
+            .await?;
         assert_eq!(2, requests.len());
         assert_eq!(request_id2, requests[0].request_id);
         assert_eq!(request_id1, requests[1].request_id);
         assert!(prev_cursor.is_some());
         assert_eq!(None, next_cursor);
 
-        let (requests, prev_cursor, next_cursor) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            None,
-            2,
-            Some(CursorDirection::Backward),
-        )?;
+        let (requests, prev_cursor, next_cursor) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                None,
+                2,
+                Some(CursorDirection::Backward),
+            )
+            .await?;
         assert_eq!(2, requests.len());
         assert_eq!(request_id2, requests[0].request_id);
         assert_eq!(request_id1, requests[1].request_id);
         assert!(prev_cursor.is_some());
         assert_eq!(None, next_cursor);
 
-        let (requests, prev_cursor, next_cursor) = indexify_state.reader().list_requests(
-            TEST_NAMESPACE,
-            &app.name,
-            prev_cursor.as_deref(),
-            2,
-            Some(CursorDirection::Backward),
-        )?;
+        let (requests, prev_cursor, next_cursor) = indexify_state
+            .reader()
+            .list_requests(
+                TEST_NAMESPACE,
+                &app.name,
+                prev_cursor.as_deref(),
+                2,
+                Some(CursorDirection::Backward),
+            )
+            .await?;
         assert_eq!(2, requests.len());
         assert_eq!(request_id4, requests[0].request_id);
         assert_eq!(request_id3, requests[1].request_id);
@@ -580,7 +613,8 @@ mod tests {
         // Test get_from_cf
         let ns: Option<Namespace> = indexify_state
             .reader()
-            .get_from_cf(&IndexifyObjectsColumns::Namespaces, "test_ns")?;
+            .get_from_cf(&IndexifyObjectsColumns::Namespaces, "test_ns")
+            .await?;
         assert!(ns.is_some());
         assert_eq!(ns.unwrap().name, "test_ns");
 
@@ -607,7 +641,8 @@ mod tests {
         // Test get_all_rows_from_cf
         let rows: Vec<(String, Namespace)> = indexify_state
             .reader()
-            .get_all_rows_from_cf(IndexifyObjectsColumns::Namespaces)?;
+            .get_all_rows_from_cf(IndexifyObjectsColumns::Namespaces)
+            .await?;
         assert!(rows.len() > 0);
         assert!(rows.iter().any(|(_, ns)| ns.name == "test_ns"));
 

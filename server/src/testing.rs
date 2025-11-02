@@ -26,7 +26,6 @@ use crate::{
     executors,
     service::Service,
     state_store::{
-        driver::rocksdb::RocksDBConfig,
         executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,

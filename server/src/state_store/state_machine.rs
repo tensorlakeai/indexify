@@ -13,14 +13,25 @@ use tracing::{debug, info, info_span, trace, warn};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
     data_model::{
-        Allocation, AllocationUsageEvent, AllocationUsageEventBuilder, AllocationUsageId,
-        Application, ApplicationVersion, ChangeType, GcUrl, GcUrlBuilder, NamespaceBuilder,
-        RequestCtx, StateChange,
+        Allocation,
+        AllocationUsageEvent,
+        AllocationUsageEventBuilder,
+        AllocationUsageId,
+        Application,
+        ApplicationVersion,
+        ChangeType,
+        GcUrl,
+        GcUrlBuilder,
+        NamespaceBuilder,
+        RequestCtx,
+        StateChange,
     },
     state_store::{
         driver::{DriverEnum, Transaction, Writer},
         requests::{
-            DeleteRequestRequest, InvokeApplicationRequest, NamespaceRequest,
+            DeleteRequestRequest,
+            InvokeApplicationRequest,
+            NamespaceRequest,
             SchedulerUpdateRequest,
         },
     },
