@@ -271,6 +271,10 @@ impl IndexifyState {
                         Some(&self.usage_event_id_seq),
                     )?;
                     info!(
+                        request_id = allocation_output.allocation.request_id.as_str(),
+                        executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
+                        app = allocation_output.allocation.application.as_str(),
+                        fn = allocation_output.allocation.function.as_str(),
                         allocation_id = allocation_output.allocation.id.to_string(),
                         "upserted allocation from executor",
                     );
@@ -280,6 +284,15 @@ impl IndexifyState {
                             allocation_output,
                         )?;
                         allocation_ingestion_events.extend(changes);
+                    } else {
+                        info!(
+                            request_id = allocation_output.allocation.request_id.as_str(),
+                            allocation_id = allocation_output.allocation.id.to_string(),
+                            executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
+                            fn = allocation_output.allocation.function.as_str(),
+                            app = allocation_output.allocation.application.as_str(),
+                            "skipping creation of allocation ingestion state change as one already exists",
+                        );
                     }
                     if allocation_upsert_result.usage_recorded {
                         should_notify_usage_reporter = true;
