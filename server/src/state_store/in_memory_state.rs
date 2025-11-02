@@ -1032,6 +1032,7 @@ impl InMemoryState {
         Ok(function.resources.clone())
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn candidate_executors(
         &self,
         function_run: &FunctionRun,
@@ -1243,7 +1244,7 @@ impl InMemoryState {
         function_runs
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,

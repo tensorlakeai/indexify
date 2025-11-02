@@ -42,7 +42,7 @@ impl FunctionExecutorManager {
 
     /// Vacuum phase - identifies function executors that should be terminated
     /// Returns scheduler update for cleanup actions
-    #[tracing::instrument(skip(self, in_memory_state))]
+    #[tracing::instrument(skip(self, in_memory_state, fe_resource))]
     fn vacuum(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -52,7 +52,7 @@ impl FunctionExecutorManager {
         let function_executors_to_mark =
             in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
 
-        debug!(
+        info!(
             target: targets::SCHEDULER,
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len(),
@@ -574,7 +574,14 @@ impl FunctionExecutorManager {
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            info!(target: targets::SCHEDULER, "no function executors found");
+            info!(
+                target: targets::SCHEDULER,
+                namespace = function_run.namespace,
+                app = function_run.application,
+                fn = function_run.name,
+                request_id = function_run.request_id,
+                "no function executors found"
+            );
             let fe_update = self.create_function_executor(in_memory_state, function_run)?;
             update.extend(fe_update);
             in_memory_state.update_state(
