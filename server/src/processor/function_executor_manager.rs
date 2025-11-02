@@ -407,6 +407,7 @@ impl FunctionExecutorManager {
                 update.add_function_run(*function_run.clone(), &mut ctx);
 
                 if function_run.status == FunctionRunStatus::Completed {
+                    ctx.outcome = function_run.outcome.map(|o| o.into());
                     update
                         .updated_request_states
                         .insert(ctx.key(), *ctx.clone());

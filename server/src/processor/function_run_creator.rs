@@ -231,6 +231,11 @@ impl FunctionRunCreator {
             return Ok(scheduler_update);
         }
 
+        println!(
+            "DIPTANU Function run {} completed with status {:?}",
+            function_run.id, function_run.status
+        );
+
         if let FunctionRunOutcome::Failure(failure_reason) = allocation.outcome {
             function_run.status = FunctionRunStatus::Completed;
             function_run.outcome = Some(allocation.outcome);
