@@ -72,7 +72,7 @@ impl MigrationTestBuilder {
 
         // Apply the migration
         let txn = db.transaction();
-        let migration_ctx = MigrationContext::new(db.clone(), txn);
+        let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
         migration.apply(&migration_ctx)?;
         migration_ctx.commit()?;

@@ -20,7 +20,7 @@ use strum::Display;
 use tracing::info;
 
 use crate::{
-    data_model::clocks::{Linearizable, VectorClock},
+    data_model::clocks::VectorClock,
     utils::{get_epoch_time_in_ms, get_epoch_time_in_ns},
 };
 
@@ -143,12 +143,6 @@ pub struct Allocation {
 impl AllocationBuilder {
     fn default_created_at(&self) -> u128 {
         get_epoch_time_in_ms() as u128
-    }
-}
-
-impl Linearizable for Allocation {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
     }
 }
 
@@ -509,12 +503,6 @@ impl ApplicationBuilder {
     }
 }
 
-impl Linearizable for Application {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl Application {
     pub fn key(&self) -> String {
         Application::key_from(&self.namespace, &self.name)
@@ -692,12 +680,6 @@ pub struct ApplicationVersion {
     pub state: ApplicationState,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for ApplicationVersion {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl ApplicationVersion {
@@ -966,12 +948,6 @@ pub struct RequestCtx {
 impl RequestCtxBuilder {
     fn default_created_at(&self) -> u64 {
         get_epoch_time_in_ms()
-    }
-}
-
-impl Linearizable for RequestCtx {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
     }
 }
 
@@ -1603,12 +1579,6 @@ pub struct GcUrl {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for GcUrl {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl GcUrl {
     pub fn key(&self) -> String {
         format!("{}|{}", self.namespace, self.url)
@@ -1628,12 +1598,6 @@ pub struct FunctionExecutor {
     pub max_concurrency: u32,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for FunctionExecutor {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl PartialEq for FunctionExecutor {
@@ -1748,12 +1712,6 @@ pub struct ExecutorMetadata {
     pub catalog_name: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for ExecutorMetadata {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 impl ExecutorMetadata {
@@ -1936,12 +1894,6 @@ pub struct StateChange {
     vector_clock: VectorClock,
 }
 
-impl Linearizable for StateChange {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
-}
-
 impl StateChange {
     pub fn key(&self) -> [u8; 8] {
         self.id.0.to_be_bytes()
@@ -1969,12 +1921,6 @@ pub struct Namespace {
     pub blob_storage_region: Option<String>,
     #[builder(default)]
     vector_clock: VectorClock,
-}
-
-impl Linearizable for Namespace {
-    fn vector_clock(&self) -> VectorClock {
-        self.vector_clock.clone()
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]

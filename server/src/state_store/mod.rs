@@ -227,7 +227,7 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
-        let txn = self.db.transaction();
+        let mut txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -596,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
+        let mut tx = indexify_state.db.transaction();
         let function_run = tests::mock_application()
             .to_version()
             .unwrap()
@@ -635,7 +635,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_1).unwrap();
         tx.commit().unwrap();
 
-        let tx = indexify_state.db.transaction();
+        let mut tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
@@ -644,7 +644,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_2).unwrap();
         tx.commit().unwrap();
 
-        let tx = indexify_state.db.transaction();
+        let mut tx = indexify_state.db.transaction();
         let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeApplicationRequest {

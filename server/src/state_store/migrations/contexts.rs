@@ -86,7 +86,7 @@ impl MigrationContext {
         Self { db, txn }
     }
 
-    pub fn commit(self) -> Result<()> {
+    pub fn commit(&mut self) -> Result<()> {
         self.txn.commit()?;
         Ok(())
     }
@@ -289,7 +289,7 @@ mod tests {
 
         // Create migration context
         let txn = db.transaction();
-        let ctx = MigrationContext::new(db.clone(), txn);
+        let mut ctx = MigrationContext::new(db.clone(), txn);
 
         // Test JSON operations
         ctx._update_json(&IndexifyObjectsColumns::RequestCtx, key, |json| {

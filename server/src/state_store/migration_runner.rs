@@ -90,7 +90,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
         let txn = db.transaction();
 
         // Create migration context
-        let migration_ctx = MigrationContext::new(db.clone(), txn);
+        let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
         // Apply the migration
         migration
@@ -229,10 +229,10 @@ mod tests {
             last_usage_idx: 0,
         };
 
-        let ctx = MigrationContext::new(db.clone(), txn);
+        let mut ctx = MigrationContext::new(db, txn);
         ctx.write_sm_meta(&initial_meta)?;
         ctx.commit()?;
-        drop(db);
+        drop(ctx);
 
         // Run migrations
         let sm_meta = run(path, RocksDBConfig::default())?;

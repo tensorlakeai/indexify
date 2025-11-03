@@ -244,7 +244,7 @@ impl UsageProcessor {
         processed_events: Vec<AllocationUsageEvent>,
     ) -> Result<()> {
         for attempt in 1..=self.max_attempts {
-            let txn = self.indexify_state.db.transaction();
+            let mut txn = self.indexify_state.db.transaction();
 
             if let Err(error) =
                 state_machine::remove_allocation_usage_events(&txn, processed_events.as_slice())

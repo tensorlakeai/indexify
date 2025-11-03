@@ -8,17 +8,12 @@
 //! drivers to ensure that behaviors across drivers
 //! stay consistent.
 
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use derive_builder::Builder;
-use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{
-    data_model::clocks::Linearizable,
-    metrics::StateStoreMetrics,
-    state_store::scanner::CursorDirection,
-};
+use crate::{metrics::StateStoreMetrics, state_store::scanner::CursorDirection};
 
 pub mod rocksdb;
 use rocksdb::*;
@@ -158,7 +153,13 @@ pub struct RangeOptions<'db> {
 
 /// Options that you can provide to iterate over a Key/Value pair.
 pub enum IterOptions<'db> {
-    RocksDB((rocksdb::ReadOptions, Option<rocksdb::IteratorMode<'db>>)),
+    RocksDB((rocksdb::ReadOptions, rocksdb::IteratorMode<'db>)),
+}
+
+impl Default for IterOptions<'_> {
+    fn default() -> Self {
+        IterOptions::new_rocksdb_options()
+    }
 }
 
 impl<'db> IterOptions<'db> {
@@ -171,7 +172,7 @@ impl<'db> IterOptions<'db> {
         let mut read_options = rocksdb::ReadOptions::default();
         read_options.set_readahead_size(Self::DEFAULT_BLOCK_SIZE);
 
-        IterOptions::RocksDB((read_options, None))
+        IterOptions::RocksDB((read_options, IteratorMode::Start))
     }
 
     pub fn with_block_size(self, block_size: usize) -> Self {
@@ -190,7 +191,7 @@ impl<'db> IterOptions<'db> {
 
     fn with_mode(self, mode: rocksdb::IteratorMode<'db>) -> Self {
         let Self::RocksDB(this) = self;
-        IterOptions::RocksDB((this.0, Some(mode)))
+        IterOptions::RocksDB((this.0, mode))
     }
 
     #[cfg(test)]
@@ -204,43 +205,6 @@ impl<'db> IterOptions<'db> {
     }
 }
 
-impl<'db> Default for IterOptions<'db> {
-    fn default() -> Self {
-        Self::new_rocksdb_options()
-    }
-}
-
-/// AtomicComparator defines atomic functions that compare
-/// incoming records with existent records in the database.
-///
-/// These comparisons often use `crate::data_model::clocks::VectorClock`
-/// and `crate::data_model::clocks::Linearizable` structs to check
-/// the "happens-before" relationship between two records.
-pub trait AtomicComparator {
-    /// Compare a persisted record's vector clock against
-    /// the vector clock from an incoming new record, and commit
-    /// the new record if the clocks match.
-    ///
-    /// This function returns an error if the clock in the persisted
-    /// record is higher than the incoming one. This means that
-    /// a different event updated the record before, and the client
-    /// needs to reconcile the changes before trying to write its
-    /// changes.
-    #[allow(dead_code)]
-    fn compare_and_swap<N, K, R>(
-        &self,
-        tx: Arc<Transaction>,
-        cf: N,
-        key: K,
-        record: R,
-    ) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        R: Linearizable + Serialize + DeserializeOwned + fmt::Debug;
-}
-
-/// Driver defines all the operations a database driver needs to support.
 /// It combines Writer + Reader to make implementing a driver more ergonomic.
 #[allow(dead_code)]
 pub trait Driver: Writer + Reader {}
@@ -271,69 +235,19 @@ pub fn open_database(
     }
 }
 
-/// Transaction is a wrapper around specific database transactions.
-/// Since different databases have different transaction semantics,
-/// this enum allow us to hide those semantics from the caller's
-/// point of view.
-///
-/// We use an enum instead of a trait because it easier to validate
-/// that the inner transaction uses the right driver.
-pub enum Transaction {
-    RocksDB(RocksDBTransaction),
-}
+pub trait InnerTransaction: Send {
+    fn commit(&mut self) -> Result<(), Error>;
 
-impl fmt::Debug for Transaction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Transaction::RocksDB(_) => write!(f, "Transaction::RocksDB"),
-        }
-    }
-}
+    fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+    fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+    fn delete(&self, cf: &str, key: &[u8]) -> Result<(), Error>;
 
-impl Transaction {
-    pub fn commit(self) -> Result<(), Error> {
-        let Self::RocksDB(tx) = self;
-        tx.commit()
-    }
-
-    pub fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.get(cf, key)
-    }
-
-    pub fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.put(cf, key, value)
-    }
-
-    pub fn delete<N, K>(&self, cf: N, key: K) -> Result<(), Error>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.delete(cf, key)
-    }
-
-    pub fn iter<N>(
+    fn iter(
         &self,
-        cf: N,
-        prefix: &[u8],
+        cf: &str,
+        prefix: Vec<u8>,
         options: IterOptions,
-    ) -> impl Iterator<Item = Result<KVBytes, Error>>
-    where
-        N: AsRef<str>,
-    {
-        let Self::RocksDB(tx) = self;
-        tx.iter(cf, prefix, options)
-    }
+    ) -> Box<dyn Iterator<Item = Result<KVBytes, Error>> + '_>;
 }
+
+pub type Transaction = Box<dyn InnerTransaction>;
