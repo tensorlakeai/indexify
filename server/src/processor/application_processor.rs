@@ -295,7 +295,7 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(
                     task_allocator
                         .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,

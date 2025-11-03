@@ -52,7 +52,7 @@ impl FunctionExecutorManager {
         let function_executors_to_mark =
             in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
 
-        info!(
+        debug!(
             target: targets::SCHEDULER,
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len(),
