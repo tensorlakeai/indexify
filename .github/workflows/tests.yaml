@@ -188,3 +188,73 @@ jobs:
             ps aux | grep indexify
             exit 1
           fi
+
+  map_reduce_benchmark:
+    name: Run Map Reduce Benchmark
+    needs: [build_server, lint_python_packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download indexify-server
+        uses: actions/download-artifact@v4
+        with:
+          name: indexify-server
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          # Don't log the outputs as they are huge for benchmark runs.
+          tail: false
+          wait-for: 30s
+          log-output: false
+          # always logging the output to debug test failures.
+          log-output-if: false
+
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+
+      - name: Build indexify
+        run: cd indexify && make build
+
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd indexify
+            poetry run indexify-cli executor &
+            echo $! > /tmp/indexify-executor.pid &
+
+          wait-on: |
+            tcp:localhost:7000
+
+          # Don't log the outputs as they are huge for benchmark runs.
+          tail: false
+          wait-for: 10s
+          log-output: false
+          # always logging the output to debug test failures.
+          log-output-if: false
+
+      - name: Run Map Reduce Benchmark
+        # Use large failure threshold of 15 minutes right now because there's a known issue with stalling.
+        # TODO: Once the bug is fixed, pass a low value of --failure-threshold-seconds to make sure we're
+        # catching perf regressions in CI. Also pass --maps-count 1000 once the bug is fixed.
+        run: |
+          cd indexify
+          poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
