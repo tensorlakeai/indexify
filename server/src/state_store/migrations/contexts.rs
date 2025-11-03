@@ -5,6 +5,7 @@ use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde_json::Value;
 
 use crate::{
+    data_model::StateMachineMetadata,
     metrics::StateStoreMetrics,
     state_store::{
         self,
@@ -75,15 +76,24 @@ impl PrepareContext {
 }
 
 /// Context for applying migration logic
-pub struct MigrationContext<'a> {
-    pub db: &'a RocksDBDriver,
-    #[allow(dead_code)]
-    pub txn: &'a Transaction<'a>,
+pub struct MigrationContext {
+    pub db: RocksDBDriver,
+    pub txn: Transaction,
 }
 
-impl<'a> MigrationContext<'a> {
-    pub fn new(db: &'a RocksDBDriver, txn: &'a Transaction) -> Self {
+impl MigrationContext {
+    pub fn new(db: RocksDBDriver, txn: Transaction) -> Self {
         Self { db, txn }
+    }
+
+    pub fn commit(&mut self) -> Result<()> {
+        self.txn.commit()?;
+        Ok(())
+    }
+
+    /// Write state machine metadata to the database
+    pub fn write_sm_meta(&self, sm_meta: &StateMachineMetadata) -> Result<()> {
+        state_store::write_sm_meta(&self.txn, sm_meta)
     }
 
     /// Iterate over all entries in a column family
@@ -279,7 +289,7 @@ mod tests {
 
         // Create migration context
         let txn = db.transaction();
-        let ctx = MigrationContext::new(&db, &txn);
+        let mut ctx = MigrationContext::new(db.clone(), txn);
 
         // Test JSON operations
         ctx._update_json(&IndexifyObjectsColumns::RequestCtx, key, |json| {
@@ -292,7 +302,7 @@ mod tests {
             Ok(true)
         })?;
 
-        txn.commit()?;
+        ctx.commit()?;
 
         // Verify changes
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();

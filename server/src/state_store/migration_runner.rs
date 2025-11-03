@@ -8,7 +8,6 @@ use crate::{
     state_store::{
         driver::{
             Reader,
-            Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
@@ -91,7 +90,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
         let txn = db.transaction();
 
         // Create migration context
-        let migration_ctx = MigrationContext::new(&db, &txn);
+        let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
         // Apply the migration
         migration
@@ -100,10 +99,11 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
 
         // Update metadata in the same transaction
         sm_meta.db_version = to_version;
-        write_sm_meta(&txn, &sm_meta)?;
+        migration_ctx.write_sm_meta(&sm_meta)?;
 
         info!("Committing migration to v{}", to_version);
-        txn.commit()
+        migration_ctx
+            .commit()
             .with_context(|| format!("Committing migration to v{to_version}"))?;
 
         // Close DB after each migration to ensure clean state
@@ -131,17 +131,6 @@ pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
             last_usage_idx: 0,
         }),
     }
-}
-
-/// Write state machine metadata to the database
-pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
-    let serialized_meta = JsonEncoder::encode(sm_meta)?;
-    txn.put(
-        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-        b"sm_meta",
-        &serialized_meta,
-    )?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -239,9 +228,11 @@ mod tests {
             last_change_idx: 0,
             last_usage_idx: 0,
         };
-        write_sm_meta(&txn, &initial_meta)?;
-        txn.commit()?;
-        drop(db);
+
+        let mut ctx = MigrationContext::new(db, txn);
+        ctx.write_sm_meta(&initial_meta)?;
+        ctx.commit()?;
+        drop(ctx);
 
         // Run migrations
         let sm_meta = run(path, RocksDBConfig::default())?;
