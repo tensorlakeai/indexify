@@ -103,7 +103,7 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         if candidates.is_empty() {
-            info!(target: targets::SCHEDULER, "no executors are available to create function executor");
+            debug!(target: targets::SCHEDULER, "no executors are available to create function executor");
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
