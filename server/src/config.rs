@@ -139,6 +139,9 @@ pub struct TelemetryConfig {
     // If specified, both traces and metrics will be sent to this endpoint.
     // Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var or to localhost:4317 if empty.
     pub endpoint: Option<String>,
+    // Print traces to stdout.
+    // This option only applies when `endpoint` is not specified.
+    pub print_traces: bool,
     // Metrics export interval. Defaults to 10 seconds.
     #[serde(with = "duration_serde")]
     pub metrics_interval: Duration,
@@ -154,6 +157,7 @@ impl Default for TelemetryConfig {
         Self {
             enable_tracing: false,
             enable_metrics: false,
+            print_traces: false,
             endpoint: None,
             metrics_interval: Duration::from_secs(10),
             local_log_file: None,
