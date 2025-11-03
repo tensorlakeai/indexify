@@ -284,6 +284,13 @@ impl FunctionRun {
     pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
         format!("{namespace}|{application}|{request_id}|")
     }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.outcome,
+            Some(FunctionRunOutcome::Success) | Some(FunctionRunOutcome::Failure(_))
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -720,6 +727,7 @@ impl ApplicationVersion {
             .call_metadata(fn_call.call_metadata.clone())
             .creation_time_ns(get_epoch_time_in_ns())
             .vector_clock(VectorClock::default())
+            .outcome(None)
             .build()
             .map_err(|e| anyhow!("failed to create function run: {e}"))
     }

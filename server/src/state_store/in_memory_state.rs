@@ -1374,7 +1374,7 @@ impl InMemoryState {
                 v.name == fe_meta.function_executor.function_name &&
                     v.version == fe_meta.function_executor.version
             })
-            .any(|(_k, v)| v.outcome.is_none())
+            .any(|(_k, v)| !v.is_terminal())
     }
 
     pub fn desired_state(
