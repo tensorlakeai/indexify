@@ -58,6 +58,8 @@ json-subscriber = "0.2.6"
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
 chrono = "0.4.42"
 prost-types = "0.14.1"
+tracing-opentelemetry = "0.32.0"
+opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
 
 
 [dev-dependencies]

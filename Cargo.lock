@@ -2136,6 +2136,7 @@ dependencies = [
  "omniqueue",
  "opentelemetry",
  "opentelemetry-otlp",
+ "opentelemetry-stdout",
  "opentelemetry_sdk",
  "pin-project",
  "pin-project-lite",
@@ -2160,6 +2161,7 @@ dependencies = [
  "tonic-reflection",
  "tower-http",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
  "utoipa",
@@ -2792,6 +2794,17 @@ name = "opentelemetry-semantic-conventions"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e62e29dfe041afb8ed2a6c9737ab57db4907285d999ef8ad3a59092a36bdc846"
+
+[[package]]
+name = "opentelemetry-stdout"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc8887887e169414f637b18751487cce4e095be787d23fad13c454e2fb1b3811"
+dependencies = [
+ "chrono",
+ "opentelemetry",
+ "opentelemetry_sdk",
+]
 
 [[package]]
 name = "opentelemetry_sdk"

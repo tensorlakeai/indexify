@@ -1,11 +1,26 @@
 use anyhow::Result;
-use opentelemetry::global;
-use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry::{global, trace::TracerProvider};
+use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
-use tracing::error;
-use tracing_subscriber::{Layer, layer::SubscriberExt};
+use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
+use tracing::{Metadata, error};
+use tracing_subscriber::{
+    Layer,
+    layer::{self, Filter, SubscriberExt},
+};
 
 use crate::config::ServerConfig;
+
+/// SlateDB internal task threads are very noisy and are mixed with our own
+/// traces. This filter disables their instrumentation, which we don't use at
+/// the moment.
+struct SlateDBFilter;
+
+impl<S> Filter<S> for SlateDBFilter {
+    fn enabled(&self, metadata: &Metadata<'_>, _: &layer::Context<'_, S>) -> bool {
+        !metadata.target().starts_with("slatedb::")
+    }
+}
 
 pub fn get_env_filter() -> tracing_subscriber::EnvFilter {
     // RUST_LOG used to control logging level.
@@ -33,10 +48,31 @@ where
 }
 
 pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>> {
+    let mut tracer_provider = TracerProviderBuilder::default();
+    if let Some(endpoint) = &config.telemetry.endpoint {
+        tracer_provider = tracer_provider.with_simple_exporter(
+            OtlpSpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint.clone())
+                .build()?,
+        );
+    } else if config.telemetry.print_traces {
+        tracer_provider = tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
+    }
+
+    let sdk_tracer = tracer_provider.build();
+    global::set_tracer_provider(sdk_tracer.clone());
+
+    let tracer = sdk_tracer.tracer("indexify-server");
+    let tracing_span_layer = tracing_opentelemetry::layer()
+        .with_tracer(tracer)
+        .with_filter(SlateDBFilter);
+
     let env_filter_layer = get_env_filter();
-    let log_layer = get_log_layer(config);
-    let subscriber =
-        tracing_subscriber::Registry::default().with(log_layer.with_filter(env_filter_layer));
+    let log_layer = get_log_layer(config).with_filter(env_filter_layer);
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_span_layer)
+        .with(log_layer);
 
     if !config.telemetry.enable_tracing {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
@@ -45,16 +81,5 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>>
         return Ok(None);
     }
 
-    let mut span_exporter = SpanExporter::builder().with_tonic();
-    if let Some(endpoint) = &config.telemetry.endpoint {
-        span_exporter = span_exporter.with_endpoint(endpoint.clone());
-    }
-    let span_exporter = span_exporter.build()?;
-
-    let tracer_provider = TracerProviderBuilder::default()
-        .with_simple_exporter(span_exporter)
-        .build();
-    global::set_tracer_provider(tracer_provider.clone());
-
-    Ok(Some(tracer_provider))
+    Ok(Some(sdk_tracer))
 }
