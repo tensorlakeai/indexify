@@ -827,6 +827,8 @@ pub enum RequestFailureReason {
     ConstraintUnsatisfiable,
     // Cancelled.
     Cancelled,
+    // Out of memory.
+    OutOfMemory,
 }
 
 impl Display for RequestFailureReason {
@@ -838,6 +840,7 @@ impl Display for RequestFailureReason {
             RequestFailureReason::RequestError => "RequestError",
             RequestFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
             RequestFailureReason::Cancelled => "Cancelled",
+            RequestFailureReason::OutOfMemory => "OutOfMemory",
         };
         write!(f, "{str_val}")
     }
@@ -863,7 +866,7 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
-            FunctionRunFailureReason::OutOfMemory => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::OutOfMemory => RequestFailureReason::OutOfMemory,
         }
     }
 }
