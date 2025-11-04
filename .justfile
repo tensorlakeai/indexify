@@ -92,6 +92,10 @@ test: test-rust test-indexify test-tensorlake
 run-server:
     cargo run -p indexify-server
 
+[doc('Run a local Indexify server with Tokio Console enabled')]
+run-server-with-console:
+    RUSTFLAGS="--cfg tokio_unstable" cargo run -p indexify-server --features console-subscriber
+
 [doc('Run a dev Indexify executor')]
 [working-directory: 'indexify']
 run-executor:

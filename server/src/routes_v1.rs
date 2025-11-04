@@ -176,6 +176,7 @@ async fn namespace_middleware(
         let reader = route_state.indexify_state.reader();
         let ns = reader
             .get_namespace(namespace)
+            .await
             .map_err(IndexifyAPIError::internal_error)?;
 
         if ns.is_none() {
@@ -234,6 +235,7 @@ async fn list_requests(
             params.limit.unwrap_or(100),
             direction,
         )
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
     let mut requests = vec![];
     for request_ctx in request_ctxs {
@@ -269,6 +271,7 @@ async fn find_request(
         .indexify_state
         .reader()
         .request_ctx(&namespace, &application, &request_id)
+        .await
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("request not found"))?;
 
@@ -276,6 +279,7 @@ async fn find_request(
         .indexify_state
         .reader()
         .get_allocations_by_request_id(&namespace, &application, &request_id)
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
 
     let request_error = download_request_error(

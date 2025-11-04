@@ -96,7 +96,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?
+            .unprocessed_state_changes(&None, &None)
+            .await?
             .changes
             .is_empty()
         {
@@ -111,7 +112,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?
+            .unprocessed_state_changes(&None, &None)
+            .await?
             .changes;
         while !cached_state_changes.is_empty() {
             self.service
@@ -140,7 +142,7 @@ impl TestService {
             .indexify_state
             .reader()
             .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
-            .unwrap()
+            .await?
             .into_iter()
             .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
             .flatten()
@@ -557,6 +559,7 @@ impl TestExecutor<'_> {
             .indexify_state
             .reader()
             .get_allocation(&args.allocation_key)
+            .await
             .unwrap()
             .unwrap();
 

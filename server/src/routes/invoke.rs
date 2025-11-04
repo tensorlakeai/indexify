@@ -39,7 +39,7 @@ async fn create_request_progress_stream(
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.request_ctx(namespace.as_str(), application.as_str(), &id)
+        match reader.request_ctx(namespace.as_str(), application.as_str(), &id).await
         {
             Ok(Some(request_ctx)) => {
                 if request_ctx.outcome.is_some() {
@@ -89,6 +89,7 @@ async fn create_request_progress_stream(
                     // Check if completion happened during lag
                     match reader
                         .request_ctx(namespace.as_str(), application.as_str(), &id)
+                        .await
                     {
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
@@ -197,6 +198,7 @@ pub async fn invoke_application_with_object_v1(
         .indexify_state
         .reader()
         .get_application(&namespace, &application)
+        .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
         .ok_or(IndexifyAPIError::not_found("application not found"))?;
 

@@ -53,7 +53,7 @@ impl FunctionRunCreator {
 
 impl FunctionRunCreator {
     #[tracing::instrument(skip(self, in_memory_state, function_call_event))]
-    pub fn handle_blocking_function_call(
+    pub async fn handle_blocking_function_call(
         &self,
         in_memory_state: &mut InMemoryState,
         function_call_event: &FunctionCallEvent,
@@ -167,7 +167,8 @@ impl FunctionRunCreator {
         let Some(allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&alloc_finished_event.allocation_key)?
+            .get_allocation(&alloc_finished_event.allocation_key)
+            .await?
         else {
             error!(
                 allocation_key = alloc_finished_event.allocation_key,

@@ -77,9 +77,19 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
 
     let env_filter_layer = get_env_filter();
     let log_layer = get_log_layer(config).with_filter(env_filter_layer);
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(tracing_span_layer)
-        .with(log_layer);
+    #[cfg(feature = "console-subscriber")]
+    let subscriber: Box<dyn tracing::Subscriber + Send + Sync> = Box::new(
+        tracing_subscriber::Registry::default()
+            .with(console_subscriber::spawn())
+            .with(tracing_span_layer)
+            .with(log_layer),
+    );
+    #[cfg(not(feature = "console-subscriber"))]
+    let subscriber: Box<dyn tracing::Subscriber + Send + Sync> = Box::new(
+        tracing_subscriber::Registry::default()
+            .with(tracing_span_layer)
+            .with(log_layer),
+    );
 
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())

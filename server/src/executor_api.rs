@@ -584,6 +584,7 @@ impl ExecutorAPIService {
                 .indexify_state
                 .reader()
                 .get_allocation(&allocation_key)
+                .await
                 .map_err(|e| Status::internal(e.to_string()))?
             else {
                 warn!(

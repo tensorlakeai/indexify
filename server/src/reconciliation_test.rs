@@ -325,7 +325,8 @@ mod tests {
 
             let request = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request.outcome.is_some());

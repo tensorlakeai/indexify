@@ -488,7 +488,11 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(clock: u64, reader: StateReader, executor_catalog: ExecutorCatalog) -> Result<Self> {
+    pub async fn new(
+        clock: u64,
+        reader: StateReader,
+        executor_catalog: ExecutorCatalog,
+    ) -> Result<Self> {
         info!(
             "initializing in-memory state from state store at clock {}",
             clock
@@ -521,13 +525,13 @@ impl InMemoryState {
         let mut namespaces = im::HashMap::new();
         let mut applications = im::HashMap::new();
         {
-            let all_ns = reader.get_all_namespaces()?;
+            let all_ns = reader.get_all_namespaces().await?;
             for ns in &all_ns {
                 // Creating Namespaces
                 namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
 
                 // Creating Compute Graphs and Versions
-                let cgs = reader.list_applications(&ns.name, None, None)?.0;
+                let cgs = reader.list_applications(&ns.name, None, None).await?.0;
                 for cg in cgs {
                     applications.insert(cg.key(), Box::new(cg));
                 }
@@ -536,8 +540,9 @@ impl InMemoryState {
 
         let mut application_versions = im::OrdMap::new();
         {
-            let all_cg_versions: Vec<(String, ApplicationVersion)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)?;
+            let all_cg_versions: Vec<(String, ApplicationVersion)> = reader
+                .get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)
+                .await?;
             for (id, cg) in all_cg_versions {
                 application_versions.insert(id, Box::new(cg));
             }
@@ -548,12 +553,14 @@ impl InMemoryState {
             HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
         > = im::HashMap::new();
         {
-            let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
-                &[],
-                None,
-                IndexifyObjectsColumns::Allocations,
-                None,
-            )?;
+            let (allocations, _) = reader
+                .get_rows_from_cf_with_limits::<Allocation>(
+                    &[],
+                    None,
+                    IndexifyObjectsColumns::Allocations,
+                    None,
+                )
+                .await?;
             for allocation in allocations {
                 if allocation.is_terminal() {
                     continue;
@@ -569,8 +576,9 @@ impl InMemoryState {
 
         let mut request_ctx = im::OrdMap::new();
         {
-            let all_app_request_ctx: Vec<(String, RequestCtx)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)?;
+            let all_app_request_ctx: Vec<(String, RequestCtx)> = reader
+                .get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)
+                .await?;
             for (_id, ctx) in all_app_request_ctx {
                 // Do not cache completed requests
                 if ctx.outcome.is_some() {
