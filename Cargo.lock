@@ -2774,7 +2774,6 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
- "zstd",
 ]
 
 [[package]]
@@ -4317,6 +4316,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
