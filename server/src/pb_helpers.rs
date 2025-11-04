@@ -13,6 +13,9 @@ impl From<String> for executor_api_pb::DataPayloadEncoding {
             "application/python-pickle" => executor_api_pb::DataPayloadEncoding::BinaryPickle,
             "application/zip" => executor_api_pb::DataPayloadEncoding::BinaryZip,
             "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
+            "application/application/x-www-form-urlencoded" => {
+                executor_api_pb::DataPayloadEncoding::FormUrlEncoded
+            }
             // User supplied content type for tensorlake.File.
             _ => executor_api_pb::DataPayloadEncoding::Raw,
         }

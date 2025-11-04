@@ -1038,6 +1038,7 @@ fn prepare_data_payload(
         DataPayloadEncoding::BinaryZip => "application/zip",
         DataPayloadEncoding::Raw => "application/octet-stream",
         DataPayloadEncoding::Unknown => "application/octet-stream",
+        DataPayloadEncoding::FormUrlEncoded => "application/x-www-form-urlencoded",
     };
     if let Some(content_type) = msg.content_type.as_ref() {
         // User supplied content type when a function returns tensorlake.File.
