@@ -9,7 +9,7 @@ use tracing_subscriber::{
     layer::{self, Filter, SubscriberExt},
 };
 
-use crate::config::ServerConfig;
+use crate::config::{ServerConfig, TracingExporter};
 
 /// SlateDB internal task threads are very noisy and are mixed with our own
 /// traces. This filter disables their instrumentation, which we don't use at
@@ -49,15 +49,19 @@ where
 
 pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>> {
     let mut tracer_provider = TracerProviderBuilder::default();
-    if let Some(endpoint) = &config.telemetry.endpoint {
-        tracer_provider = tracer_provider.with_simple_exporter(
-            OtlpSpanExporter::builder()
-                .with_tonic()
-                .with_endpoint(endpoint.clone())
-                .build()?,
-        );
-    } else if config.telemetry.print_traces {
-        tracer_provider = tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
+    match &config.telemetry.tracing_exporter {
+        Some(TracingExporter::Otlp) => {
+            let mut otlp = OtlpSpanExporter::builder().with_tonic();
+            if let Some(endpoint) = &config.telemetry.endpoint {
+                otlp = otlp.with_endpoint(endpoint);
+            }
+            let exporter = otlp.build()?;
+            tracer_provider = tracer_provider.with_simple_exporter(exporter);
+        }
+        Some(TracingExporter::Stdout) => {
+            tracer_provider = tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
+        }
+        _ => {}
     }
 
     let sdk_tracer = tracer_provider.build();
@@ -74,12 +78,13 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>>
         .with(tracing_span_layer)
         .with(log_layer);
 
-    if !config.telemetry.enable_tracing {
-        if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
-            error!("logger was already initiated, continuing: {:?}", e);
-        }
-        return Ok(None);
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        error!("logger was already initiated, continuing: {:?}", e);
     }
 
-    Ok(Some(sdk_tracer))
+    if config.telemetry.tracing_enabled() {
+        Ok(Some(sdk_tracer))
+    } else {
+        Ok(None)
+    }
 }
