@@ -1,9 +1,9 @@
 use anyhow::Result;
-use opentelemetry::{global, trace::TracerProvider};
+use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig};
-use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
+use opentelemetry_sdk::trace::TracerProviderBuilder;
 use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
-use tracing::{Metadata, error};
+use tracing::Metadata;
 use tracing_subscriber::{
     Layer,
     layer::{self, Filter, SubscriberExt},
@@ -47,16 +47,16 @@ where
     Box::new(tracing_subscriber::fmt::layer().compact())
 }
 
-pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>> {
+pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
     let mut tracer_provider = TracerProviderBuilder::default();
     match &config.telemetry.tracing_exporter {
         Some(TracingExporter::Otlp) => {
-            let mut otlp = OtlpSpanExporter::builder().with_tonic();
+            let mut otlp = OtlpSpanExporter::builder().with_http();
             if let Some(endpoint) = &config.telemetry.endpoint {
                 otlp = otlp.with_endpoint(endpoint);
             }
             let exporter = otlp.build()?;
-            tracer_provider = tracer_provider.with_simple_exporter(exporter);
+            tracer_provider = tracer_provider.with_batch_exporter(exporter)
         }
         Some(TracingExporter::Stdout) => {
             tracer_provider = tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
@@ -65,7 +65,6 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>>
     }
 
     let sdk_tracer = tracer_provider.build();
-    global::set_tracer_provider(sdk_tracer.clone());
 
     let tracer = sdk_tracer.tracer("indexify-server");
     let tracing_span_layer = tracing_opentelemetry::layer()
@@ -78,13 +77,6 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<Option<SdkTracerProvider>>
         .with(tracing_span_layer)
         .with(log_layer);
 
-    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
-        error!("logger was already initiated, continuing: {:?}", e);
-    }
-
-    if config.telemetry.tracing_enabled() {
-        Ok(Some(sdk_tracer))
-    } else {
-        Ok(None)
-    }
+    tracing::subscriber::set_global_default(subscriber)?;
+    Ok(())
 }
