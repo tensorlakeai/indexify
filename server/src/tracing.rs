@@ -1,7 +1,8 @@
 use anyhow::Result;
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::{KeyValue, trace::TracerProvider};
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig};
-use opentelemetry_sdk::trace::TracerProviderBuilder;
+use opentelemetry_sdk::{Resource, trace::TracerProviderBuilder};
+use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
 use tracing::Metadata;
 use tracing_subscriber::{
@@ -48,10 +49,14 @@ where
 }
 
 pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
-    let mut tracer_provider = TracerProviderBuilder::default();
+    let mut tracer_provider = TracerProviderBuilder::default().with_resource(
+        Resource::builder_empty()
+            .with_service_name("indexify-server")
+            .build(),
+    );
     match &config.telemetry.tracing_exporter {
         Some(TracingExporter::Otlp) => {
-            let mut otlp = OtlpSpanExporter::builder().with_http();
+            let mut otlp = OtlpSpanExporter::builder().with_tonic();
             if let Some(endpoint) = &config.telemetry.endpoint {
                 otlp = otlp.with_endpoint(endpoint);
             }

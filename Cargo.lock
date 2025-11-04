@@ -2136,6 +2136,7 @@ dependencies = [
  "omniqueue",
  "opentelemetry",
  "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
  "opentelemetry-stdout",
  "opentelemetry_sdk",
  "pin-project",
