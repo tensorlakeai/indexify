@@ -129,19 +129,24 @@ impl ServerConfig {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TracingExporter {
+    Stdout,
+    Otlp,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
-    // Enable tracing.
-    pub enable_tracing: bool,
     // Enable metrics.
     pub enable_metrics: bool,
     // OpenTelemetry collector grpc endpoint for both traces and metrics.
     // If specified, both traces and metrics will be sent to this endpoint.
     // Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var or to localhost:4317 if empty.
     pub endpoint: Option<String>,
-    // Print traces to stdout.
-    // This option only applies when `endpoint` is not specified.
-    pub print_traces: bool,
+    // Defines the exporter to use for tracing.
+    // If not specified, we won't export traces anywhere.
+    pub tracing_exporter: Option<TracingExporter>,
     // Metrics export interval. Defaults to 10 seconds.
     #[serde(with = "duration_serde")]
     pub metrics_interval: Duration,
@@ -152,13 +157,18 @@ pub struct TelemetryConfig {
     pub instance_id: Option<String>,
 }
 
+impl TelemetryConfig {
+    pub fn tracing_enabled(&self) -> bool {
+        self.tracing_exporter.is_some()
+    }
+}
+
 impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
-            enable_tracing: false,
             enable_metrics: false,
-            print_traces: false,
             endpoint: None,
+            tracing_exporter: None,
             metrics_interval: Duration::from_secs(10),
             local_log_file: None,
             instance_id: None,

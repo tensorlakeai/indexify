@@ -77,11 +77,11 @@ async fn main() {
     }
 
     // export traces before shutdown
-    if let Some(tracer_provider) = tracing_provider {
-        if let Err(err) = tracer_provider.force_flush() {
+    if let Some(tracing_provider) = tracing_provider {
+        if let Err(err) = tracing_provider.force_flush() {
             error!("Error flushing traces: {:?}", err);
         }
-        if let Err(err) = tracer_provider.shutdown() {
+        if let Err(err) = tracing_provider.shutdown() {
             error!("Error shutting down tracer provider: {:?}", err);
         }
     }
