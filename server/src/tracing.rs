@@ -1,8 +1,7 @@
 use anyhow::Result;
-use opentelemetry::{KeyValue, trace::TracerProvider};
+use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig};
 use opentelemetry_sdk::{Resource, trace::TracerProviderBuilder};
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
 use tracing::Metadata;
 use tracing_subscriber::{
