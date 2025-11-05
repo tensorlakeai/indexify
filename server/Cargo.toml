@@ -34,7 +34,7 @@ hyper = "1.7.0"
 url = "2.5.6"
 opentelemetry = { version = "0.31.0", features = ["metrics", "trace"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic"] }
+opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic"] }
 axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
 base64 = "0.22.1"
 tonic = "0.14.2"

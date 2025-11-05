@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use ::tracing::{error, info_span};
+use ::tracing::info_span;
+use anyhow::Context;
 use clap::Parser;
 use service::Service;
 
@@ -47,18 +48,14 @@ struct Cli {
     config: Option<PathBuf>,
 }
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = match cli.config {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
     };
 
-    let tracing_provider = setup_tracing(&config)
-        .inspect_err(|e| {
-            error!("Error setting up tracing: {:?}", e);
-        })
-        .unwrap();
+    setup_tracing(&config)?;
 
     let root_span = info_span!(
         "indexify",
@@ -67,22 +64,10 @@ async fn main() {
     );
     let _guard = root_span.enter();
 
-    let service = Service::new(config).await;
-    if let Err(err) = service {
-        error!("Error creating service: {:?}", err);
-        return;
-    }
-    if let Err(err) = service.unwrap().start().await {
-        error!("Error starting service: {:?}", err);
-    }
+    let mut service = Service::new(config)
+        .await
+        .context("Failed to create service")?;
+    service.start().await.context("Failed to start service")?;
 
-    // export traces before shutdown
-    if let Some(tracing_provider) = tracing_provider {
-        if let Err(err) = tracing_provider.force_flush() {
-            error!("Error flushing traces: {:?}", err);
-        }
-        if let Err(err) = tracing_provider.shutdown() {
-            error!("Error shutting down tracer provider: {:?}", err);
-        }
-    }
+    Ok(())
 }
