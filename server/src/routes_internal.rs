@@ -236,6 +236,7 @@ async fn namespaces(
     let reader = state.indexify_state.reader();
     let namespaces = reader
         .get_all_namespaces()
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
     let namespaces: Vec<Namespace> = namespaces.into_iter().map(|n| n.into()).collect();
     Ok(Json(NamespaceList { namespaces }))
@@ -319,6 +320,7 @@ async fn list_unprocessed_state_changes(
         .indexify_state
         .reader()
         .all_unprocessed_state_changes()
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
 
     Ok(Json(StateChangesResponse {
@@ -376,6 +378,7 @@ async fn get_versioned_code(
             .indexify_state
             .reader()
             .get_application_version(&namespace, &application, &version)
+            .await
             .map_err(IndexifyAPIError::internal_error)?;
 
         let application_version = application_version
@@ -408,6 +411,7 @@ async fn get_versioned_code(
         .indexify_state
         .reader()
         .get_application(&namespace, &application)
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
     let application = application.ok_or(IndexifyAPIError::not_found("Application not found"))?;
     let storage_reader = state
@@ -548,6 +552,7 @@ async fn change_application_state(
         .indexify_state
         .reader()
         .get_application(&namespace, &application)
+        .await
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("Application not found"))?;
 
@@ -592,6 +597,7 @@ async fn get_application_by_version(
         .indexify_state
         .reader()
         .get_application_version(&namespace, &application, &version)
+        .await
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("Application version not found"))?;
 
@@ -619,7 +625,7 @@ pub async fn healthz_handler(
     };
 
     // Check database/state store health
-    match state.indexify_state.reader().get_all_namespaces() {
+    match state.indexify_state.reader().get_all_namespaces().await {
         Ok(_) => checks.database = HealthzStatus::Ok,
         Err(e) => {
             error!("Database health check failed: {:?}", e);

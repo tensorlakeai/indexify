@@ -1,6 +1,8 @@
 use std::{fmt::Display, path::PathBuf, sync::Arc};
 
+use async_trait::async_trait;
 use bytes::Bytes;
+use futures::lock::Mutex;
 use opentelemetry::KeyValue;
 use rocksdb::{
     ColumnFamily,
@@ -36,6 +38,7 @@ pub enum Error {
     #[error(transparent)]
     GenericRocksDBFailure { source: RocksDBError },
 
+    #[allow(dead_code)]
     #[error("Failed to make the connection mutable")]
     MakeConnectionMutableFailed,
 }
@@ -241,18 +244,20 @@ impl RocksDBDriver {
 }
 
 impl RocksDBDriver {
-    fn column_family<N>(&self, name: N) -> &ColumnFamily
-    where
-        N: AsRef<str>,
-    {
-        let Some(handle) = self.db.cf_handle(name.as_ref()) else {
-            panic!("failed to get column family handle for {}", name.as_ref());
+    /// Returns a reference to the column family with the given name.
+    ///
+    /// This function doesn't need to be async, it just gets the value from an
+    /// internal map.
+    fn column_family(&self, name: &str) -> &ColumnFamily {
+        let Some(handle) = self.db.cf_handle(name) else {
+            panic!("failed to get column family handle for {name}");
         };
 
         handle
     }
 }
 
+#[async_trait]
 impl Writer for RocksDBDriver {
     fn transaction(&self) -> super::Transaction {
         let tx = self.db.transaction();
@@ -270,18 +275,13 @@ impl Writer for RocksDBDriver {
             >(tx)
         };
 
-        Box::new(RocksDBTransaction {
+        Arc::new(RocksDBTransaction {
             db: self.clone(),
-            tx: Some(inner),
+            tx: Mutex::new(Some(inner)),
         })
     }
 
-    fn put<N, K, V>(&self, cf: N, key: K, value: V) -> Result<(), DriverError>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>,
-    {
+    async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_writes, attrs);
 
@@ -289,38 +289,29 @@ impl Writer for RocksDBDriver {
         self.db.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
-    fn drop<N>(&mut self, cf: N) -> Result<(), DriverError>
-    where
-        N: AsRef<str>,
-    {
+    async fn drop(&mut self, cf: &str) -> Result<(), DriverError> {
         // `drop` is used in migrations to remove old column families.
         // Migrations run serially, so only one reference to the database should
         // be held at a time.
         // If that premise changes, we'll raise an error during migration.
         let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.drop_cf(cf.as_ref()).map_err(Error::into_generic)
+        mut_db.drop_cf(cf).map_err(Error::into_generic)
     }
 
-    fn create<N>(&mut self, name: N, opts: &super::CreateOptions) -> Result<(), DriverError>
-    where
-        N: AsRef<str>,
-    {
+    async fn create(&mut self, cf: &str, opts: &super::CreateOptions) -> Result<(), DriverError> {
         // `create` is used in migrations to remove old column families.
         // Migrations run serially, so only one reference to the database should
         // be held at a time.
         // If that premise changes, we'll raise an error during migration.
         let super::CreateOptions::RocksDB(opts) = opts;
         let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.create_cf(name, opts).map_err(Error::into_generic)
+        mut_db.create_cf(cf, opts).map_err(Error::into_generic)
     }
 }
 
+#[async_trait]
 impl Reader for RocksDBDriver {
-    fn get<N, K>(&self, cf: N, key: K) -> Result<Option<Vec<u8>>, DriverError>
-    where
-        N: AsRef<str>,
-        K: AsRef<[u8]>,
-    {
+    async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
 
@@ -328,17 +319,18 @@ impl Reader for RocksDBDriver {
         self.db.get_cf(cf, key).map_err(Error::into_generic)
     }
 
-    fn list_existent_items<N>(&self, cf: N, keys: Vec<&[u8]>) -> Result<Vec<Bytes>, DriverError>
-    where
-        N: AsRef<str>,
-    {
+    async fn list_existent_items(
+        &self,
+        cf: &str,
+        keys: Vec<&[u8]>,
+    ) -> Result<Vec<Bytes>, DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
-        let cf_handle = self.column_family(cf.as_ref());
+        let cf_handle = self.column_family(cf);
 
         let mut items = Vec::with_capacity(keys.len());
-        let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k.to_vec())).collect();
+        let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k)).collect();
         let values = self.db.multi_get_cf(multi_get_keys);
 
         for (key, value) in keys.into_iter().zip(values.into_iter()) {
@@ -352,13 +344,11 @@ impl Reader for RocksDBDriver {
                 }
             }
         }
+
         Ok(items)
     }
 
-    fn get_key_range<N>(&self, cf: N, options: RangeOptions) -> Result<Range, DriverError>
-    where
-        N: AsRef<str>,
-    {
+    async fn get_key_range(&self, cf: &str, options: RangeOptions) -> Result<Range, DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
@@ -376,7 +366,7 @@ impl Reader for RocksDBDriver {
         let cf = self.column_family(cf.as_ref());
         let mut iter = self.db.raw_iterator_cf_opt(cf, read_options);
 
-        match options.cursor {
+        match &options.cursor {
             Some(cursor) => {
                 match direction {
                     CursorDirection::Backward => iter.seek(cursor),
@@ -449,22 +439,27 @@ impl Reader for RocksDBDriver {
         })
     }
 
-    fn iter<N>(
+    async fn iter(
         &self,
-        cf: N,
+        cf: &str,
         options: IterOptions,
-    ) -> impl Iterator<Item = Result<super::KVBytes, DriverError>>
-    where
-        N: AsRef<str>,
-    {
+    ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + '_> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
-        let super::IterOptions::RocksDB((opts, mode)) = options;
+        let super::IterOptions::RocksDB((opts, (token, direction))) = options;
 
-        self.db
-            .iterator_cf_opt(self.column_family(cf.as_ref()), opts, mode)
-            .map(|item| item.map_err(Error::into_generic))
+        let mode = match (&token, direction) {
+            (Some(t), Some(d)) => rocksdb::IteratorMode::From(t, d),
+            (Some(t), None) => rocksdb::IteratorMode::From(t, rocksdb::Direction::Forward),
+            (None, _) => rocksdb::IteratorMode::Start,
+        };
+
+        Box::new(
+            self.db
+                .iterator_cf_opt(self.column_family(cf), opts, mode)
+                .map(|item| item.map_err(Error::into_generic)),
+        )
     }
 }
 
@@ -472,20 +467,18 @@ impl Driver for RocksDBDriver {}
 
 pub(crate) struct RocksDBTransaction {
     db: RocksDBDriver,
-    tx: Option<Transaction<'static, TransactionDB>>,
+    tx: Mutex<Option<Transaction<'static, TransactionDB>>>,
 }
 
+#[async_trait]
 impl super::InnerTransaction for RocksDBTransaction {
-    fn commit(&mut self) -> Result<(), DriverError> {
-        let result = self
-            .tx
-            .take()
-            .expect("Transaction not initialized")
-            .commit();
-
-        // Count commits
+    async fn commit(&self) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         Increment::inc(&self.db.metrics.driver_commits, attrs);
+
+        let mut guard = self.tx.lock().await;
+        let tx = guard.take().expect("Transaction not initialized");
+        let result = tx.commit();
 
         // Count errors
         if let Err(err) = &result {
@@ -498,67 +491,56 @@ impl super::InnerTransaction for RocksDBTransaction {
         result.map_err(Error::into_generic)
     }
 
-    fn get(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
+    async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_reads, attrs);
 
         let cf = self.db.column_family(table);
-        self.tx
-            .as_ref()
-            .expect("Transaction not initialized")
-            .get_for_update_cf(cf, key, true)
+
+        let guard = self.tx.lock().await;
+        let tx = guard.as_ref().expect("Transaction not initialized");
+        tx.get_for_update_cf(cf, key, true)
             .map_err(Error::into_generic)
     }
 
-    fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
+    async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_writes, attrs);
 
         let cf = self.db.column_family(cf);
-        self.tx
-            .as_ref()
-            .expect("Transaction not initialized")
-            .put_cf(cf, key, value)
-            .map_err(Error::into_generic)
+
+        let guard = self.tx.lock().await;
+        let tx = guard.as_ref().expect("Transaction not initialized");
+        tx.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
-    fn delete(&self, cf: &str, key: &[u8]) -> Result<(), DriverError> {
+    async fn delete(&self, cf: &str, key: &[u8]) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_deletes, attrs);
 
         let cf = self.db.column_family(cf);
-        self.tx
-            .as_ref()
-            .expect("Transaction not initialized")
-            .delete_cf(cf, key)
-            .map_err(Error::into_generic)
+
+        let guard = self.tx.lock().await;
+        let tx = guard.as_ref().expect("Transaction not initialized");
+        tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
-    fn iter(
-        &self,
-        cf: &str,
-        prefix: Vec<u8>,
-        options: IterOptions,
-    ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + '_> {
+    async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<super::KVBytes, DriverError>> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);
 
-        let IterOptions::RocksDB((read_options, mode)) = options;
-
+        let guard = self.tx.lock().await;
+        let tx = guard.as_ref().expect("Transaction not initialized");
         let cf = self.db.column_family(cf);
 
-        Box::new(
-            self.tx
-                .as_ref()
-                .expect("Transaction not initialized")
-                .iterator_cf_opt(cf, read_options, mode)
-                .map(|item| item.map_err(Error::into_generic))
-                .take_while(move |item| {
-                    let Ok((key, _)) = item else {
-                        return false;
-                    };
-                    key.starts_with(prefix.as_ref())
-                }),
-        )
+        tx.iterator_cf(cf, IteratorMode::Start)
+            .map(|item| item.map_err(Error::into_generic))
+            .take_while(move |item| {
+                let Ok((key, _)) = item else {
+                    return false;
+                };
+                key.starts_with(prefix.as_ref())
+            })
+            .collect()
     }
 }

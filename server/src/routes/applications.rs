@@ -111,6 +111,7 @@ pub async fn create_or_update_application(
         .indexify_state
         .reader()
         .get_application(&namespace, &application.name)
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
 
     // Don't allow deploying disabled applications
@@ -207,6 +208,7 @@ pub async fn applications(
         .indexify_state
         .reader()
         .list_applications(&namespace, cursor.as_deref(), params.limit)
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
     let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(http_objects_v1::ApplicationsList {
@@ -233,6 +235,7 @@ pub async fn get_application(
         .indexify_state
         .reader()
         .get_application(&namespace, &name)
+        .await
         .map_err(IndexifyAPIError::internal_error)?;
     if let Some(application) = application {
         return Ok(Json(application.into()));

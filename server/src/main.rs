@@ -47,6 +47,7 @@ struct Cli {
     #[arg(short, long, value_name = "config file", help = "Path to config file")]
     config: Option<PathBuf>,
 }
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();

@@ -130,7 +130,7 @@ mod tests {
             let function_runs = indexify_state
                 .reader()
                 .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
-                .unwrap()
+                .await?
                 .unwrap()
                 .function_runs
                 .values()
@@ -152,15 +152,15 @@ mod tests {
 
             let request_ctx = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
         }
 
         {
-            let (allocation_usage, cursor) =
-                indexify_state.reader().allocation_usage(None).unwrap();
+            let (allocation_usage, cursor) = indexify_state.reader().allocation_usage(None).await?;
 
             assert_eq!(allocation_usage.len(), 3, "{allocation_usage:#?}");
             assert!(cursor.is_none());

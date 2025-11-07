@@ -13,12 +13,20 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub fn from_str(operator: &str) -> Result<Self> {
+    pub fn try_from_str(operator: &str) -> Result<Self> {
         match operator {
             "==" => Ok(Self::Eq),
             "!=" => Ok(Self::Neq),
             _ => Err(anyhow::anyhow!("Invalid filter operator: {operator}")),
         }
+    }
+}
+
+impl TryFrom<&str> for Operator {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        Self::try_from_str(value)
     }
 }
 
@@ -57,12 +65,12 @@ impl<'de> Deserialize<'de> for Expression {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Expression::from_str(&s).map_err(serde::de::Error::custom)
+        Expression::try_from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
 impl Expression {
-    pub fn from_str(str: &str) -> Result<Self> {
+    pub fn try_from_str(str: &str) -> Result<Self> {
         // This parser must start with the longest operators first (if
         // additional operators are added).
         let operators = vec!["!=", "=="];
@@ -74,7 +82,7 @@ impl Expression {
 
             let key = parts[0].to_string();
             let value = parts[1].to_string();
-            let operator = Operator::from_str(operator)?;
+            let operator = Operator::try_from_str(operator)?;
             return Ok(Self {
                 key,
                 value,
@@ -82,6 +90,14 @@ impl Expression {
             });
         }
         Err(anyhow::anyhow!("Invalid label filter: {str}"))
+    }
+}
+
+impl TryFrom<&str> for Expression {
+    type Error = anyhow::Error;
+
+    fn try_from(str: &str) -> Result<Self, Self::Error> {
+        Self::try_from_str(str)
     }
 }
 
@@ -115,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        let filter = Expression::from_str("key==value").unwrap();
+        let filter = Expression::try_from_str("key==value").unwrap();
         assert_eq!(filter.operator, Operator::Eq);
         assert_eq!(filter.key, "key");
         assert_eq!(filter.value, "value");
@@ -123,7 +139,7 @@ mod tests {
         let filter_str = filter.to_string();
         assert_eq!(filter_str, "key==value");
 
-        let filter = Expression::from_str("key!=value").unwrap();
+        let filter = Expression::try_from_str("key!=value").unwrap();
         assert_eq!(filter.operator, Operator::Neq);
         assert_eq!(filter.key, "key");
         assert_eq!(filter.value, "value");

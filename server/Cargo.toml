@@ -7,6 +7,15 @@ license = "Apache-2.0"
 build = "build.rs"
 resolver = "2"
 
+# [lib]
+# name = "indexify_server"
+# path = "src/lib.rs"
+
+[features]
+default = []
+migrations = []
+console-subscriber = ["dep:console-subscriber"]
+
 [dependencies]
 async-stream = "0.3.6"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -60,6 +69,7 @@ chrono = "0.4.42"
 prost-types = "0.14.1"
 tracing-opentelemetry = "0.32.0"
 opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
+console-subscriber = { version = "0.5.0", optional = true }
 
 
 [dev-dependencies]
@@ -68,6 +78,11 @@ strum = { version = "0.27.1", features = ["derive"] }
 rocksdb = { version = "0.24.0" }
 tokio = { version = "1.45.1", features = ["full", "test-util"] }
 mock_instant = "0.6.0"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# [[bench]]
+# name = "state_store"
+# harness = false
 
 [build-dependencies]
 anyhow = "1.0.98"

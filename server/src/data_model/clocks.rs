@@ -60,12 +60,10 @@ impl VectorClock {
     pub fn value(&self) -> u64 {
         self.clock.load(Relaxed)
     }
+}
 
-    /// Compare this vector clock with another.
-    /// Returns an `std::cmp::Ordering` indicating whether this clock is less
-    /// than, equal to, or greater than the other clock based on their
-    /// values.
-    pub fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+impl Ord for VectorClock {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.value().cmp(&other.value())
     }
 }

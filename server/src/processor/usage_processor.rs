@@ -88,7 +88,10 @@ impl UsageProcessor {
         })
     }
 
-    fn event_to_usage(&self, event: &AllocationUsageEvent) -> Result<Option<AllocationUsage>> {
+    async fn event_to_usage(
+        &self,
+        event: &AllocationUsageEvent,
+    ) -> Result<Option<AllocationUsage>> {
         let app_def_key = ApplicationDefinitions {
             name: event.application.clone(),
             version: event.application_version.clone(),
@@ -102,11 +105,15 @@ impl UsageProcessor {
         let app_version = match maybe_app_version {
             Some(v) => v.clone(),
             None => {
-                let Some(app_version) = self.indexify_state.reader().get_application_version(
-                    &event.namespace,
-                    &event.application,
-                    &event.application_version,
-                )?
+                let Some(app_version) = self
+                    .indexify_state
+                    .reader()
+                    .get_application_version(
+                        &event.namespace,
+                        &event.application,
+                        &event.application_version,
+                    )
+                    .await?
                 else {
                     warn!(
                         namespace = %event.namespace,
@@ -190,7 +197,8 @@ impl UsageProcessor {
         let (events, new_cursor) = self
             .indexify_state
             .reader()
-            .allocation_usage(cursor.clone().as_ref())?;
+            .allocation_usage(cursor.clone().as_ref())
+            .await?;
 
         if events.is_empty() {
             return Ok(());
@@ -244,10 +252,11 @@ impl UsageProcessor {
         processed_events: Vec<AllocationUsageEvent>,
     ) -> Result<()> {
         for attempt in 1..=self.max_attempts {
-            let mut txn = self.indexify_state.db.transaction();
+            let txn = self.indexify_state.db.transaction();
 
             if let Err(error) =
                 state_machine::remove_allocation_usage_events(&txn, processed_events.as_slice())
+                    .await
             {
                 error!(
                     %error,
@@ -263,7 +272,7 @@ impl UsageProcessor {
                 tokio::time::sleep(delay).await;
             }
 
-            match txn.commit() {
+            match txn.commit().await {
                 Ok(_) => return Ok(()),
                 Err(commit_error) => {
                     error!(
@@ -293,7 +302,7 @@ impl UsageProcessor {
             }
         };
 
-        let Some(allocation_usage) = self.event_to_usage(&event)? else {
+        let Some(allocation_usage) = self.event_to_usage(&event).await? else {
             return Err(anyhow!(
                 "application definition not found for application: {}, version: {}",
                 event.application,

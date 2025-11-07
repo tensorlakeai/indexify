@@ -43,7 +43,10 @@ mod tests {
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
 
-    fn assert_cf_counts(db: Arc<RocksDBDriver>, mut asserts: HashMap<String, usize>) -> Result<()> {
+    async fn assert_cf_counts(
+        db: Arc<RocksDBDriver>,
+        mut asserts: HashMap<String, usize>,
+    ) -> Result<()> {
         if !asserts.contains_key(IndexifyObjectsColumns::StateMachineMetadata.as_ref()) {
             asserts.insert(
                 IndexifyObjectsColumns::StateMachineMetadata
@@ -54,11 +57,12 @@ mod tests {
         }
         for col in IndexifyObjectsColumns::iter() {
             let count_options = IterOptions::default();
-            let count = db.iter(col.as_ref(), count_options).count();
+            let count = db.iter(col.as_ref(), count_options).await.count();
 
             let scan_options = IterOptions::default().scan_fully();
             let all = db
                 .iter(col.as_ref(), scan_options)
+                .await
                 .filter_map(|result| result.ok())
                 .map(|(k, v)| {
                     format!(
@@ -85,7 +89,8 @@ mod tests {
         // Should have 1 unprocessed state - one task created event
         let unprocessed_state_changes = indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?;
+            .unprocessed_state_changes(&None, &None)
+            .await?;
         assert_eq!(
             1,
             unprocessed_state_changes.changes.len(),
@@ -98,7 +103,8 @@ mod tests {
         // Should have 0 unprocessed state changes
         let unprocessed_state_changes = indexify_state
             .reader()
-            .unprocessed_state_changes(&None, &None)?;
+            .unprocessed_state_changes(&None, &None)
+            .await?;
         assert_eq!(
             unprocessed_state_changes.changes.len(),
             0,
@@ -217,7 +223,7 @@ mod tests {
             let function_runs = indexify_state
                 .reader()
                 .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
-                .unwrap()
+                .await?
                 .unwrap()
                 .function_runs
                 .values()
@@ -239,15 +245,19 @@ mod tests {
 
             let request_ctx = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
         }
 
         {
-            let (allocation_usage, cursor) =
-                indexify_state.reader().allocation_usage(None).unwrap();
+            let (allocation_usage, cursor) = indexify_state
+                .reader()
+                .allocation_usage(None)
+                .await
+                .unwrap();
 
             assert_eq!(allocation_usage.len(), 4, "{allocation_usage:#?}");
             assert!(cursor.is_none());
@@ -266,10 +276,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // verify the request was deleted
-        let request_ctx =
-            indexify_state
-                .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?;
         assert!(request_ctx.is_none());
 
         let all_function_runs = test_srv.get_all_function_runs().await?;
@@ -277,6 +287,7 @@ mod tests {
         let all_allocations = indexify_state
             .reader()
             .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
+            .await
             .unwrap();
         assert_eq!(0, all_allocations.len());
 
@@ -343,7 +354,8 @@ mod tests {
                     1,
                 ), // one per allocation
             ]),
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -438,7 +450,7 @@ mod tests {
             let function_runs = indexify_state
                 .reader()
                 .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
-                .unwrap()
+                .await?
                 .unwrap()
                 .function_runs
                 .values()
@@ -460,7 +472,8 @@ mod tests {
 
             let request_ctx = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
@@ -491,7 +504,8 @@ mod tests {
                         4,
                     ), // one per allocation
                 ]),
-            )?;
+            )
+            .await?;
         }
 
         Ok(())
@@ -559,7 +573,8 @@ mod tests {
 
             let request_ctx = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
@@ -648,7 +663,8 @@ mod tests {
 
             let request_ctx = indexify_state
                 .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+                .await?
                 .unwrap();
 
             assert!(request_ctx.outcome.is_some());
@@ -904,7 +920,7 @@ mod tests {
             .indexify_state
             .reader()
             .list_applications(TEST_NAMESPACE, None, None)
-            .unwrap();
+            .await?;
 
         // Check if the application was created
         assert!(applications.iter().any(|cg| cg.name == "graph_A"));
@@ -926,7 +942,7 @@ mod tests {
             .indexify_state
             .reader()
             .list_applications(TEST_NAMESPACE, None, None)
-            .unwrap();
+            .await?;
 
         // Check if the application was deleted
         assert!(!applications.iter().any(|cg| cg.name == "graph_A"));
@@ -984,7 +1000,7 @@ mod tests {
             .indexify_state
             .reader()
             .list_applications(TEST_NAMESPACE, None, None)
-            .unwrap();
+            .await?;
         assert_eq!(1, applications.len());
         assert_eq!("app_1", applications[0].name);
 
@@ -1005,7 +1021,7 @@ mod tests {
             .indexify_state
             .reader()
             .get_application(TEST_NAMESPACE, "app_1")
-            .unwrap();
+            .await?;
         assert!(application.is_none());
 
         Ok(())
@@ -1021,10 +1037,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // verify the request was created
-        let request_ctx =
-            indexify_state
-                .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?;
         assert!(request_ctx.is_some());
 
         // We should have an unallocated task
@@ -1043,10 +1059,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // verify the request was deleted
-        let request_ctx =
-            indexify_state
-                .reader()
-                .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?;
+        let request_ctx = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?;
         assert!(request_ctx.is_none());
 
         Ok(())
@@ -1077,7 +1093,7 @@ mod tests {
         let request_ctx = indexify_state
             .reader()
             .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
-            .unwrap()
+            .await?
             .unwrap();
         let versions = request_ctx
             .function_runs
@@ -1126,7 +1142,8 @@ mod tests {
         // check that the request outcome is Failure(OutOfMemory)
         let request_ctx = indexify_state
             .reader()
-            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)?
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?
             .unwrap();
 
         assert_eq!(
@@ -1153,7 +1170,7 @@ mod tests {
         let allocations = indexify_state
             .reader()
             .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
-            .unwrap();
+            .await?;
         assert_eq!(allocations.len(), 1);
         let allocation = &allocations[0];
         assert_eq!(

@@ -21,6 +21,12 @@ pub struct ExecutorWatches {
     executors: RwLock<HashMap<String, HashSet<ExecutorWatch>>>,
 }
 
+impl Default for ExecutorWatches {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExecutorWatches {
     pub fn new() -> Self {
         Self {

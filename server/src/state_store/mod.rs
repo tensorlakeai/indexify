@@ -25,6 +25,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
+            Reader,
             Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -52,7 +53,9 @@ impl ExecutorCatalog {
 pub mod driver;
 pub mod in_memory_state;
 pub mod kv;
+#[cfg(feature = "migrations")]
 pub mod migration_runner;
+#[cfg(feature = "migrations")]
 pub mod migrations;
 pub mod request_events;
 pub mod requests;
@@ -155,6 +158,7 @@ impl IndexifyState {
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
+        #[cfg(feature = "migrations")]
         let sm_meta = migration_runner::run(&path, config.clone())?;
 
         let sm_column_families = IndexifyObjectsColumns::iter()
@@ -168,16 +172,22 @@ impl IndexifyState {
             state_store_metrics.clone(),
         )?);
 
+        #[cfg(not(feature = "migrations"))]
+        let sm_meta = read_sm_meta(&db).await?;
+
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
 
-        let indexes = Arc::new(RwLock::new(InMemoryState::new(
-            sm_meta.last_change_idx,
-            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
-            executor_catalog,
-        )?));
+        let indexes = Arc::new(RwLock::new(
+            InMemoryState::new(
+                sm_meta.last_change_idx,
+                scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+                executor_catalog,
+            )
+            .await?,
+        ));
         let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
         let s = Arc::new(Self {
             db,
@@ -227,7 +237,7 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
-        let mut txn = self.db.transaction();
+        let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -241,29 +251,30 @@ impl IndexifyState {
                     request_id = invoke_application_request.ctx.request_id.clone(),
                     app = invoke_application_request.application_name.clone(),
                 );
-                state_machine::create_request(&txn, invoke_application_request)?;
+                state_machine::create_request(&txn, invoke_application_request).await?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
-                state_machine::handle_scheduler_update(&txn, request)?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
+                state_machine::handle_scheduler_update(&txn, request).await?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
-                state_machine::upsert_namespace(self.db.clone(), namespace_request)?;
+                state_machine::upsert_namespace(self.db.clone(), namespace_request).await?;
             }
             RequestPayload::CreateOrUpdateApplication(req) => {
                 state_machine::create_or_update_application(
                     &txn,
                     req.application.clone(),
                     req.upgrade_requests_to_current_version,
-                )?;
+                )
+                .await?;
             }
             RequestPayload::DeleteApplicationRequest((request, processed_state_changes)) => {
-                state_machine::delete_application(&txn, &request.namespace, &request.name)?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
+                state_machine::delete_application(&txn, &request.namespace, &request.name).await?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::DeleteRequestRequest((request, processed_state_changes)) => {
-                state_machine::delete_request(&txn, request)?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes)?;
+                state_machine::delete_request(&txn, request).await?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::UpsertExecutor(request) => {
                 for allocation_output in &request.allocation_outputs {
@@ -271,7 +282,8 @@ impl IndexifyState {
                         &txn,
                         &allocation_output.allocation,
                         Some(&self.usage_event_id_seq),
-                    )?;
+                    )
+                    .await?;
                     info!(
                         request_id = allocation_output.allocation.request_id.as_str(),
                         executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
@@ -331,10 +343,10 @@ impl IndexifyState {
                     .await;
             }
             RequestPayload::RemoveGcUrls(urls) => {
-                state_machine::remove_gc_urls(&txn, urls.clone())?;
+                state_machine::remove_gc_urls(&txn, urls.clone()).await?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(&txn, state_changes)?;
+                state_machine::mark_state_changes_processed(&txn, state_changes).await?;
             }
             _ => {} // Handle other request types as needed
         };
@@ -342,7 +354,7 @@ impl IndexifyState {
         let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
         new_state_changes.extend(allocation_ingestion_events);
         if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(&txn, &new_state_changes)?;
+            state_machine::save_state_changes(&txn, &new_state_changes).await?;
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
@@ -354,8 +366,9 @@ impl IndexifyState {
                 last_usage_idx: current_usage_sequence_id,
                 db_version: self.db_version,
             },
-        )?;
-        txn.commit()?;
+        )
+        .await?;
+        txn.commit().await?;
         let mut changed_executors = self
             .in_memory_state
             .write()
@@ -494,6 +507,24 @@ impl IndexifyState {
     }
 }
 
+/// Read state machine metadata from the database
+async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
+    let meta = db
+        .get(
+            IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+            b"sm_meta",
+        )
+        .await?;
+    match meta {
+        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
+        None => Ok(StateMachineMetadata {
+            db_version: 0,
+            last_change_idx: 0,
+            last_usage_idx: 0,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use requests::{CreateOrUpdateApplicationRequest, InvokeApplicationRequest, NamespaceRequest};
@@ -543,7 +574,7 @@ mod tests {
         let reader = indexify_state.reader();
         let result = reader
             .get_all_rows_from_cf::<Namespace>(IndexifyObjectsColumns::Namespaces)
-            .unwrap();
+            .await?;
         let namespaces = result
             .iter()
             .map(|(_, ns)| ns.clone())
@@ -570,7 +601,7 @@ mod tests {
         _write_to_test_state_store(&indexify_state, application).await?;
 
         // Read the compute graph
-        let applications = _read_cgs_from_state_store(&indexify_state);
+        let applications = _read_cgs_from_state_store(&indexify_state).await?;
 
         // Check if the compute graph was created
         assert!(applications.iter().any(|cg| cg.name == "graph_A"));
@@ -583,7 +614,7 @@ mod tests {
             _write_to_test_state_store(&indexify_state, application).await?;
 
             // Read it again
-            let application = _read_cgs_from_state_store(&indexify_state);
+            let application = _read_cgs_from_state_store(&indexify_state).await?;
 
             // Verify the name is the same. Verify the version is different.
             assert!(application.iter().any(|cg| cg.name == "graph_A"));
@@ -596,7 +627,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let mut tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction();
         let function_run = tests::mock_application()
             .to_version()
             .unwrap()
@@ -632,19 +663,19 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_1).unwrap();
-        tx.commit().unwrap();
+        state_machine::save_state_changes(&tx, &state_change_1).await?;
+        tx.commit().await?;
 
-        let mut tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_2).unwrap();
-        tx.commit().unwrap();
+        state_machine::save_state_changes(&tx, &state_change_2).await?;
+        tx.commit().await?;
 
-        let mut tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction();
         let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeApplicationRequest {
@@ -654,13 +685,13 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_3).unwrap();
-        tx.commit().unwrap();
+        state_machine::save_state_changes(&tx, &state_change_3).await?;
+        tx.commit().await?;
 
         let state_changes = indexify_state
             .reader()
             .unprocessed_state_changes(&None, &None)
-            .unwrap();
+            .await?;
         assert_eq!(state_changes.changes.len(), 3);
         // global state_change_2
         assert_eq!(state_changes.changes[0].id, StateChangeId::new(1));
@@ -720,7 +751,7 @@ mod tests {
             state_store_metrics.clone(),
         )?;
         for name in &columns {
-            db.put(name, b"key", b"value")?;
+            db.put(name, b"key", b"value").await?;
         }
         drop(db);
 
@@ -747,17 +778,19 @@ mod tests {
         Ok(())
     }
 
-    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<Application> {
+    async fn _read_cgs_from_state_store(
+        indexify_state: &IndexifyState,
+    ) -> Result<Vec<Application>> {
         let reader = indexify_state.reader();
         let result = reader
             .get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications)
-            .unwrap();
+            .await?;
         let applications = result
             .iter()
             .map(|(_, cg)| cg.clone())
             .collect::<Vec<Application>>();
 
-        applications
+        Ok(applications)
     }
 
     async fn _write_to_test_state_store(
@@ -778,12 +811,13 @@ mod tests {
     }
 }
 
-pub fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
+pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
     let serialized_meta = JsonEncoder::encode(sm_meta)?;
     txn.put(
         IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
         &serialized_meta,
-    )?;
+    )
+    .await?;
     Ok(())
 }
