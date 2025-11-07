@@ -21,6 +21,7 @@ class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DATA_PAYLOAD_ENCODING_BINARY_PICKLE: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_BINARY_ZIP: _ClassVar[DataPayloadEncoding]
     DATA_PAYLOAD_ENCODING_RAW: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_FORM_URL_ENCODED: _ClassVar[DataPayloadEncoding]
 
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -108,6 +109,7 @@ DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_BINARY_ZIP: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_RAW: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_FORM_URL_ENCODED: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_A100_40GB: GPUModel
 GPU_MODEL_NVIDIA_A100_80GB: GPUModel
