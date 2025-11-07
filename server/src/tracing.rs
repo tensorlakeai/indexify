@@ -48,48 +48,52 @@ where
 }
 
 pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
-    let mut tracer_provider = TracerProviderBuilder::default().with_resource(
-        Resource::builder_empty()
-            .with_service_name("indexify-server")
-            .build(),
-    );
-    match &config.telemetry.tracing_exporter {
-        Some(TracingExporter::Otlp) => {
-            let mut otlp = OtlpSpanExporter::builder().with_tonic();
-            if let Some(endpoint) = &config.telemetry.endpoint {
-                otlp = otlp.with_endpoint(endpoint);
-            }
-            let exporter = otlp.build()?;
-            tracer_provider = tracer_provider.with_batch_exporter(exporter)
-        }
-        Some(TracingExporter::Stdout) => {
-            tracer_provider = tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
-        }
-        _ => {}
-    }
-
-    let sdk_tracer = tracer_provider.build();
-
-    let tracer = sdk_tracer.tracer("indexify-server");
-    let tracing_span_layer = tracing_opentelemetry::layer()
-        .with_tracer(tracer)
-        .with_filter(SlateDBFilter);
-
     let env_filter_layer = get_env_filter();
-    let log_layer = get_log_layer(config).with_filter(env_filter_layer);
-    #[cfg(feature = "console-subscriber")]
-    let subscriber: Box<dyn tracing::Subscriber + Send + Sync> = Box::new(
-        tracing_subscriber::Registry::default()
-            .with(console_subscriber::spawn())
-            .with(tracing_span_layer)
-            .with(log_layer),
-    );
-    #[cfg(not(feature = "console-subscriber"))]
-    let subscriber: Box<dyn tracing::Subscriber + Send + Sync> = Box::new(
-        tracing_subscriber::Registry::default()
-            .with(tracing_span_layer)
-            .with(log_layer),
-    );
+
+    let base = tracing_subscriber::Registry::default();
+
+    let subscriber: Box<dyn tracing::Subscriber + Send + Sync> =
+        if let Some(tracing_exporter) = &config.telemetry.tracing_exporter {
+            let mut tracer_provider = TracerProviderBuilder::default().with_resource(
+                Resource::builder_empty()
+                    .with_service_name("indexify-server")
+                    .build(),
+            );
+            match tracing_exporter {
+                TracingExporter::Otlp => {
+                    let mut otlp = OtlpSpanExporter::builder().with_tonic();
+                    if let Some(endpoint) = &config.telemetry.endpoint {
+                        otlp = otlp.with_endpoint(endpoint);
+                    }
+                    let exporter = otlp.build()?;
+                    tracer_provider = tracer_provider.with_batch_exporter(exporter)
+                }
+                TracingExporter::Stdout => {
+                    tracer_provider =
+                        tracer_provider.with_simple_exporter(StdoutSpanExporter::default());
+                }
+            }
+
+            let sdk_tracer = tracer_provider.build();
+
+            let tracer = sdk_tracer.tracer("indexify-server");
+            let span_layer = tracing_opentelemetry::layer()
+                .with_tracer(tracer)
+                .with_filter(SlateDBFilter);
+
+            let base = base.with(span_layer);
+            #[cfg(feature = "console-subscriber")]
+            let base = base.with(console_subscriber::spawn());
+
+            let log_layer = get_log_layer(config).with_filter(env_filter_layer.clone());
+            Box::new(base.with(log_layer))
+        } else {
+            #[cfg(feature = "console-subscriber")]
+            let base = base.with(console_subscriber::spawn());
+
+            let log_layer = get_log_layer(config).with_filter(env_filter_layer.clone());
+            Box::new(base.with(log_layer))
+        };
 
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
