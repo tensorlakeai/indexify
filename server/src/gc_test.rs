@@ -15,7 +15,6 @@ mod tests {
         },
         service::Service,
         state_store::{
-            driver::Writer,
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,

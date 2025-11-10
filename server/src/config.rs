@@ -1,7 +1,7 @@
 use std::{
-    env,
     fmt::{Debug, Display},
     net::SocketAddr,
+    path::Path,
     time::Duration,
 };
 
@@ -13,7 +13,7 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+use crate::{blob_store::BlobStorageConfig, state_store::driver::ConnectionOptions};
 
 const LOCAL_ENV: &str = "local";
 
@@ -59,8 +59,7 @@ impl Display for ExecutorCatalogEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub env: String,
-    pub state_store_path: String,
-    pub rocksdb_config: RocksDBConfig,
+    pub driver_config: ConnectionOptions,
     pub listen_addr: String,
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
@@ -73,11 +72,9 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        let state_store_path = env::current_dir().unwrap().join("indexify_storage/state");
         ServerConfig {
             env: LOCAL_ENV.to_string(),
-            state_store_path: state_store_path.to_str().unwrap().to_string(),
-            rocksdb_config: RocksDBConfig::default(),
+            driver_config: ConnectionOptions::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
@@ -91,8 +88,8 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    pub fn from_path(path: &str) -> Result<ServerConfig> {
-        let config_str = std::fs::read_to_string(path)?;
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<ServerConfig> {
+        let config_str = std::fs::read_to_string(path.as_ref())?;
         let figment = Figment::from(Serialized::defaults(ServerConfig::default()));
 
         let config: ServerConfig = figment.merge(Yaml::string(&config_str)).extract()?;

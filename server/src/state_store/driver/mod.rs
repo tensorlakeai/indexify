@@ -13,8 +13,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bytes::Bytes;
 use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
 
 use crate::{metrics::StateStoreMetrics, state_store::scanner::CursorDirection};
+
+pub mod foundationdb;
+use foundationdb::*;
 
 pub mod rocksdb;
 use rocksdb::*;
@@ -43,6 +47,12 @@ pub enum Error {
         #[from]
         source: rocksdb::Error,
     },
+
+    #[error(transparent)]
+    FoundationDBFailure {
+        #[from]
+        source: foundationdb::Error,
+    },
 }
 
 impl Error {
@@ -66,38 +76,34 @@ impl Error {
 
 /// Writer defines all the write operations for a given driver.
 #[async_trait]
-#[allow(dead_code)]
 pub trait Writer {
     /// Start a new Transaction in the database.
-    fn transaction(&self) -> Transaction;
+    fn transaction(&self) -> Result<Transaction, Error>;
 
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
 
+    #[cfg(feature = "migrations")]
     async fn drop(&mut self, cf: &str) -> Result<(), Error>;
 
+    #[cfg(feature = "migrations")]
     async fn create(&mut self, cf: &str, opts: &CreateOptions) -> Result<(), Error>;
 }
 
 #[allow(dead_code)]
 pub enum CreateOptions {
     RocksDB(rocksdb::RocksDBOptions),
-}
-
-impl CreateOptions {
-    pub fn new_rocksdb_options() -> Self {
-        Self::RocksDB(Default::default())
-    }
+    FoundationDB(()),
 }
 
 impl Default for CreateOptions {
     fn default() -> Self {
-        Self::new_rocksdb_options()
+        Self::RocksDB(Default::default())
     }
 }
 
 /// Reader defines all the read operations for a give driver.
 #[async_trait]
-pub trait Reader {
+pub trait Reader: Send + Sync {
     // Get an item from the database.
     async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -204,8 +210,17 @@ pub trait Driver: Writer + Reader {}
 ///
 /// The only option at the moment is RocksDB
 #[non_exhaustive]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum ConnectionOptions {
     RocksDB(rocksdb::Options),
+    FoundationDB(foundationdb::Options),
+}
+
+impl Default for ConnectionOptions {
+    fn default() -> Self {
+        ConnectionOptions::RocksDB(rocksdb::Options::default())
+    }
 }
 
 /// Open a connection to a database.
@@ -213,17 +228,20 @@ pub enum ConnectionOptions {
 /// This is the main entry point to connect Indexify server with a database to
 /// keep the state.
 ///
-/// It returns a `RocksDBDriver` at the moment because there is no other option
-/// supported. This helps keep the code backward compatible.
+/// It returns a dynamic driver instance based on the provided connection
+/// options.
 pub fn open_database(
     options: ConnectionOptions,
     metrics: Arc<StateStoreMetrics>,
-) -> Result<RocksDBDriver, Error> {
-    match options {
-        ConnectionOptions::RocksDB(options) => {
-            rocksdb::RocksDBDriver::open(options, metrics).map_err(Into::into)
+) -> Result<Arc<dyn Driver>, Error> {
+    let driver: Arc<dyn Driver> = match options {
+        ConnectionOptions::RocksDB(options) => Arc::new(RocksDBDriver::open(options, metrics)?),
+        ConnectionOptions::FoundationDB(options) => {
+            Arc::new(FoundationDBDriver::open(options, metrics)?)
         }
-    }
+    };
+
+    Ok(driver)
 }
 
 #[async_trait]
@@ -234,7 +252,7 @@ pub trait InnerTransaction: Send + Sync {
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn delete(&self, cf: &str, key: &[u8]) -> Result<(), Error>;
 
-    async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<KVBytes, Error>>;
+    async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Result<Vec<Result<KVBytes, Error>>, Error>;
 }
 
 pub type Transaction = std::sync::Arc<dyn InnerTransaction>;
