@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
-    path::PathBuf,
     sync::{
         Arc,
         atomic::{self, AtomicU64},
@@ -13,9 +11,7 @@ use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
 use request_events::RequestStateChangeEvent;
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
-use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
@@ -24,13 +20,9 @@ use crate::{
     data_model::{ExecutorId, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        driver::{
-            Reader,
-            Transaction,
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
         in_memory_metrics::InMemoryStoreGauges,
+        driver::Transaction,
+        request_events::RequestStartedEvent,
         serializer::{JsonEncode, JsonEncoder},
     },
 };
@@ -99,7 +91,7 @@ impl Default for ExecutorState {
 }
 
 pub struct IndexifyState {
-    pub db: Arc<RocksDBDriver>,
+    pub db: Arc<dyn driver::Driver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
 
@@ -124,28 +116,11 @@ pub struct IndexifyState {
     _in_memory_store_gauges: InMemoryStoreGauges,
 }
 
-pub(crate) fn open_database<I>(
-    path: PathBuf,
-    config: RocksDBConfig,
-    column_families: I,
+pub(crate) fn open_database(
+    options: driver::ConnectionOptions,
     metrics: Arc<StateStoreMetrics>,
-) -> Result<RocksDBDriver>
-where
-    I: Iterator<Item = ColumnFamilyDescriptor>,
-{
-    info!(
-        "opening state store database at {} with config {}",
-        path.display(),
-        config
-    );
-
-    let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
-        path,
-        config,
-        column_families: column_families.collect::<Vec<_>>(),
-    });
-
-    driver::open_database(options, metrics).map_err(Into::into)
+) -> Result<Arc<dyn driver::Driver>, driver::Error> {
+    driver::open_database(options, metrics)
 }
 
 struct PersistentWriteResult {
@@ -157,32 +132,20 @@ struct PersistentWriteResult {
 
 impl IndexifyState {
     pub async fn new(
-        path: PathBuf,
-        config: RocksDBConfig,
+        driver_options: driver::ConnectionOptions,
         executor_catalog: ExecutorCatalog,
     ) -> Result<Arc<Self>> {
-        fs::create_dir_all(path.clone())
-            .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
-
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
         #[cfg(feature = "migrations")]
-        let sm_meta = migration_runner::run(&path, config.clone())?;
-
-        let sm_column_families = IndexifyObjectsColumns::iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+        let sm_meta = migration_runner::run(&driver_options, config.clone())?;
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = Arc::new(open_database(
-            path,
-            config,
-            sm_column_families,
-            state_store_metrics.clone(),
-        )?);
+        let db = open_database(driver_options, state_store_metrics.clone())?;
 
         #[cfg(not(feature = "migrations"))]
-        let sm_meta = read_sm_meta(&db).await?;
+        let sm_meta = read_sm_meta(db.clone()).await?;
 
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
@@ -326,7 +289,7 @@ impl IndexifyState {
     ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -480,7 +443,7 @@ impl IndexifyState {
 }
 
 /// Read state machine metadata from the database
-async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
+async fn read_sm_meta(db: Arc<dyn driver::Driver>) -> Result<StateMachineMetadata> {
     let meta = db
         .get(
             IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
@@ -600,7 +563,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction()?;
         let function_run = tests::mock_application()
             .to_version()
             .unwrap()
@@ -639,7 +602,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_1).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction()?;
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
@@ -648,7 +611,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_2).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction()?;
         let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeApplicationRequest {
@@ -672,83 +635,6 @@ mod tests {
         assert_eq!(state_changes.changes[1].id, StateChangeId::new(0));
         // state_change_3
         assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_load_database_with_column_families() -> Result<()> {
-        // IMPORTANT:
-        // These columns families match the ones defined in the production state store.
-
-        // Do NOT remove any of the column families hardcoded below.
-        // Do add new column families here when they are added to the
-        // IndexifyObjectsColumns enum.
-
-        // If one of them is removed or renamed, Indexify server won't start because
-        // it won't be able to open the database with all column families.
-        //
-        // This test is here to guarantee that if a variant is removed from the
-        // IndexifyObjectsColumns enum, this test will fail.
-
-        // If you want to remove a column family, you need to do it via a migration.
-        // See migrations module for more details.
-        let columns = vec![
-            "StateMachineMetadata",
-            "Namespaces",
-            "Applications",
-            "ApplicationVersions",
-            "RequestCtx",
-            "RequestCtxSecondaryIndex",
-            "UnprocessedStateChanges",
-            "Allocations",
-            "AllocationUsage",
-            "GcUrls",
-            "Stats",
-            "ExecutorStateChanges",
-            "ApplicationStateChanges",
-            "RequestStateChangeEvents",
-        ];
-
-        let columns_iter = columns
-            .clone()
-            .into_iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-
-        let tmp_dir = tempfile::tempdir()?;
-        let path = tmp_dir.path().to_path_buf();
-
-        let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = open_database(
-            path.clone(),
-            RocksDBConfig::default(),
-            columns_iter,
-            state_store_metrics.clone(),
-        )?;
-        for name in &columns {
-            db.put(name, b"key", b"value").await?;
-        }
-        drop(db);
-
-        assert_eq!(
-            columns.into_iter().map(String::from).collect::<Vec<_>>(),
-            IndexifyObjectsColumns::iter()
-                .map(|cf| cf.to_string())
-                .collect::<Vec<_>>()
-        );
-
-        let sm_column_families = IndexifyObjectsColumns::iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
-
-        open_database(
-            path,
-            RocksDBConfig::default(),
-            sm_column_families,
-            state_store_metrics,
-        )
-        .expect(
-            "failed to open database with the column families defined in IndexifyObjectsColumns",
-        );
-
         Ok(())
     }
 

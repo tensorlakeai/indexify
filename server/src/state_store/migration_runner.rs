@@ -7,6 +7,7 @@ use crate::{
     data_model::StateMachineMetadata,
     state_store::{
         driver::{
+            ConnectionOptions,
             Reader,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -22,9 +23,14 @@ use crate::{
 
 /// Main function to run all necessary migrations on a database at the given
 /// path
-pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
+pub fn run(options: &ConnectionOptions, config: RocksDBConfig) -> Result<StateMachineMetadata> {
+    let ConnectionOptions::Rocksdb(options) = options else {
+        return Err(anyhow::anyhow!(
+            "Unsupported database type, we expect RocksDB"
+        ));
+    };
     // Initialize prepare context
-    let prepare_ctx = PrepareContext::new(path.to_path_buf(), config);
+    let prepare_ctx = PrepareContext::new(options.path.to_path_buf(), config);
 
     // Initialize registry
     let registry = MigrationRegistry::new()?;
@@ -220,8 +226,14 @@ mod tests {
 
         let metrics = Arc::new(StateStoreMetrics::new());
         let config = RocksDBConfig::default();
-        let db =
-            state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
+        let db = state_store::open_database(
+            super::driver::ConnectionOptions::RocksDB(super::driver::rocksdb::Options {
+                path: path.to_path_buf(),
+                config,
+                column_families: sm_column_families.collect::<Vec<_>>(),
+            }),
+            metrics,
+        )?;
 
         // Set initial version to 1
         let txn = db.transaction();

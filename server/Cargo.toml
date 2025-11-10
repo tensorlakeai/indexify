@@ -73,6 +73,7 @@ console-subscriber = { version = "0.5.0", optional = true }
 tonic-types = "0.14.2"
 tokio-util = { version = "0.7.17", features = ["rt"] }
 imbl = "6.1.0"
+foundationdb = { version = "0.10.0", features = ["embedded-fdb-include", "fdb-7_4", "num-bigint", "serde", "serde_bytes", "serde_json"] }
 
 
 [dev-dependencies]

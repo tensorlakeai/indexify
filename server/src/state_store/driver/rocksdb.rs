@@ -1,4 +1,10 @@
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{
+    env,
+    fmt::{self, Display},
+    fs,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -18,13 +24,24 @@ use rocksdb::{
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
+use strum::IntoEnumIterator;
 use tracing::{error, warn};
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},
     state_store::{
-        driver::{Driver, Error as DriverError, IterOptions, Range, RangeOptions, Reader, Writer},
+        driver::{
+            Driver,
+            Error as DriverError,
+            IterOptions,
+            KVBytes,
+            Range,
+            RangeOptions,
+            Reader,
+            Writer,
+        },
         scanner::CursorDirection,
+        state_machine::IndexifyObjectsColumns,
     },
 };
 
@@ -38,6 +55,9 @@ pub enum Error {
 
     #[error(transparent)]
     GenericRocksDBFailure { source: RocksDBError },
+
+    #[error("Failed to create state store dir: {source}")]
+    CreateDirFailed { source: std::io::Error },
 
     #[allow(dead_code)]
     #[error("Failed to make the connection mutable")]
@@ -169,10 +189,90 @@ impl Display for RocksDBConfig {
 }
 
 /// Options to start a connection with RocksDB.
+#[derive(Serialize)]
 pub(crate) struct Options {
     pub path: PathBuf,
+    #[serde(skip_serializing)]
     pub column_families: Vec<ColumnFamilyDescriptor>,
     pub config: RocksDBConfig,
+}
+
+impl Clone for Options {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            column_families: self
+                .column_families
+                .iter()
+                .map(|cf| {
+                    ColumnFamilyDescriptor::new_with_ttl(cf.name(), Default::default(), cf.ttl())
+                })
+                .collect::<Vec<_>>(),
+            config: self.config.clone(),
+        }
+    }
+}
+
+impl fmt::Debug for Options {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("path", &self.path)
+            .field(
+                "column_families",
+                &self
+                    .column_families
+                    .iter()
+                    .map(|cf| cf.name())
+                    .collect::<Vec<_>>(),
+            )
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
+impl<'de> Deserialize<'de> for Options {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct OptionsHelper {
+            #[serde(default = "default_indexify_storage_path")]
+            path: PathBuf,
+            config: RocksDBConfig,
+        }
+
+        let helper = OptionsHelper::deserialize(deserializer)?;
+
+        Ok(Options {
+            path: helper.path,
+            config: helper.config,
+            column_families: all_column_families(),
+        })
+    }
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            path: default_indexify_storage_path(),
+            config: RocksDBConfig::default(),
+            column_families: all_column_families(),
+        }
+    }
+}
+
+fn default_indexify_storage_path() -> PathBuf {
+    env::current_dir()
+        .unwrap()
+        .join("indexify_storage")
+        .join("state")
+}
+
+fn all_column_families() -> Vec<ColumnFamilyDescriptor> {
+    IndexifyObjectsColumns::iter()
+        .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Default::default()))
+        .collect::<Vec<_>>()
 }
 
 /// Driver to connect with a RocksDB database.
@@ -188,6 +288,9 @@ impl RocksDBDriver {
         driver_options: Options,
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<RocksDBDriver, Error> {
+        fs::create_dir_all(driver_options.path.clone())
+            .map_err(|source| Error::CreateDirFailed { source })?;
+
         let mut db_opts = RocksDBOptions::default();
         db_opts.create_if_missing(driver_options.config.create_if_missing);
         db_opts
@@ -277,7 +380,7 @@ impl RocksDBDriver {
 
 #[async_trait]
 impl Writer for RocksDBDriver {
-    fn transaction(&self) -> super::Transaction {
+    fn transaction(&self) -> Result<super::Transaction, DriverError> {
         let tx = self.db.transaction();
 
         // The database reference must always outlive
@@ -293,10 +396,10 @@ impl Writer for RocksDBDriver {
             >(tx)
         };
 
-        Arc::new(RocksDBTransaction {
+        Ok(Arc::new(RocksDBTransaction {
             db: self.clone(),
             tx: Mutex::new(Some(inner)),
-        })
+        }))
     }
 
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
@@ -307,6 +410,7 @@ impl Writer for RocksDBDriver {
         self.db.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
+    #[cfg(feature = "migrations")]
     async fn drop(&mut self, cf: &str) -> Result<(), DriverError> {
         // `drop` is used in migrations to remove old column families.
         // Migrations run serially, so only one reference to the database should
@@ -316,6 +420,7 @@ impl Writer for RocksDBDriver {
         mut_db.drop_cf(cf).map_err(Error::into_generic)
     }
 
+    #[cfg(feature = "migrations")]
     async fn create(&mut self, cf: &str, opts: &super::CreateOptions) -> Result<(), DriverError> {
         // `create` is used in migrations to remove old column families.
         // Migrations run serially, so only one reference to the database should
@@ -543,7 +648,11 @@ impl super::InnerTransaction for RocksDBTransaction {
         tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
-    async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<super::KVBytes, DriverError>> {
+    async fn iter(
+        &self,
+        cf: &str,
+        prefix: Vec<u8>,
+    ) -> Result<Vec<Result<KVBytes, DriverError>>, DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);
 
@@ -551,7 +660,8 @@ impl super::InnerTransaction for RocksDBTransaction {
         let tx = guard.as_ref().expect("Transaction not initialized");
         let cf = self.db.column_family(cf);
 
-        tx.iterator_cf(cf, IteratorMode::Start)
+        let col = tx
+            .iterator_cf(cf, IteratorMode::Start)
             .map(|item| item.map_err(Error::into_generic))
             .take_while(move |item| {
                 let Ok((key, _)) = item else {
@@ -559,6 +669,8 @@ impl super::InnerTransaction for RocksDBTransaction {
                 };
                 key.starts_with(prefix.as_ref())
             })
-            .collect()
+            .collect();
+
+        Ok(col)
     }
 }

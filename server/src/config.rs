@@ -3,6 +3,7 @@ use std::{
     env,
     fmt::{Debug, Display},
     net::SocketAddr,
+    path::Path,
     time::Duration,
 };
 
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+use crate::{blob_store::BlobStorageConfig, state_store::driver::ConnectionOptions};
 
 const LOCAL_ENV: &str = "local";
 
@@ -59,10 +60,7 @@ impl Display for ExecutorCatalogEntry {
 pub struct ServerConfig {
     #[serde_inline_default(LOCAL_ENV.to_string())]
     pub env: String,
-    #[serde(default = "default_state_store_path")]
-    pub state_store_path: String,
-    #[serde(default)]
-    pub rocksdb_config: RocksDBConfig,
+    pub driver_config: ConnectionOptions,
     #[serde_inline_default("0.0.0.0:8900".to_string())]
     pub listen_addr: String,
     #[serde_inline_default("0.0.0.0:8901".to_string())]
@@ -87,8 +85,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
             env: LOCAL_ENV.to_string(),
-            state_store_path: default_state_store_path(),
-            rocksdb_config: Default::default(),
+            driver_config: ConnectionOptions::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),

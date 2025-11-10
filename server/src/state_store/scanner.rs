@@ -22,7 +22,7 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
+        driver::{Driver, IterOptions, RangeOptionsBuilder},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -48,12 +48,12 @@ impl CursorDirection {
 }
 
 pub struct StateReader {
-    db: Arc<RocksDBDriver>,
+    db: Arc<dyn Driver>,
     metrics: Arc<metrics::StateStoreMetrics>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<RocksDBDriver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
+    pub fn new(db: Arc<dyn Driver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
         Self { db, metrics }
     }
 

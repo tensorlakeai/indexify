@@ -27,7 +27,7 @@ mod tests {
         },
         executors::EXECUTOR_TIMEOUT,
         state_store::{
-            driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
+            driver::{Driver, IterOptions},
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -44,7 +44,7 @@ mod tests {
     const TEST_FN_MAX_RETRIES: u32 = 3;
 
     async fn assert_cf_counts(
-        db: Arc<RocksDBDriver>,
+        db: Arc<dyn Driver>,
         mut asserts: HashMap<String, usize>,
     ) -> Result<()> {
         if !asserts.contains_key(IndexifyObjectsColumns::StateMachineMetadata.as_ref()) {

@@ -5,7 +5,7 @@ use super::{
     contexts::{MigrationContext, PrepareContext},
     migration_trait::Migration,
 };
-use crate::state_store::driver::{rocksdb::RocksDBDriver, Writer};
+use crate::state_store::driver::{ConnectionOptions, Writer, rocksdb};
 
 #[derive(Clone)]
 /// Migration to remove the deprecated Executors column family
@@ -76,8 +76,11 @@ mod tests {
 
             let metrics = Arc::new(StateStoreMetrics::new());
             let _db = state_store::open_database(
-                path.to_path_buf(),
-                cf_descriptors.into_iter(),
+                ConnectionOptions::RocksDB(rocksdb::Options {
+                    path: path.to_path_buf(),
+                    config: Default::default(),
+                    column_families: cf_descriptors,
+                }),
                 metrics,
             )?;
             // DB is dropped here when it goes out of scope

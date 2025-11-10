@@ -73,13 +73,8 @@ impl Service {
         if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
-
-        let indexify_state = IndexifyState::new(
-            config.state_store_path.parse()?,
-            config.rocksdb_config.clone(),
-            executor_catalog,
-        )
-        .await?;
+        let indexify_state =
+            IndexifyState::new(config.driver_config.clone(), executor_catalog).await?;
 
         let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
             config.blob_storage.path.as_str(),

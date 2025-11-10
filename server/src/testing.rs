@@ -1,7 +1,8 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, path::Path, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use nanoid::nanoid;
+use tempfile::TempDir;
 use tracing::subscriber;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
@@ -27,7 +28,7 @@ use crate::{
     processor::request_state_change_processor::RequestStateChangeProcessor,
     service::Service,
     state_store::{
-        driver::rocksdb::RocksDBConfig,
+        driver::{ConnectionOptions, rocksdb::Options},
         executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,
@@ -42,11 +43,28 @@ use crate::{
     },
 };
 
+fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
+    match std::env::var("INDEXIFY_TESTING_CONFIG_PATH").ok() {
+        Some(path) => {
+            ServerConfig::from_path(&path).with_context(|| format!("Unable to find {path}"))
+        }
+        None => {
+            let mut options = Options::default();
+            options.path = temp_path.join("state_store");
+
+            Ok(ServerConfig {
+                driver_config: ConnectionOptions::RocksDB(options),
+                ..Default::default()
+            })
+        }
+    }
+}
+
 pub struct TestService {
     pub service: Service,
     // keeping a reference to the temp dir to ensure it is not deleted
     #[allow(dead_code)]
-    temp_dir: tempfile::TempDir,
+    temp_dir: TempDir,
 }
 
 impl TestService {
@@ -65,26 +83,16 @@ impl TestService {
         );
 
         let temp_dir = tempfile::tempdir()?;
+        let temp_path = temp_dir.path();
 
-        let cfg = ServerConfig {
-            state_store_path: temp_dir
-                .path()
-                .join("state_store")
-                .to_str()
-                .unwrap()
-                .to_string(),
-            rocksdb_config: RocksDBConfig::default(),
-            blob_storage: BlobStorageConfig {
-                path: format!(
-                    "file://{}",
-                    temp_dir.path().join("blob_store").to_str().unwrap()
-                ),
-                region: None,
-            },
-            executor_catalog,
-            ..Default::default()
+        let mut config = load_server_config(temp_path)?;
+        config.blob_storage = BlobStorageConfig {
+            path: format!("file://{}", temp_path.join("blob_store").display()),
+            region: None,
         };
-        let srv = Service::new(cfg).await?;
+        config.executor_catalog = executor_catalog;
+
+        let srv = Service::new(config).await?;
 
         Ok(Self {
             service: srv,

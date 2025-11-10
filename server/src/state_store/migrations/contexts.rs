@@ -9,11 +9,7 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{
-            Reader,
-            Transaction,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::{ConnectionOptions, Driver, Reader, Transaction, rocksdb},
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -46,7 +42,14 @@ impl PrepareContext {
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        state_store::open_database(self.path.clone(), self.config.clone(), cfs, metrics)
+        state_store::open_database(
+            ConnectionOptions::RocksDB(rocksdb::Options {
+                path: self.path.clone(),
+                config: self.config.clone(),
+                column_families: cfs,
+            }),
+            metrics,
+        )
     }
 
     /// Helper to perform column family operations and reopen DB
@@ -268,9 +271,11 @@ mod tests {
 
         let metrics = Arc::new(StateStoreMetrics::new());
         let db = state_store::open_database(
-            path.to_path_buf(),
-            RocksDBConfig::default(),
-            cf_descriptors.into_iter(),
+            ConnectionOptions::RocksDB(rocksdb::Options {
+                path: path.to_path_buf(),
+                config: RocksDBConfig::default(),
+                column_families: cf_descriptors,
+            }),
             metrics,
         )?;
 
