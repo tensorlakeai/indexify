@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
-    path::PathBuf,
     sync::{
         Arc,
         atomic::{self, AtomicU64},
@@ -15,10 +13,8 @@ use opentelemetry::KeyValue;
 use prost::Message;
 use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
-use rocksdb::{ColumnFamilyDescriptor, Options};
 use serde::{Deserialize, Serialize};
 use state_machine::IndexifyObjectsColumns;
-use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, span};
 
@@ -29,12 +25,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     processor::container_scheduler::ContainerScheduler,
     state_store::{
-        driver::{
-            Reader,
-            Transaction,
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::{Reader, Transaction, Writer},
         in_memory_metrics::InMemoryStoreGauges,
         serializer::{StateStoreEncode, StateStoreEncoder},
     },
@@ -104,7 +95,7 @@ struct PersistedSchedulerCommandIntent {
 }
 
 pub struct IndexifyState {
-    pub db: Arc<RocksDBDriver>,
+    pub db: Arc<dyn driver::Driver>,
     pub db_version: u64,
 
     pub state_change_id_seq: Arc<AtomicU64>,
@@ -138,28 +129,11 @@ pub struct IndexifyState {
     _in_memory_store_gauges: InMemoryStoreGauges,
 }
 
-pub(crate) fn open_database<I>(
-    path: PathBuf,
-    config: RocksDBConfig,
-    column_families: I,
+pub(crate) fn open_database(
+    options: driver::ConnectionOptions,
     metrics: Arc<StateStoreMetrics>,
-) -> Result<RocksDBDriver>
-where
-    I: Iterator<Item = ColumnFamilyDescriptor>,
-{
-    info!(
-        "opening state store database at {} with config {}",
-        path.display(),
-        config
-    );
-
-    let options = driver::ConnectionOptions::RocksDB(driver::rocksdb::Options {
-        path,
-        config,
-        column_families: column_families.collect::<Vec<_>>(),
-    });
-
-    driver::open_database(options, metrics).map_err(Into::into)
+) -> Result<Arc<dyn driver::Driver>, driver::Error> {
+    driver::open_database(options, metrics)
 }
 
 struct PersistentWriteResult {
@@ -178,30 +152,32 @@ impl IndexifyState {
     const SCHEDULER_COMMAND_INTENT_PREFIX: &'static str = "intent|";
 
     pub async fn new(
-        path: PathBuf,
-        config: RocksDBConfig,
+        options: driver::ConnectionOptions,
         executor_catalog: ExecutorCatalog,
         request_event_buffers: RequestEventBuffers,
     ) -> Result<Arc<Self>> {
-        fs::create_dir_all(path.clone())
-            .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
-
         // Migrate the db before opening with all column families.
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
         #[cfg(feature = "migrations")]
-        let sm_meta = migration_runner::run(&path, config.clone()).await?;
-
-        let sm_column_families = IndexifyObjectsColumns::iter()
-            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+        let sm_meta = {
+            if let driver::ConnectionOptions::RocksDB(ref opts) = options {
+                migration_runner::run(&opts.path, opts.config.clone()).await?
+            } else {
+                // Non-RocksDB drivers don't need migration
+                crate::data_model::StateMachineMetadata {
+                    db_version: crate::state_store::migrations::registry::MigrationRegistry::new()
+                        .map(|r| r.latest_version())
+                        .unwrap_or(0),
+                    last_change_idx: 0,
+                    last_usage_idx: 0,
+                    last_request_event_idx: 0,
+                }
+            }
+        };
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        let db = Arc::new(open_database(
-            path,
-            config,
-            sm_column_families,
-            state_store_metrics.clone(),
-        )?);
+        let db = open_database(options, state_store_metrics.clone())?;
 
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
@@ -390,7 +366,7 @@ impl IndexifyState {
         // in-memory store will receive the same prepared objects.
         request.prepare_for_persistence(current_clock);
 
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
 
         let mut should_notify_usage_reporter = false;
 
@@ -751,7 +727,7 @@ impl IndexifyState {
     }
 
     async fn read_scheduler_command_intent_startup_state(
-        db: &RocksDBDriver,
+        db: &Arc<dyn driver::Driver>,
     ) -> Result<(u64, usize)> {
         let prefix = Self::scheduler_command_intent_prefix_key();
         let iter = db
@@ -887,7 +863,7 @@ impl IndexifyState {
         }
 
         let prefix = Self::scheduler_command_intent_prefix_key();
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let iter = txn
             .iter(
                 IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
@@ -1027,7 +1003,7 @@ impl IndexifyState {
             return Ok(());
         }
 
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let next_key = Self::executor_cmd_next_key(executor_id);
         let mut next_seq = match txn
             .get(
@@ -1076,7 +1052,7 @@ impl IndexifyState {
         let prev_acked = self.read_executor_cmd_ack(executor_id).await?;
         let effective_acked = acked_seq.max(prev_acked);
 
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let ack_key = Self::executor_cmd_ack_key(executor_id);
         let ack_bytes = StateStoreEncoder::encode(&effective_acked)?;
         txn.put(
@@ -1116,7 +1092,7 @@ impl IndexifyState {
     /// Drop all persisted command outbox state for this executor and reset
     /// cursor records.
     pub async fn reset_executor_command_outbox(&self, executor_id: &ExecutorId) -> Result<()> {
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let prefix = Self::executor_cmd_prefix_key(executor_id);
         let iter = txn
             .iter(
@@ -1205,7 +1181,7 @@ impl IndexifyState {
         function_call_id: &str,
     ) -> Result<Option<PersistedFunctionCallRoute>> {
         let key = Self::function_call_route_key(function_call_id);
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let value = txn
             .get(
                 IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
@@ -1227,7 +1203,7 @@ impl IndexifyState {
 
     pub async fn delete_function_call_route(&self, function_call_id: &str) -> Result<()> {
         let key = Self::function_call_route_key(function_call_id);
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         txn.delete(
             IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
             key.as_slice(),
@@ -1242,7 +1218,7 @@ impl IndexifyState {
         executor_id: &ExecutorId,
     ) -> Result<usize> {
         let prefix = Self::function_call_route_prefix_key();
-        let txn = self.db.transaction();
+        let txn = self.db.transaction()?;
         let iter = txn
             .iter(
                 IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
@@ -1477,7 +1453,7 @@ impl IndexifyState {
 /// Handles both legacy JSON format (pre-V13) and the current postcard format,
 /// since this may be called on databases that haven't been migrated yet.
 #[cfg(not(feature = "migrations"))]
-async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
+async fn read_sm_meta(db: &Arc<dyn driver::Driver>) -> Result<StateMachineMetadata> {
     let meta = db
         .get(
             IndexifyObjectsColumns::StateMachineMetadata.as_ref(),

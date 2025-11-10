@@ -7,6 +7,7 @@ use crate::{
     data_model::StateMachineMetadata,
     state_store::{
         driver::{
+            ConnectionOptions,
             Reader,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -24,7 +25,7 @@ use crate::{
 /// path
 pub async fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     // Initialize prepare context
-    let prepare_ctx = PrepareContext::new(path.to_path_buf(), config);
+    let prepare_ctx = PrepareContext::new(options.path.to_path_buf(), config);
 
     // Initialize registry
     let registry = MigrationRegistry::new()?;
@@ -89,7 +90,7 @@ pub async fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetad
             .with_context(|| format!("Preparing DB for migration to v{to_version}"))?;
 
         // Apply migration in a transaction
-        let txn = db.transaction();
+        let txn = db.transaction()?;
 
         // Create migration context
         let mut migration_ctx = MigrationContext::new(db.clone(), txn);
@@ -176,7 +177,6 @@ mod tests {
     use crate::{
         metrics::StateStoreMetrics,
         state_store::{
-            self,
             driver::{Writer, rocksdb::RocksDBConfig},
             migrations::migration_trait::Migration,
         },
@@ -250,11 +250,17 @@ mod tests {
 
         let metrics = Arc::new(StateStoreMetrics::new());
         let config = RocksDBConfig::default();
-        let db =
-            state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
+        let db = super::driver::rocksdb::RocksDBDriver::open(
+            super::driver::rocksdb::Options {
+                path: path.to_path_buf(),
+                config,
+                column_families: sm_column_families.collect::<Vec<_>>(),
+            },
+            metrics,
+        )?;
 
         // Set initial version to 0
-        let txn = db.transaction();
+        let txn = db.transaction()?;
         let initial_meta = StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,

@@ -80,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let config = match cli.config {
-        Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
+        Some(path) => config::ServerConfig::from_path(&path)?,
         None => config::ServerConfig::default(),
     };
 

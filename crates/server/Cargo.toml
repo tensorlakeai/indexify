@@ -51,6 +51,7 @@ utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 indexify-blob-store.workspace = true
 rocksdb.workspace = true
+foundationdb.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 clap.workspace = true

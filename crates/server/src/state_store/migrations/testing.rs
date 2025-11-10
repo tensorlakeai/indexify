@@ -10,12 +10,9 @@ use super::{
 };
 use crate::{
     metrics::StateStoreMetrics,
-    state_store::{
-        self,
-        driver::{
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+    state_store::driver::{
+        Writer,
+        rocksdb::{self, RocksDBConfig, RocksDBDriver},
     },
 };
 
@@ -54,12 +51,16 @@ impl MigrationTestBuilder {
 
         let metrics = Arc::new(StateStoreMetrics::new());
         // Create database with specified column families
-        let db = state_store::open_database(
-            path.to_path_buf(),
-            RocksDBConfig::default(),
-            self.column_families
-                .into_iter()
-                .map(|s| ColumnFamilyDescriptor::new(s, Default::default())),
+        let db = rocksdb::RocksDBDriver::open(
+            rocksdb::Options {
+                path: path.to_path_buf(),
+                config: RocksDBConfig::default(),
+                column_families: self
+                    .column_families
+                    .into_iter()
+                    .map(|s| ColumnFamilyDescriptor::new(s, Default::default()))
+                    .collect::<Vec<_>>(),
+            },
             metrics,
         )?;
 
@@ -74,7 +75,7 @@ impl MigrationTestBuilder {
         let db = migration.prepare(&prepare_ctx).await?;
 
         // Apply the migration
-        let txn = db.transaction();
+        let txn = db.transaction()?;
         let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
         migration.apply(&migration_ctx).await?;

@@ -54,6 +54,7 @@ otel-logs-sdk = { path = "crates/otel-logs-sdk" }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 rocksdb = "0.24.0"
+foundationdb = { version = "0.10.0", features = ["embedded-fdb-include", "fdb-7_4", "num-bigint", "serde", "serde_bytes", "serde_json"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
 clap = { version = "4.5.60", features = ["derive"] }

@@ -84,8 +84,7 @@ impl Service {
             RequestEventBuffers::from_cloud_events_config(config.cloud_events.as_ref());
 
         let indexify_state = IndexifyState::new(
-            config.state_store_path.parse()?,
-            config.rocksdb_config.clone(),
+            config.driver_config.clone(),
             executor_catalog,
             request_event_buffers,
         )

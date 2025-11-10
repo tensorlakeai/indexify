@@ -8,8 +8,9 @@ use crate::{
         test_objects::tests::{self, TEST_NAMESPACE, mock_request_ctx},
     },
     state_store::{
+        ExecutorCatalog,
         IndexifyState,
-        driver::rocksdb::RocksDBConfig,
+        driver::{ConnectionOptions, rocksdb::Options},
         request_event_buffers::RequestEventBuffers,
         requests::{
             CreateOrUpdateApplicationRequest,
@@ -27,10 +28,13 @@ pub struct TestStateStore {
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
+        let mut options = Options::default();
+        options.path = temp_dir.path().join("state");
+        options.config.create_if_missing = true;
+
         let indexify_state = IndexifyState::new(
-            temp_dir.path().join("state"),
-            RocksDBConfig::default(),
-            crate::state_store::ExecutorCatalog::default(),
+            ConnectionOptions::RocksDB(options),
+            ExecutorCatalog::default(),
             RequestEventBuffers::default(),
         )
         .await?;

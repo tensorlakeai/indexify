@@ -1,0 +1,24 @@
+env: local
+state_store_path: indexify_server_state
+listen_addr: 0.0.0.0:8900
+
+telemetry:
+  enable_metrics: false
+  # Shared OTLP endpoint for both traces and metrics
+  # If specified, both traces and metrics will be sent to this endpoint
+  endpoint: 'http://localhost:4317'
+  # Exporter used to send spans to, default is disabled.
+  # If it's disabled, no spans will be sent anywhere.
+  # The enabled options are `otlp` and `stdout`.
+  # The `otlp` exporter will send spans to the endpoint specified above,
+  # or to the one defined by the env variable `OTEL_EXPORTER_OTLP_ENDPOINT`.
+  # tracing_exporter: 'otlp'
+  # Metrics export interval in seconds (defaults to 10 if not specified)
+  metrics_interval: 5
+  # Instance ID for this Indexify server instance
+  # Used as a metric attribute "indexify.instance.id"
+  instance_id: 'indexify-server-1'
+
+driver_config:
+  type: 'foundationdb'
+  cluster_file: 'testing/fdb.cluster'

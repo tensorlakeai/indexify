@@ -8,12 +8,7 @@ use crate::{
     data_model::StateMachineMetadata,
     metrics::StateStoreMetrics,
     state_store::{
-        self,
-        driver::{
-            Reader,
-            Transaction,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::{Reader, Transaction, rocksdb},
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -46,7 +41,15 @@ impl PrepareContext {
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        state_store::open_database(self.path.clone(), self.config.clone(), cfs, metrics)
+        rocksdb::RocksDBDriver::open(
+            rocksdb::Options {
+                path: self.path.clone(),
+                config: self.config.clone(),
+                column_families: cfs.collect(),
+            },
+            metrics,
+        )
+        .map_err(Into::into)
     }
 
     /// Helper to perform column family operations and reopen DB
@@ -289,10 +292,12 @@ mod tests {
         ];
 
         let metrics = Arc::new(StateStoreMetrics::new());
-        let db = state_store::open_database(
-            path.to_path_buf(),
-            RocksDBConfig::default(),
-            cf_descriptors.into_iter(),
+        let db = rocksdb::RocksDBDriver::open(
+            rocksdb::Options {
+                path: path.to_path_buf(),
+                config: RocksDBConfig::default(),
+                column_families: cf_descriptors,
+            },
             metrics,
         )?;
 
@@ -310,7 +315,7 @@ mod tests {
         db.put(cf, key, &value).await?;
 
         // Create migration context
-        let txn = db.transaction();
+        let txn = db.transaction()?;
         let mut ctx = MigrationContext::new(db.clone(), txn);
 
         // Test JSON operations
