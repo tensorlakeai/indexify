@@ -40,13 +40,20 @@ from .function_executor_controller.function_call_watch_dispatcher import (
     FunctionCallWatchDispatcher,
 )
 from .metrics.state_reconciler import (
+    metric_desired_state_stream_errors,
+    metric_desired_state_streams,
     metric_state_reconciliation_errors,
     metric_state_reconciliation_latency,
     metric_state_reconciliations,
 )
 from .state_reporter import ExecutorStateReporter
 
-_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
+# Intervals between recreating the desired state stream on errors.
+# Do quick reconnect to not elongate allocation runs for seconds unnecessarily.
+_DESIRED_STATES_STREAM_MIN_BACKOFF_SEC = 0.005  # 5 ms
+_DESIRED_STATES_STREAM_MAX_BACKOFF_SEC = 5
+_DESIRED_STATES_STREAM_BACKOFF_MULTIPLIER = 10  # 5 ms, 50 ms, 0.5 sec, 5 sec
+# Max retries to reconcile the desired state before giving up.
 _RECONCILIATION_RETRIES = 3
 # If we didn't get a new desired state from the stream within this timeout then the stream might
 # not be healthy due to network disruption. In this case we need to recreate the stream to make
@@ -87,7 +94,6 @@ class ExecutorStateReconciler:
         channel_manager: ChannelManager,
         state_reporter: ExecutorStateReporter,
         logger: Any,
-        server_backoff_interval_sec: int = _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
         self._function_executor_server_factory: FunctionExecutorServerFactory = (
@@ -103,7 +109,6 @@ class ExecutorStateReconciler:
             FunctionCallWatchDispatcher(self)
         )
         self._logger: Any = logger.bind(module=__name__)
-        self._server_backoff_interval_sec: int = server_backoff_interval_sec
 
         # Mutable state. Doesn't need lock because we access from async tasks running in the same thread.
         self._desired_states_reader: asyncio.Task | None = None
@@ -244,6 +249,8 @@ class ExecutorStateReconciler:
 
         Never raises any exceptions. Gets cancelled via aio task cancellation.
         """
+        backoff_interval_sec: float = _DESIRED_STATES_STREAM_MIN_BACKOFF_SEC
+
         while True:
             desired_states_stream: AsyncIterable[DesiredExecutorState] | None = None
             try:
@@ -255,9 +262,17 @@ class ExecutorStateReconciler:
                 desired_states_stream = stub.get_desired_executor_states(
                     GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
                 )
+
+                metric_desired_state_streams.inc()
                 self._logger.info("created new desired states stream")
                 await self._process_desired_states_stream(desired_states_stream)
+                backoff_interval_sec = _DESIRED_STATES_STREAM_MIN_BACKOFF_SEC
             except Exception as e:
+                backoff_interval_sec = min(
+                    backoff_interval_sec * _DESIRED_STATES_STREAM_BACKOFF_MULTIPLIER,
+                    _DESIRED_STATES_STREAM_MAX_BACKOFF_SEC,
+                )
+                metric_desired_state_stream_errors.inc()
                 self._logger.error(
                     f"error while processing desired states stream",
                     exc_info=e,
@@ -269,16 +284,22 @@ class ExecutorStateReconciler:
                     desired_states_stream.cancel()
 
             self._logger.info(
-                f"desired states stream closed, reconnecting in {self._server_backoff_interval_sec} sec"
+                f"desired states stream closed, reconnecting in {backoff_interval_sec} sec"
             )
-            await asyncio.sleep(self._server_backoff_interval_sec)
+            await asyncio.sleep(backoff_interval_sec)
 
     async def _process_desired_states_stream(
         self, desired_states: AsyncIterable[DesiredExecutorState]
     ):
+        """Processes the desired states stream from Server.
+
+        Never returns, only raises exceptions on failure except if the failure requires
+        reset of backoff interval.
+        """
         desired_states_iter: AsyncIterator[DesiredExecutorState] = aiter(desired_states)
         while True:
             try:
+                # Raises StopAsyncIteration when the stream ends.
                 new_state: DesiredExecutorState = await asyncio.wait_for(
                     anext(desired_states_iter),
                     timeout=_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC,
@@ -290,27 +311,6 @@ class ExecutorStateReconciler:
                     f"No desired state received from Server within {_DESIRED_EXECUTOR_STATES_TIMEOUT_SEC} sec, recreating the stream to ensure it is healthy"
                 )
                 break  # Timeout reached, stream might be unhealthy, exit the loop to recreate the stream.
-
-            validator: MessageValidator = MessageValidator(new_state)
-            try:
-                validator.required_field("clock")
-            except ValueError as e:
-                self._logger.error(
-                    "received invalid DesiredExecutorState from Server, ignoring",
-                    exc_info=e,
-                )
-                continue
-
-            # TODO: The clock is only incremented when function executors have actionable changes and not on new allocations.
-            #       Therefore the clock cannot currently be used as an idempotency token.
-            # if self._last_server_clock is not None:
-            #     if self._last_server_clock >= new_state.clock:
-            #         self._logger.warning(
-            #             "received outdated DesiredExecutorState from Server, ignoring",
-            #             current_clock=self._last_server_clock,
-            #             ignored_clock=new_state.clock,
-            #         )
-            #         continue  # Duplicate or outdated message state sent by Server.
 
             self._last_server_clock = new_state.clock
             # Always read the latest desired state value from the stream so
