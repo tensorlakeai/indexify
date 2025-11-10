@@ -1,15 +1,22 @@
 FROM lukemathwalker/cargo-chef:latest-rust-slim-bookworm AS chef
 WORKDIR /app
+
 RUN apt-get update && apt-get install -y \
     software-properties-common unzip \
     build-essential make cmake ca-certificates \
     curl pkg-config git \
     sqlite3 clang gcc g++ \
     protobuf-compiler
-RUN RUN curl -sL https://deb.nodesource.com/setup_22.x | bash && \
+
+RUN curl -sL https://deb.nodesource.com/setup_22.x | bash && \
     apt-get install -y \
     nodejs \
     npm
+
+ARG FDB_VERSION=7.4.5-1
+RUN curl -sL https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}_amd64.deb && \
+    dpkg -i foundationdb-clients_${FDB_VERSION}_amd64.deb && \
+    rm foundationdb-clients_${FDB_VERSION}_amd64.deb
 
 FROM chef AS planner
 COPY . .
