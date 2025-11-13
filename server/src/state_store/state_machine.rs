@@ -27,7 +27,7 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{Driver, Transaction},
         requests::{
             DeleteRequestRequest,
             InvokeApplicationRequest,
@@ -66,7 +66,7 @@ pub enum IndexifyObjectsColumns {
     ApplicationStateChanges,
 }
 
-pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
+pub(crate) async fn upsert_namespace(db: Arc<dyn Driver>, req: &NamespaceRequest) -> Result<()> {
     let ns = NamespaceBuilder::default()
         .name(req.name.clone())
         .created_at(get_epoch_time_in_ms())
@@ -269,7 +269,7 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
         Allocation::key_prefix_from_request(&req.namespace, &req.application, &req.request_id);
     // delete all allocations for this request
     let cf = IndexifyObjectsColumns::Allocations.as_ref();
-    let iter = txn.iter(cf, allocation_prefix.into_bytes()).await;
+    let iter = txn.iter(cf, allocation_prefix.into_bytes()).await?;
 
     for kv in iter {
         let (key, value) = kv?;
@@ -326,7 +326,7 @@ async fn update_requests_for_application(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             cg_prefix.into_bytes(),
         )
-        .await;
+        .await?;
 
     for kv in iter {
         let (key, val) = kv?;
@@ -434,7 +434,7 @@ pub(crate) async fn create_or_update_application(
 }
 
 async fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
-    let iter = txn.iter(cf, prefix.to_vec()).await;
+    let iter = txn.iter(cf, prefix.to_vec()).await?;
 
     for kv in iter {
         let (key, _) = kv?;
@@ -464,7 +464,7 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
 
     for iter in txn
         .iter(IndexifyObjectsColumns::RequestCtx.as_ref(), request_prefix)
-        .await
+        .await?
     {
         let (_key, value) = iter?;
         let value = JsonEncoder::decode::<RequestCtx>(&value)?;
@@ -485,7 +485,7 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
             IndexifyObjectsColumns::ApplicationVersions.as_ref(),
             app_version_prefix,
         )
-        .await
+        .await?
     {
         let (key, value) = iter?;
         let value = JsonEncoder::decode::<ApplicationVersion>(&value)?;

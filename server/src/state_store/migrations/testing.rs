@@ -12,11 +12,7 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{
-            Reader,
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::{ConnectionOptions, Driver, rocksdb},
     },
 };
 
@@ -52,11 +48,15 @@ impl MigrationTestBuilder {
         let metrics = Arc::new(StateStoreMetrics::new());
         // Create database with specified column families
         let db = state_store::open_database(
-            path.to_path_buf(),
-            RocksDBConfig::default(),
-            self.column_families
-                .into_iter()
-                .map(|s| ColumnFamilyDescriptor::new(s, Default::default())),
+            ConnectionOptions::RocksDB(rocksdb::Options {
+                path: path.to_path_buf(),
+                config: RocksDBConfig::default(),
+                column_families: self
+                    .column_families
+                    .into_iter()
+                    .map(|s| ColumnFamilyDescriptor::new(s, Default::default()))
+                    .collect::<Vec<_>>(),
+            }),
             metrics,
         )?;
 

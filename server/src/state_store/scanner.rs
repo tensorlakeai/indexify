@@ -5,7 +5,7 @@ use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
 
-use super::state_machine::IndexifyObjectsColumns;
+use super::{driver::Driver, state_machine::IndexifyObjectsColumns};
 use crate::{
     data_model::{
         Allocation,
@@ -20,7 +20,7 @@ use crate::{
     },
     metrics::{self, Timer},
     state_store::{
-        driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
+        driver::{IterOptions, RangeOptionsBuilder},
         serializer::{JsonEncode, JsonEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -46,12 +46,12 @@ impl CursorDirection {
 }
 
 pub struct StateReader {
-    db: Arc<RocksDBDriver>,
+    db: Arc<dyn Driver>,
     metrics: Arc<metrics::StateStoreMetrics>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<RocksDBDriver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
+    pub fn new(db: Arc<dyn Driver>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
         Self { db, metrics }
     }
 

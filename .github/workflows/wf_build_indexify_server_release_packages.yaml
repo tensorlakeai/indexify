@@ -21,6 +21,10 @@ jobs:
     name: Build x86_64 Linux Package
     runs-on: ubuntu-latest-xlarge
     steps:
+      - name: Setup FoundationDB
+        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
+        with:
+          version: '7.4.5'
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
@@ -44,6 +48,10 @@ jobs:
     name: Build Aarch64 Linux Package
     runs-on: ubuntu-latest-xlarge
     steps:
+      - name: Setup FoundationDB
+        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
+        with:
+          version: '7.4.5'
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
@@ -71,7 +79,7 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
       - run: NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      - run: brew install protobuf
+      - run: brew install protobuf foundationdb
       - run: rustup update
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup target add aarch64-apple-darwin
