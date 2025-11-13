@@ -317,7 +317,7 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
                 Ok(data_model::FunctionExecutorTerminationReason::InternalError)
             }
             FunctionExecutorTerminationReason::FunctionTimeout => {
-                Ok(data_model::FunctionExecutorTerminationReason::FunctionError)
+                Ok(data_model::FunctionExecutorTerminationReason::FunctionTimeout)
             }
             FunctionExecutorTerminationReason::FunctionCancelled => {
                 Ok(data_model::FunctionExecutorTerminationReason::FunctionCancelled)
