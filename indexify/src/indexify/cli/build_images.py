@@ -1,7 +1,6 @@
 import importlib
 import os
 import traceback
-from typing import Any, Generator
 
 import click
 import docker
@@ -89,13 +88,12 @@ def build_images(
         )
 
         try:
-            built_image, logs_generator = _build(
+            built_image = _build(
                 image=image,
                 docker_client=docker_client,
                 image_name=image_name,
             )
             built_image: DockerImage
-            _print_build_log(logs_generator)
             click.secho(f"Built image: {image_name}", fg="green")
 
             if push:
@@ -130,7 +128,7 @@ def _build(
     image: Image,
     docker_client: docker.DockerClient,
     image_name: str,
-) -> tuple[DockerImage, Generator[str, Any, None]]:
+):
     docker_file_content: str = dockerfile_content(image)
 
     # Monkey-patch: allow passing Dockerfile content directly
@@ -139,42 +137,50 @@ def _build(
         dockerfile,
     )
 
-    try:
-        built_image, logs_generator = docker_client.images.build(
-            path=".",
-            dockerfile=docker_file_content,
-            tag=image_name,
-            rm=True,
-            # pull=True,  # optional: ensures fresh base images
-            # forcerm=True,  # optional: always remove intermediate containers
-        )
+    stream = docker_client.api.build(
+        path=".",
+        dockerfile=docker_file_content,
+        tag=image_name,
+        rm=True,
+        decode=True,
+    )
 
-        return built_image, logs_generator
+    logs: list = []
+    image_id: str | None = None
+
+    try:
+        for chunk in stream:
+            logs.append(chunk)
+            _print_build_log(chunk)
+
+        target = image_id or image_name
+        built_image = docker_client.images.get(target)
+
+        return built_image
+
     except BuildError as e:
-        click.secho("Docker build failed:", fg="red")
-        _print_build_log(e.build_log or [])
+        _print_build_log(getattr(e, "build_log", logs or []))
         click.secho(str(e), fg="red")
         raise
 
 
-def _print_build_log(build_logs):
-    if isinstance(build_logs, str):
-        click.echo(build_logs)
+def _print_build_log(log_entry):
+    if isinstance(log_entry, str):
+        click.echo(log_entry.rstrip("\n"))
         return
 
-    for log_entry in build_logs:
-        if isinstance(log_entry, dict):
-            if "stream" in log_entry:
-                click.echo(log_entry["stream"].rstrip("\n"))
-            elif "status" in log_entry:
-                if "id" in log_entry:
-                    click.echo(f"{log_entry['status']}: {log_entry['id']}")
-                else:
-                    click.echo(log_entry["status"])
-            if "errorDetail" in log_entry:
-                # This is the most useful bit when a RUN command fails
-                msg = log_entry["errorDetail"].get("message") or log_entry.get("error")
-                if msg:
-                    click.secho(msg.rstrip("\n"), fg="red")
-        elif isinstance(log_entry, str):
-            click.echo(log_entry.rstrip("\n"))
+    if isinstance(log_entry, dict):
+        if "stream" in log_entry:
+            click.echo(log_entry["stream"].rstrip("\n"))
+        elif "status" in log_entry:
+            if "id" in log_entry:
+                click.echo(f"{log_entry['status']}: {log_entry['id']}")
+            else:
+                click.echo(log_entry["status"])
+        elif "errorDetail" in log_entry:
+            msg = log_entry["errorDetail"].get("message") or log_entry.get("error")
+            if msg:
+                click.secho(msg.rstrip("\n"), fg="red")
+                raise RuntimeError(msg)
+    elif isinstance(log_entry, str):
+        click.echo(log_entry.rstrip("\n"))
