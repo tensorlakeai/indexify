@@ -1,7 +1,7 @@
 import importlib
 import os
 import traceback
-from typing import Any, Generator, Optional
+from typing import Any, Generator
 
 import click
 import docker
@@ -13,7 +13,7 @@ from tensorlake.applications.image import (
     dockerfile_content,
     image_infos,
 )
-from tensorlake.applications.remote.code.loader import (  # pylint: disable=no-name-in-module, import-error
+from tensorlake.applications.remote.code.loader import (
     load_code,
 )
 
@@ -53,15 +53,15 @@ from tensorlake.applications.remote.code.loader import (  # pylint: disable=no-n
 )
 def build_images(
     application_file_path: str,
-    repository: Optional[str],
-    tag: Optional[str],
-    image_name: Optional[str],
+    repository: str | None,
+    tag: str | None,
+    image_name: str | None,
     push: bool,
 ):
     try:
-        application_file_path = os.path.abspath(application_file_path)
+        application_file_path: str = os.path.abspath(application_file_path)
         load_code(application_file_path)
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except Exception as e:
         click.secho(
             f"Failed to load the code directory modules, please check the error message: {e}",
             fg="red",
