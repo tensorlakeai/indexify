@@ -803,6 +803,8 @@ pub enum RequestFailureReason {
     InternalError,
     // Clear function code failure typically by raising an exception from the function code.
     FunctionError,
+    // One of the functions timed out.
+    FunctionTimeout,
     // Function code raised RequestError to mark the request as permanently failed.
     RequestError,
     // A graph function cannot be scheduled given the specified constraints.
@@ -821,6 +823,7 @@ impl Display for RequestFailureReason {
             RequestFailureReason::FunctionError => "FunctionError",
             RequestFailureReason::RequestError => "RequestError",
             RequestFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
+            RequestFailureReason::FunctionTimeout => "FunctionTimeout",
             RequestFailureReason::Cancelled => "Cancelled",
             RequestFailureReason::OutOfMemory => "OutOfMemory",
         };
@@ -840,7 +843,7 @@ impl From<FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::Unknown => RequestFailureReason::Unknown,
             FunctionRunFailureReason::InternalError => RequestFailureReason::InternalError,
             FunctionRunFailureReason::FunctionError => RequestFailureReason::FunctionError,
-            FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionTimeout,
             FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
             FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::Cancelled,
             FunctionRunFailureReason::FunctionExecutorTerminated |
