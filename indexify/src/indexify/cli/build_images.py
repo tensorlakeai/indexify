@@ -131,7 +131,7 @@ def _build(
 ):
     docker_file_content: str = dockerfile_content(image)
 
-    # Keep your monkey-patch
+    # Monkey-patch: allow passing Dockerfile content directly
     docker.api.build.process_dockerfile = lambda dockerfile, path: (
         "Dockerfile",
         dockerfile,
