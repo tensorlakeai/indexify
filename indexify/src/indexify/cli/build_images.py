@@ -9,12 +9,12 @@ import docker.api.build
 from docker.errors import BuildError
 from docker.models.images import Image as DockerImage
 from tensorlake.applications import Image
-from tensorlake.applications.remote.code.loader import (
-    load_code,
-)  # pylint: disable=no-name-in-module, import-error
 from tensorlake.applications.image import (
     dockerfile_content,
     image_infos,
+)
+from tensorlake.applications.remote.code.loader import (  # pylint: disable=no-name-in-module, import-error
+    load_code,
 )
 
 
