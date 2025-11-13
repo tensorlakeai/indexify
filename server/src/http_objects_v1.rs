@@ -275,7 +275,9 @@ impl From<data_model::RequestFailureReason> for RequestFailureReason {
             data_model::RequestFailureReason::Unknown => RequestFailureReason::Unknown,
             data_model::RequestFailureReason::InternalError => RequestFailureReason::InternalError,
             data_model::RequestFailureReason::FunctionError => RequestFailureReason::FunctionError,
-            data_model::RequestFailureReason::FunctionTimeout => RequestFailureReason::FunctionTimeout,
+            data_model::RequestFailureReason::FunctionTimeout => {
+                RequestFailureReason::FunctionTimeout
+            }
             data_model::RequestFailureReason::RequestError => RequestFailureReason::RequestError,
             data_model::RequestFailureReason::ConstraintUnsatisfiable => {
                 RequestFailureReason::ConstraintUnsatisfiable
