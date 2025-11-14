@@ -70,8 +70,6 @@ jobs:
           mv /tmp/release/indexify-server-linux-amd64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
           mv /tmp/release/indexify-server-deb-linux-amd64/indexify-server_${{ needs.extract-version.outputs.version }}-1_amd64.deb /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
 
-
-
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -149,3 +147,24 @@ jobs:
             fi
             docker buildx build --platform=linux/amd64 --push . -t tensorlake/indexify-server:$tag -f dockerfiles/Dockerfile.release_server;
           done
+
+      - name: install reprepro
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+        
+      - name: Run reprepro
+        run: |
+          ls /tmp/release/
+          (cd .repo && reprepro includedeb buster /tmp/release/*.deb)
+          (cd .repo && reprepro includedeb focal /tmp/release/*.deb)
+          (cd .repo && reprepro includedeb jammy /tmp/release/*.deb)
+          # (cd .repo && reprepro includedeb noble /tmp/release/*.deb)
+          ls .repo/
+
+      - uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: server/.repo/
+          destination-dir: ./repo
