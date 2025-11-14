@@ -41,11 +41,6 @@ jobs:
           name: indexify-server-linux-amd64
           path: target/release/indexify-server
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: indexify-server-deb-linux-amd64
-          path: target/debian/indexify-server_*.deb
-          if-no-files-found: error
 
   build-macos-package:
     name: Build macOS Package
