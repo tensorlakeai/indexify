@@ -11,7 +11,6 @@ WORKDIR /indexify
 # The binary will be copied in during the Docker build via buildx
 # The TARGETARCH build arg is automatically set by Docker buildx
 ARG TARGETARCH
-COPY indexify-server-${TARGETARCH} /indexify/indexify-server
-RUN chmod +x /indexify/indexify-server
+COPY --chmod=755 indexify-server-${TARGETARCH} /indexify/indexify-server
 
 ENTRYPOINT [ "/indexify/indexify-server" ]
