@@ -101,10 +101,10 @@ jobs:
           # Docker buildx uses amd64 and arm64 for TARGETARCH
           # Copy and rename binaries to match Docker's architecture naming
           ls -la /tmp/docker-binaries/
-          cp /tmp/docker-binaries/indexify-server-linux-amd64/indexify-server server/indexify-server-amd64
-          cp /tmp/docker-binaries/indexify-server-linux-aarch64/indexify-server server/indexify-server-arm64
-          ls -la server/indexify-server-*
-          chmod +x server/indexify-server-amd64 server/indexify-server-arm64
+          cp /tmp/docker-binaries/indexify-server-linux-amd64/indexify-server ./server/indexify-server-amd64
+          cp /tmp/docker-binaries/indexify-server-linux-aarch64/indexify-server ./server/indexify-server-arm64
+          ls -la ./server/indexify-server-*
+          chmod +x ./server/indexify-server-amd64 ./server/indexify-server-arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
