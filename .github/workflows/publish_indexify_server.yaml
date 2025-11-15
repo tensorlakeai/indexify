@@ -100,11 +100,12 @@ jobs:
         run: |
           # Docker buildx uses amd64 and arm64 for TARGETARCH
           # Copy and rename binaries to match Docker's architecture naming
+          # Note: We're already in ./server directory due to defaults.run.working-directory
           ls -la /tmp/docker-binaries/
-          cp /tmp/docker-binaries/indexify-server-linux-amd64/indexify-server ./server/indexify-server-amd64
-          cp /tmp/docker-binaries/indexify-server-linux-aarch64/indexify-server ./server/indexify-server-arm64
-          ls -la ./server/indexify-server-*
-          chmod +x ./server/indexify-server-amd64 ./server/indexify-server-arm64
+          cp /tmp/docker-binaries/indexify-server-linux-amd64/indexify-server ./indexify-server-amd64
+          cp /tmp/docker-binaries/indexify-server-linux-aarch64/indexify-server ./indexify-server-arm64
+          ls -la ./indexify-server-*
+          chmod +x ./indexify-server-amd64 ./indexify-server-arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -116,7 +117,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push multi-platform Docker images
-        working-directory: ./server
         run: |
           # Build and push latest tag with multi-platform support
           docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:latest -f dockerfiles/Dockerfile.release_server
