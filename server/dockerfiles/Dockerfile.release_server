@@ -1,16 +1,17 @@
 FROM ubuntu:22.04
 
-RUN apt update
-
-RUN apt install -y lsb-release ca-certificates apt-transport-https
-
-RUN update-ca-certificates
-
-RUN echo "deb [trusted=yes] https://cf-repo.diptanu-6d5.workers.dev/repo $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/indexify-repo.list && \
-    apt-get update -y && \
-    apt-get install -y indexify-server && \
-    apt-get -y clean
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    update-ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /indexify
 
-ENTRYPOINT [ "indexify-server" ]
+# The binary will be copied in during the Docker build via buildx
+# The TARGETARCH build arg is automatically set by Docker buildx
+ARG TARGETARCH
+COPY indexify-server-${TARGETARCH} /indexify/indexify-server
+RUN chmod +x /indexify/indexify-server
+
+ENTRYPOINT [ "/indexify/indexify-server" ]
