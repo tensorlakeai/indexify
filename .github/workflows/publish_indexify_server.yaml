@@ -70,40 +70,14 @@ jobs:
           mv /tmp/release/indexify-server-linux-aarch64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-aarch64
 
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: 'v${{ needs.extract-version.outputs.version }}'
           prerelease: ${{ github.event.inputs.prerelease }}
           target_commitish: ${{ inputs.ref }}
-
-      - name: Upload Linux AMD64 Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path:
-            /tmp/release/indexify-server-${{
-            needs.extract-version.outputs.version }}-linux-amd64
-          asset_name:
-            indexify-server-${{ needs.extract-version.outputs.version
-            }}-linux-amd64
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Linux ARM64 Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path:
-            /tmp/release/indexify-server-${{
-            needs.extract-version.outputs.version }}-linux-aarch64
-          asset_name:
-            indexify-server-${{ needs.extract-version.outputs.version
-            }}-linux-aarch64
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
+            /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-aarch64
 
   build-and-push-docker-images:
     name: Build and Push Docker Images
