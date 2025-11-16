@@ -69,6 +69,7 @@ pub struct ServerConfig {
     pub telemetry: TelemetryConfig,
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
     pub queue_size: u32,
+    pub cloud_events: Option<CloudEventsConfig>,
 }
 
 impl Default for ServerConfig {
@@ -86,6 +87,7 @@ impl Default for ServerConfig {
             executor_catalog: Vec::new(),
             queue_size: 1,
             usage_queue: None,
+            cloud_events: None,
         }
     }
 }
@@ -196,4 +198,10 @@ mod duration_serde {
         let seconds = u64::deserialize(deserializer)?;
         Ok(Duration::from_secs(seconds))
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CloudEventsConfig {
+    pub writer_endpoint: String,
+    pub reader_endpoint: String,
 }

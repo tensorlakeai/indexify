@@ -546,16 +546,12 @@ pub(crate) async fn handle_scheduler_update(
     }
 
     for request_ctx in request.updated_request_states.values() {
-        if request_ctx.outcome.is_some() {
+        if let Some(outcome) = &request_ctx.outcome {
             info!(
                 request_id = request_ctx.request_id.to_string(),
                 namespace = request_ctx.namespace,
                 app = request_ctx.application_name,
-                outcome = request_ctx
-                    .outcome
-                    .as_ref()
-                    .map(|o| o.to_string())
-                    .unwrap_or_default(),
+                outcome = outcome.to_string(),
                 duration_sec =
                     get_elapsed_time(request_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "request completed"

@@ -20,6 +20,7 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
+    cloud_events::CloudEventsManager,
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
@@ -120,6 +121,7 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
+    pub cloud_events_manager: Option<CloudEventsManager>,
 }
 
 pub(crate) fn open_database<I>(
@@ -151,6 +153,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
+        cloud_events_manager: Option<CloudEventsManager>,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -206,6 +209,7 @@ impl IndexifyState {
             usage_events_tx,
             usage_events_rx,
             executor_watches: ExecutorWatches::new(),
+            cloud_events_manager,
         });
 
         info!(
@@ -369,6 +373,7 @@ impl IndexifyState {
         )
         .await?;
         txn.commit().await?;
+
         let mut changed_executors = self
             .in_memory_state
             .write()
@@ -385,6 +390,12 @@ impl IndexifyState {
                 )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
+
+            if let Some(cloud_events_manager) = &self.cloud_events_manager {
+                cloud_events_manager
+                    .process_completed_requests(request)
+                    .await;
+            }
         }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
             !req.watch_function_calls.is_empty() &&
