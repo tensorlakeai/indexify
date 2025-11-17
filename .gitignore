@@ -1,6 +1,7 @@
 # IDE and editor files
 .vscode
 .idea
+.zed
 
 # Python-related files
 __pycache__
@@ -61,6 +62,7 @@ sqlite*
 
 # Miscellaneous
 openapi.yaml
+shell.nix
 
 # Developer Cargo configs
 .cargo/
