@@ -1,16 +1,21 @@
-FROM ubuntu:22.04
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+WORKDIR /app
 
-RUN apt-get update && \
-    apt-get install -y ca-certificates && \
-    update-ca-certificates && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-WORKDIR /indexify
+FROM chef AS builder 
+COPY --from=planner /app .
+# Build dependencies - this is the caching Docker layer!
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --bin indexify-server
 
-# The binary will be copied in during the Docker build via buildx
-# The TARGETARCH build arg is automatically set by Docker buildx
-ARG TARGETARCH
-COPY --chmod=755 indexify-server-${TARGETARCH} /indexify/indexify-server
+FROM debian:trixie-slim
 
-ENTRYPOINT [ "/indexify/indexify-server" ]
+WORKDIR /app
+
+COPY --from=builder /app/target/release/indexify-server indexify-server
+
+ENTRYPOINT ["/app/indexify-server"]
