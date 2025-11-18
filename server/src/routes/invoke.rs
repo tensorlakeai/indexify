@@ -21,7 +21,7 @@ use crate::{
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        request_events::{RequestFinishedEvent, RequestStateChangeEvent},
+        request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
@@ -40,12 +40,18 @@ async fn create_request_progress_stream(
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.request_ctx(namespace.as_str(), application.as_str(), &request_id).await
+        match reader.request_ctx(&namespace, &application, &request_id).await
         {
             Ok(Some(request_ctx)) => {
-                if request_ctx.outcome.is_some() {
+                if let Some(outcome) = &request_ctx.outcome {
                     yield Event::default().json_data(
-                        RequestStateChangeEvent::finished(&request_id)
+                        RequestStateChangeEvent::finished(
+                            &namespace,
+                            &application,
+                            &request_ctx.application_version,
+                            &request_id,
+                            outcome.clone(),
+                        )
                     );
                     return;
                 }
@@ -77,13 +83,19 @@ async fn create_request_progress_stream(
 
                     // Check if completion happened during lag
                     match reader
-                        .request_ctx(namespace.as_str(), application.as_str(), &request_id)
+                        .request_ctx(&namespace, &application, &request_id)
                         .await
                     {
                         Ok(Some(context)) => {
-                            if context.outcome.is_some() {
+                            if let Some(outcome) = &context.outcome {
                                 yield Event::default().json_data(
-                                    RequestStateChangeEvent::finished(&request_id)
+                                    RequestStateChangeEvent::finished(
+                                        &namespace,
+                                        &application,
+                                        &context.application_version,
+                                        &request_id,
+                                        outcome.clone(),
+                                    )
                                 );
                                 return;
                             }

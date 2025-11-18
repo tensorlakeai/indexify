@@ -343,8 +343,10 @@ async fn update_requests_for_application(
             );
             request_ctx.application_version = application.version.clone();
             for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
-                if function_run.version != application.version && function_run.outcome.is_none() {
-                    function_run.version = application.version.clone();
+                if function_run.application_version != application.version &&
+                    function_run.outcome.is_none()
+                {
+                    function_run.application_version = application.version.clone();
                     request_ctx
                         .function_runs
                         .insert(function_run.id.clone(), function_run.clone());

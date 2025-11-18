@@ -133,7 +133,7 @@ impl<'a> FunctionRunProcessor<'a> {
             request_id = function_run.request_id,
             app = function_run.application,
             "fn" = function_run.name,
-            app_version = function_run.version.to_string(),
+            app_version = function_run.application_version.to_string(),
         );
         let _guard = span.enter();
 

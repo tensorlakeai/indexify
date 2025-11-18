@@ -161,12 +161,6 @@ impl SchedulerUpdateRequest {
         }
         function_runs
     }
-
-    pub fn completed_requests(&self) -> impl Iterator<Item = &RequestCtx> {
-        self.updated_request_states
-            .values()
-            .filter(|ctx| ctx.is_request_completed())
-    }
 }
 
 #[derive(Debug, Clone)]

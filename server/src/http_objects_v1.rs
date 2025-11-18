@@ -231,7 +231,7 @@ impl FunctionRun {
             outcome: function_run.outcome.map(|outcome| outcome.into()),
             failure_reason,
             status: function_run.status.into(),
-            application_version: function_run.version,
+            application_version: function_run.application_version,
             allocations,
             created_at: function_run.creation_time_ns,
         }

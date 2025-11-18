@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use in_memory_state::{InMemoryMetrics, InMemoryState};
 use opentelemetry::KeyValue;
-use request_events::{RequestFinishedEvent, RequestStateChangeEvent};
+use request_events::RequestStateChangeEvent;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
@@ -390,12 +390,6 @@ impl IndexifyState {
                 )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
-
-            if let Some(cloud_events_manager) = &self.cloud_events_manager {
-                cloud_events_manager
-                    .process_completed_requests(request)
-                    .await;
-            }
         }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
             !req.watch_function_calls.is_empty() &&
@@ -443,38 +437,44 @@ impl IndexifyState {
         if self.function_run_event_tx.receiver_count() == 0 {
             return;
         }
-        match &update_request.payload {
+
+        let state_changes = match &update_request.payload {
             RequestPayload::InvokeApplication(request) => {
-                let _ = self
-                    .function_run_event_tx
-                    .send(RequestStateChangeEvent::RequestStarted(
-                        RequestStartedEvent {
-                            request_id: request.ctx.request_id.clone(),
-                        },
-                    ));
+                vec![RequestStateChangeEvent::RequestStarted(
+                    RequestStartedEvent {
+                        namespace: request.ctx.namespace.clone(),
+                        application_name: request.ctx.application_name.clone(),
+                        application_version: request.ctx.application_version.clone(),
+                        request_id: request.ctx.request_id.clone(),
+                    },
+                )]
             }
-            RequestPayload::UpsertExecutor(request) => {
-                for allocation_output in &request.allocation_outputs {
-                    let ev = RequestStateChangeEvent::from_finished_function_run(
-                        allocation_output.clone(),
-                    );
-                    let _ = self.function_run_event_tx.send(ev);
-                }
-            }
+            RequestPayload::UpsertExecutor(request) => request
+                .allocation_outputs
+                .iter()
+                .map(|allocation_output| {
+                    RequestStateChangeEvent::from_finished_function_run(allocation_output.clone())
+                })
+                .collect::<Vec<_>>(),
             RequestPayload::SchedulerUpdate((sched_update, _)) => {
-                for allocation in &sched_update.new_allocations {
-                    let _ = self.function_run_event_tx.send(
+                let mut changes = sched_update
+                    .new_allocations
+                    .iter()
+                    .map(|allocation| {
                         RequestStateChangeEvent::FunctionRunAssigned(
                             request_events::FunctionRunAssigned {
+                                namespace: allocation.namespace.clone(),
+                                application_name: allocation.application.clone(),
+                                application_version: allocation.application_version.clone(),
                                 request_id: allocation.request_id.clone(),
                                 function_name: allocation.function.clone(),
                                 function_run_id: allocation.function_call_id.to_string(),
                                 executor_id: allocation.target.executor_id.get().to_string(),
                                 allocation_id: allocation.id.to_string(),
                             },
-                        ),
-                    );
-                }
+                        )
+                    })
+                    .collect::<Vec<_>>();
 
                 for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                     for function_call_id in function_call_ids {
@@ -482,30 +482,51 @@ impl IndexifyState {
                         let function_run =
                             ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                         if let Some(function_run) = function_run {
-                            let _ = self.function_run_event_tx.send(
-                                RequestStateChangeEvent::FunctionRunCreated(
-                                    request_events::FunctionRunCreated {
-                                        request_id: function_run.request_id.clone(),
-                                        function_name: function_run.name.clone(),
-                                        function_run_id: function_run.id.to_string(),
-                                    },
-                                ),
-                            );
+                            changes.push(RequestStateChangeEvent::FunctionRunCreated(
+                                request_events::FunctionRunCreated {
+                                    namespace: function_run.namespace.clone(),
+                                    application_name: function_run.application.clone(),
+                                    application_version: function_run.application_version.clone(),
+                                    request_id: function_run.request_id.clone(),
+                                    function_name: function_run.name.clone(),
+                                    function_run_id: function_run.id.to_string(),
+                                },
+                            ));
                         }
                     }
                 }
 
                 for request_ctx in sched_update.updated_request_states.values() {
-                    if request_ctx.outcome.is_some() {
-                        let _ = self.function_run_event_tx.send(
-                            RequestStateChangeEvent::RequestFinished(RequestFinishedEvent {
-                                request_id: request_ctx.request_id.clone(),
-                            }),
-                        );
+                    if let Some(outcome) = &request_ctx.outcome {
+                        changes.push(RequestStateChangeEvent::finished(
+                            &request_ctx.namespace,
+                            &request_ctx.application_name,
+                            &request_ctx.application_version,
+                            &request_ctx.request_id,
+                            outcome.clone(),
+                        ));
                     }
                 }
+
+                changes
             }
-            _ => {}
+            _ => vec![],
+        };
+
+        self.emit_request_state_change_updates(state_changes).await
+    }
+
+    async fn emit_request_state_change_updates(&self, changes: Vec<RequestStateChangeEvent>) {
+        for change in changes {
+            if let Some(cloud_events_manager) = &self.cloud_events_manager {
+                cloud_events_manager
+                    .send_request_state_change_event(&change)
+                    .await
+            }
+
+            if let Err(error) = self.function_run_event_tx.send(change) {
+                error!(?error, "Failed to send request state change update");
+            }
         }
     }
 

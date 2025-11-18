@@ -208,7 +208,7 @@ impl FunctionRunCreator {
                 request_id = function_run.request_id,
                 namespace = function_run.namespace,
                 app = function_run.application,
-                app_version = function_run.version,
+                app_version = function_run.application_version,
                 "application version not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());

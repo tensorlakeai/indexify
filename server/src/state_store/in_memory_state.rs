@@ -716,8 +716,8 @@ impl InMemoryState {
                             for (_function_call_id, function_run) in
                                 ctx.function_runs.clone().iter_mut()
                             {
-                                if function_run.version != version {
-                                    function_run.version = version.clone();
+                                if function_run.application_version != version {
+                                    function_run.application_version = version.clone();
                                     ctx.function_runs
                                         .insert(function_run.id.clone(), function_run.clone());
                                 }
@@ -1027,11 +1027,11 @@ impl InMemoryState {
             .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.version,
+                &function_run.application_version,
             ))
             .ok_or(anyhow!(
                 "application version: {} not found",
-                function_run.version
+                function_run.application_version
             ))?;
         let function = application
             .functions
@@ -1050,10 +1050,10 @@ impl InMemoryState {
             .get(&ApplicationVersion::key_from(
                 &function_run.namespace,
                 &function_run.application,
-                &function_run.version,
+                &function_run.application_version,
             ))
             .ok_or_else(|| Error::ApplicationVersionNotFound {
-                version: function_run.version.clone(),
+                version: function_run.application_version.clone(),
                 function_name: function_run.name.clone(),
             })?;
 
@@ -1073,7 +1073,7 @@ impl InMemoryState {
             .functions
             .get(&function_run.name)
             .ok_or_else(|| Error::FunctionNotFound {
-                version: function_run.version.clone(),
+                version: function_run.application_version.clone(),
                 function_name: function_run.name.clone(),
             })?;
 
@@ -1380,7 +1380,7 @@ impl InMemoryState {
             .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
             .filter(|(_k, v)| {
                 v.name == fe_meta.function_executor.function_name &&
-                    v.version == fe_meta.function_executor.version
+                    v.application_version == fe_meta.function_executor.version
             })
             .any(|(_k, v)| !v.is_terminal())
     }
@@ -1552,7 +1552,7 @@ impl InMemoryState {
                     namespace = function_run.namespace,
                     app = function_run.application,
                     "fn" = function_run.name,
-                    app_version = function_run.version,
+                    app_version = function_run.application_version,
                     "application version not found",
                 );
                 None
@@ -1793,7 +1793,7 @@ mod tests {
                 .namespace(namespace.to_string())
                 .application(application.to_string())
                 .name(function.to_string())
-                .version("1.0".to_string())
+                .application_version("1.0".to_string())
                 .compute_op(ComputeOp::FunctionCall(FunctionCall {
                     inputs: vec![],
                     function_call_id: FunctionCallId(format!(
@@ -2379,7 +2379,7 @@ mod tests {
             .namespace(namespace.to_string())
             .application(application.to_string())
             .name(function_name.to_string())
-            .version(version.to_string())
+            .application_version(version.to_string())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 inputs: vec![],
                 function_call_id: FunctionCallId(format!(
