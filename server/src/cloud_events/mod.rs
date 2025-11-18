@@ -23,7 +23,6 @@ use retry::*;
 
 #[derive(Clone)]
 pub struct CloudEventsManager {
-    _reader_endpoint: String,
     cancellation_token: CancellationToken,
     tx: Sender<RequestCtx>,
 }
@@ -48,7 +47,6 @@ impl CloudEventsManager {
         let tx = Self::start_collector(cancellation_token.clone(), channel.clone()).await;
 
         Ok(CloudEventsManager {
-            _reader_endpoint: config.reader_endpoint.clone(),
             cancellation_token,
             tx,
         })
