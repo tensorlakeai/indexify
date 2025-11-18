@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "server",
+    "dataplane"
 ]
 resolver = "2"

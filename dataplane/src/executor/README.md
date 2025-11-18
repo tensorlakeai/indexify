@@ -1,0 +1,11 @@
+# executor
+
+## Components
+
+* Monitoring Server: Connects to Indexify server and reports its health. It serves a HTTP server on a configurable port, running on 7000 by default.
+    * `/monitoring/startup`: Tells whether the Executor ready to receive tasks. Doesn't report the health of the connection to the server, thus doesn't indicate if tasks will successfully run.
+    * `/monitoring/health`: Tells whether the Executor has an healthy connection to the Indexify server.
+    * `/monitoring/metrics`: Exposes the Executor's prometheus metrics.
+    * `/state/reported`: Reports the metadata state of the Executor (host). These include the available host resources, dev environment setup, OS, CPU architecture, state hash, system time, and executor id.
+    * `/state/desired`: Reports the desired state of the Executor (host) received from the Indexify server.
+* State Reconciler: Executes functions based on Executor initial state and updates the evenutal state.
