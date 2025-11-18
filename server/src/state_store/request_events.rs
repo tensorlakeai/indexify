@@ -14,6 +14,12 @@ pub enum RequestStateChangeEvent {
 }
 
 impl RequestStateChangeEvent {
+    pub fn finished(request_id: &str) -> Self {
+        Self::RequestFinished(RequestFinishedEvent {
+            request_id: request_id.to_string(),
+        })
+    }
+
     pub fn from_finished_function_run(event: AllocationOutput) -> Self {
         Self::FunctionRunCompleted(FunctionRunCompleted {
             request_id: event.request_id,

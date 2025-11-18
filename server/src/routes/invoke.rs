@@ -28,41 +28,34 @@ use crate::{
 };
 
 // New shared function for creating SSE streams
+#[tracing::instrument(skip(rx, state))]
 async fn create_request_progress_stream(
-    id: String,
     mut rx: Receiver<RequestStateChangeEvent>,
     state: RouteState,
     namespace: String,
     application: String,
+    request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     let reader = state.indexify_state.reader();
 
     async_stream::stream! {
         // check completion when starting stream
-        match reader.request_ctx(namespace.as_str(), application.as_str(), &id).await
+        match reader.request_ctx(namespace.as_str(), application.as_str(), &request_id).await
         {
             Ok(Some(request_ctx)) => {
                 if request_ctx.outcome.is_some() {
                     yield Event::default().json_data(
-                        RequestStateChangeEvent::RequestFinished(
-                            RequestFinishedEvent {
-                                request_id: id.clone()
-                            }
-                        )
+                        RequestStateChangeEvent::finished(&request_id)
                     );
                     return;
                 }
             }
             Ok(None) => {
-                info!(
-                    namespace = namespace,
-                    app = application,
-                    request_id=id,
-                    "request not found, stopping stream");
+                info!("request not found, stopping stream");
                 return;
             }
             Err(e) => {
-                error!("failed to get request: {:?}", e);
+                error!(?e, "failed to get request");
                 return;
             }
         }
@@ -71,7 +64,7 @@ async fn create_request_progress_stream(
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    if ev.request_id() == id {
+                    if ev.request_id() == request_id {
                         yield Event::default().json_data(ev.clone());
 
                         if let RequestStateChangeEvent::RequestFinished(_) = ev {
@@ -80,43 +73,27 @@ async fn create_request_progress_stream(
                     }
                 }
                 Err(RecvError::Lagged(num)) => {
-                    warn!(
-                        namespace = namespace,
-                        app = application,
-                        request_id=id,
-                        "lagging behind request event stream by {} events", num);
+                    warn!("lagging behind request event stream by {} events", num);
 
                     // Check if completion happened during lag
                     match reader
-                        .request_ctx(namespace.as_str(), application.as_str(), &id)
+                        .request_ctx(namespace.as_str(), application.as_str(), &request_id)
                         .await
                     {
                         Ok(Some(context)) => {
                             if context.outcome.is_some() {
                                 yield Event::default().json_data(
-                                    RequestStateChangeEvent::RequestFinished(
-                                        RequestFinishedEvent {
-                                            request_id: id.clone()
-                                        }
-                                    )
+                                    RequestStateChangeEvent::finished(&request_id)
                                 );
                                 return;
                             }
                         }
                         Ok(None) => {
-                            error!(
-                                namespace = namespace,
-                                app = application,
-                                request_id=id,
-                                "request not found");
+                            error!("request not found");
                             return;
                         }
                         Err(e) => {
-                            error!(
-                                namespace = namespace,
-                                app = application,
-                                request_id=id,
-                                "failed to get request context: {:?}", e);
+                            error!(?e, "failed to get request context");
                             return;
                         }
                     }
@@ -256,96 +233,38 @@ pub async fn invoke_application_with_object_v1(
         .function_calls(fn_calls)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    let request = RequestPayload::InvokeApplication(InvokeApplicationRequest {
+    let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
         namespace: namespace.clone(),
         application_name: application.name.clone(),
         ctx: request_ctx.clone(),
     });
+
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest { payload })
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+
     if accept_header.contains("application/json") {
-        return return_request_id(
-            &state,
-            request.clone(),
-            request_id.clone(),
-            namespace,
-            application.name.clone(),
-        )
-        .await;
+        return Ok(Json(RequestIdV1 {
+            id: request_id.clone(),
+            request_id: request_id.clone(),
+        })
+        .into_response());
     }
     if accept_header.contains("text/event-stream") {
         return return_sse_response(
             // cloning the state is cheap because all its fields are inside arcs
             state.clone(),
-            request.clone(),
-            request_id.clone(),
             namespace,
             application.name,
+            request_id,
         )
         .await;
     }
     Err(IndexifyAPIError::bad_request(
         "accept header must be application/json or text/event-stream",
     ))
-}
-
-async fn return_request_id(
-    state: &RouteState,
-    request_payload: RequestPayload,
-    request_id: String,
-    namespace: String,
-    application: String,
-) -> Result<axum::response::Response, IndexifyAPIError> {
-    state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request_payload.clone(),
-        })
-        .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-
-    info!(
-        request_id = request_id.clone(),
-        namespace = namespace.clone(),
-        app = application.clone(),
-        "request created",
-    );
-
-    Ok(Json(RequestIdV1 {
-        id: request_id.clone(),
-        request_id: request_id.clone(),
-    })
-    .into_response())
-}
-
-async fn return_sse_response(
-    state: RouteState,
-    request_payload: RequestPayload,
-    request_id: String,
-    namespace: String,
-    application: String,
-) -> Result<axum::response::Response, IndexifyAPIError> {
-    let rx = state.indexify_state.function_run_event_stream();
-    state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request_payload.clone(),
-        })
-        .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    info!(
-        request_id = request_id.clone(),
-        namespace = namespace.clone(),
-        app = application.clone(),
-        "request created",
-    );
-    let request_event_stream =
-        create_request_progress_stream(request_id, rx, state, namespace, application).await;
-    Ok(axum::response::Sse::new(request_event_stream)
-        .keep_alive(
-            axum::response::sse::KeepAlive::new()
-                .interval(Duration::from_secs(1))
-                .text("keep-alive-text"),
-        )
-        .into_response())
 }
 
 /// Stream progress of a request until it is completed
@@ -363,14 +282,24 @@ pub async fn progress_stream(
     Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    return_sse_response(state, namespace, application, request_id).await
+}
+
+async fn return_sse_response(
+    state: RouteState,
+    namespace: String,
+    application: String,
+    request_id: String,
+) -> Result<axum::response::Response, IndexifyAPIError> {
     let rx = state.indexify_state.function_run_event_stream();
 
-    // cloning the state is cheap because all its fields are inside arcs
     let request_event_stream =
-        create_request_progress_stream(request_id, rx, state.clone(), namespace, application).await;
-    Ok(axum::response::Sse::new(request_event_stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(1))
-            .text("keep-alive-text"),
-    ))
+        create_request_progress_stream(rx, state, namespace, application, request_id).await;
+    Ok(axum::response::Sse::new(request_event_stream)
+        .keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        )
+        .into_response())
 }
