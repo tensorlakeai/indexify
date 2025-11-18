@@ -20,7 +20,7 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
-    cloud_events::CloudEventsManager,
+    cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
@@ -121,7 +121,7 @@ pub struct IndexifyState {
     _in_memory_state_metrics: InMemoryMetrics,
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
-    pub cloud_events_manager: Option<CloudEventsManager>,
+    pub cloud_events_exporter: Option<CloudEventsExporter>,
 }
 
 pub(crate) fn open_database<I>(
@@ -153,7 +153,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
-        cloud_events_manager: Option<CloudEventsManager>,
+        cloud_events_exporter: Option<CloudEventsExporter>,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -209,7 +209,7 @@ impl IndexifyState {
             usage_events_tx,
             usage_events_rx,
             executor_watches: ExecutorWatches::new(),
-            cloud_events_manager,
+            cloud_events_exporter,
         });
 
         info!(
@@ -518,8 +518,8 @@ impl IndexifyState {
 
     async fn emit_request_state_change_updates(&self, changes: Vec<RequestStateChangeEvent>) {
         for change in changes {
-            if let Some(cloud_events_manager) = &self.cloud_events_manager {
-                cloud_events_manager
+            if let Some(cloud_events_exporter) = &self.cloud_events_exporter {
+                cloud_events_exporter
                     .send_request_state_change_event(&change)
                     .await
             }

@@ -19,7 +19,7 @@ use tracing::{Instrument, info, info_span};
 
 use crate::{
     blob_store::{BlobStorage, registry::BlobStorageRegistry},
-    cloud_events::CloudEventsManager,
+    cloud_events::CloudEventsExporter,
     config::ServerConfig,
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
@@ -79,8 +79,8 @@ impl Service {
             info!("No configured executor label sets; allowing all executors");
         }
 
-        let cloud_events_manager = if let Some(config) = &config.cloud_events {
-            Some(CloudEventsManager::new(config).await?)
+        let cloud_events_exporter = if let Some(config) = &config.cloud_events {
+            Some(CloudEventsExporter::new(config).await?)
         } else {
             None
         };
@@ -89,7 +89,7 @@ impl Service {
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
-            cloud_events_manager,
+            cloud_events_exporter,
         )
         .await?;
 

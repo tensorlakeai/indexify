@@ -26,18 +26,18 @@ mod retry;
 use retry::*;
 
 #[derive(Clone)]
-pub struct CloudEventsManager {
+pub struct CloudEventsExporter {
     cancellation_token: CancellationToken,
     tx: Sender<RequestStateChangeEvent>,
 }
 
-impl Drop for CloudEventsManager {
+impl Drop for CloudEventsExporter {
     fn drop(&mut self) {
         self.cancellation_token.cancel();
     }
 }
 
-impl CloudEventsManager {
+impl CloudEventsExporter {
     pub async fn new(config: &CloudEventsConfig) -> Result<Self, anyhow::Error> {
         let channel_builder = Channel::from_shared(config.writer_endpoint.clone())
             .context("building OTLP channel builder")?;
@@ -50,7 +50,7 @@ impl CloudEventsManager {
         let cancellation_token = CancellationToken::new();
         let tx = Self::start_collector(cancellation_token.clone(), channel.clone()).await;
 
-        Ok(CloudEventsManager {
+        Ok(CloudEventsExporter {
             cancellation_token,
             tx,
         })
@@ -70,7 +70,7 @@ impl CloudEventsManager {
         channel: Channel,
     ) -> Sender<RequestStateChangeEvent> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<RequestStateChangeEvent>(100);
-        let mut exporter = CloudEventsExporter::new(channel.clone());
+        let mut exporter = CloudEventsExporterClient::new(channel.clone());
 
         tokio::spawn(async move {
             loop {
@@ -94,12 +94,12 @@ impl CloudEventsManager {
     }
 }
 
-pub struct CloudEventsExporter {
+pub struct CloudEventsExporterClient {
     client: LogsServiceClient<Channel>,
     retry_policy: RetryPolicy,
 }
 
-impl CloudEventsExporter {
+impl CloudEventsExporterClient {
     fn new(channel: Channel) -> Self {
         let retry_policy = RetryPolicy {
             max_retries: 3,
