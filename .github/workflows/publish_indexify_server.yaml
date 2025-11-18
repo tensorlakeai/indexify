@@ -91,44 +91,19 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/docker-binaries/
-
-      - name: Prepare binaries for Docker build
-        run: |
-          # Docker buildx uses amd64 and arm64 for TARGETARCH
-          # Copy and rename binaries to match Docker's architecture naming
-          # Note: We're already in ./server directory due to defaults.run.working-directory
-          ls -la /tmp/docker-binaries/
-          cp /tmp/docker-binaries/indexify-server-linux-amd64/indexify-server ./indexify-server-amd64
-          cp /tmp/docker-binaries/indexify-server-linux-aarch64/indexify-server ./indexify-server-arm64
-          ls -la ./indexify-server-*
-          chmod +x ./indexify-server-amd64 ./indexify-server-arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push multi-platform Docker images
-        run: |
-          # Build and push latest tag with multi-platform support
-          docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:latest -f dockerfiles/Dockerfile.release_server
-
-          # Build and push version tags
-          tag=""
-          for i in $(echo ${{ needs.extract-version.outputs.version }} | tr '.' '\n')
-          do
-            if [[ $tag == "" ]]; then
-              tag="$i"
-            else
-              tag="$tag.$i"
-            fi
-            docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:$tag -f dockerfiles/Dockerfile.release_server
-          done
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/dockerfiles/Dockerfile.release_server
+          push: true
+          tags: |
+            tensorlake/indexify-server:latest
+            tensorlake/indexify-server:${{ needs.extract-version.outputs.version }}
+          provenance: false
+          platforms: linux/amd64,linux/arm64
+          outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
