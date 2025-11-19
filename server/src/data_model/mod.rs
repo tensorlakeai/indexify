@@ -763,6 +763,7 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
     Unknown,
     Success,
@@ -802,6 +803,7 @@ impl Display for RequestOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     // Used when request didn't finish yet and when request finished successfully
     Unknown,

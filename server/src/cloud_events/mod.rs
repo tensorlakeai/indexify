@@ -393,7 +393,7 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.2")),
                 "request_id" => assert_eq!(kv.value, string_value("req-789")),
-                "outcome" => assert_eq!(kv.value, string_value("Success")),
+                "outcome" => assert_eq!(kv.value, string_value("success")),
                 _ => {}
             }
         }
@@ -612,8 +612,8 @@ mod tests {
                     Some(AnyValue {
                         value: Some(Value::KvlistValue(KeyValueList {
                             values: vec![KeyValue {
-                                key: "Failure".to_string(),
-                                value: string_value("InternalError")
+                                key: "failure".to_string(),
+                                value: string_value("internal_error")
                             }]
                         }))
                     })
@@ -655,7 +655,7 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
                 "request_id" => assert_eq!(kv.value, string_value("req-unknown")),
-                "outcome" => assert_eq!(kv.value, string_value("Unknown")),
+                "outcome" => assert_eq!(kv.value, string_value("unknown")),
                 _ => {}
             }
         }
@@ -693,7 +693,7 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
                 "request_id" => assert_eq!(kv.value, string_value("req-unknown")),
-                "outcome" => assert_eq!(kv.value, string_value("Success")),
+                "outcome" => assert_eq!(kv.value, string_value("success")),
                 _ => {}
             }
         }
