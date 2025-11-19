@@ -528,12 +528,7 @@ mod tests {
                 "function_name" => assert_eq!(kv.value, string_value("my-function")),
                 "function_run_id" => assert_eq!(kv.value, string_value("run-789")),
                 "allocation_id" => assert_eq!(kv.value, string_value("alloc-456")),
-                "outcome" => {
-                    // FunctionRunOutcomeSummary is serialized as a string
-                    assert!(
-                        matches!(&kv.value, Some(av) if matches!(&av.value, Some(Value::StringValue(_))))
-                    )
-                }
+                "outcome" => assert_eq!(kv.value, string_value("success")),
                 _ => {}
             }
         }
@@ -612,7 +607,17 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
                 "request_id" => assert_eq!(kv.value, string_value("req-fail")),
-                "outcome" => assert_eq!(kv.value, string_value("Failure (InternalError)")),
+                "outcome" => assert_eq!(
+                    kv.value,
+                    Some(AnyValue {
+                        value: Some(Value::KvlistValue(KeyValueList {
+                            values: vec![KeyValue {
+                                key: "Failure".to_string(),
+                                value: string_value("InternalError")
+                            }]
+                        }))
+                    })
+                ),
                 _ => {}
             }
         }
@@ -651,6 +656,44 @@ mod tests {
                 "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
                 "request_id" => assert_eq!(kv.value, string_value("req-unknown")),
                 "outcome" => assert_eq!(kv.value, string_value("Unknown")),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_success_outcome_to_any_value() {
+        let event = RequestStateChangeEvent::finished(
+            "test-ns",
+            "test-app",
+            "1.0.0",
+            "req-unknown",
+            RequestOutcome::Success,
+        );
+
+        let result = super::update_to_any_value(&event);
+        assert!(result.is_ok());
+
+        let any_value = result.unwrap();
+        let inner_kvlist = extract_inner_kvlist(&any_value);
+        let keys: std::collections::HashSet<_> = inner_kvlist
+            .values
+            .iter()
+            .map(|kv| kv.key.as_str())
+            .collect();
+        assert!(keys.contains("namespace"));
+        assert!(keys.contains("application_name"));
+        assert!(keys.contains("application_version"));
+        assert!(keys.contains("request_id"));
+        assert!(keys.contains("outcome"));
+
+        for kv in &inner_kvlist.values {
+            match kv.key.as_str() {
+                "namespace" => assert_eq!(kv.value, string_value("test-ns")),
+                "application_name" => assert_eq!(kv.value, string_value("test-app")),
+                "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
+                "request_id" => assert_eq!(kv.value, string_value("req-unknown")),
+                "outcome" => assert_eq!(kv.value, string_value("Success")),
                 _ => {}
             }
         }

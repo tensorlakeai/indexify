@@ -36,7 +36,7 @@ impl RequestStateChangeEvent {
             application_name: application.to_string(),
             application_version: application_version.to_string(),
             request_id: request_id.to_string(),
-            outcome: outcome.to_string(),
+            outcome,
         })
     }
 
@@ -160,7 +160,7 @@ pub struct RequestFinishedEvent {
     pub application_name: String,
     pub application_version: String,
     pub request_id: String,
-    pub outcome: String,
+    pub outcome: RequestOutcome,
 }
 
 impl RequestEventMetadata for RequestFinishedEvent {
