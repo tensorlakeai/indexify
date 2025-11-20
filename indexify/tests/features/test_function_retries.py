@@ -5,7 +5,7 @@ import unittest
 
 from tensorlake.applications import (
     Request,
-    RequestFailureException,
+    RequestFailed,
     Retries,
     application,
     cls,
@@ -59,14 +59,14 @@ class TestFunctionRetries(unittest.TestCase):
 
     def test_function_fails_after_exhausting_failure_retries(self):
         request: Request = run_remote_application(function_always_fails, 1)
-        self.assertRaises(RequestFailureException, request.output)
+        self.assertRaises(RequestFailed, request.output)
 
     def test_function_fails_after_exhausting_timeout_retries(self):
         if os.path.exists(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH):
             os.remove(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH)
 
         request: Request = run_remote_application(function_always_times_out, 1)
-        self.assertRaises(RequestFailureException, request.output)
+        self.assertRaises(RequestFailed, request.output)
 
         with open(FUNCTION_ALWAYS_TIMES_OUT_FILE_PATH, "r") as f:
             lines = f.readlines()

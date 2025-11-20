@@ -3,7 +3,7 @@ import unittest
 
 from tensorlake.applications import (
     Request,
-    RequestFailureException,
+    RequestFailed,
     application,
     cls,
     function,
@@ -41,7 +41,7 @@ class TestFunctionTimeouts(unittest.TestCase):
         )
         start_time = time.monotonic()
         # Check that the function failed.
-        self.assertRaises(RequestFailureException, request.output)
+        self.assertRaises(RequestFailed, request.output)
         duration_sec = time.monotonic() - start_time
         self.assertLess(
             duration_sec,
@@ -56,7 +56,7 @@ class TestFunctionTimeouts(unittest.TestCase):
         )
         start_time = time.monotonic()
         # Check that the function failed.
-        self.assertRaises(RequestFailureException, request.output)
+        self.assertRaises(RequestFailed, request.output)
         duration_sec = time.monotonic() - start_time
         self.assertLess(
             duration_sec,
