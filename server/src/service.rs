@@ -80,6 +80,7 @@ impl Service {
         }
 
         let cloud_events_exporter = if let Some(config) = &config.cloud_events {
+            info!(?config, "Initializing CloudEvents exporter");
             Some(CloudEventsExporter::new(config).await?)
         } else {
             None

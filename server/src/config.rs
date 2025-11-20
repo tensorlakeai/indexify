@@ -202,5 +202,5 @@ mod duration_serde {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CloudEventsConfig {
-    pub writer_endpoint: String,
+    pub endpoint: String,
 }

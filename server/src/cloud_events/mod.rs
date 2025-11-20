@@ -17,7 +17,7 @@ use serde_json::Value as JsonValue;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
-use tracing::error;
+use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{config::CloudEventsConfig, state_store::request_events::RequestStateChangeEvent};
@@ -39,7 +39,7 @@ impl Drop for CloudEventsExporter {
 
 impl CloudEventsExporter {
     pub async fn new(config: &CloudEventsConfig) -> Result<Self, anyhow::Error> {
-        let channel_builder = Channel::from_shared(config.writer_endpoint.clone())
+        let channel_builder = Channel::from_shared(config.endpoint.clone())
             .context("building OTLP channel builder")?;
 
         let channel = channel_builder
@@ -79,6 +79,7 @@ impl CloudEventsExporter {
                     _ = cancel.cancelled() => break,
                     ev = rx.recv() => match ev {
                         Some(update) => {
+                            debug!(?update, "Sending request state change event to Cloud Events Exporter");
                             let res = exporter.emit_request_state_update(update).await;
                             if let Err(err) = res {
                                 error!(?err, "Failed to emit request completed event");
