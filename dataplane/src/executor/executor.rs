@@ -1,4 +1,16 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
+
+use prometheus_client::registry::Registry;
+
+use crate::executor::{
+    executor_api::executor_api_pb::ExecutorStatus,
+    monitoring::{
+        health_check_handler::HealthCheckHandler,
+        health_checker::generic_health_checker::GenericHealthChecker,
+        prometheus_metrics_handler::PrometheusMetricsHandler, server::MonitoringServer,
+        startup_probe_handler::StartupProbeHandler,
+    },
+};
 
 pub struct Executor {
     startup_probe_handler: StartupProbeHandler,
@@ -6,6 +18,7 @@ pub struct Executor {
     state_reporter: ExecutorStateReporter,
     state_reconciler: ExecutorStateReconciler,
     monitoring_server: MonitoringServer,
+    registry: Arc<Registry>,
 }
 
 impl Executor {
@@ -14,7 +27,8 @@ impl Executor {
         version: String,
         labels: Vec<String>,
         cache_path: PathBuf,
-        health_checker: HealthChecker,
+        // TODO: use trait here
+        health_checker: GenericHealthChecker,
         function_uris: Vec<String>,
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: String,
@@ -25,7 +39,9 @@ impl Executor {
         blob_store: BlobStore,
         host_resource_provider: HostResourceProvider,
         catalog_entry_name: Option<String>,
+        registry: Arc<Registry>,
     ) -> Self {
+        let startup_probe_handler = StartupProbeHandler::new();
         let state_reporter = ExecutorStateReporter::new(
             id.clone(),
             version.clone(),
@@ -36,30 +52,33 @@ impl Executor {
             health_checker.clone(),
             catalog_entry_name.clone(),
         );
-        state_reporter.update_executor_status(ExecutorStatus::EXECUTOR_STATUS_STARTING_UP);
-        Executor {
-            startup_probe_handler: StartupProbeHandler::new(),
-            channel_manager: ChannelManager::new(grpc_server_addr, config_path.clone()),
+        let state_reconciler = ExecutorStateReconciler::new(
+            id,
+            function_executor_server_factory,
+            server_addr,
+            config_path,
+            cache_path,
+            blob_store,
+            channel_manager,
             state_reporter,
-            state_reconciler: ExecutorStateReconciler::new(
-                id,
-                function_executor_server_factory,
-                server_addr,
-                config_path,
-                cache_path,
-                blob_store,
-                self.channel_manager.clone(),
-                self.state_reporter.clone(),
-            ),
+        );
+        let channel_manager = ChannelManager::new(grpc_server_addr, config_path.clone());
+        state_reporter.update_executor_status(ExecutorStatus::StartingUp);
+        Executor {
+            startup_probe_handler,
+            channel_manager,
+            state_reporter,
+            state_reconciler,
             monitoring_server: MonitoringServer::new(
                 monitoring_server_host,
                 monitoring_server_port,
-                self.startup_probe_handler,
+                startup_probe_handler,
                 HealthCheckHandler::new(health_checker),
-                PrometheusMetricsHandler::new(),
-                ReportedStateHandler::new(self.state_reporter.clone()),
-                DesiredStateHandler::new(self.state_reconciler.clone()),
+                PrometheusMetricsHandler::new(registry.clone()),
+                ReportedStateHandler::new(state_reporter),
+                DesiredStateHandler::new(state_reconciler),
             ),
+            registry,
         }
     }
 
