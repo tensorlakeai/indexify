@@ -433,8 +433,9 @@ impl IndexifyState {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_request_state_changes(&self, update_request: &StateMachineUpdateRequest) {
-        if self.function_run_event_tx.receiver_count() == 0 {
+        if !self.events_receiver_waiting() {
             return;
         }
 
@@ -517,6 +518,10 @@ impl IndexifyState {
     }
 
     async fn emit_request_state_change_updates(&self, changes: Vec<RequestStateChangeEvent>) {
+        debug!(
+            changes = changes.len(),
+            "Emitting request state change updates"
+        );
         for change in changes {
             if let Some(cloud_events_exporter) = &self.cloud_events_exporter {
                 cloud_events_exporter
@@ -524,10 +529,16 @@ impl IndexifyState {
                     .await
             }
 
-            if let Err(error) = self.function_run_event_tx.send(change) {
-                error!(?error, "Failed to send request state change update");
+            if self.function_run_event_tx.receiver_count() > 0 {
+                if let Err(error) = self.function_run_event_tx.send(change) {
+                    error!(?error, "Failed to send request state change update");
+                }
             }
         }
+    }
+
+    fn events_receiver_waiting(&self) -> bool {
+        self.function_run_event_tx.receiver_count() > 0 || self.cloud_events_exporter.is_some()
     }
 
     pub fn reader(&self) -> scanner::StateReader {

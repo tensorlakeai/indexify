@@ -152,7 +152,7 @@ fn create_export_request(
     let attributes = vec![
         key_value_string("specversion", "1.0"),
         key_value_string("id", &Uuid::new_v4().to_string()),
-        key_value_string("type", "ai.tensorlake.progress-update"),
+        key_value_string("type", "ai.tensorlake.progress_update"),
         key_value_string("source", "/tensorlake/indexify_server"),
         key_value_string("timestamp", &now.to_rfc3339()),
         key_value_string("ai.tensorlake.status", update.request_status()),
