@@ -464,7 +464,6 @@ impl ExecutorManager {
             else {
                 continue;
             };
-            let fe_output_payload_uri_prefix = format!("{blob_store_url}/function_executors",);
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -485,7 +484,6 @@ impl ExecutorManager {
                         .0,
                 ),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
-                output_payload_uri_prefix: Some(fe_output_payload_uri_prefix.clone()),
                 max_concurrency: Some(fe.max_concurrency),
             };
             function_executors_pb.push(fe_description_pb);
@@ -526,12 +524,11 @@ impl ExecutorManager {
                         content_type: Some(input_arg.data_payload.encoding.clone()),
                     });
                 }
-                let output_payload_uri_prefix = format!(
-                    "{}/{}.{}.{}.{}",
+                let request_data_payload_uri_prefix = format!(
+                    "{}/{}.{}.{}",
                     blob_store_url,
                     allocation.namespace,
                     allocation.application,
-                    allocation.function,
                     allocation.request_id,
                 );
                 let allocation_pb = Allocation {
@@ -546,8 +543,8 @@ impl ExecutorManager {
                     function_call_id: Some(allocation.function_call_id.to_string()),
                     request_id: Some(allocation.request_id.to_string()),
                     args,
-                    output_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
-                    request_error_payload_uri_prefix: Some(output_payload_uri_prefix.clone()),
+                    request_data_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
+                    request_error_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
                     function_call_metadata: Some(allocation.call_metadata.clone().into()),
                 };
                 allocations_pb.push(allocation_pb);

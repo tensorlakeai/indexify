@@ -97,8 +97,6 @@ class FunctionExecutorController:
         state_reporter: ExecutorStateReporter,
         function_call_watch_dispatcher: FunctionCallWatchDispatcher,
         blob_store: BLOBStore,
-        base_url: str,
-        config_path: str,
         cache_path: Path,
         logger: Any,
     ):
@@ -120,8 +118,6 @@ class FunctionExecutorController:
             function_call_watch_dispatcher
         )
         self._blob_store: BLOBStore = blob_store
-        self._base_url: str = base_url
-        self._config_path: str = config_path
         self._cache_path: Path = cache_path
         self._logger: Any = function_executor_logger(
             function_executor_description, logger.bind(module=__name__)
@@ -256,8 +252,6 @@ class FunctionExecutorController:
             function_executor_server_factory=self._fe_server_factory,
             blob_store=self._blob_store,
             executor_id=self._executor_id,
-            base_url=self._base_url,
-            config_path=self._config_path,
             cache_path=self._cache_path,
             logger=self._logger,
         )

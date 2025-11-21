@@ -101,6 +101,30 @@ class TestMetrics(unittest.TestCase):
             "application_downloads_from_cache_total",
             "application_download_latency_seconds_count",
             "application_download_latency_seconds_sum",
+            # blob store get metadata
+            "blob_store_get_metadata_requests_total",
+            "blob_store_get_metadata_errors_total",
+            "blob_store_get_metadata_latency_seconds_count",
+            # blob store presign uri
+            "blob_store_presign_uri_requests_total",
+            "blob_store_presign_uri_errors_total",
+            "blob_store_presign_uri_latency_seconds_count",
+            # blob store uploads
+            "blob_store_upload_requests_total",
+            "blob_store_upload_errors_total",
+            "blob_store_upload_latency_seconds_count",
+            # blob store create multipart upload
+            "blob_store_create_multipart_upload_requests_total",
+            "blob_store_create_multipart_upload_errors_total",
+            "blob_store_create_multipart_upload_latency_seconds_count",
+            # blob store complete multipart upload
+            "blob_store_complete_multipart_upload_requests_total",
+            "blob_store_complete_multipart_upload_errors_total",
+            "blob_store_complete_multipart_upload_latency_seconds_count",
+            # blob store abort multipart upload
+            "blob_store_abort_multipart_upload_requests_total",
+            "blob_store_abort_multipart_upload_errors_total",
+            "blob_store_abort_multipart_upload_latency_seconds_count",
             # allocation preparation
             "allocation_preparations_total",
             "allocation_preparation_errors_total",
@@ -111,18 +135,6 @@ class TestMetrics(unittest.TestCase):
             "function_executor_failed_health_checks_total",
             "function_executor_health_check_latency_seconds_count",
             "function_executor_health_check_latency_seconds_sum",
-            # Request state client
-            "function_executor_request_state_client_request_read_errors_total",
-            # Server get request state API.
-            "server_get_request_state_requests_total",
-            "server_get_request_state_request_errors_total",
-            "server_get_request_state_request_latency_seconds_count",
-            "server_get_request_state_request_latency_seconds_sum",
-            # Server set request state API.
-            "server_set_request_state_requests_total",
-            "server_set_request_state_request_errors_total",
-            "server_set_request_state_request_latency_seconds_count",
-            "server_set_request_state_request_latency_seconds_sum",
             # Function executor create/destroy.
             "function_executors_count",
             #
@@ -159,14 +171,6 @@ class TestMetrics(unittest.TestCase):
             "function_executor_initialize_rpc_latency_seconds_count",
             "function_executor_initialize_rpc_latency_seconds_sum",
             "function_executor_initialize_rpc_errors_total",
-            #
-            "function_executor_create_request_state_client_latency_seconds_count",
-            "function_executor_create_request_state_client_latency_seconds_sum",
-            "function_executor_create_request_state_client_errors_total",
-            #
-            "function_executor_destroy_request_state_client_latency_seconds_count",
-            "function_executor_destroy_request_state_client_latency_seconds_sum",
-            "function_executor_destroy_request_state_client_errors_total",
             #
             "function_executor_create_health_checker_latency_seconds_count",
             "function_executor_create_health_checker_latency_seconds_sum",
@@ -275,26 +279,6 @@ class TestMetrics(unittest.TestCase):
             SampleSpec("allocations_getting_prepared", {}, 0.0),
             # FE health checker
             SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
-            # Request state client
-            SampleSpec(
-                "function_executor_request_state_client_request_read_errors_total",
-                {},
-                0.0,
-            ),
-            # Server get request state API.
-            SampleSpec("server_get_request_state_requests_total", {}, 0.0),
-            SampleSpec("server_get_request_state_request_errors_total", {}, 0.0),
-            SampleSpec(
-                "server_get_request_state_request_latency_seconds_count", {}, 0.0
-            ),
-            SampleSpec("server_get_request_state_request_latency_seconds_sum", {}, 0.0),
-            # Server set request state API.
-            SampleSpec("server_set_request_state_requests_total", {}, 0.0),
-            SampleSpec("server_set_request_state_request_errors_total", {}, 0.0),
-            SampleSpec(
-                "server_set_request_state_request_latency_seconds_count", {}, 0.0
-            ),
-            SampleSpec("server_set_request_state_request_latency_seconds_sum", {}, 0.0),
             # Function executor create/destroy.
             SampleSpec("function_executor_creates_total", {}, 1.0),
             SampleSpec("function_executor_create_latency_seconds_count", {}, 1.0),
@@ -323,21 +307,6 @@ class TestMetrics(unittest.TestCase):
                 "function_executor_initialize_rpc_latency_seconds_count", {}, 1.0
             ),
             SampleSpec("function_executor_initialize_rpc_errors_total", {}, 0.0),
-            #
-            SampleSpec(
-                "function_executor_create_request_state_client_latency_seconds_count",
-                {},
-                1.0,
-            ),
-            SampleSpec(
-                "function_executor_create_request_state_client_errors_total", {}, 0.0
-            ),
-            #
-            SampleSpec(
-                "function_executor_destroy_request_state_client_errors_total",
-                {},
-                0.0,
-            ),
             #
             SampleSpec(
                 "function_executor_create_health_checker_latency_seconds_count", {}, 1.0

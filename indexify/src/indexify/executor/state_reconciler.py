@@ -87,8 +87,6 @@ class ExecutorStateReconciler:
         self,
         executor_id: str,
         function_executor_server_factory: FunctionExecutorServerFactory,
-        base_url: str,
-        config_path: str | None,
         cache_path: Path,
         blob_store: BLOBStore,
         channel_manager: ChannelManager,
@@ -99,8 +97,6 @@ class ExecutorStateReconciler:
         self._function_executor_server_factory: FunctionExecutorServerFactory = (
             function_executor_server_factory
         )
-        self._base_url: str = base_url
-        self._config_path: str | None = config_path
         self._cache_path: Path = cache_path
         self._blob_store: BLOBStore = blob_store
         self._channel_manager: ChannelManager = channel_manager
@@ -436,8 +432,6 @@ class ExecutorStateReconciler:
                 state_reporter=self._state_reporter,
                 function_call_watch_dispatcher=self._function_call_watch_dispatcher,
                 blob_store=self._blob_store,
-                base_url=self._base_url,
-                config_path=self._config_path,
                 cache_path=self._cache_path,
                 logger=self._logger,
             )

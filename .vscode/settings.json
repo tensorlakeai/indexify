@@ -16,5 +16,10 @@
         "tombstoned",
         "Upserted",
         "utoipa"
-    ]
+    ],
+    "protoc": {
+        "options": [
+            "--proto_path=${workspaceRoot}/indexify/tensorlake/src",
+        ]
+    }
 }

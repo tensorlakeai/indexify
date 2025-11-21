@@ -53,7 +53,6 @@ impl ExecutorCatalog {
 
 pub mod driver;
 pub mod in_memory_state;
-pub mod kv;
 #[cfg(feature = "migrations")]
 pub mod migration_runner;
 #[cfg(feature = "migrations")]

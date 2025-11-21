@@ -53,7 +53,6 @@ tonic-prost = "0.14.2"
 tonic-reflection = "0.14.2"
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 priority-queue = "2.6.0"
-slatedb = { version = "0.8.2" }
 rust-embed = { version = "8.8.0", features = ["mime-guess"] }
 pin-project-lite = "0.2.16"
 pin-project = "1.1.10"
@@ -72,7 +71,7 @@ tracing-opentelemetry = "0.32.0"
 opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
 console-subscriber = { version = "0.5.0", optional = true }
 tonic-types = "0.14.2"
-tokio-util = "0.7.17"
+tokio-util = { version = "0.7.17", features = ["rt"] }
 
 
 [dev-dependencies]
