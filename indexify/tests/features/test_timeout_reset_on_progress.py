@@ -4,7 +4,7 @@ import unittest
 from tensorlake.applications import (
     Request,
     RequestContext,
-    RequestFailureException,
+    RequestFailed,
     application,
     function,
     run_remote_application,
@@ -80,7 +80,7 @@ class TestTimeoutResetOnProgress(unittest.TestCase):
 
         start_time = time.monotonic()
         request: Request = run_remote_application(function_without_progress_updates, 1)
-        self.assertRaises(RequestFailureException, request.output)
+        self.assertRaises(RequestFailed, request.output)
         duration = time.monotonic() - start_time
 
         # Should timeout after about 5 seconds, but CI can be slow,
