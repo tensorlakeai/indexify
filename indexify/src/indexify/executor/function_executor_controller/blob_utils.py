@@ -32,18 +32,39 @@ _OUTPUT_BLOB_SLOWER_CHUNK_SIZE_BYTES: int = 1 * 1024 * 1024 * 1024  # 1 GB
 async def presign_read_only_blob_for_data_payload(
     data_payload: DataPayload, blob_store: BLOBStore, logger: Any
 ) -> BLOB:
+    return await presign_read_only_blob(
+        blob_uri=data_payload.uri,
+        blob_size=data_payload.offset + data_payload.size,
+        blob_store=blob_store,
+        logger=logger,
+    )
+
+
+async def presign_read_only_blob(
+    blob_uri: str, blob_size: int, blob_store: BLOBStore, logger: Any
+) -> BLOB:
     get_blob_uri: str = await blob_store.presign_get_uri(
-        uri=data_payload.uri,
+        uri=blob_uri,
         expires_in_sec=_MAX_PRESIGNED_URI_EXPIRATION_SEC,
         logger=logger,
     )
-    chunks: list[BLOBChunk] = []
 
-    while len(chunks) * _BLOB_OPTIMAL_CHUNK_SIZE_BYTES < data_payload.size:
+    chunks: list[BLOBChunk] = []
+    chunks_total_size: int = 0
+
+    while chunks_total_size < blob_size:
+        # Trim chunk size if it exceeds the remaining data size.
+        # This is important because FE uses blob size derived from its chunk sizes.
+        chunk_size: int = (
+            _BLOB_OPTIMAL_CHUNK_SIZE_BYTES
+            if chunks_total_size + _BLOB_OPTIMAL_CHUNK_SIZE_BYTES <= blob_size
+            else blob_size - chunks_total_size
+        )
+        chunks_total_size += chunk_size
         chunks.append(
             BLOBChunk(
-                uri=get_blob_uri,  # The URI allows to read any byte range in the BLOB.
-                size=_BLOB_OPTIMAL_CHUNK_SIZE_BYTES,
+                uri=get_blob_uri,
+                size=chunk_size,
                 # ETag is only set by FE when returning BLOBs to us
             )
         )
@@ -74,10 +95,18 @@ async def presign_write_only_blob(
             logger=logger,
         )
 
+        # Determine optimal chunk size.
         chunk_size: int = (
             _BLOB_OPTIMAL_CHUNK_SIZE_BYTES
             if len(chunks) < _OUTPUT_BLOB_OPTIMAL_CHUNKS_COUNT
             else _OUTPUT_BLOB_SLOWER_CHUNK_SIZE_BYTES
+        )
+        # Trim chunk size if it exceeds the remaining data size.
+        # This is important because FE uses blob size derived from its chunk sizes.
+        chunk_size = (
+            chunk_size
+            if chunks_total_size + chunk_size <= size
+            else size - chunks_total_size
         )
         chunks_total_size += chunk_size
         chunks.append(

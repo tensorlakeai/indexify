@@ -3,6 +3,8 @@ import os
 import os.path
 from typing import Any
 
+from .blob_metadata import BLOBMetadata
+
 
 class LocalFSBLOBStore:
     """BLOB store that stores BLOBs in local file system."""
@@ -15,6 +17,16 @@ class LocalFSBLOBStore:
         """
         # Run synchronous code in a thread to not block the event loop.
         return await asyncio.to_thread(self._sync_get, _path_from_file_uri(uri))
+
+    async def get_metadata(self, uri: str, logger: Any) -> BLOBMetadata:
+        """Returns metadata for the file at the supplied URI.
+
+        Raises Exception on error. Raises KeyError if the file doesn't exist.
+        """
+        # Run synchronous code in a thread to not block the event loop.
+        return await asyncio.to_thread(
+            self._sync_get_metadata, _path_from_file_uri(uri)
+        )
 
     async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
         """Returns a presigned URI for getting the file at the supplied URI.
@@ -72,6 +84,16 @@ class LocalFSBLOBStore:
         if os.path.exists(path):
             with open(path, mode="rb") as blob_file:
                 return blob_file.read()
+        else:
+            raise KeyError(f"File at {path} does not exist")
+
+    def _sync_get_metadata(self, path: str) -> BLOBMetadata:
+        if not os.path.isabs(path):
+            raise ValueError(f"Path {path} must be absolute")
+
+        if os.path.exists(path):
+            size_bytes: int = os.path.getsize(path)
+            return BLOBMetadata(size_bytes=size_bytes)
         else:
             raise KeyError(f"File at {path} does not exist")
 

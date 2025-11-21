@@ -5,6 +5,8 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError as BotoClientError
 
+from .blob_metadata import BLOBMetadata
+
 _MAX_RETRIES = 3
 
 
@@ -57,6 +59,29 @@ class S3BLOBStore:
             raise
         except Exception as e:
             logger.error("failed to get S3 object", uri=uri, exc_info=e)
+            raise
+
+    async def get_metadata(self, uri: str, logger: Any) -> BLOBMetadata:
+        """Returns metadata for the BLOB with the supplied URI.
+
+        Raises Exception on error. Raises KeyError if the BLOB doesn't exist.
+        """
+        try:
+            self._lazy_create_client()
+            bucket_name, key = _bucket_name_and_object_key_from_uri(uri)
+            response = await asyncio.to_thread(
+                self._s3_client.head_object, Bucket=bucket_name, Key=key
+            )
+            size_bytes: int = response["ContentLength"]
+            return BLOBMetadata(size_bytes=size_bytes)
+        except BotoClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                raise KeyError(f"Object {key} does not exist in bucket {bucket_name}")
+            else:
+                logger.error("failed to get S3 object metadata", uri=uri, exc_info=e)
+                raise
+        except Exception as e:
+            logger.error("failed to get S3 object metadata", uri=uri, exc_info=e)
             raise
 
     async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
