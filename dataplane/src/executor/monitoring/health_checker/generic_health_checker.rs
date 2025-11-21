@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::executor::{Metrics, monitoring::health_checker::HealthChecker};
+use crate::executor::{metrics::Metrics, monitoring::health_checker::HealthChecker};
 
 pub const HEALTH_CHECKER_NAME: &str = "GenericHealthChecker";
 
