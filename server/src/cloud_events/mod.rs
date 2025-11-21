@@ -785,7 +785,7 @@ mod tests {
         for kv in &log_record.attributes {
             match kv.key.as_str() {
                 "specversion" => assert_eq!(kv.value, string_value("1.0")),
-                "type" => assert_eq!(kv.value, string_value("ai.tensorlake.progress-update")),
+                "type" => assert_eq!(kv.value, string_value("ai.tensorlake.progress_update")),
                 "source" => assert_eq!(kv.value, string_value("/tensorlake/indexify_server")),
                 "ai.tensorlake.status" => assert!(matches!(
                     &kv.value,
