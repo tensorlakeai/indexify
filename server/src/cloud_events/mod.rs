@@ -15,7 +15,7 @@ use opentelemetry_proto::tonic::{
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc::Sender;
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tonic::transport::Channel;
 use tracing::{debug, error};
 use uuid::Uuid;
@@ -27,14 +27,9 @@ use retry::*;
 
 #[derive(Clone)]
 pub struct CloudEventsExporter {
+    task_tracker: TaskTracker,
     cancellation_token: CancellationToken,
     tx: Sender<RequestStateChangeEvent>,
-}
-
-impl Drop for CloudEventsExporter {
-    fn drop(&mut self) {
-        self.cancellation_token.cancel();
-    }
 }
 
 impl CloudEventsExporter {
@@ -47,10 +42,17 @@ impl CloudEventsExporter {
             .await
             .context("building OTLP channel")?;
 
+        let task_tracker = TaskTracker::new();
         let cancellation_token = CancellationToken::new();
-        let tx = Self::start_collector(cancellation_token.clone(), channel.clone()).await;
+        let tx = Self::start_collector(
+            task_tracker.clone(),
+            cancellation_token.clone(),
+            channel.clone(),
+        )
+        .await;
 
         Ok(CloudEventsExporter {
+            task_tracker,
             cancellation_token,
             tx,
         })
@@ -66,13 +68,14 @@ impl CloudEventsExporter {
     }
 
     async fn start_collector(
+        tracker: TaskTracker,
         cancel: CancellationToken,
         channel: Channel,
     ) -> Sender<RequestStateChangeEvent> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<RequestStateChangeEvent>(100);
         let mut exporter = CloudEventsExporterClient::new(channel.clone());
 
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             loop {
                 tokio::select! {
                     biased;
@@ -92,6 +95,12 @@ impl CloudEventsExporter {
         });
 
         tx
+    }
+
+    pub async fn wait_for_completion(&self) {
+        self.task_tracker.close();
+        self.cancellation_token.cancel();
+        self.task_tracker.wait().await;
     }
 }
 

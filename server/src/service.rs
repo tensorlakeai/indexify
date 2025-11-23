@@ -298,12 +298,17 @@ impl Service {
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
-        axum_server::bind(addr)
+        let result = axum_server::bind(addr)
             .handle(handle)
             .serve(router.into_make_service())
-            .await?;
+            .await
+            .map_err(Into::into);
 
-        Ok(())
+        // Handle graceful shutdown for the state store
+        // before terminating the process.
+        self.indexify_state.shutdown().await;
+
+        result
     }
 }
 

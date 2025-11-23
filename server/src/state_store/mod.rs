@@ -107,13 +107,13 @@ pub struct IndexifyState {
     pub state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
 
-    pub function_run_event_tx: tokio::sync::broadcast::Sender<RequestStateChangeEvent>,
-    pub gc_tx: tokio::sync::watch::Sender<()>,
-    pub gc_rx: tokio::sync::watch::Receiver<()>,
-    pub change_events_tx: tokio::sync::watch::Sender<()>,
-    pub change_events_rx: tokio::sync::watch::Receiver<()>,
-    pub usage_events_tx: tokio::sync::watch::Sender<()>,
-    pub usage_events_rx: tokio::sync::watch::Receiver<()>,
+    pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
+    pub gc_tx: watch::Sender<()>,
+    pub gc_rx: watch::Receiver<()>,
+    pub change_events_tx: watch::Sender<()>,
+    pub change_events_rx: watch::Receiver<()>,
+    pub usage_events_tx: watch::Sender<()>,
+    pub usage_events_rx: watch::Receiver<()>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
@@ -547,6 +547,12 @@ impl IndexifyState {
 
     pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
         self.function_run_event_tx.subscribe()
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(exporter) = &self.cloud_events_exporter {
+            exporter.wait_for_completion().await;
+        }
     }
 }
 
