@@ -96,7 +96,7 @@ impl FunctionExecutorManager {
             fn_call_id = fn_run.id.to_string(),
             app = fn_run.application,
             "fn" = fn_run.name,
-            app_version = fn_run.application_version.to_string(),
+            app_version = fn_run.version.to_string(),
         );
         let _guard = span.enter();
 
@@ -129,7 +129,7 @@ impl FunctionExecutorManager {
                 &fn_run.namespace,
                 &fn_run.application,
                 &fn_run.name,
-                &fn_run.application_version,
+                &fn_run.version,
             )
             .ok_or(anyhow!("failed to get function executor resources"))?;
 
@@ -146,7 +146,7 @@ impl FunctionExecutorManager {
                 &fn_run.namespace,
                 &fn_run.application,
                 &fn_run.name,
-                &fn_run.application_version,
+                &fn_run.version,
             )
             .ok_or(anyhow!("failed to get function executor max concurrency"))?;
 
@@ -155,7 +155,7 @@ impl FunctionExecutorManager {
             .namespace(fn_run.namespace.clone())
             .application_name(fn_run.application.clone())
             .function_name(fn_run.name.clone())
-            .version(fn_run.application_version.clone())
+            .version(fn_run.version.clone())
             .state(FunctionExecutorState::Unknown)
             .resources(fe_resources.clone())
             .max_concurrency(node_max_concurrency)

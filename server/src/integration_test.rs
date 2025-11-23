@@ -1098,7 +1098,7 @@ mod tests {
         let versions = request_ctx
             .function_runs
             .values()
-            .map(|r| r.application_version.clone())
+            .map(|r| r.version.clone())
             .collect::<HashSet<_>>();
         assert_eq!(1, versions.len());
         assert_eq!("2", versions.iter().next().unwrap());

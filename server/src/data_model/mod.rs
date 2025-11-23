@@ -228,10 +228,8 @@ pub struct FunctionRun {
     pub request_id: String,
     pub namespace: String,
     pub application: String,
-    // This field used to be called `version`. We use a serde alias to support deserialization of
-    // old data in the state store.
-    #[serde(alias = "version")]
-    pub application_version: String,
+    // This is the application version
+    pub version: String,
     pub name: String,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
@@ -268,10 +266,7 @@ impl FunctionRunBuilder {
 
 impl FunctionRun {
     pub fn key_application_version(&self, application_name: &str) -> String {
-        format!(
-            "{}|{}|{}",
-            self.namespace, application_name, self.application_version,
-        )
+        format!("{}|{}|{}", self.namespace, application_name, self.version)
     }
 
     pub fn key(&self) -> String {
@@ -699,7 +694,7 @@ impl ApplicationVersion {
             .id(fn_call.function_call_id.clone())
             .namespace(self.namespace.clone())
             .application(self.name.clone())
-            .application_version(self.version.clone())
+            .version(self.version.clone())
             .compute_op(ComputeOp::FunctionCall(FunctionCall {
                 function_call_id: fn_call.function_call_id.clone(),
                 inputs: fn_call.inputs.clone(),
@@ -1202,7 +1197,7 @@ impl From<&FunctionRun> for FunctionURI {
             namespace: function_run.namespace.clone(),
             application: function_run.application.clone(),
             function: function_run.name.clone(),
-            version: function_run.application_version.clone(),
+            version: function_run.version.clone(),
         }
     }
 }
@@ -1570,7 +1565,7 @@ impl FunctionAllowlist {
                 .is_none_or(|fn_name| fn_name == &function_run.name) &&
             self.version
                 .as_ref()
-                .is_none_or(|version| version == &function_run.application_version)
+                .is_none_or(|version| version == &function_run.version)
     }
 }
 

@@ -487,7 +487,7 @@ impl IndexifyState {
                                 request_events::FunctionRunCreated {
                                     namespace: function_run.namespace.clone(),
                                     application_name: function_run.application.clone(),
-                                    application_version: function_run.application_version.clone(),
+                                    application_version: function_run.version.clone(),
                                     request_id: function_run.request_id.clone(),
                                     function_name: function_run.name.clone(),
                                     function_run_id: function_run.id.to_string(),
@@ -529,10 +529,10 @@ impl IndexifyState {
                     .await
             }
 
-            if self.function_run_event_tx.receiver_count() > 0 {
-                if let Err(error) = self.function_run_event_tx.send(change) {
-                    error!(?error, "Failed to send request state change update");
-                }
+            if self.function_run_event_tx.receiver_count() > 0 &&
+                let Err(error) = self.function_run_event_tx.send(change)
+            {
+                error!(?error, "Failed to send request state change update");
             }
         }
     }
