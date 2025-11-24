@@ -79,7 +79,6 @@ impl CloudEventsExporter {
             loop {
                 tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => break,
                     ev = rx.recv() => match ev {
                         Some(update) => {
                             debug!(?update, "Sending request state change event to Cloud Events Exporter");
@@ -89,7 +88,8 @@ impl CloudEventsExporter {
                             }
                         }
                         None => { break }
-                    }
+                    },
+                    _ = cancel.cancelled() => break,
                 }
             }
         });
