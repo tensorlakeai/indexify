@@ -61,7 +61,7 @@ jobs:
           ref: ${{ inputs.ref }}
       - run: mkdir -p /tmp/release
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: /tmp/release/
       - name: Name Artifacts

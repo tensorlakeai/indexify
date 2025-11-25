@@ -1,0 +1,79 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: cargo
+    directory: server
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: docker
+    directory: server/dockerfiles
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: npm
+    directory: docs
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: npm
+    directory: server/ui
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
+  - package-ecosystem: pip
+    directory: indexify
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch-updates:
+        patterns:
+          - '*' # All dependencies
+        update-types:
+          - 'minor'
+          - 'patch'
