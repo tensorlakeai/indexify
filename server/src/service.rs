@@ -19,6 +19,7 @@ use tracing::{Instrument, info, info_span};
 
 use crate::{
     blob_store::{BlobStorage, registry::BlobStorageRegistry},
+    cloud_events::CloudEventsExporter,
     config::ServerConfig,
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
@@ -77,10 +78,19 @@ impl Service {
         if executor_catalog.empty() {
             info!("No configured executor label sets; allowing all executors");
         }
+
+        let cloud_events_exporter = if let Some(config) = &config.cloud_events {
+            info!(?config, "Initializing CloudEvents exporter");
+            Some(CloudEventsExporter::new(config).await?)
+        } else {
+            None
+        };
+
         let indexify_state = IndexifyState::new(
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
+            cloud_events_exporter,
         )
         .await?;
 
@@ -288,12 +298,17 @@ impl Service {
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
-        axum_server::bind(addr)
+        let result = axum_server::bind(addr)
             .handle(handle)
             .serve(router.into_make_service())
-            .await?;
+            .await
+            .map_err(Into::into);
 
-        Ok(())
+        // Handle graceful shutdown for the state store
+        // before terminating the process.
+        self.indexify_state.shutdown().await;
+
+        result
     }
 }
 

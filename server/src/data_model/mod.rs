@@ -228,8 +228,9 @@ pub struct FunctionRun {
     pub request_id: String,
     pub namespace: String,
     pub application: String,
-    pub name: String,
+    // This is the application version
     pub version: String,
+    pub name: String,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
     // Function call which output will be used as output of this function run
@@ -265,7 +266,7 @@ impl FunctionRunBuilder {
 
 impl FunctionRun {
     pub fn key_application_version(&self, application_name: &str) -> String {
-        format!("{}|{}|{}", self.namespace, application_name, self.version,)
+        format!("{}|{}|{}", self.namespace, application_name, self.version)
     }
 
     pub fn key(&self) -> String {
@@ -757,6 +758,7 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
     Unknown,
     Success,
@@ -796,6 +798,7 @@ impl Display for RequestOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     // Used when request didn't finish yet and when request finished successfully
     Unknown,
