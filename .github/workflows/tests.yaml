@@ -66,7 +66,7 @@ jobs:
           cd server
           cargo test --workspace -- --test-threads 1
       - name: Upload indexify-server
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: indexify-server
           path: target/debug/indexify-server
