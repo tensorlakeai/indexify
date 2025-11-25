@@ -6,6 +6,7 @@ use clap::Parser;
 use service::Service;
 
 mod blob_store;
+mod cloud_events;
 mod config;
 mod data_model;
 mod executor_api;

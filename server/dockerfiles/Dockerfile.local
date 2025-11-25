@@ -22,7 +22,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release --bin indexify-server
 
-FROM ubuntu:22.04 AS runner
+FROM ubuntu:24.04 AS runner
 
 RUN apt update
 

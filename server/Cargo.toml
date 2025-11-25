@@ -42,6 +42,7 @@ rand = "0.9.2"
 hyper = "1.7.0"
 url = "2.5.6"
 opentelemetry = { version = "0.31.0", features = ["metrics", "trace"] }
+opentelemetry-proto = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
 opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic"] }
 axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
@@ -70,6 +71,8 @@ prost-types = "0.14.1"
 tracing-opentelemetry = "0.32.0"
 opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
 console-subscriber = { version = "0.5.0", optional = true }
+tonic-types = "0.14.2"
+tokio-util = "0.7.17"
 
 
 [dev-dependencies]
@@ -78,7 +81,7 @@ strum = { version = "0.27.1", features = ["derive"] }
 rocksdb = { version = "0.24.0" }
 tokio = { version = "1.45.1", features = ["full", "test-util"] }
 mock_instant = "0.6.0"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.7", features = ["html_reports"] }
 
 # [[bench]]
 # name = "state_store"

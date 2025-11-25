@@ -228,8 +228,9 @@ pub struct FunctionRun {
     pub request_id: String,
     pub namespace: String,
     pub application: String,
-    pub name: String,
+    // This is the application version
     pub version: String,
+    pub name: String,
     pub compute_op: ComputeOp,
     pub input_args: Vec<InputArgs>,
     // Function call which output will be used as output of this function run
@@ -265,7 +266,7 @@ impl FunctionRunBuilder {
 
 impl FunctionRun {
     pub fn key_application_version(&self, application_name: &str) -> String {
-        format!("{}|{}|{}", self.namespace, application_name, self.version,)
+        format!("{}|{}|{}", self.namespace, application_name, self.version)
     }
 
     pub fn key(&self) -> String {
@@ -757,9 +758,13 @@ impl DataPayloadBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
+    #[serde(alias = "Unknown")]
     Unknown,
+    #[serde(alias = "Success")]
     Success,
+    #[serde(alias = "Failure")]
     Failure(RequestFailureReason),
 }
 
@@ -796,22 +801,31 @@ impl Display for RequestOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     // Used when request didn't finish yet and when request finished successfully
+    #[serde(alias = "Unknown")]
     Unknown,
     // Internal error on Executor aka platform error.
+    #[serde(alias = "InternalError")]
     InternalError,
     // Clear function code failure typically by raising an exception from the function code.
+    #[serde(alias = "FunctionError")]
     FunctionError,
     // One of the functions timed out.
+    #[serde(alias = "FunctionTimeout")]
     FunctionTimeout,
     // Function code raised RequestError to mark the request as permanently failed.
+    #[serde(alias = "RequestError")]
     RequestError,
     // A graph function cannot be scheduled given the specified constraints.
+    #[serde(alias = "ConstraintUnsatisfiable")]
     ConstraintUnsatisfiable,
     // Cancelled.
+    #[serde(alias = "Cancelled")]
     Cancelled,
     // Out of memory.
+    #[serde(alias = "OutOfMemory")]
     OutOfMemory,
 }
 
