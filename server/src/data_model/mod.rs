@@ -760,8 +760,11 @@ impl DataPayloadBuilder {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
+    #[serde(alias = "Unknown")]
     Unknown,
+    #[serde(alias = "Success")]
     Success,
+    #[serde(alias = "Failure")]
     Failure(RequestFailureReason),
 }
 
