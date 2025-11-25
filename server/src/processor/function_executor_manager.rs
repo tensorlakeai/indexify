@@ -574,7 +574,7 @@ impl FunctionExecutorManager {
         if function_executors.function_executors.is_empty() &&
             function_executors.num_pending_function_executors == 0
         {
-            info!(
+            debug!(
                 target: targets::SCHEDULER,
                 namespace = function_run.namespace,
                 app = function_run.application,
