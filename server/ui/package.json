@@ -11,7 +11,7 @@
   "dependencies": {
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
-    "@microlink/react-json-view": "^1.23.0",
+    "@microlink/react-json-view": "^1.27.0",
     "@mui/icons-material": "^5.15.7",
     "@mui/material": "^5.15.7",
     "@mui/x-data-grid": "^6.19.3",
@@ -23,7 +23,7 @@
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@types/react-router-dom": "^5.3.3",
-    "axios": "^1.12.0",
+    "axios": "^1.13.2",
     "crypto": "^1.0.1",
     "date-fns": "^4.1.0",
     "getindexify": "^0.1.5",
@@ -33,7 +33,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.26.2",
     "react-toastify": "^10.0.5",
-    "react-virtuoso": "^4.10.4",
+    "react-virtuoso": "^4.15.0",
     "serve": "^14.2.5",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
