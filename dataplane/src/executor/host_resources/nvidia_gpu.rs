@@ -55,6 +55,7 @@ pub async fn fetch_nvidia_gpu_info() -> Result<Vec<NvidiaGpuInfo>, Box<dyn std::
         .collect()
 }
 
+#[derive(Debug, Clone)]
 pub struct NvidiaGpuAllocator {
     all_gpus: Vec<NvidiaGpuInfo>,
     free_gpus: Vec<NvidiaGpuInfo>,

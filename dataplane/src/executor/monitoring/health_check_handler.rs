@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
 use anyhow::Result;
 use http_body_util::combinators::BoxBody;
@@ -13,17 +13,17 @@ use crate::executor::monitoring::{
 
 #[derive(Debug, Clone)]
 pub struct HealthCheckHandler {
-    health_checker: GenericHealthChecker,
+    health_checker: Arc<GenericHealthChecker>,
 }
 
 impl HealthCheckHandler {
-    pub fn new(health_checker: GenericHealthChecker) -> Self {
+    pub fn new(health_checker: Arc<GenericHealthChecker>) -> Self {
         Self { health_checker }
     }
 }
 
 impl Handler<hyper::body::Incoming> for HealthCheckHandler {
-    fn handle(
+    async fn handle(
         &self,
         _request: Request<hyper::body::Incoming>,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Infallible> {

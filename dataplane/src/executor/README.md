@@ -9,3 +9,8 @@
     * `/state/reported`: Reports the metadata state of the Executor (host). These include the available host resources, dev environment setup, OS, CPU architecture, state hash, system time, and executor id.
     * `/state/desired`: Reports the desired state of the Executor (host) received from the Indexify server.
 * State Reconciler: Executes functions based on Executor initial state and updates the evenutal state.
+
+## Design decisions
+
+* Metrics: We consolidate the metrics into a single module in order to simplify state sharing across the Executor modules and threads.
+* gRPC: The gRPC client API is also consolidated into a single module for simplifying implementation and for no other apparent reason.

@@ -18,7 +18,7 @@ impl PrometheusMetricsHandler {
 }
 
 impl Handler<hyper::body::Incoming> for PrometheusMetricsHandler {
-    fn handle(
+    async fn handle(
         &self,
         _request: hyper::Request<hyper::body::Incoming>,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Infallible> {

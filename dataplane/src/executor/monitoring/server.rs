@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use crate::executor::monitoring::{
     handler::Handler, health_check_handler::HealthCheckHandler,
     prometheus_metrics_handler::PrometheusMetricsHandler,
-    startup_probe_handler::StartupProbeHandler,
+    reported_state_handler::ReportedStateHandler, startup_probe_handler::StartupProbeHandler,
 };
 
 #[derive(Clone)]
@@ -23,6 +23,7 @@ pub struct MonitoringServer {
     startup_probe_handler: StartupProbeHandler,
     health_probe_handler: HealthCheckHandler,
     metrics_handler: PrometheusMetricsHandler,
+    reported_state_handler: ReportedStateHandler,
 }
 
 impl MonitoringServer {
@@ -32,6 +33,7 @@ impl MonitoringServer {
         startup_probe_handler: StartupProbeHandler,
         health_probe_handler: HealthCheckHandler,
         metrics_handler: PrometheusMetricsHandler,
+        reported_state_handler: ReportedStateHandler,
     ) -> Self {
         MonitoringServer {
             host,
@@ -39,6 +41,7 @@ impl MonitoringServer {
             startup_probe_handler,
             health_probe_handler,
             metrics_handler,
+            reported_state_handler,
         }
     }
 
@@ -71,9 +74,14 @@ impl MonitoringServer {
         request: Request<hyper::body::Incoming>,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Infallible> {
         match (request.method(), request.uri().path()) {
-            (&Method::POST, "/monitoring/startup") => self.startup_probe_handler.handle(request),
-            (&Method::POST, "/monitoring/health") => self.health_probe_handler.handle(request),
-            (&Method::POST, "/monitoring/metrics") => self.metrics_handler.handle(request),
+            (&Method::POST, "/monitoring/startup") => {
+                self.startup_probe_handler.handle(request).await
+            }
+            (&Method::POST, "/monitoring/health") => {
+                self.health_probe_handler.handle(request).await
+            }
+            (&Method::POST, "/monitoring/metrics") => self.metrics_handler.handle(request).await,
+            (&Method::POST, "/state/reported") => self.reported_state_handler.handle(request).await,
 
             _ => {
                 let mut not_found = Response::new(empty());

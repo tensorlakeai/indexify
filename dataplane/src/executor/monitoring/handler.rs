@@ -8,7 +8,7 @@ use hyper::{
 };
 
 pub trait Handler<T> {
-    fn handle(
+    async fn handle(
         &self,
         request: Request<T>,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Infallible>;
