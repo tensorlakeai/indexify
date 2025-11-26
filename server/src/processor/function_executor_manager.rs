@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use rand::seq::IndexedRandom;
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
@@ -20,7 +20,7 @@ use crate::{
         FunctionRunStatus,
         RunningFunctionRunStatus,
     },
-    processor::{retry_policy::FunctionRunRetryPolicy, targets},
+    processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -42,7 +42,7 @@ impl FunctionExecutorManager {
 
     /// Vacuum phase - identifies function executors that should be terminated
     /// Returns scheduler update for cleanup actions
-    #[tracing::instrument(skip(self, in_memory_state, fe_resource))]
+    #[tracing::instrument(skip_all, target = "scheduler")]
     fn vacuum(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -53,7 +53,6 @@ impl FunctionExecutorManager {
             in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
 
         debug!(
-            target: targets::SCHEDULER,
             "vacuum phase identified {} function executors to mark for termination",
             function_executors_to_mark.len(),
         );
@@ -69,7 +68,6 @@ impl FunctionExecutorManager {
             update.new_function_executors.push(update_fe);
 
             info!(
-                target: targets::SCHEDULER,
                 app = fe.function_executor.application_name,
                 fn = fe.function_executor.function_name,
                 namespace = fe.function_executor.namespace,
@@ -82,28 +80,16 @@ impl FunctionExecutorManager {
     }
 
     /// Creates a new function executor for the given function run
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, target = "scheduler", fields(namespace = %fn_run.namespace, request_id = %fn_run.request_id, fn_call_id = %fn_run.id, app = %fn_run.application, fn_name = %fn_run.name, app_version = %fn_run.version))]
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
         fn_run: &FunctionRun,
     ) -> Result<SchedulerUpdateRequest> {
-        let span = info_span!(
-            target: targets::SCHEDULER,
-            "create_function_executor",
-            namespace = fn_run.namespace,
-            request_id = fn_run.request_id,
-            fn_call_id = fn_run.id.to_string(),
-            app = fn_run.application,
-            "fn" = fn_run.name,
-            app_version = fn_run.version.to_string(),
-        );
-        let _guard = span.enter();
-
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         if candidates.is_empty() {
-            debug!(target: targets::SCHEDULER, "no executors are available to create function executor");
+            debug!("no executors are available to create function executor");
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
@@ -115,7 +101,6 @@ impl FunctionExecutorManager {
             candidates = in_memory_state.candidate_executors(fn_run)?;
         }
         debug!(
-            target: targets::SCHEDULER,
             "found {} candidates for creating function executor",
             candidates.len()
         );
@@ -162,7 +147,6 @@ impl FunctionExecutorManager {
             .build()?;
 
         info!(
-            target: targets::SCHEDULER,
             executor_id = executor_id.get(),
             fn_executor_id = function_executor.id.get(),
             "created function executor"
@@ -280,12 +264,7 @@ impl FunctionExecutorManager {
     }
 
     /// Removes function executors and handles associated function run cleanup
-    #[tracing::instrument(skip(
-        self,
-        in_memory_state,
-        executor_server_metadata,
-        function_executors_to_remove
-    ))]
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_server_metadata.executor_id.get(), num_function_executors = function_executors_to_remove.len()))]
     fn remove_function_executors(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -293,14 +272,6 @@ impl FunctionExecutorManager {
         function_executors_to_remove: &[FunctionExecutor],
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-
-        let span = info_span!(
-            target: targets::SCHEDULER,
-            "remove_function_executors",
-            executor_id = executor_server_metadata.executor_id.get(),
-            num_function_executors = function_executors_to_remove.len(),
-        );
-        let _guard = span.enter();
 
         if function_executors_to_remove.is_empty() {
             return Ok(update);
@@ -310,11 +281,9 @@ impl FunctionExecutorManager {
         // Handle allocations for FEs to be removed and update function runs
         for fe in function_executors_to_remove {
             info!(
-                target: targets::SCHEDULER,
                 namespace = fe.namespace,
                 app = fe.application_name,
                 fn = fe.function_name,
-                executor_id = executor_server_metadata.executor_id.get(),
                 fn_executor_id = fe.id.get(),
                 fe_state = ?fe.state,
                 "Removing function executor from executor",
@@ -417,7 +386,6 @@ impl FunctionExecutorManager {
 
         if failed_function_runs > 0 {
             info!(
-                target: targets::SCHEDULER,
                 num_failed_allocations = failed_function_runs,
                 "failed allocations on executor due to function executor terminations",
             );
@@ -441,7 +409,6 @@ impl FunctionExecutorManager {
                 );
             } else {
                 error!(
-                    target: targets::SCHEDULER,
                     fn_executor_id = fe.id.get(),
                     "resources not freed: function executor is not claiming resources on executor",
                 );
@@ -452,6 +419,7 @@ impl FunctionExecutorManager {
 
     /// Removes all function executors from an executor when it's being
     /// deregistered
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_id.get()))]
     fn remove_all_function_executors_for_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -461,12 +429,7 @@ impl FunctionExecutorManager {
         let Some(mut executor_server_metadata) =
             in_memory_state.executor_states.get(executor_id).cloned()
         else {
-            warn!(
-                target: targets::SCHEDULER,
-                executor_id = executor_id.get(),
-                "executor {} not found while removing function executors",
-                executor_id.get()
-            );
+            warn!("executor not found while removing function executors");
             let allocations = in_memory_state
                 .allocations_by_executor
                 .get(executor_id)
@@ -476,7 +439,6 @@ impl FunctionExecutorManager {
             for allocs_by_fe in allocations.values() {
                 for alloc in allocs_by_fe {
                     info!(
-                        target: targets::SCHEDULER,
                         alloc_id = alloc.id.to_string(),
                         request_id = alloc.request_id.clone(),
                         namespace = alloc.namespace.clone(),
@@ -493,7 +455,6 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            target: targets::SCHEDULER,
                             fn_call_id = alloc.id.to_string(),
                             "function run not found while removing allocations for deregistered executor",
                         );
@@ -506,7 +467,6 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            target: targets::SCHEDULER,
                             fn_call_id = alloc.id.to_string(),
                             "request context not found while removing allocations for deregistered executor",
                         );
@@ -517,7 +477,6 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            target: targets::SCHEDULER,
                             fn_call_id = alloc.id.to_string(),
                             "application version not found while removing allocations for deregistered executor",
                         );
@@ -560,7 +519,7 @@ impl FunctionExecutorManager {
 
     /// Selects or creates a function executor for the given function run
     /// Returns the allocation target and any scheduler updates
-    #[tracing::instrument(skip(self, in_memory_state, function_run))]
+    #[tracing::instrument(skip_all, target = "scheduler")]
     pub fn select_or_create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -575,7 +534,6 @@ impl FunctionExecutorManager {
             function_executors.num_pending_function_executors == 0
         {
             debug!(
-                target: targets::SCHEDULER,
                 namespace = function_run.namespace,
                 app = function_run.application,
                 fn = function_run.name,
@@ -594,7 +552,6 @@ impl FunctionExecutorManager {
         }
 
         debug!(
-            target: targets::SCHEDULER,
             num_function_executors = function_executors.function_executors.len(),
             num_pending_function_executors = function_executors.num_pending_function_executors,
             "found function executors for function run",
@@ -604,7 +561,6 @@ impl FunctionExecutorManager {
         // BTreeSet is already ordered by allocation count, so just pick the first one
         let selected_fe = function_executors.function_executors.first().map(|fe| {
             debug!(
-                target: targets::SCHEDULER,
                 executor_id = %fe.executor_id,
                 function_executor_id = %fe.function_executor_id,
                 allocation_count = fe.allocation_count,
@@ -619,7 +575,7 @@ impl FunctionExecutorManager {
     /// Completely deregisters an executor and handles all associated cleanup
     /// Returns scheduler update that includes executor removal and function
     /// executor cleanup
-    #[tracing::instrument(skip(self, in_memory_state, executor_id))]
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = executor_id.get()))]
     pub fn deregister_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -629,11 +585,7 @@ impl FunctionExecutorManager {
             remove_executors: vec![executor_id.clone()],
             ..Default::default()
         };
-        info!(
-            target: targets::SCHEDULER,
-            executor_id = executor_id.get(),
-            "de-registering executor",
-        );
+        info!("de-registering executor");
 
         // Remove all function executors for this executor
         update
@@ -650,7 +602,7 @@ impl FunctionExecutorManager {
 
     /// Reconciles executor state when an executor is upserted
     /// Returns scheduler update that includes function executor reconciliation
-    #[tracing::instrument(skip(self, in_memory_state, executor_id))]
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = executor_id.get()))]
     pub fn reconcile_executor_state(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -663,12 +615,7 @@ impl FunctionExecutorManager {
             .ok_or(anyhow!("executor not found"))?
             .clone();
 
-        tracing::debug!(
-            target: targets::SCHEDULER,
-            executor_id = executor_id.get(),
-            ?executor,
-            "reconciling executor state for executor",
-        );
+        tracing::debug!(?executor, "reconciling executor state for executor",);
 
         // Reconcile function executors
         update.extend(self.reconcile_function_executors(in_memory_state, &executor)?);

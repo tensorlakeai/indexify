@@ -4,5 +4,4 @@ pub mod function_run_creator;
 pub mod function_run_processor;
 pub mod gc;
 pub mod retry_policy;
-pub mod targets;
 pub mod usage_processor;

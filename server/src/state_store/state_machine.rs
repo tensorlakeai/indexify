@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use strum::AsRefStr;
-use tracing::{debug, info, info_span, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
@@ -84,15 +84,8 @@ pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequ
     Ok(())
 }
 
+#[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application_name, request_id = req.ctx.request_id))]
 pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Result<()> {
-    let span = info_span!(
-        "create_request",
-        namespace = req.namespace,
-        app = req.application_name,
-        request_id = req.ctx.request_id,
-    );
-    let _guard = span.enter();
-
     let application_key = Application::key_from(&req.namespace, &req.application_name);
     let cg = txn
         .get(
@@ -134,21 +127,12 @@ pub struct AllocationUpsertResult {
     pub create_state_change: bool,
 }
 
+#[tracing::instrument(skip(txn, allocation, usage_event_sequence_id), fields(namespace = %allocation.namespace, app = %allocation.application, request_id = %allocation.request_id, fn_name = %allocation.function, fn_call_id = %allocation.function_call_id))]
 pub(crate) async fn upsert_allocation(
     txn: &Transaction,
     allocation: &Allocation,
     usage_event_sequence_id: Option<&AtomicU64>,
 ) -> Result<AllocationUpsertResult> {
-    let span = info_span!(
-        "upsert_allocation",
-        namespace = &allocation.namespace,
-        app = &allocation.application,
-        request_id = &allocation.request_id,
-        "fn" = &allocation.function,
-        fn_call_id = allocation.function_call_id.to_string(),
-    );
-    let _guard = span.enter();
-
     let mut allocation_upsert_result = AllocationUpsertResult {
         usage_recorded: false,
         create_state_change: false,
@@ -211,16 +195,9 @@ pub(crate) async fn upsert_allocation(
     Ok(allocation_upsert_result)
 }
 
+#[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application, request_id = req.request_id))]
 pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
-    let span = info_span!(
-        "delete_request",
-        namespace = req.namespace,
-        app = req.application,
-        request_id = req.request_id,
-    );
-    let _guard = span.enter();
-
-    info!("Deleting request",);
+    info!("Deleting request");
 
     // Check if the request was deleted before the task completes
     let request_ctx_key = RequestCtx::key_from(&req.namespace, &req.application, &req.request_id);
@@ -304,20 +281,13 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
     Ok(())
 }
 
+#[tracing::instrument(skip_all, fields(namespace = application.namespace, app = application.name, app_version = application.version))]
 async fn update_requests_for_application(
     txn: &Transaction,
     application: &Application,
 ) -> Result<()> {
     let cg_prefix =
         RequestCtx::key_prefix_for_application(&application.namespace, &application.name);
-
-    let span = info_span!(
-        "update_requests_for_application",
-        namespace = application.namespace,
-        app = application.name,
-        app_version = application.version,
-    );
-    let _guard = span.enter();
 
     let mut request_ctx_to_update = HashMap::new();
 
@@ -367,23 +337,13 @@ async fn update_requests_for_application(
     Ok(())
 }
 
+#[tracing::instrument(skip(txn, application), fields(namespace = application.namespace, name = application.name, app_version = application.version))]
 pub(crate) async fn create_or_update_application(
     txn: &Transaction,
     application: Application,
     upgrade_existing_function_runs_to_current_version: bool,
 ) -> Result<()> {
-    let span = info_span!(
-        "create_or_update_application",
-        namespace = application.namespace,
-        app = application.name,
-        app_version = application.version,
-    );
-    let _guard = span.enter();
-
-    info!(
-        "creating application: ns: {} name: {}, upgrade requests: {}",
-        application.namespace, application.name, upgrade_existing_function_runs_to_current_version
-    );
+    info!("creating application");
     let existing_application = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
@@ -403,8 +363,8 @@ pub(crate) async fn create_or_update_application(
         None => application.to_version(),
     }?;
     info!(
-        "new application version: {}",
-        &new_application_version.version
+        version = &new_application_version.version,
+        "new application version"
     );
     let serialized_application_version = JsonEncoder::encode(&new_application_version)?;
     txn.put(
@@ -446,14 +406,9 @@ async fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<
     Ok(())
 }
 
+#[tracing::instrument(skip(txn), fields(namespace = namespace, name = name))]
 pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
-    let span = info_span!("delete_application", namespace = namespace, app = name);
-    let _guard = span.enter();
-
-    info!(
-        "deleting application: namespace: {}, name: {}",
-        namespace, name
-    );
+    info!("deleting application");
     txn.delete(
         IndexifyObjectsColumns::Applications.as_ref(),
         Application::key_from(namespace, name).as_bytes(),
