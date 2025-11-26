@@ -25,7 +25,6 @@ def validate_function_executor_description(
     validator.required_field("initialization_timeout_ms")
     validator.required_field("application")
     validator.required_field("resources")
-    validator.required_field("output_payload_uri_prefix")
     validator.required_field("max_concurrency")
     validator.required_field("allocation_timeout_ms")
 
@@ -54,7 +53,7 @@ def validate_allocation(alloc: Allocation) -> None:
     validator.required_field("function_call_id")
     validator.required_field("request_id")
     _validate_data_payloads(alloc.args, field_name="TaskAllocation.args")
-    validator.required_field("output_payload_uri_prefix")
+    validator.required_field("request_data_payload_uri_prefix")
     validator.required_field("request_error_payload_uri_prefix")
     validator.required_field("function_executor_id")
     validator.required_field("function_call_metadata")

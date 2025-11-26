@@ -1,5 +1,6 @@
 from typing import Any
 
+from .blob_metadata import BLOBMetadata
 from .local_fs_blob_store import LocalFSBLOBStore
 from .metrics.blob_store import (
     metric_abort_multipart_upload_errors,
@@ -13,6 +14,9 @@ from .metrics.blob_store import (
     metric_create_multipart_upload_requests,
     metric_get_blob_errors,
     metric_get_blob_latency,
+    metric_get_blob_metadata_errors,
+    metric_get_blob_metadata_latency,
+    metric_get_blob_metadata_requests,
     metric_get_blob_requests,
     metric_presign_uri_errors,
     metric_presign_uri_latency,
@@ -45,6 +49,21 @@ class BLOBStore:
                 return await self._local.get(uri, logger)
             else:
                 return await self._s3.get(uri, logger)
+
+    async def get_metadata(self, uri: str, logger: Any) -> BLOBMetadata:
+        """Returns metadata for the BLOB with the supplied URI.
+
+        Raises Exception on error. Raises KeyError if the BLOB doesn't exist.
+        """
+        with (
+            metric_get_blob_metadata_errors.count_exceptions(),
+            metric_get_blob_metadata_latency.time(),
+        ):
+            metric_get_blob_metadata_requests.inc()
+            if _is_file_uri(uri):
+                return await self._local.get_metadata(uri, logger)
+            else:
+                return await self._s3.get_metadata(uri, logger)
 
     async def presign_get_uri(self, uri: str, expires_in_sec: int, logger: Any) -> str:
         """Returns a presigned URI for getting the BLOB with the supplied URI.

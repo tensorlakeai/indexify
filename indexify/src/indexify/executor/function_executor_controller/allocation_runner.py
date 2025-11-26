@@ -1,6 +1,7 @@
 import asyncio
 import math
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Dict, Set
 
@@ -27,6 +28,39 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationProgress as FEAllocationProgress,
 )
+
+try:
+    # New SDK version with request state operations in data plane.
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationOutputBLOB as FEAllocationOutputBLOB,
+    )
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationRequestStateCommitWriteOperationResult as FEAllocationRequestStateCommitWriteOperationResult,
+    )
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationRequestStateOperation as FEAllocationRequestStateOperation,
+    )
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationRequestStateOperationResult as FEAllocationRequestStateOperationResult,
+    )
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationRequestStatePrepareReadOperationResult as FEAllocationRequestStatePrepareReadOperationResult,
+    )
+    from tensorlake.function_executor.proto.function_executor_pb2 import (
+        AllocationRequestStatePrepareWriteOperationResult as FEAllocationRequestStatePrepareWriteOperationResult,
+    )
+    from tensorlake.function_executor.proto.status_pb2 import Status
+except ImportError:
+    # Old SDK version that doesn't have data plane request state operations,
+    # AllocationOutputBLOB and Status. Request state operations won't work until SDK is upgraded.
+    FEAllocationOutputBLOB = None
+    FEAllocationRequestStateCommitWriteOperationResult = None
+    FEAllocationRequestStateOperation = None
+    FEAllocationRequestStateOperationResult = None
+    FEAllocationRequestStatePrepareReadOperationResult = None
+    FEAllocationRequestStatePrepareWriteOperationResult = None
+    Status = None
+
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationResult as FEAllocationResult,
 )
@@ -79,7 +113,7 @@ from indexify.proto.executor_api_pb2 import (
 )
 from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
 
-from ..blob_store.blob_store import BLOBStore
+from ..blob_store import BLOBMetadata, BLOBStore
 from ..channel_manager import ChannelManager
 from ..state_reporter import ExecutorStateReporter
 from .aio_utils import shielded_await
@@ -87,6 +121,7 @@ from .allocation_info import AllocationInfo
 from .allocation_output import AllocationOutput
 from .blob_utils import (
     data_payload_to_serialized_object_inside_blob,
+    presign_read_only_blob,
     presign_read_only_blob_for_data_payload,
     presign_write_only_blob,
 )
@@ -149,6 +184,13 @@ class _FunctionCallWatcherInfo:
     # Queue where state reconciler puts the function call watcher results.
     # Queue max size is 1.
     result_queue: asyncio.Queue
+
+
+@dataclass
+class _RequestStateWriteOperationInfo:
+    operation_id: str
+    # None if creating BLOB failed.
+    blob_info: _BLOBInfo | None
 
 
 @dataclass
@@ -232,6 +274,12 @@ class AllocationRunner:
         self._started_function_call_ids: Set[str] = set()
         # FE Function Call Watcher ID -> _FunctionCallWatcherInfo
         self._pending_function_call_watchers: Dict[str, _FunctionCallWatcherInfo] = {}
+        # Set(FE Request State Read Operation ID)
+        self._pending_request_state_read_operations: set[str] = set()
+        # FE Request State Write Operation ID -> _RequestStateWriteOperationInfo
+        self._pending_request_state_write_operations: Dict[
+            str, _RequestStateWriteOperationInfo
+        ] = {}
 
     async def destroy(self) -> None:
         """Releases all the resources held by the AllocationRunner.
@@ -240,17 +288,37 @@ class AllocationRunner:
         """
         while len(self._pending_output_blobs) > 0:
             try:
-                output_blob: _BLOBInfo = self._pending_output_blobs.popitem()[1]
+                write_op_info: _BLOBInfo = self._pending_output_blobs.popitem()[1]
                 await self._blob_store.abort_multipart_upload(
-                    uri=output_blob.uri,
-                    upload_id=output_blob.upload_id,
+                    uri=write_op_info.uri,
+                    upload_id=write_op_info.upload_id,
                     logger=self._logger,
                 )
             except BaseException as e:
                 # Also catches any aio cancellations because it's important to clean up all resources.
                 self._logger.error(
                     "failed to abort pending output blob multipart upload during AllocationRunner destruction",
-                    blob_id=output_blob.id,
+                    blob_id=write_op_info.id,
+                    exc_info=e,
+                )
+
+        while len(self._pending_request_state_write_operations) > 0:
+            try:
+                write_op_info: _RequestStateWriteOperationInfo = (
+                    self._pending_request_state_write_operations.popitem()[1]
+                )
+                if write_op_info.blob_info is not None:
+                    await self._blob_store.abort_multipart_upload(
+                        uri=write_op_info.blob_info.uri,
+                        upload_id=write_op_info.blob_info.upload_id,
+                        logger=self._logger,
+                    )
+            except BaseException as e:
+                # Also catches any aio cancellations because it's important to clean up all resources.
+                self._logger.error(
+                    "failed to abort pending request state write operation multipart upload during AllocationRunner destruction",
+                    operation_id=write_op_info.operation_id,
+                    blob_id=write_op_info.blob_info.id,
                     exc_info=e,
                 )
 
@@ -287,11 +355,6 @@ class AllocationRunner:
             with (
                 metric_allocation_runner_allocation_runs_in_progress.track_inprogress(),
                 metric_allocation_runner_allocation_run_errors.count_exceptions(),
-                RequestStateAuthorizationContextManager(
-                    function_executor=self._function_executor,
-                    allocation_id=self._alloc_info.allocation.allocation_id,
-                    request_id=self._alloc_info.allocation.request_id,
-                ),
             ):
                 metric_allocation_runner_allocation_runs.inc()
                 run_result: _RunAllocationOnFunctionExecutorResult = (
@@ -523,6 +586,11 @@ class AllocationRunner:
                 await self._reconcile_function_call_watchers(
                     fe_stub, response.function_call_watchers
                 )
+                if FEAllocationRequestStateOperation is not None:
+                    # New SDK version.
+                    await self._reconcile_request_state_operations(
+                        fe_stub, response.request_state_operations
+                    )
 
                 # Check the result last to make sure we reconciled the last state.
                 if response.HasField("result"):
@@ -619,11 +687,24 @@ class AllocationRunner:
                 output_blob: FEBLOB = await self._create_output_blob(
                     output_blob_request
                 )
+                update: FEAllocationUpdate = FEAllocationUpdate(
+                    allocation_id=self._alloc_info.allocation.allocation_id,
+                )
+                if FEAllocationOutputBLOB is None:
+                    # Old SDK version.
+                    update.output_blob.CopyFrom(output_blob)
+                else:
+                    # New SDK version.
+                    update.output_blob_deprecated.CopyFrom(output_blob)
+                    # TODO: Enable once FE is upgraded.
+                    # update.output_blob.CopyFrom(FEAllocationOutputBLOB(
+                    #     status=Status(
+                    #         code=grpc.StatusCode.OK.value[0],
+                    #     ),
+                    #     blob=output_blob,
+                    # ))
                 await fe_stub.send_allocation_update(
-                    FEAllocationUpdate(
-                        allocation_id=self._alloc_info.allocation.allocation_id,
-                        output_blob=output_blob,
-                    ),
+                    update,
                     timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
                 )
 
@@ -635,7 +716,7 @@ class AllocationRunner:
         self, fe_output_blob_request: FEAllocationOutputBLOBRequest
     ) -> FEBLOB:
         blob_uri: str = (
-            f"{self._alloc_info.allocation.output_payload_uri_prefix}.{self._alloc_info.allocation.allocation_id}.{fe_output_blob_request.id}.output"
+            f"{self._alloc_info.allocation.request_data_payload_uri_prefix}.{self._alloc_info.allocation.allocation_id}.{fe_output_blob_request.id}.output"
         )
         function_outputs_blob_upload_id: str = (
             await self._blob_store.create_multipart_upload(
@@ -983,25 +1064,238 @@ class AllocationRunner:
         )
         del self._pending_function_call_watchers[watcher_info.fe_watcher_id]
 
-
-class RequestStateAuthorizationContextManager:
-    def __init__(
-        self, function_executor: FunctionExecutor, allocation_id: str, request_id: str
-    ):
-        self._function_executor: FunctionExecutor = function_executor
-        self._allocation_id: str = allocation_id
-        self._request_id: str = request_id
-
-    def __enter__(self):
-        self._function_executor.request_state_client().add_allocation_to_request_id_entry(
-            allocation_id=self._allocation_id,
-            request_id=self._request_id,
+    async def _reconcile_request_state_operations(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operations: list[FEAllocationRequestStateOperation],
+    ) -> None:
+        await self._reconcile_request_state_read_operations(
+            fe_stub, request_state_operations
+        )
+        await self._reconcile_request_state_write_operations(
+            fe_stub, request_state_operations
         )
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._function_executor.request_state_client().remove_allocation_to_request_id_entry(
-            allocation_id=self._allocation_id,
+    async def _reconcile_request_state_read_operations(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operations: list[FEAllocationRequestStateOperation],
+    ) -> None:
+        fe_read_operation_ids: set[str] = set()
+        for request_state_operation in request_state_operations:
+            request_state_operation: FEAllocationRequestStateOperation
+            if not request_state_operation.HasField("prepare_read"):
+                continue
+
+            fe_read_operation_ids.add(request_state_operation.operation_id)
+            if (
+                request_state_operation.operation_id
+                not in self._pending_request_state_read_operations
+            ):
+                self._pending_request_state_read_operations.add(
+                    request_state_operation.operation_id
+                )
+                await self._prepare_read_operation(fe_stub, request_state_operation)
+
+        # Deletes read operations deleted by FE.
+        self._pending_request_state_read_operations = fe_read_operation_ids
+
+    async def _prepare_read_operation(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operation: FEAllocationRequestStateOperation,
+    ) -> None:
+        # Not found by default.
+        alloc_update: FEAllocationUpdate = FEAllocationUpdate(
+            allocation_id=self._alloc_info.allocation.allocation_id,
+            request_state_operation_result=FEAllocationRequestStateOperationResult(
+                operation_id=request_state_operation.operation_id,
+                status=Status(
+                    code=grpc.StatusCode.NOT_FOUND.value[0],
+                ),
+                prepare_read=FEAllocationRequestStatePrepareReadOperationResult(),
+            ),
         )
+
+        blob_uri: str = self._request_state_key_blob_uri(
+            request_state_operation.state_key
+        )
+        try:
+            blob_metadata: BLOBMetadata = await self._blob_store.get_metadata(
+                blob_uri, self._logger
+            )
+            blob: FEBLOB = await presign_read_only_blob(
+                blob_uri=blob_uri,
+                blob_size=blob_metadata.size_bytes,
+                blob_store=self._blob_store,
+                logger=self._logger,
+            )
+            alloc_update.request_state_operation_result.status.code = (
+                grpc.StatusCode.OK.value[0]
+            )
+            alloc_update.request_state_operation_result.prepare_read.blob.CopyFrom(blob)
+        except KeyError:
+            # BLOB not found, this is expected if user din't call request state set first.
+            pass
+
+        await fe_stub.send_allocation_update(
+            alloc_update, timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS
+        )
+
+    async def _reconcile_request_state_write_operations(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operations: list[FEAllocationRequestStateOperation],
+    ) -> None:
+        for request_state_operation in request_state_operations:
+            request_state_operation: FEAllocationRequestStateOperation
+            if request_state_operation.HasField("prepare_write"):
+                if (
+                    request_state_operation.operation_id
+                    not in self._pending_request_state_write_operations
+                ):
+                    await self._prepare_request_state_write_operation(
+                        fe_stub, request_state_operation
+                    )
+            elif request_state_operation.HasField("commit_write"):
+                await self._reconcile_request_state_write_operation(
+                    fe_stub, request_state_operation
+                )
+
+    async def _prepare_request_state_write_operation(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operation: FEAllocationRequestStateOperation,
+    ) -> None:
+        alloc_update: FEAllocationUpdate = FEAllocationUpdate(
+            allocation_id=self._alloc_info.allocation.allocation_id,
+            request_state_operation_result=FEAllocationRequestStateOperationResult(
+                operation_id=request_state_operation.operation_id,
+                status=Status(
+                    code=grpc.StatusCode.OK.value[0],
+                ),
+                prepare_write=FEAllocationRequestStatePrepareWriteOperationResult(),
+            ),
+        )
+        # ID of the write operation, this is not the same as request_state_operation.operation_id.
+        write_operation_id: str = request_state_operation.operation_id
+        write_operation_info: _RequestStateWriteOperationInfo = (
+            _RequestStateWriteOperationInfo(
+                operation_id=write_operation_id,
+                blob_info=None,
+            )
+        )
+        # Add the info here immediately to prevent duplicate prepares.
+        self._pending_request_state_write_operations[write_operation_id] = (
+            write_operation_info
+        )
+
+        try:
+            blob_uri: str = self._request_state_key_blob_uri(
+                request_state_operation.state_key
+            )
+            blob_upload_id: str = await self._blob_store.create_multipart_upload(
+                uri=blob_uri,
+                logger=self._logger,
+            )
+            blob_info: _BLOBInfo = _BLOBInfo(
+                id=write_operation_id,
+                uri=blob_uri,
+                upload_id=blob_upload_id,
+            )
+            write_operation_info.blob_info = blob_info
+            blob: FEBLOB = await presign_write_only_blob(
+                blob_id=blob_info.id,
+                blob_uri=blob_info.uri,
+                upload_id=blob_info.upload_id,
+                size=request_state_operation.prepare_write.size,
+                blob_store=self._blob_store,
+                logger=self._logger,
+            )
+            alloc_update.request_state_operation_result.prepare_write.blob.CopyFrom(
+                blob
+            )
+        except Exception as e:
+            self._logger.error(
+                "failed to prepare request state write operation",
+                exc_info=e,
+                operation_id=request_state_operation.operation_id,
+            )
+            alloc_update.request_state_operation_result.status.code = (
+                grpc.StatusCode.INTERNAL.value[0]
+            )
+
+        await fe_stub.send_allocation_update(
+            alloc_update,
+            timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
+        )
+
+    async def _reconcile_request_state_write_operation(
+        self,
+        fe_stub: FunctionExecutorStub,
+        request_state_operation: FEAllocationRequestStateOperation,
+    ) -> None:
+        alloc_update: FEAllocationUpdate = FEAllocationUpdate(
+            allocation_id=self._alloc_info.allocation.allocation_id,
+            request_state_operation_result=FEAllocationRequestStateOperationResult(
+                operation_id=request_state_operation.operation_id,
+                status=Status(
+                    code=grpc.StatusCode.OK.value[0],
+                ),
+                commit_write=FEAllocationRequestStateCommitWriteOperationResult(),
+            ),
+        )
+
+        try:
+            write_operation_id: str | None = None
+            if request_state_operation.commit_write.HasField("blob"):
+                write_operation_id = request_state_operation.commit_write.blob.id
+
+            if write_operation_id in self._pending_request_state_write_operations:
+                write_operation_info: _RequestStateWriteOperationInfo = (
+                    self._pending_request_state_write_operations.pop(write_operation_id)
+                )
+                if write_operation_info.blob_info is not None:
+                    await self._blob_store.complete_multipart_upload(
+                        uri=write_operation_info.blob_info.uri,
+                        upload_id=write_operation_info.blob_info.upload_id,
+                        parts_etags=[
+                            blob_chunk.etag
+                            for blob_chunk in request_state_operation.commit_write.blob.chunks
+                        ],
+                        logger=self._logger,
+                    )
+            else:
+                alloc_update.request_state_operation_result.status.code = (
+                    grpc.StatusCode.NOT_FOUND.value[0]
+                )
+        except Exception as e:
+            self._logger.error(
+                "failed to commit request state write operation",
+                exc_info=e,
+                operation_id=request_state_operation.operation_id,
+            )
+            alloc_update.request_state_operation_result.status.code = (
+                grpc.StatusCode.INTERNAL.value[0]
+            )
+
+        await fe_stub.send_allocation_update(
+            alloc_update,
+            timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
+        )
+
+    def _request_state_key_blob_uri(
+        self,
+        state_key: str,
+    ) -> str:
+        # URL-encode the state key to make it safe for use in S3 URIs.
+        # Don't allow any non-url characters and don't allow '/' to prevent
+        # S3 directory traversal.
+        # i.e. urllib.parse.quote("../../asasdada/foo", safe="") -> '..%2F..%2Fasasdada%2Ffoo'
+        # This also allows regular HTTP clients to use the URIs without issues.
+        # NB: Max S3 key length is 1024 bytes.
+        safe_state_key: str = urllib.parse.quote(state_key, safe="")
+        return f"{self._alloc_info.allocation.request_data_payload_uri_prefix}/state/{safe_state_key}"
 
 
 def _log_alloc_execution_finished(output: AllocationOutput, logger: Any) -> None:

@@ -36,8 +36,6 @@ async def create_function_executor(
     function_executor_server_factory: FunctionExecutorServerFactory,
     blob_store: BLOBStore,
     executor_id: str,
-    base_url: str,
-    config_path: str,
     cache_path: Path,
     logger: Any,
 ) -> FunctionExecutorCreated:
@@ -52,8 +50,6 @@ async def create_function_executor(
             function_executor_server_factory=function_executor_server_factory,
             blob_store=blob_store,
             executor_id=executor_id,
-            base_url=base_url,
-            config_path=config_path,
             cache_path=cache_path,
             logger=logger,
         )
@@ -179,8 +175,6 @@ async def _create_function_executor(
     function_executor_server_factory: FunctionExecutorServerFactory,
     blob_store: BLOBStore,
     executor_id: str,
-    base_url: str,
-    config_path: str,
     cache_path: Path,
     logger: Any,
 ) -> Tuple[FunctionExecutor, FunctionExecutorInitializationResult]:
@@ -235,8 +229,6 @@ async def _create_function_executor(
             await function_executor.initialize(
                 config=config,
                 initialize_request=initialize_request,
-                base_url=base_url,
-                config_path=config_path,
                 customer_code_timeout_sec=customer_code_timeout_sec,
             )
         )
