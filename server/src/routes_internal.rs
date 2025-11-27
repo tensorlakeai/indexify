@@ -3,7 +3,7 @@ use axum::{
     Json,
     Router,
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{Path, State},
     http::Response,
     response::{Html, IntoResponse},
     routing::{get, post, put},
@@ -37,14 +37,11 @@ use crate::{
     http_objects_v1::{self, Application, ApplicationState},
     indexify_ui::Assets as UiAssets,
     routes::routes_state::RouteState,
-    state_store::{
-        kv::{ReadContextData, WriteContextData},
-        requests::{
-            CreateOrUpdateApplicationRequest,
-            NamespaceRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
-        },
+    state_store::requests::{
+        CreateOrUpdateApplicationRequest,
+        NamespaceRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
     },
 };
 
@@ -126,14 +123,6 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/executor_catalog",
             get(list_executor_catalog).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{request_id}/ctx/{name}",
-            post(set_ctx_state_key).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/namespaces/{namespace}/applications/{compute_graph}/requests/{request_id}/ctx/{name}",
-            get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/state",
@@ -428,85 +417,6 @@ async fn get_versioned_code(
         .header("Content-Length", application.code.clone().size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string())))
-}
-
-async fn set_ctx_state_key(
-    Path((namespace, application, request_id, key)): Path<(String, String, String, String)>,
-    State(state): State<RouteState>,
-    mut values: Multipart,
-) -> Result<(), IndexifyAPIError> {
-    let mut request: WriteContextData = WriteContextData {
-        namespace,
-        application,
-        request_id,
-        key,
-        value: vec![],
-    };
-
-    while let Some(field) = values.next_field().await.unwrap() {
-        if let Some(name) = field.name() {
-            if name == "value" {
-                let content_type: &str = field.content_type().ok_or_else(|| {
-                    IndexifyAPIError::bad_request("content-type of the value is required")
-                })?;
-                if content_type != "application/octet-stream" {
-                    // Server doesn't support flexible client controlled content-type yet because
-                    // we don't yet store content-type in the kv store.
-                    return Err(IndexifyAPIError::bad_request(
-                        "only 'application/octet-stream' content-type is currently supported",
-                    ));
-                }
-                request.value = field
-                    .bytes()
-                    .await
-                    .map_err(|e| {
-                        IndexifyAPIError::internal_error(anyhow!("failed reading the value: {e}"))
-                    })?
-                    .to_vec();
-            } else {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "unexpected field: {name}"
-                )));
-            }
-        }
-    }
-
-    state
-        .kvs
-        .put_ctx_state(request)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    Ok(())
-}
-
-async fn get_ctx_state_key(
-    Path((namespace, application, request_id, key)): Path<(String, String, String, String)>,
-    State(state): State<RouteState>,
-) -> Result<Response<Body>, IndexifyAPIError> {
-    let value = state
-        .kvs
-        .get_ctx_state_key(ReadContextData {
-            namespace,
-            application,
-            request_id,
-            key,
-        })
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    match value {
-        Some(value) => Response::builder()
-            .header("Content-Type", "application/octet-stream")
-            .header("Content-Length", value.len().to_string())
-            .body(Body::from(value))
-            .map_err(|e| {
-                tracing::error!("failed streaming get ctx response: {e:?}");
-                IndexifyAPIError::internal_error_str("failed streaming the response")
-            }),
-        None => Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
-            .unwrap()),
-    }
 }
 
 /// Get structured executor catalog

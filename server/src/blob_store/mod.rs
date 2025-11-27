@@ -105,20 +105,12 @@ impl BlobStorage {
         }
     }
 
-    pub fn get_object_store(&self) -> Arc<dyn ObjectStore> {
-        self.object_store.clone()
-    }
-
     pub fn get_url(&self) -> String {
         self.url.clone()
     }
 
     pub fn get_url_scheme(&self) -> String {
         self.url_scheme.clone()
-    }
-
-    pub fn get_path(&self) -> Path {
-        self.path.clone()
     }
 
     pub async fn put(

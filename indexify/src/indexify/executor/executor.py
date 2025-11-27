@@ -56,10 +56,8 @@ class Executor:
         catalog_entry_name: str | None,
     ):
         self._logger = structlog.get_logger(module=__name__, executor_id=id)
-        protocol: str = "http"
         if config_path:
-            self._logger.info("running the extractor with TLS enabled")
-            protocol = "https"
+            self._logger.info("running with TLS enabled")
 
         self._startup_probe_handler = StartupProbeHandler()
         self._channel_manager = ChannelManager(
@@ -85,8 +83,6 @@ class Executor:
         self._state_reconciler = ExecutorStateReconciler(
             executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
-            base_url=f"{protocol}://{server_addr}",
-            config_path=config_path,
             cache_path=cache_path,
             blob_store=blob_store,
             channel_manager=self._channel_manager,

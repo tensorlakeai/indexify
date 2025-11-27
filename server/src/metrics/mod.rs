@@ -252,46 +252,6 @@ pub mod blob_storage {
     }
 }
 
-pub mod kv_storage {
-    use opentelemetry::metrics::Histogram;
-
-    use crate::metrics::low_latency_boundaries;
-
-    #[derive(Debug)]
-    pub struct Metrics {
-        pub reads: Histogram<f64>,
-        pub writes: Histogram<f64>,
-    }
-
-    impl Default for Metrics {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl Metrics {
-        pub fn new() -> Metrics {
-            let meter = opentelemetry::global::meter("kv-storage");
-
-            let reads = meter
-                .f64_histogram("indexify.kv_storage_read_duration")
-                .with_unit("s")
-                .with_boundaries(low_latency_boundaries())
-                .with_description("K/V store read latencies in seconds")
-                .build();
-
-            let writes = meter
-                .f64_histogram("indexify.kv_storage_write_duration")
-                .with_unit("s")
-                .with_boundaries(low_latency_boundaries())
-                .with_description("k/v store write latencies in seconds")
-                .build();
-
-            Metrics { reads, writes }
-        }
-    }
-}
-
 pub mod queue {
     use opentelemetry::metrics::Counter;
 

@@ -302,7 +302,6 @@ class FunctionExecutorDescription(_message.Message):
         "initialization_timeout_ms",
         "application",
         "resources",
-        "output_payload_uri_prefix",
         "max_concurrency",
         "allocation_timeout_ms",
     )
@@ -312,7 +311,6 @@ class FunctionExecutorDescription(_message.Message):
     INITIALIZATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     APPLICATION_FIELD_NUMBER: _ClassVar[int]
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     MAX_CONCURRENCY_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     id: str
@@ -321,7 +319,6 @@ class FunctionExecutorDescription(_message.Message):
     initialization_timeout_ms: int
     application: DataPayload
     resources: FunctionExecutorResources
-    output_payload_uri_prefix: str
     max_concurrency: int
     allocation_timeout_ms: int
     def __init__(
@@ -332,7 +329,6 @@ class FunctionExecutorDescription(_message.Message):
         initialization_timeout_ms: _Optional[int] = ...,
         application: _Optional[_Union[DataPayload, _Mapping]] = ...,
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
-        output_payload_uri_prefix: _Optional[str] = ...,
         max_concurrency: _Optional[int] = ...,
         allocation_timeout_ms: _Optional[int] = ...,
     ) -> None: ...
@@ -499,7 +495,7 @@ class Allocation(_message.Message):
         "function_call_id",
         "request_id",
         "args",
-        "output_payload_uri_prefix",
+        "request_data_payload_uri_prefix",
         "request_error_payload_uri_prefix",
         "function_executor_id",
         "function_call_metadata",
@@ -509,7 +505,7 @@ class Allocation(_message.Message):
     FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     ARGS_FIELD_NUMBER: _ClassVar[int]
-    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_DATA_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ERROR_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
@@ -518,7 +514,7 @@ class Allocation(_message.Message):
     function_call_id: str
     request_id: str
     args: _containers.RepeatedCompositeFieldContainer[DataPayload]
-    output_payload_uri_prefix: str
+    request_data_payload_uri_prefix: str
     request_error_payload_uri_prefix: str
     function_executor_id: str
     function_call_metadata: bytes
@@ -529,7 +525,7 @@ class Allocation(_message.Message):
         function_call_id: _Optional[str] = ...,
         request_id: _Optional[str] = ...,
         args: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
-        output_payload_uri_prefix: _Optional[str] = ...,
+        request_data_payload_uri_prefix: _Optional[str] = ...,
         request_error_payload_uri_prefix: _Optional[str] = ...,
         function_executor_id: _Optional[str] = ...,
         function_call_metadata: _Optional[bytes] = ...,

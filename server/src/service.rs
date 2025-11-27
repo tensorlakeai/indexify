@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
@@ -18,7 +18,7 @@ use tower_http::{
 use tracing::{Instrument, info, info_span};
 
 use crate::{
-    blob_store::{BlobStorage, registry::BlobStorageRegistry},
+    blob_store::registry::BlobStorageRegistry,
     cloud_events::CloudEventsExporter,
     config::ServerConfig,
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
@@ -34,7 +34,7 @@ use crate::{
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
     routes_v1::configure_v1_routes,
-    state_store::{IndexifyState, kv::KVS},
+    state_store::IndexifyState,
 };
 
 pub mod executor_api_descriptor {
@@ -51,7 +51,6 @@ pub struct Service {
     pub blob_storage_registry: Arc<BlobStorageRegistry>,
     pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
-    pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub application_processor: Arc<ApplicationProcessor>,
     pub usage_processor: Arc<UsageProcessor>,
@@ -68,9 +67,6 @@ impl Service {
             env!("CARGO_PKG_VERSION"),
         )?;
         let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let kv_storage = Arc::new(
-            BlobStorage::new(config.kv_storage.clone()).context("error initializing KVStorage")?,
-        );
 
         let executor_catalog = crate::state_store::ExecutorCatalog {
             entries: config.executor_catalog.clone(),
@@ -119,11 +115,6 @@ impl Service {
             shutdown_rx.clone(),
         )));
 
-        let kvs = Arc::new(
-            KVS::new(kv_storage, "graph_ctx_state")
-                .await
-                .context("error initializing KVS")?,
-        );
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
@@ -145,7 +136,6 @@ impl Service {
             blob_storage_registry,
             indexify_state,
             executor_manager,
-            kvs,
             gc_executor,
             application_processor,
             usage_processor,
@@ -212,7 +202,6 @@ impl Service {
 
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
-            kvs: self.kvs.clone(),
             blob_storage: self.blob_storage_registry.clone(),
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
@@ -229,14 +218,10 @@ impl Service {
         let handle = Handle::new();
         let handle_sh = handle.clone();
         let shutdown_tx = self.shutdown_tx.clone();
-        let kvs = self.kvs.clone();
         tokio::spawn(
             async move {
                 shutdown_signal(handle_sh, shutdown_tx).await;
                 info!("graceful shutdown signal received, shutting down server gracefully");
-                if let Err(err) = kvs.close_db().await {
-                    tracing::error!("error closing kv store: {:?}", err);
-                }
             }
             .instrument(span.clone()),
         );
