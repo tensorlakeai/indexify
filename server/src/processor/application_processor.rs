@@ -32,7 +32,7 @@ use crate::{
 /// delete operations
 pub enum StateChangeResult {
     /// A scheduler update that can be batched with other scheduler updates
-    SchedulerUpdate(SchedulerUpdateRequest),
+    SchedulerUpdate(Box<SchedulerUpdateRequest>),
     /// A delete application request that must be processed immediately
     DeleteApplication(DeleteApplicationRequest),
     /// A delete request that must be processed immediately
@@ -210,13 +210,13 @@ impl ApplicationProcessor {
         let mut total_write_time = std::time::Duration::ZERO;
 
         // 4. Process all state changes using the shared in_memory_state
-        for state_change in cached_state_changes.drain(..).collect::<Vec<_>>() {
+        for state_change in std::mem::take(cached_state_changes) {
             match self
                 .handle_state_change(&state_change, &mut indexes_guard)
                 .await
             {
                 Ok(StateChangeResult::SchedulerUpdate(update)) => {
-                    combined_update.extend(update);
+                    combined_update.extend(*update);
                     batch_state_changes.push(state_change.clone());
                     self.record_latency(&state_change);
                 }
@@ -309,7 +309,7 @@ impl ApplicationProcessor {
             for sc in batch {
                 match self.handle_state_change(&sc, &mut indexes_guard).await {
                     Ok(StateChangeResult::SchedulerUpdate(upd)) => {
-                        let p = RequestPayload::SchedulerUpdate((Box::new(upd), vec![sc.clone()]));
+                        let p = RequestPayload::SchedulerUpdate((upd, vec![sc.clone()]));
                         self.write_with_fallback(p, sc).await?;
                     }
                     _ => self.mark_as_processed(vec![sc]).await?,
@@ -392,7 +392,7 @@ impl ApplicationProcessor {
                     task_allocator
                         .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateChangeResult::SchedulerUpdate(scheduler_update)
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::InvokeApplication(ev) => {
                 let scheduler_update = task_allocator.allocate_request(
@@ -401,7 +401,7 @@ impl ApplicationProcessor {
                     &ev.application,
                     &ev.request_id,
                 )?;
-                StateChangeResult::SchedulerUpdate(scheduler_update)
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
@@ -412,7 +412,7 @@ impl ApplicationProcessor {
                     task_allocator
                         .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateChangeResult::SchedulerUpdate(scheduler_update)
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
@@ -422,7 +422,7 @@ impl ApplicationProcessor {
                     task_allocator
                         .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateChangeResult::SchedulerUpdate(scheduler_update)
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
@@ -432,7 +432,7 @@ impl ApplicationProcessor {
                     task_allocator
                         .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateChangeResult::SchedulerUpdate(scheduler_update)
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::TombstoneApplication(request) => {
                 StateChangeResult::DeleteApplication(DeleteApplicationRequest {
