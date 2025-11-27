@@ -8,6 +8,7 @@ use anyhow::Result;
 use crate::{
     data_model::{
         Allocation,
+        AllocationId,
         Application,
         ComputeOp,
         DataPayload,
@@ -79,12 +80,12 @@ pub enum RequestPayload {
 
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
-    pub new_allocations: Vec<Allocation>,
+    pub new_allocations: HashMap<AllocationId, Allocation>,
     pub updated_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
-    pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
+    pub new_function_executors: HashMap<FunctionExecutorId, FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
     pub state_changes: Vec<StateChange>,
@@ -94,7 +95,9 @@ impl SchedulerUpdateRequest {
     /// Extends this SchedulerUpdateRequest with contents from another one
     pub fn extend(&mut self, other: SchedulerUpdateRequest) {
         self.new_allocations.extend(other.new_allocations);
-        self.updated_allocations.extend(other.updated_allocations);
+        for allocation in other.updated_allocations {
+            self.add_updated_allocation(allocation);
+        }
         for (ctx_key, function_run_ids) in other.updated_function_runs {
             self.updated_function_runs
                 .entry(ctx_key)
@@ -108,16 +111,48 @@ impl SchedulerUpdateRequest {
         self.remove_executors.extend(other.remove_executors);
         self.new_function_executors
             .extend(other.new_function_executors);
-        self.remove_function_executors
-            .extend(other.remove_function_executors);
+        for (executor_id, fe_ids) in other.remove_function_executors {
+            for fe_id in fe_ids {
+                self.add_removed_function_executor(&executor_id, fe_id);
+            }
+        }
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
+    }
+
+    /// Adds an allocation to updated_allocations, handling the case where the allocation
+    /// was created in the same batch (exists in new_allocations). If so, removes it from
+    /// new_allocations since it was never persisted.
+    pub fn add_updated_allocation(&mut self, allocation: Allocation) {
+        if self.new_allocations.remove(&allocation.id).is_some() {
+            // Allocation was created in this batch - just remove it, no need to persist
+            return;
+        }
+        self.updated_allocations.push(allocation);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
         allocation.outcome =
             FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
-        self.updated_allocations.push(allocation.clone());
+        self.add_updated_allocation(allocation.clone());
+    }
+
+    /// Adds a function executor to remove_function_executors, handling the case where the FE
+    /// was created in the same batch (exists in new_function_executors). If so, removes it from
+    /// new_function_executors since it was never persisted.
+    pub fn add_removed_function_executor(
+        &mut self,
+        executor_id: &ExecutorId,
+        fe_id: FunctionExecutorId,
+    ) {
+        if self.new_function_executors.remove(&fe_id).is_some() {
+            // FE was created in this batch - just remove it, no need to persist
+            return;
+        }
+        self.remove_function_executors
+            .entry(executor_id.clone())
+            .or_default()
+            .insert(fe_id);
     }
 
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {

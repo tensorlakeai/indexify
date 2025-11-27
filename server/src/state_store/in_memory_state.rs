@@ -10,11 +10,12 @@ use opentelemetry::{
     metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     data_model::{
         Allocation,
+        AllocationId,
         Application,
         ApplicationState,
         ApplicationVersion,
@@ -251,10 +252,13 @@ pub struct InMemoryState {
         im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
 
-    // ExecutorId -> (FE ID -> List of Allocations)
+    // Primary index: AllocationId -> Allocation (for all active request allocations)
     #[allow(clippy::vec_box)]
+    pub active_request_allocations: im::HashMap<AllocationId, Box<Allocation>>,
+
+    // Secondary index: ExecutorId -> (FE ID -> List of Allocation IDs)
     pub allocations_by_executor:
-        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
+        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<AllocationId>>>,
 
     // TaskKey -> Task
     pub unallocated_function_runs: im::OrdSet<FunctionRunKey>,
@@ -548,9 +552,11 @@ impl InMemoryState {
             }
         }
         // Creating Allocated Tasks By Function by Executor
+        let mut active_request_allocations: im::HashMap<AllocationId, Box<Allocation>> =
+            im::HashMap::new();
         let mut allocations_by_executor: im::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
+            HashMap<FunctionExecutorId, Vec<AllocationId>>,
         > = im::HashMap::new();
         {
             let (allocations, _) = reader
@@ -565,12 +571,16 @@ impl InMemoryState {
                 if allocation.is_terminal() {
                     continue;
                 }
+                // Add to primary index
+                active_request_allocations
+                    .insert(allocation.id.clone(), Box::new(allocation.clone()));
+                // Add ID to secondary index
                 allocations_by_executor
                     .entry(allocation.target.executor_id.clone())
                     .or_default()
                     .entry(allocation.target.function_executor_id.clone())
                     .or_default()
-                    .push(Box::new(allocation));
+                    .push(allocation.id.clone());
             }
         }
 
@@ -612,6 +622,7 @@ impl InMemoryState {
             function_runs,
             unallocated_function_runs,
             request_ctx,
+            active_request_allocations,
             allocations_by_executor,
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
@@ -777,12 +788,19 @@ impl InMemoryState {
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
                 for allocation in &req.updated_allocations {
+                    // Update allocation in primary index (keep it for the request's lifetime)
+                    self.active_request_allocations
+                        .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                    // Remove ID from secondary index since allocation is no longer active
                     self.allocations_by_executor
                         .entry(allocation.target.executor_id.clone())
-                        .or_default()
-                        .entry(allocation.target.function_executor_id.clone())
-                        .or_default()
-                        .push(Box::new(allocation.clone()));
+                        .and_modify(|fe_allocations| {
+                            fe_allocations.iter_mut().for_each(|(_, allocation_ids)| {
+                                allocation_ids.retain(|id| id != &allocation.id);
+                            });
+                            fe_allocations.retain(|_, ids| !ids.is_empty());
+                        });
                 }
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
@@ -829,7 +847,7 @@ impl InMemoryState {
                     }
                 }
 
-                for fe_meta in req.new_function_executors.clone() {
+                for fe_meta in req.new_function_executors.values().cloned() {
                     let Some(executor_state) = self.executor_states.get_mut(&fe_meta.executor_id)
                     else {
                         error!(
@@ -861,17 +879,22 @@ impl InMemoryState {
                     changed_executors.insert(fe_meta.executor_id.clone());
                 }
 
-                for allocation in &req.new_allocations {
+                for allocation in req.new_allocations.values() {
                     if let Some(function_run) = self.function_runs.get(&allocation.into()) {
                         self.unallocated_function_runs
                             .remove(&function_run.clone().into());
 
+                        // Add to primary index
+                        self.active_request_allocations
+                            .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                        // Add ID to secondary index
                         self.allocations_by_executor
                             .entry(allocation.target.executor_id.clone())
                             .or_default()
                             .entry(allocation.target.function_executor_id.clone())
                             .or_default()
-                            .push(Box::new(allocation.clone()));
+                            .push(allocation.id.clone());
 
                         // Record metrics
                         self.function_run_pending_latency.record(
@@ -954,44 +977,40 @@ impl InMemoryState {
                 }
 
                 for allocation_output in &req.allocation_outputs {
-                    // Remove the allocation
+                    // Record metrics from the existing allocation in primary index
+                    if let Some(existing) = self
+                        .active_request_allocations
+                        .get(&allocation_output.allocation.id)
                     {
-                        self.allocations_by_executor
-                            .entry(allocation_output.executor_id.clone())
-                            .and_modify(|fe_allocations| {
-                                // TODO: This can be optimized by keeping a new index of task_id to
-                                // FE,       we should measure the
-                                // overhead.
-                                fe_allocations.iter_mut().for_each(|(_, allocations)| {
-                                    if let Some(index) = allocations
-                                        .iter()
-                                        .position(|a| a.id == allocation_output.allocation.id)
-                                    {
-                                        let allocation = &allocations[index];
-                                        // Record metrics
-                                        self.allocation_running_latency.record(
-                                            get_elapsed_time(
-                                                allocation.created_at,
-                                                TimeUnit::Milliseconds,
-                                            ),
-                                            &[KeyValue::new(
-                                                "outcome",
-                                                allocation_output.allocation.outcome.to_string(),
-                                            )],
-                                        );
-
-                                        // Remove the allocation
-                                        allocations.remove(index);
-                                    }
-                                });
-
-                                // Remove the function if no allocations left
-                                fe_allocations.retain(|_, f| !f.is_empty());
-                            });
-
-                        // Executor's allocation is removed
-                        changed_executors.insert(allocation_output.executor_id.clone());
+                        self.allocation_running_latency.record(
+                            get_elapsed_time(existing.created_at, TimeUnit::Milliseconds),
+                            &[KeyValue::new(
+                                "outcome",
+                                allocation_output.allocation.outcome.to_string(),
+                            )],
+                        );
                     }
+
+                    // Update allocation in primary index (keep it, just update with new outcome)
+                    self.active_request_allocations.insert(
+                        allocation_output.allocation.id.clone(),
+                        Box::new(allocation_output.allocation.clone()),
+                    );
+
+                    // Remove ID from secondary index (executor no longer needs to track it)
+                    self.allocations_by_executor
+                        .entry(allocation_output.executor_id.clone())
+                        .and_modify(|fe_allocations| {
+                            fe_allocations.iter_mut().for_each(|(_, allocation_ids)| {
+                                allocation_ids
+                                    .retain(|id| id != &allocation_output.allocation.id);
+                            });
+                            // Remove the function if no allocations left
+                            fe_allocations.retain(|_, ids| !ids.is_empty());
+                        });
+
+                    // Executor's allocation is removed
+                    changed_executors.insert(allocation_output.executor_id.clone());
 
                     // Record metrics
                     self.allocation_completion_latency.record(
@@ -1162,6 +1181,12 @@ impl InMemoryState {
     }
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
+        // Collect function call IDs for allocations to remove
+        let function_call_ids: std::collections::HashSet<_> = function_runs
+            .iter()
+            .map(|fr| fr.id.clone())
+            .collect();
+
         for function_run in function_runs.iter() {
             self.function_runs.remove(&function_run.clone().into());
             self.unallocated_function_runs
@@ -1170,12 +1195,17 @@ impl InMemoryState {
             self.unindex_function_run_from_catalog(function_run);
         }
 
+        // Remove allocations from primary index
+        self.active_request_allocations.retain(|_, allocation| {
+            !function_call_ids.contains(&allocation.function_call_id)
+        });
+
+        // Remove allocation IDs from secondary index
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
-            for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
-                allocations.retain(|allocation| {
-                    !function_runs
-                        .iter()
-                        .any(|function_run| function_run.id == allocation.function_call_id)
+            for (_fe_id, allocation_ids) in allocations_by_fe.iter_mut() {
+                allocation_ids.retain(|alloc_id| {
+                    // Check if this allocation belongs to a deleted function run
+                    self.active_request_allocations.contains_key(alloc_id)
                 });
             }
         }
@@ -1230,6 +1260,13 @@ impl InMemoryState {
                 function_runs_to_remove.push(*v.clone());
             });
         self.delete_function_runs(function_runs_to_remove);
+    }
+
+    /// Find an allocation by its key. Searches through all executors' allocations.
+    pub fn get_allocation_by_id(&self, allocation_id: &AllocationId) -> Option<Allocation> {
+        self.active_request_allocations
+            .get(allocation_id)
+            .map(|a| *a.clone())
     }
 
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
@@ -1400,12 +1437,14 @@ impl InMemoryState {
         let mut function_call_outcomes = Vec::new();
         for executor_watch in executor_watches.iter() {
             let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
-                error!(
+                // Function run may not exist yet if the executor registered a watch
+                // before the application processor created the function run
+                trace!(
                     namspace = executor_watch.namespace.clone(),
                     app = executor_watch.application.clone(),
                     request_id = executor_watch.request_id.clone(),
                     function_call_id = executor_watch.function_call_id.clone(),
-                    "function run not found for executor watch",
+                    "function run not found for executor watch, will retry on next poll",
                 );
                 continue;
             };
@@ -1479,7 +1518,7 @@ impl InMemoryState {
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
                 .unwrap_or(&Vec::new())
                 .iter()
-                .map(|allocation| *allocation.clone())
+                .filter_map(|alloc_id| self.get_allocation_by_id(alloc_id))
                 .collect::<Vec<_>>();
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
@@ -1500,6 +1539,7 @@ impl InMemoryState {
             application_versions: self.application_versions.clone(),
             executors: self.executors.clone(),
             request_ctx: self.request_ctx.clone(),
+            active_request_allocations: self.active_request_allocations.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
@@ -1718,6 +1758,7 @@ mod test_helpers {
                 executors: im::HashMap::new(),
                 executor_states: im::HashMap::new(),
                 function_executors_by_fn_uri: im::HashMap::new(),
+                active_request_allocations: im::HashMap::new(),
                 allocations_by_executor: im::HashMap::new(),
                 request_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),

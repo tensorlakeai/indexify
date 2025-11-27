@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use opentelemetry::{KeyValue, metrics::Histogram};
 use rand::seq::IndexedRandom;
 use tracing::{debug, error, info, warn};
 
@@ -20,6 +21,7 @@ use crate::{
         FunctionRunStatus,
         RunningFunctionRunStatus,
     },
+    metrics::low_latency_boundaries,
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
@@ -27,9 +29,42 @@ use crate::{
     },
 };
 
+/// Metrics for function executor management
+pub struct FunctionExecutorMetrics {
+    pub select_or_create_fe_duration: Histogram<f64>,
+    pub create_fe_duration: Histogram<f64>,
+}
+
+impl FunctionExecutorMetrics {
+    pub fn new() -> Self {
+        let meter = opentelemetry::global::meter("scheduler");
+        Self {
+            select_or_create_fe_duration: meter
+                .f64_histogram("indexify.scheduler.select_or_create_fe_duration")
+                .with_unit("s")
+                .with_boundaries(low_latency_boundaries())
+                .with_description("Time to select or create a function executor in seconds")
+                .build(),
+            create_fe_duration: meter
+                .f64_histogram("indexify.scheduler.create_fe_duration")
+                .with_unit("s")
+                .with_boundaries(low_latency_boundaries())
+                .with_description("Time to create a function executor in seconds")
+                .build(),
+        }
+    }
+}
+
+impl Default for FunctionExecutorMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct FunctionExecutorManager {
     clock: u64,
     queue_size: u32,
+    metrics: FunctionExecutorMetrics,
 }
 
 /// Implements the policy around function executors: when to create
@@ -37,7 +72,11 @@ pub struct FunctionExecutorManager {
 /// executors appropriate to a given function run.
 impl FunctionExecutorManager {
     pub fn new(clock: u64, queue_size: u32) -> Self {
-        Self { clock, queue_size }
+        Self {
+            clock,
+            queue_size,
+            metrics: FunctionExecutorMetrics::new(),
+        }
     }
 
     /// Vacuum phase - identifies function executors that should be terminated
@@ -65,7 +104,9 @@ impl FunctionExecutorManager {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                 failed_alloc_ids: Vec::new(),
             };
-            update.new_function_executors.push(update_fe);
+            update
+                .new_function_executors
+                .insert(update_fe.function_executor.id.clone(), update_fe);
 
             info!(
                 app = fe.function_executor.application_name,
@@ -86,10 +127,13 @@ impl FunctionExecutorManager {
         in_memory_state: &mut InMemoryState,
         fn_run: &FunctionRun,
     ) -> Result<SchedulerUpdateRequest> {
+        let create_start = std::time::Instant::now();
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
+        let mut vacuum_triggered = false;
         if candidates.is_empty() {
             debug!("no executors are available to create function executor");
+            vacuum_triggered = true;
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
             update.extend(vacuum_update);
@@ -103,6 +147,13 @@ impl FunctionExecutorManager {
         debug!(
             "found {} candidates for creating function executor",
             candidates.len()
+        );
+        self.metrics.create_fe_duration.record(
+            create_start.elapsed().as_secs_f64(),
+            &[
+                KeyValue::new("num_candidates", candidates.len() as i64),
+                KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
+            ],
         );
 
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
@@ -155,10 +206,12 @@ impl FunctionExecutorManager {
         // Create with current timestamp for last_allocation_at
         let fe_server_metadata = FunctionExecutorServerMetadata::new(
             executor_id.clone(),
-            function_executor,
+            function_executor.clone(),
             FunctionExecutorState::Running, // Start with Running state
         );
-        update.new_function_executors.push(fe_server_metadata);
+        update
+            .new_function_executors
+            .insert(function_executor.id.clone(), fe_server_metadata);
 
         in_memory_state.update_state(
             self.clock,
@@ -184,7 +237,7 @@ impl FunctionExecutorManager {
             .clone();
         let server_function_executors = executor_server_metadata.function_executors.clone();
         let mut function_executors_to_remove = Vec::new();
-        let mut new_function_executors = Vec::new();
+        let mut new_function_executors = std::collections::HashMap::new();
 
         let fes_exist_only_in_executor = executor
             .function_executors
@@ -209,11 +262,12 @@ impl FunctionExecutorManager {
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
             {
-                new_function_executors.push(FunctionExecutorServerMetadata::new(
+                let fe_meta = FunctionExecutorServerMetadata::new(
                     executor.id.clone(),
                     fe.clone(),
                     fe.state,
-                ));
+                );
+                new_function_executors.insert(fe.id.clone(), fe_meta);
                 executor_server_metadata
                     .free_resources
                     .consume_fe_resources(&fe.resources)?;
@@ -242,7 +296,8 @@ impl FunctionExecutorManager {
                 if executor_fe.state != server_fe.function_executor.state {
                     let mut server_fe_clone = server_fe.clone();
                     server_fe_clone.function_executor.update(executor_fe);
-                    new_function_executors.push(*server_fe_clone);
+                    new_function_executors
+                        .insert(server_fe_clone.function_executor.id.clone(), *server_fe_clone);
                 }
             }
         }
@@ -289,14 +344,17 @@ impl FunctionExecutorManager {
                 "Removing function executor from executor",
             );
 
-            let allocs = in_memory_state
+            let alloc_ids = in_memory_state
                 .allocations_by_executor
                 .get(&executor_server_metadata.executor_id)
                 .and_then(|allocs_be_fe| allocs_be_fe.get(&fe.id))
                 .cloned()
                 .unwrap_or_default();
-            for alloc in allocs {
-                let mut updated_alloc = *alloc.clone();
+            for alloc_id in alloc_ids {
+                let Some(alloc) = in_memory_state.get_allocation_by_id(&alloc_id) else {
+                    continue;
+                };
+                let mut updated_alloc = alloc.clone();
                 let Some(mut function_run) = in_memory_state
                     .function_runs
                     .get(&FunctionRunKey::from(&alloc))
@@ -360,7 +418,7 @@ impl FunctionExecutorManager {
                         &updated_alloc,
                         &application_version,
                     );
-                    update.updated_allocations.push(updated_alloc);
+                    update.add_updated_allocation(updated_alloc);
                     // Count failed function runs for logging
                     if function_run.status == FunctionRunStatus::Completed {
                         failed_function_runs += 1;
@@ -370,7 +428,7 @@ impl FunctionExecutorManager {
                     // we're cancelling all allocs on it. And retrying their
                     // function runs without increasing retries counters.
                     function_run.status = FunctionRunStatus::Pending;
-                    update.updated_allocations.push(updated_alloc);
+                    update.add_updated_allocation(updated_alloc);
                 }
 
                 update.add_function_run(*function_run.clone(), &mut ctx);
@@ -392,11 +450,12 @@ impl FunctionExecutorManager {
         }
 
         // Add function executors to remove list
-        update
-            .remove_function_executors
-            .entry(executor_server_metadata.executor_id.clone())
-            .or_default()
-            .extend(function_executors_to_remove.iter().map(|fe| fe.id.clone()));
+        for fe in function_executors_to_remove {
+            update.add_removed_function_executor(
+                &executor_server_metadata.executor_id,
+                fe.id.clone(),
+            );
+        }
 
         for fe in function_executors_to_remove {
             if let Some(fe_resource_claim) = executor_server_metadata.resource_claims.get(&fe.id) {
@@ -430,14 +489,17 @@ impl FunctionExecutorManager {
             in_memory_state.executor_states.get(executor_id).cloned()
         else {
             warn!("executor not found while removing function executors");
-            let allocations = in_memory_state
+            let allocation_ids_by_fe = in_memory_state
                 .allocations_by_executor
                 .get(executor_id)
                 .cloned()
                 .unwrap_or_default();
 
-            for allocs_by_fe in allocations.values() {
-                for alloc in allocs_by_fe {
+            for alloc_ids in allocation_ids_by_fe.values() {
+                for alloc_id in alloc_ids {
+                    let Some(alloc) = in_memory_state.get_allocation_by_id(alloc_id) else {
+                        continue;
+                    };
                     info!(
                         alloc_id = alloc.id.to_string(),
                         request_id = alloc.request_id.clone(),
@@ -446,12 +508,12 @@ impl FunctionExecutorManager {
                         fn_call_id = alloc.function_call_id.to_string(),
                         "marking allocation as failed due to deregistered executor",
                     );
-                    let mut updated_alloc = *alloc.clone();
+                    let mut updated_alloc = alloc.clone();
                     updated_alloc.outcome =
                         FunctionRunOutcome::Failure(FunctionRunFailureReason::ExecutorRemoved);
                     let Some(function_run) = in_memory_state
                         .function_runs
-                        .get(&FunctionRunKey::from(alloc))
+                        .get(&FunctionRunKey::from(&alloc))
                         .cloned()
                     else {
                         warn!(
@@ -487,7 +549,7 @@ impl FunctionExecutorManager {
                         &updated_alloc,
                         &application_version,
                     );
-                    scheduler_update.updated_allocations.push(updated_alloc);
+                    scheduler_update.add_updated_allocation(updated_alloc);
                     scheduler_update.add_function_run(*function_run.clone(), &mut request_ctx);
                 }
             }
@@ -525,7 +587,9 @@ impl FunctionExecutorManager {
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
     ) -> Result<(Option<AllocationTarget>, SchedulerUpdateRequest)> {
+        let start = std::time::Instant::now();
         let mut update = SchedulerUpdateRequest::default();
+
         let mut function_executors =
             in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
 
@@ -542,13 +606,31 @@ impl FunctionExecutorManager {
             );
             let fe_update = self.create_function_executor(in_memory_state, function_run)?;
             update.extend(fe_update);
+
             in_memory_state.update_state(
                 self.clock,
                 &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
                 "function_executor_manager",
             )?;
+
             function_executors =
                 in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
+
+            self.metrics.select_or_create_fe_duration.record(
+                start.elapsed().as_secs_f64(),
+                &[
+                    KeyValue::new("created_new_fe", 1i64),
+                    KeyValue::new("num_candidates", function_executors.function_executors.len() as i64),
+                ],
+            );
+        } else {
+            self.metrics.select_or_create_fe_duration.record(
+                start.elapsed().as_secs_f64(),
+                &[
+                    KeyValue::new("created_new_fe", 0i64),
+                    KeyValue::new("num_candidates", function_executors.function_executors.len() as i64),
+                ],
+            );
         }
 
         debug!(
