@@ -152,7 +152,10 @@ impl FunctionExecutorManager {
             create_start.elapsed().as_secs_f64(),
             &[
                 KeyValue::new("num_candidates", candidates.len() as i64),
-                KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
+                KeyValue::new(
+                    "vacuum_triggered",
+                    if vacuum_triggered { 1i64 } else { 0i64 },
+                ),
             ],
         );
 
@@ -262,11 +265,8 @@ impl FunctionExecutorManager {
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
             {
-                let fe_meta = FunctionExecutorServerMetadata::new(
-                    executor.id.clone(),
-                    fe.clone(),
-                    fe.state,
-                );
+                let fe_meta =
+                    FunctionExecutorServerMetadata::new(executor.id.clone(), fe.clone(), fe.state);
                 new_function_executors.insert(fe.id.clone(), fe_meta);
                 executor_server_metadata
                     .free_resources
@@ -296,8 +296,10 @@ impl FunctionExecutorManager {
                 if executor_fe.state != server_fe.function_executor.state {
                     let mut server_fe_clone = server_fe.clone();
                     server_fe_clone.function_executor.update(executor_fe);
-                    new_function_executors
-                        .insert(server_fe_clone.function_executor.id.clone(), *server_fe_clone);
+                    new_function_executors.insert(
+                        server_fe_clone.function_executor.id.clone(),
+                        *server_fe_clone,
+                    );
                 }
             }
         }
@@ -620,7 +622,10 @@ impl FunctionExecutorManager {
                 start.elapsed().as_secs_f64(),
                 &[
                     KeyValue::new("created_new_fe", 1i64),
-                    KeyValue::new("num_candidates", function_executors.function_executors.len() as i64),
+                    KeyValue::new(
+                        "num_candidates",
+                        function_executors.function_executors.len() as i64,
+                    ),
                 ],
             );
         } else {
@@ -628,7 +633,10 @@ impl FunctionExecutorManager {
                 start.elapsed().as_secs_f64(),
                 &[
                     KeyValue::new("created_new_fe", 0i64),
-                    KeyValue::new("num_candidates", function_executors.function_executors.len() as i64),
+                    KeyValue::new(
+                        "num_candidates",
+                        function_executors.function_executors.len() as i64,
+                    ),
                 ],
             );
         }

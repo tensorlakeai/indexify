@@ -120,9 +120,10 @@ impl SchedulerUpdateRequest {
             .extend(other.updated_executor_resources);
     }
 
-    /// Adds an allocation to updated_allocations, handling the case where the allocation
-    /// was created in the same batch (exists in new_allocations). If so, removes it from
-    /// new_allocations since it was never persisted.
+    /// Adds an allocation to updated_allocations, handling the case where the
+    /// allocation was created in the same batch (exists in
+    /// new_allocations). If so, removes it from new_allocations since it
+    /// was never persisted.
     pub fn add_updated_allocation(&mut self, allocation: Allocation) {
         if self.new_allocations.remove(&allocation.id).is_some() {
             // Allocation was created in this batch - just remove it, no need to persist
@@ -137,8 +138,9 @@ impl SchedulerUpdateRequest {
         self.add_updated_allocation(allocation.clone());
     }
 
-    /// Adds a function executor to remove_function_executors, handling the case where the FE
-    /// was created in the same batch (exists in new_function_executors). If so, removes it from
+    /// Adds a function executor to remove_function_executors, handling the case
+    /// where the FE was created in the same batch (exists in
+    /// new_function_executors). If so, removes it from
     /// new_function_executors since it was never persisted.
     pub fn add_removed_function_executor(
         &mut self,
