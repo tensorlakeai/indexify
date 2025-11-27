@@ -28,7 +28,8 @@ use crate::{
     utils::{TimeUnit, get_elapsed_time},
 };
 
-/// Result of processing a state change - distinguishes scheduler updates from delete operations
+/// Result of processing a state change - distinguishes scheduler updates from
+/// delete operations
 pub enum StateChangeResult {
     /// A scheduler update that can be batched with other scheduler updates
     SchedulerUpdate(SchedulerUpdateRequest),
@@ -198,7 +199,8 @@ impl ApplicationProcessor {
         let batch_start = std::time::Instant::now();
         let num_state_changes = cached_state_changes.len();
 
-        // 2. Clone in_memory_state ONCE for the entire batch so state changes see each other's effects
+        // 2. Clone in_memory_state ONCE for the entire batch so state changes see each
+        //    other's effects
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut indexes_guard = indexes.write().await;
 
@@ -209,40 +211,58 @@ impl ApplicationProcessor {
 
         // 4. Process all state changes using the shared in_memory_state
         for state_change in cached_state_changes.drain(..).collect::<Vec<_>>() {
-            match self.handle_state_change(&state_change, &mut indexes_guard).await {
+            match self
+                .handle_state_change(&state_change, &mut indexes_guard)
+                .await
+            {
                 Ok(StateChangeResult::SchedulerUpdate(update)) => {
                     combined_update.extend(update);
                     batch_state_changes.push(state_change.clone());
                     self.record_latency(&state_change);
                 }
                 Ok(StateChangeResult::DeleteApplication(req)) => {
-                    let write_time = self.flush_batch(&mut combined_update, &mut batch_state_changes).await?;
+                    let write_time = self
+                        .flush_batch(&mut combined_update, &mut batch_state_changes)
+                        .await?;
                     total_write_time += write_time;
-                    let payload = RequestPayload::DeleteApplicationRequest((req, vec![state_change.clone()]));
+                    let payload =
+                        RequestPayload::DeleteApplicationRequest((req, vec![state_change.clone()]));
                     self.write_with_fallback(payload, state_change).await?;
                 }
                 Ok(StateChangeResult::DeleteRequest(req)) => {
-                    let write_time = self.flush_batch(&mut combined_update, &mut batch_state_changes).await?;
+                    let write_time = self
+                        .flush_batch(&mut combined_update, &mut batch_state_changes)
+                        .await?;
                     total_write_time += write_time;
-                    let payload = RequestPayload::DeleteRequestRequest((req, vec![state_change.clone()]));
+                    let payload =
+                        RequestPayload::DeleteRequestRequest((req, vec![state_change.clone()]));
                     self.write_with_fallback(payload, state_change).await?;
                 }
                 Err(err) if err.to_string().contains("Operation timed out") => {
-                    warn!("transient error processing {}, retrying: {:?}", state_change.change_type, err);
+                    warn!(
+                        "transient error processing {}, retrying: {:?}",
+                        state_change.change_type, err
+                    );
                     cached_state_changes.push(state_change);
-                    self.flush_batch(&mut combined_update, &mut batch_state_changes).await?;
+                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
+                        .await?;
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     return Ok(());
                 }
                 Err(err) => {
-                    error!("error processing {}, marking as processed: {:?}", state_change.change_type, err);
+                    error!(
+                        "error processing {}, marking as processed: {:?}",
+                        state_change.change_type, err
+                    );
                     self.mark_as_processed(vec![state_change]).await?;
                 }
             }
         }
 
         // 5. Flush remaining batch
-        let write_time = self.flush_batch(&mut combined_update, &mut batch_state_changes).await?;
+        let write_time = self
+            .flush_batch(&mut combined_update, &mut batch_state_changes)
+            .await?;
         total_write_time += write_time;
 
         let total_time = batch_start.elapsed();
@@ -259,8 +279,9 @@ impl ApplicationProcessor {
         Ok(())
     }
 
-    /// Flushes accumulated scheduler updates. Falls back to individual processing on error.
-    /// Returns the time spent writing to the state machine.
+    /// Flushes accumulated scheduler updates. Falls back to individual
+    /// processing on error. Returns the time spent writing to the state
+    /// machine.
     async fn flush_batch(
         &self,
         combined_update: &mut SchedulerUpdateRequest,
@@ -276,7 +297,11 @@ impl ApplicationProcessor {
         let payload = RequestPayload::SchedulerUpdate((Box::new(update), batch.clone()));
 
         let write_start = std::time::Instant::now();
-        if let Err(err) = self.indexify_state.write(StateMachineUpdateRequest { payload }).await {
+        if let Err(err) = self
+            .indexify_state
+            .write(StateMachineUpdateRequest { payload })
+            .await
+        {
             error!("batch write failed, falling back to individual: {:?}", err);
             // Re-acquire fresh state for fallback processing
             let indexes = self.indexify_state.in_memory_state.read().await.clone();
@@ -301,9 +326,20 @@ impl ApplicationProcessor {
     }
 
     /// Writes a request, marking state change as processed on failure.
-    async fn write_with_fallback(&self, payload: RequestPayload, state_change: StateChange) -> Result<()> {
-        if let Err(err) = self.indexify_state.write(StateMachineUpdateRequest { payload }).await {
-            error!("write failed for {}, marking as processed: {:?}", state_change.change_type, err);
+    async fn write_with_fallback(
+        &self,
+        payload: RequestPayload,
+        state_change: StateChange,
+    ) -> Result<()> {
+        if let Err(err) = self
+            .indexify_state
+            .write(StateMachineUpdateRequest { payload })
+            .await
+        {
+            error!(
+                "write failed for {}, marking as processed: {:?}",
+                state_change.change_type, err
+            );
             self.mark_as_processed(vec![state_change]).await?;
         }
         Ok(())
@@ -321,7 +357,14 @@ impl ApplicationProcessor {
     fn record_latency(&self, state_change: &StateChange) {
         self.state_transition_latency.record(
             get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
-            &[KeyValue::new("type", if state_change.namespace.is_some() { "ns" } else { "global" })],
+            &[KeyValue::new(
+                "type",
+                if state_change.namespace.is_some() {
+                    "ns"
+                } else {
+                    "global"
+                },
+            )],
         );
     }
 

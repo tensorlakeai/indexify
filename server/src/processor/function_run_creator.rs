@@ -153,7 +153,9 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        let Some(allocation) = in_memory_state.get_allocation_by_id(&alloc_finished_event.allocation_id) else {
+        let Some(allocation) =
+            in_memory_state.get_allocation_by_id(&alloc_finished_event.allocation_id)
+        else {
             error!(
                 allocation_id = %alloc_finished_event.allocation_id,
                 "allocation not found, stopping scheduling of child function runs",

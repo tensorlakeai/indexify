@@ -1002,8 +1002,7 @@ impl InMemoryState {
                         .entry(allocation_output.executor_id.clone())
                         .and_modify(|fe_allocations| {
                             fe_allocations.iter_mut().for_each(|(_, allocation_ids)| {
-                                allocation_ids
-                                    .retain(|id| id != &allocation_output.allocation.id);
+                                allocation_ids.retain(|id| id != &allocation_output.allocation.id);
                             });
                             // Remove the function if no allocations left
                             fe_allocations.retain(|_, ids| !ids.is_empty());
@@ -1182,10 +1181,8 @@ impl InMemoryState {
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         // Collect function call IDs for allocations to remove
-        let function_call_ids: std::collections::HashSet<_> = function_runs
-            .iter()
-            .map(|fr| fr.id.clone())
-            .collect();
+        let function_call_ids: std::collections::HashSet<_> =
+            function_runs.iter().map(|fr| fr.id.clone()).collect();
 
         for function_run in function_runs.iter() {
             self.function_runs.remove(&function_run.clone().into());
@@ -1196,9 +1193,8 @@ impl InMemoryState {
         }
 
         // Remove allocations from primary index
-        self.active_request_allocations.retain(|_, allocation| {
-            !function_call_ids.contains(&allocation.function_call_id)
-        });
+        self.active_request_allocations
+            .retain(|_, allocation| !function_call_ids.contains(&allocation.function_call_id));
 
         // Remove allocation IDs from secondary index
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -1262,7 +1258,8 @@ impl InMemoryState {
         self.delete_function_runs(function_runs_to_remove);
     }
 
-    /// Find an allocation by its key. Searches through all executors' allocations.
+    /// Find an allocation by its key. Searches through all executors'
+    /// allocations.
     pub fn get_allocation_by_id(&self, allocation_id: &AllocationId) -> Option<Allocation> {
         self.active_request_allocations
             .get(allocation_id)
