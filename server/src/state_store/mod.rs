@@ -459,7 +459,7 @@ impl IndexifyState {
             RequestPayload::SchedulerUpdate((sched_update, _)) => {
                 let mut changes = sched_update
                     .new_allocations
-                    .iter()
+                    .values()
                     .map(|allocation| {
                         RequestStateChangeEvent::FunctionRunAssigned(
                             request_events::FunctionRunAssigned {

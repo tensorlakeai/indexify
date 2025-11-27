@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    sync::Arc,
-    vec,
-};
+use std::collections::{HashSet, VecDeque};
 
 use anyhow::Result;
 use tracing::{error, trace, warn};
@@ -31,23 +27,18 @@ use crate::{
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
-        IndexifyState,
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
 
 pub struct FunctionRunCreator {
-    indexify_state: Arc<IndexifyState>,
     clock: u64,
 }
 
 impl FunctionRunCreator {
-    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
-        Self {
-            indexify_state,
-            clock,
-        }
+    pub fn new(clock: u64) -> Self {
+        Self { clock }
     }
 }
 
@@ -162,16 +153,9 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        // If allocation_key is not None, then the output is coming from an allocation,
-        // not from cache.
-        let Some(allocation) = self
-            .indexify_state
-            .reader()
-            .get_allocation(&alloc_finished_event.allocation_key)
-            .await?
-        else {
+        let Some(allocation) = in_memory_state.get_allocation_by_id(&alloc_finished_event.allocation_id) else {
             error!(
-                allocation_key = alloc_finished_event.allocation_key,
+                allocation_id = %alloc_finished_event.allocation_id,
                 "allocation not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
