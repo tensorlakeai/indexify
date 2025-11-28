@@ -1,7 +1,7 @@
-import os
 import traceback
 
 import click
+from tensorlake.applications import SDKUsageError, TensorlakeError
 from tensorlake.applications.remote.deploy import deploy_applications
 
 
@@ -31,9 +31,13 @@ def deploy(
             upgrade_running_requests=upgrade_running_requests,
             load_source_dir_modules=True,
         )
+    except SDKUsageError as e:
+        raise click.UsageError(str(e)) from None
+    except TensorlakeError as e:
+        raise click.ClickException(f"Failed to deploy applications: {e}") from None
     except Exception as e:
         click.secho(
-            f"Applications could not be deployed, please check the error message:",
+            f"Unexpected error during deployment:",
             fg="red",
         )
         traceback.print_exception(e)

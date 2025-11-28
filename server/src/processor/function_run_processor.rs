@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{debug, error, info_span, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     data_model::{
@@ -120,23 +120,13 @@ impl<'a> FunctionRunProcessor<'a> {
         Ok(update)
     }
 
+    #[tracing::instrument(skip_all, fields(namespace = %function_run.namespace, fn_call_id = %function_run.id, request_id = %function_run.request_id, app = %function_run.application, fn_name = %function_run.name, app_version = %function_run.version))]
     fn create_allocation(
         &self,
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
         ctx: &mut RequestCtx,
     ) -> Result<SchedulerUpdateRequest> {
-        let span = info_span!(
-            "create_allocation",
-            namespace = function_run.namespace,
-            fn_call_id = function_run.id.to_string(),
-            request_id = function_run.request_id,
-            app = function_run.application,
-            "fn" = function_run.name,
-            app_version = function_run.version.to_string(),
-        );
-        let _guard = span.enter();
-
         let mut update = SchedulerUpdateRequest::default();
 
         // Use FunctionExecutorManager to handle function executor selection/creation

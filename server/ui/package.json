@@ -14,8 +14,8 @@
     "@microlink/react-json-view": "^1.23.0",
     "@mui/icons-material": "^5.15.7",
     "@mui/material": "^5.15.7",
-    "@mui/x-data-grid": "^6.19.3",
-    "@testing-library/jest-dom": "^5.17.0",
+    "@mui/x-data-grid": "^8.19.0",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^27.5.2",
@@ -36,7 +36,7 @@
     "react-virtuoso": "^4.10.4",
     "serve": "^14.2.5",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^5.1.0"
   },
   "overrides": {
     "postcss": "^8.4.31",

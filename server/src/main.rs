@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use ::tracing::info_span;
 use anyhow::Context;
 use clap::Parser;
 use service::Service;
@@ -59,17 +58,13 @@ async fn main() -> anyhow::Result<()> {
 
     setup_tracing(&config)?;
 
-    let root_span = info_span!(
-        "indexify",
-        env = config.env,
-        "indexify-instance" = config.instance_id()
-    );
-    let _guard = root_span.enter();
+    start_indexify(config).await
+}
 
+#[::tracing::instrument(skip(config), fields(env = config.env, instance_id = config.instance_id()))]
+async fn start_indexify(config: config::ServerConfig) -> anyhow::Result<()> {
     let mut service = Service::new(config)
         .await
         .context("Failed to create service")?;
-    service.start().await.context("Failed to start service")?;
-
-    Ok(())
+    service.start().await.context("Failed to start service")
 }
