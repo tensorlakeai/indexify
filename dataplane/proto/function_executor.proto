@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "tensorlake/function_executor/proto/status.proto";
 
 package function_executor_service;
 
@@ -104,49 +105,6 @@ message InitializeResponse {
     optional InitializationFailureReason failure_reason = 2;
 }
 
-message SetRequestStateRequest {
-    optional string key = 1;
-    optional SerializedObject value = 2;
-}
-
-message SetRequestStateResponse {}
-
-message GetRequestStateRequest {
-    optional string key = 1;
-}
-
-message GetRequestStateResponse {
-    optional string key = 1;
-    optional SerializedObject value = 2;
-}
-
-// RequestStateRequest is sent by RPC Server to the client
-// to perform actions on a allocation's request state.
-message RequestStateRequest {
-    // The ID of the state request sent by the client.
-    // Must be unique per Function Executor.
-    optional string state_request_id = 1;
-    // The ID of the allocation initiated the request.
-    optional string allocation_id = 2;
-    oneof request {
-        SetRequestStateRequest set = 3;
-        GetRequestStateRequest get = 4;
-    }
-}
-
-// RequestStateResponse is sent by RPC client to the Server.
-// A response contains the result of the action performed on the
-// allocation's request state.
-message RequestStateResponse {
-    // The id of the state request this response is for.
-    optional string state_request_id = 1;
-    optional bool success = 2;
-    oneof response {
-        SetRequestStateResponse set = 3;
-        GetRequestStateResponse get = 4;
-    }
-}
-
 message ListAllocationsRequest {}
 
 message ListAllocationsResponse {
@@ -197,6 +155,27 @@ message AllocationFunctionCallWatcher {
     optional string function_call_id = 2;
 }
 
+message AllocationRequestStatePrepareReadOperation {}
+
+message AllocationRequestStatePrepareWriteOperation {
+    optional uint64 size = 1;
+}
+
+message AllocationRequestStateCommitWriteOperation {
+    // BLOB with the uploaded data.
+    optional BLOB blob = 1;
+}
+
+message AllocationRequestStateOperation {
+    optional string operation_id = 1;
+    optional string state_key = 2;
+    oneof operation {
+        AllocationRequestStatePrepareReadOperation prepare_read = 3;
+        AllocationRequestStatePrepareWriteOperation prepare_write = 4;
+        AllocationRequestStateCommitWriteOperation commit_write = 5;
+    }
+}
+
 message AllocationState {
     // Optional current allocation progress.
     optional AllocationProgress progress = 1;
@@ -211,6 +190,9 @@ message AllocationState {
     repeated AllocationFunctionCall function_calls = 3;
     // Watchers for function calls started by the allocation.
     repeated AllocationFunctionCallWatcher function_call_watchers = 4;
+    // Request state operations.
+    repeated AllocationRequestStateOperation request_state_operations = 7;
+
     // Optional allocation result. Set when allocation finishes.
     AllocationResult result = 5;
     // Required state hash.
@@ -232,7 +214,7 @@ message FunctionArg {
   oneof source {
     // Data dependency reference to another function call.
     string function_call_id = 1;
-    // Stored inside uploaded_function_outputs_blob.
+    // Stored inside uploaded_function_outputs_blob or args_blob.
     SerializedObjectInsideBLOB value = 2;
   }
 }
@@ -308,6 +290,12 @@ message DeleteAllocationRequest {
     optional string allocation_id = 1;
 }
 
+message AllocationOutputBLOB {
+    optional google.rpc.Status status = 1;
+    // Set if status is OK.
+    optional BLOB blob = 2;
+}
+
 message AllocationFunctionCallResult {
     // From ExecutionPlanUpdates.root_function_call_id.
     optional string function_call_id = 1;
@@ -318,14 +306,41 @@ message AllocationFunctionCallResult {
     optional BLOB request_error_blob = 6;
 }
 
+message AllocationRequestStatePrepareReadOperationResult {
+    // A readable BLOB with the value of the requested key.
+    // Reading the BLOB will fail if the state key doesn't exist.
+    optional BLOB blob = 1;
+}
+
+message AllocationRequestStatePrepareWriteOperationResult {
+    // A writable BLOB where the allocation can upload the value for the requested key.
+    optional BLOB blob = 1;
+}
+
+message AllocationRequestStateCommitWriteOperationResult {}
+
+message AllocationRequestStateOperationResult {
+    optional string operation_id = 1;
+    optional google.rpc.Status status = 3;
+    // result is set if status is OK.
+    oneof result {
+        AllocationRequestStatePrepareReadOperationResult prepare_read = 4;
+        AllocationRequestStatePrepareWriteOperationResult prepare_write = 5;
+        AllocationRequestStateCommitWriteOperationResult commit_write = 6;
+    }
+}
+
 message AllocationUpdate {
     // Target allocation ID.
     optional string allocation_id = 1;
     oneof update {
         // Function call result if the function call is watched by allocation.
         AllocationFunctionCallResult function_call_result = 2;
-        // Output BLOB if requested by allocation.
-        BLOB output_blob = 3;
+        // TODO: Delete output_blob_deprecated once all FEs can use both
+        // output_blob_deprecated and output_blob.
+        BLOB output_blob_deprecated = 3;
+        AllocationOutputBLOB output_blob = 4;
+        AllocationRequestStateOperationResult request_state_operation_result = 5;
     }
 }
 
@@ -358,10 +373,6 @@ service FunctionExecutor {
     // once per Function Executor as it can only run a single function.
     // It should be called before calling create_allocation.
     rpc initialize(InitializeRequest) returns (InitializeResponse);
-    // Initializes a server that sends requests to the client to perform actions on an allocation's
-    // request state. This method is called only once per Function Executor
-    // It should be called before calling create_allocation.
-    rpc initialize_request_state_server(stream RequestStateResponse) returns (stream RequestStateRequest);
     // Lists the currently-running allocations.
     rpc list_allocations(ListAllocationsRequest) returns (ListAllocationsResponse);
     // Creates and starts the allocation specified in the request.
