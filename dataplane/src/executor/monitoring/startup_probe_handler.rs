@@ -23,7 +23,6 @@ impl StartupProbeHandler {
 
 impl Handler<hyper::body::Incoming> for StartupProbeHandler {
     #[inline]
-    // why are we taking in request when we don't use it?
     async fn handle(
         &self,
         _request: Request<hyper::body::Incoming>,

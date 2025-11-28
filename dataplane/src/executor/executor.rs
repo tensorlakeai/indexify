@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use prometheus_client::registry::Registry;
+use tokio::sync::Mutex;
 
 use crate::executor::{
     executor_api::{

@@ -4,6 +4,7 @@ use anyhow::Result;
 use http_body_util::combinators::BoxBody;
 use hyper::{Request, Response, body::Bytes};
 use serde_json::json;
+use tokio::sync::Mutex;
 
 use crate::executor::monitoring::{
     handler::Handler,
@@ -13,11 +14,11 @@ use crate::executor::monitoring::{
 
 #[derive(Debug, Clone)]
 pub struct HealthCheckHandler {
-    health_checker: Arc<GenericHealthChecker>,
+    health_checker: Arc<Mutex<GenericHealthChecker>>,
 }
 
 impl HealthCheckHandler {
-    pub fn new(health_checker: Arc<GenericHealthChecker>) -> Self {
+    pub fn new(health_checker: Arc<Mutex<GenericHealthChecker>>) -> Self {
         Self { health_checker }
     }
 }
@@ -27,7 +28,7 @@ impl Handler<hyper::body::Incoming> for HealthCheckHandler {
         &self,
         _request: Request<hyper::body::Incoming>,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Infallible> {
-        let result = self.health_checker.check();
+        let result = self.health_checker.lock().await.check();
         if result.is_success {
             let message = match result.status_message {
                 Some(message) => message,

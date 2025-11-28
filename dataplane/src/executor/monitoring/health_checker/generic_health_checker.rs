@@ -9,7 +9,7 @@ pub struct GenericHealthChecker {
     pub is_success: bool,
     pub status_message: Option<String>,
     pub checker_name: String,
-    metrics: Arc<Metrics>,
+    pub metrics: Arc<Metrics>,
 }
 
 impl GenericHealthChecker {
