@@ -1,12 +1,19 @@
-use std::{sync::Arc, vec};
+use std::{sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
-use opentelemetry::{KeyValue, metrics::Histogram};
+use opentelemetry::{
+    KeyValue,
+    metrics::{Gauge, Histogram},
+};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+const MAX_WRITE_RETRIES: u32 = 3;
+const INITIAL_RETRY_DELAY_MS: u64 = 100;
+
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
+    manual_timer,
     metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
@@ -44,7 +51,7 @@ pub struct ApplicationProcessor {
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
     pub batch_processing_duration: Histogram<f64>,
-    pub batch_write_duration: Histogram<f64>,
+    pub unprocessed_state_changes: Gauge<u64>,
     pub queue_size: u32,
 }
 
@@ -73,11 +80,9 @@ impl ApplicationProcessor {
             .with_description("Total time to process a batch of state changes in seconds")
             .build();
 
-        let batch_write_duration = meter
-            .f64_histogram("indexify.batch_write_duration")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time spent writing batch to state machine in seconds")
+        let unprocessed_state_changes = meter
+            .u64_gauge("indexify.unprocessed_state_changes")
+            .with_description("Number of unprocessed state changes pending processing")
             .build();
 
         Self {
@@ -85,7 +90,7 @@ impl ApplicationProcessor {
             state_transition_latency,
             processor_processing_latency,
             batch_processing_duration,
-            batch_write_duration,
+            unprocessed_state_changes,
             queue_size,
         }
     }
@@ -192,12 +197,14 @@ impl ApplicationProcessor {
             cached_state_changes.extend(state_changes);
         }
 
+        self.unprocessed_state_changes
+            .record(cached_state_changes.len() as u64, &[]);
+
         if cached_state_changes.is_empty() {
             return Ok(());
         }
 
-        let batch_start = std::time::Instant::now();
-        let num_state_changes = cached_state_changes.len();
+        let batch_timer = manual_timer!(self.batch_processing_duration, &[]);
 
         // 2. Clone in_memory_state ONCE for the entire batch so state changes see each
         //    other's effects
@@ -207,7 +214,6 @@ impl ApplicationProcessor {
         // 3. Initialize batch accumulators
         let mut combined_update = SchedulerUpdateRequest::default();
         let mut batch_state_changes: Vec<StateChange> = Vec::new();
-        let mut total_write_time = std::time::Duration::ZERO;
 
         // 4. Process all state changes using the shared in_memory_state
         for state_change in std::mem::take(cached_state_changes) {
@@ -221,33 +227,18 @@ impl ApplicationProcessor {
                     self.record_latency(&state_change);
                 }
                 Ok(StateChangeResult::DeleteApplication(req)) => {
-                    let write_time = self
-                        .flush_batch(&mut combined_update, &mut batch_state_changes)
+                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
                         .await?;
-                    total_write_time += write_time;
                     let payload =
                         RequestPayload::DeleteApplicationRequest((req, vec![state_change.clone()]));
                     self.write_with_fallback(payload, state_change).await?;
                 }
                 Ok(StateChangeResult::DeleteRequest(req)) => {
-                    let write_time = self
-                        .flush_batch(&mut combined_update, &mut batch_state_changes)
+                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
                         .await?;
-                    total_write_time += write_time;
                     let payload =
                         RequestPayload::DeleteRequestRequest((req, vec![state_change.clone()]));
                     self.write_with_fallback(payload, state_change).await?;
-                }
-                Err(err) if err.to_string().contains("Operation timed out") => {
-                    warn!(
-                        "transient error processing {}, retrying: {:?}",
-                        state_change.change_type, err
-                    );
-                    cached_state_changes.push(state_change);
-                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
-                        .await?;
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    return Ok(());
                 }
                 Err(err) => {
                     error!(
@@ -260,98 +251,106 @@ impl ApplicationProcessor {
         }
 
         // 5. Flush remaining batch
-        let write_time = self
-            .flush_batch(&mut combined_update, &mut batch_state_changes)
+        self.flush_batch(&mut combined_update, &mut batch_state_changes)
             .await?;
-        total_write_time += write_time;
 
-        let total_time = batch_start.elapsed();
-        self.batch_processing_duration.record(
-            total_time.as_secs_f64(),
-            &[KeyValue::new("num_state_changes", num_state_changes as i64)],
-        );
-        self.batch_write_duration.record(
-            total_write_time.as_secs_f64(),
-            &[KeyValue::new("num_state_changes", num_state_changes as i64)],
-        );
-
+        batch_timer.stop();
         notify.notify_one();
         Ok(())
     }
 
-    /// Flushes accumulated scheduler updates. Falls back to individual
-    /// processing on error. Returns the time spent writing to the state
-    /// machine.
+    /// Checks if an error is a transient RocksDB error that should be retried.
+    /// Based on https://docs.rs/rocksdb/latest/rocksdb/enum.ErrorKind.html
+    fn is_transient_error(err: &anyhow::Error) -> bool {
+        let err_str = err.to_string();
+        err_str.contains("TimedOut") || err_str.contains("Busy") || err_str.contains("timed out")
+    }
+
+    /// Writes to the state machine with retry and exponential backoff for
+    /// transient errors. Returns Ok(true) if write succeeded, Ok(false) if
+    /// failed (non-transient or retries exhausted).
+    async fn write_with_retry(&self, payload: RequestPayload) -> Result<bool> {
+        let mut delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
+
+        for attempt in 0..MAX_WRITE_RETRIES {
+            match self
+                .indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: payload.clone(),
+                })
+                .await
+            {
+                Ok(()) => return Ok(true),
+                Err(err) => {
+                    if Self::is_transient_error(&err) && attempt < MAX_WRITE_RETRIES - 1 {
+                        warn!(
+                            attempt = attempt + 1,
+                            max_retries = MAX_WRITE_RETRIES,
+                            delay_ms = delay.as_millis(),
+                            error = %err,
+                            "transient RocksDB error, retrying with backoff"
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                    } else {
+                        error!(
+                            attempt = attempt + 1,
+                            error = %err,
+                            "rocksdb write failed"
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
     async fn flush_batch(
         &self,
         combined_update: &mut SchedulerUpdateRequest,
         state_changes: &mut Vec<StateChange>,
-    ) -> Result<std::time::Duration> {
+    ) -> Result<()> {
         if state_changes.is_empty() {
-            return Ok(std::time::Duration::ZERO);
+            return Ok(());
         }
 
         let batch = std::mem::take(state_changes);
-        let batch_size = batch.len();
         let update = std::mem::take(combined_update);
         let payload = RequestPayload::SchedulerUpdate((Box::new(update), batch.clone()));
 
-        let write_start = std::time::Instant::now();
-        if let Err(err) = self
-            .indexify_state
-            .write(StateMachineUpdateRequest { payload })
-            .await
-        {
-            error!("batch write failed, falling back to individual: {:?}", err);
-            // Re-acquire fresh state for fallback processing
-            let indexes = self.indexify_state.in_memory_state.read().await.clone();
-            let mut indexes_guard = indexes.write().await;
-            for sc in batch {
-                match self.handle_state_change(&sc, &mut indexes_guard).await {
-                    Ok(StateChangeResult::SchedulerUpdate(upd)) => {
-                        let p = RequestPayload::SchedulerUpdate((upd, vec![sc.clone()]));
-                        self.write_with_fallback(p, sc).await?;
-                    }
-                    _ => self.mark_as_processed(vec![sc]).await?,
-                }
-            }
+        if !self.write_with_retry(payload).await? {
+            error!(
+                "batch write failed, marking {} state changes as processed",
+                batch.len()
+            );
+            self.mark_as_processed(batch).await?;
         }
-        let write_time = write_start.elapsed();
-        debug!(
-            batch_size = batch_size,
-            write_time_ms = write_time.as_millis(),
-            "flushed batch to state machine"
-        );
-        Ok(write_time)
+        Ok(())
     }
 
-    /// Writes a request, marking state change as processed on failure.
     async fn write_with_fallback(
         &self,
         payload: RequestPayload,
         state_change: StateChange,
     ) -> Result<()> {
-        if let Err(err) = self
-            .indexify_state
-            .write(StateMachineUpdateRequest { payload })
-            .await
-        {
+        if !self.write_with_retry(payload).await? {
             error!(
-                "write failed for {}, marking as processed: {:?}",
-                state_change.change_type, err
+                "write failed for {}, marking as processed",
+                state_change.change_type
             );
             self.mark_as_processed(vec![state_change]).await?;
         }
         Ok(())
     }
 
-    /// Marks state changes as processed (NOOP).
+    /// Marks state changes as processed with retry.
     async fn mark_as_processed(&self, state_changes: Vec<StateChange>) -> Result<()> {
-        self.indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::ProcessStateChanges(state_changes),
-            })
-            .await
+        let payload = RequestPayload::ProcessStateChanges(state_changes);
+        if !self.write_with_retry(payload).await? {
+            error!("failed to mark state changes as processed after retries");
+        }
+        Ok(())
     }
 
     fn record_latency(&self, state_change: &StateChange) {
