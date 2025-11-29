@@ -403,7 +403,8 @@ impl IndexifyState {
             changed_executors.insert(req.executor.id.clone());
         }
 
-        let executor_notify_timer = manual_timer!(self.metrics.state_write_executor_notify, timer_kv);
+        let executor_notify_timer =
+            manual_timer!(self.metrics.state_write_executor_notify, timer_kv);
         {
             let mut executor_states = self.executor_states.write().await;
             for executor_id in changed_executors {
