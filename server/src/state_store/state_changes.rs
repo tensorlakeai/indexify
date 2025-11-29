@@ -152,7 +152,7 @@ pub fn task_outputs_ingested(
                         graph_updates: graph_updates.request_updates.clone(),
                         output_function_call_id: graph_updates.output_function_call_id.clone(),
                     }),
-                allocation_key: request.allocation.key(),
+                allocation_id: request.allocation.id.clone(),
                 request_exception: request.request_exception.clone(),
             },
         )))

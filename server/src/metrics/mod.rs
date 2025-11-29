@@ -193,6 +193,45 @@ impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
     }
 }
 
+/// A timer that records duration when explicitly stopped via `stop()`.
+/// Unlike `Timer`, this does not record on drop - you must call `stop()`.
+/// should be used when you want to control exactly when the timing ends,
+/// in the middle of a function, rather than at the end of a scope.
+pub struct ManualTimer<'a, T: TimerUpdate + Sync> {
+    start: Instant,
+    metric: &'a T,
+    labels: &'a [KeyValue],
+}
+
+impl<'a, T: TimerUpdate + Sync> ManualTimer<'a, T> {
+    pub fn start(metric: &'a T, labels: &'a [KeyValue]) -> Self {
+        Self {
+            start: Instant::now(),
+            metric,
+            labels,
+        }
+    }
+
+    pub fn stop(self) {
+        self.metric.add(self.start.elapsed(), self.labels);
+    }
+}
+
+/// Creates a ManualTimer with a name derived from the metric field.
+///
+/// Usage:
+/// ```ignore
+/// let rocksdb_timer = manual_timer!(self.metrics.state_write_rocksdb, timer_kv);
+/// // ... do work ...
+/// rocksdb_timer.stop();
+/// ```
+#[macro_export]
+macro_rules! manual_timer {
+    ($metric:expr, $labels:expr) => {
+        $crate::metrics::ManualTimer::start(&$metric, $labels)
+    };
+}
+
 pub trait AutoIncrement {
     fn increment(&self, labels: &[KeyValue]);
 }
@@ -292,6 +331,10 @@ pub mod queue {
 #[derive(Clone, Debug)]
 pub struct StateStoreMetrics {
     pub state_write: Histogram<f64>,
+    pub state_write_rocksdb: Histogram<f64>,
+    pub state_write_in_memory: Histogram<f64>,
+    pub state_write_executor_notify: Histogram<f64>,
+    pub state_write_request_state_change: Histogram<f64>,
     pub state_read: Histogram<f64>,
     pub state_metrics_write: Histogram<f64>,
     pub driver_writes: Counter<u64>,
@@ -317,6 +360,34 @@ impl StateStoreMetrics {
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("State machine writing latency in seconds")
+            .build();
+
+        let state_write_rocksdb = meter
+            .f64_histogram("indexify.state_machine_write_rocksdb_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("RocksDB transaction commit latency in seconds")
+            .build();
+
+        let state_write_in_memory = meter
+            .f64_histogram("indexify.state_machine_write_in_memory_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("In-memory state update latency in seconds")
+            .build();
+
+        let state_write_executor_notify = meter
+            .f64_histogram("indexify.state_machine_write_executor_notify_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Executor state change notification latency in seconds")
+            .build();
+
+        let state_write_request_state_change = meter
+            .f64_histogram("indexify.state_machine_write_request_state_change_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Request state change update latency in seconds")
             .build();
 
         let state_read = meter
@@ -365,6 +436,10 @@ impl StateStoreMetrics {
 
         Self {
             state_write,
+            state_write_rocksdb,
+            state_write_in_memory,
+            state_write_executor_notify,
+            state_write_request_state_change,
             state_read,
             state_metrics_write,
             driver_writes,
