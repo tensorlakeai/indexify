@@ -13,7 +13,7 @@ use crate::{
         RequestCtxKey,
         RunningFunctionRunStatus,
     },
-    metrics::low_latency_boundaries,
+    metrics::{Timer, low_latency_boundaries},
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
         self,
@@ -89,11 +89,8 @@ impl<'a> FunctionRunProcessor<'a> {
         in_memory_state: &mut InMemoryState,
         function_runs: Vec<FunctionRun>,
     ) -> Result<SchedulerUpdateRequest> {
-        let start = std::time::Instant::now();
-        let num_function_runs = function_runs.len();
+        let _timer = Timer::start_with_labels(&self.metrics.allocate_function_runs_duration, &[]);
         let mut update = SchedulerUpdateRequest::default();
-        let mut allocated_count = 0u32;
-        let mut skipped_no_capacity = 0u32;
         // Track functions that have no FE capacity to avoid repeated checks
         let mut no_capacity_functions: std::collections::HashSet<(String, String, String, String)> =
             std::collections::HashSet::new();
@@ -107,7 +104,6 @@ impl<'a> FunctionRunProcessor<'a> {
                 function_run.version.to_string(),
             );
             if no_capacity_functions.contains(&fn_key) {
-                skipped_no_capacity += 1;
                 continue;
             }
 
@@ -125,7 +121,6 @@ impl<'a> FunctionRunProcessor<'a> {
                         // No allocation was created - FE capacity exhausted for this function
                         no_capacity_functions.insert(fn_key);
                     } else {
-                        allocated_count += 1;
                         // Capacity changed (new FE may have been created) - retry skipped functions
                         no_capacity_functions.clear();
                     }
@@ -175,18 +170,6 @@ impl<'a> FunctionRunProcessor<'a> {
                 }
             }
         }
-
-        if num_function_runs > 0 {
-            self.metrics.allocate_function_runs_duration.record(
-                start.elapsed().as_secs_f64(),
-                &[
-                    KeyValue::new("num_function_runs", num_function_runs as i64),
-                    KeyValue::new("allocated_count", allocated_count as i64),
-                    KeyValue::new("skipped_no_capacity", skipped_no_capacity as i64),
-                ],
-            );
-        }
-
         Ok(update)
     }
 
