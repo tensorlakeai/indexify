@@ -4,8 +4,12 @@ use prometheus_client::registry::Registry;
 use tokio::sync::Mutex;
 
 use crate::executor::{
+    blob_store::BlobStore,
     executor_api::{
-        ChannelManager, ExecutorStateReporter, FunctionUri, executor_api_pb::ExecutorStatus,
+        executor_api_pb::ExecutorStatus, ChannelManager, ExecutorStateReporter, FunctionUri,
+    },
+    function_executor::{
+        server_factory::SubprocessFunctionExecutorServerFactory, ,
     },
     host_resources::HostResourcesProvider,
     monitoring::{
@@ -35,7 +39,8 @@ impl Executor {
         // TODO: use trait here
         health_checker: Arc<Mutex<GenericHealthChecker>>,
         function_uris: Vec<String>,
-        function_executor_server_factory: FunctionExecutorServerFactory,
+        // TODO: use trait here
+        function_executor_server_factory: SubprocessFunctionExecutorServerFactory,
         server_addr: String,
         grpc_server_addr: String,
         config_path: Option<String>,

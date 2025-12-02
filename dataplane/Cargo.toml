@@ -1,11 +1,12 @@
 [package]
 name = "dataplane"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 resolver = "2"
 
 [dependencies]
+async-trait = "0.1.81"
 anyhow = "1.0.100"
 aws-config = "1.8.11"
 aws-sdk-s3 = "1.115.0"
