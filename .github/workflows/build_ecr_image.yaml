@@ -53,7 +53,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           push: true
-          context: .
+          context: server/
           file: dockerfiles/Dockerfile.local
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
           cache-from: type=gha
