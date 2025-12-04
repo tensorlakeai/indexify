@@ -1,12 +1,19 @@
-use std::{sync::Arc, vec};
+use std::{sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
-use opentelemetry::{KeyValue, metrics::Histogram};
+use opentelemetry::{
+    KeyValue,
+    metrics::{Gauge, Histogram},
+};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+const MAX_WRITE_RETRIES: u32 = 3;
+const INITIAL_RETRY_DELAY_MS: u64 = 100;
+
 use crate::{
     data_model::{Application, ApplicationState, ChangeType, StateChange},
+    manual_timer,
     metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
@@ -15,21 +22,36 @@ use crate::{
     },
     state_store::{
         IndexifyState,
+        in_memory_state::InMemoryState,
         requests::{
             CreateOrUpdateApplicationRequest,
             DeleteApplicationRequest,
             DeleteRequestRequest,
             RequestPayload,
+            SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
     },
     utils::{TimeUnit, get_elapsed_time},
 };
 
+/// Result of processing a state change - distinguishes scheduler updates from
+/// delete operations
+pub enum StateChangeResult {
+    /// A scheduler update that can be batched with other scheduler updates
+    SchedulerUpdate(Box<SchedulerUpdateRequest>),
+    /// A delete application request that must be processed immediately
+    DeleteApplication(DeleteApplicationRequest),
+    /// A delete request that must be processed immediately
+    DeleteRequest(DeleteRequestRequest),
+}
+
 pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
+    pub batch_processing_duration: Histogram<f64>,
+    pub unprocessed_state_changes: Gauge<u64>,
     pub queue_size: u32,
 }
 
@@ -51,10 +73,24 @@ impl ApplicationProcessor {
             .with_description("Latency of state transitions before processing in seconds")
             .build();
 
+        let batch_processing_duration = meter
+            .f64_histogram("indexify.batch_processing_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Total time to process a batch of state changes in seconds")
+            .build();
+
+        let unprocessed_state_changes = meter
+            .u64_gauge("indexify.unprocessed_state_changes")
+            .with_description("Number of unprocessed state changes pending processing")
+            .build();
+
         Self {
             indexify_state,
             state_transition_latency,
             processor_processing_latency,
+            batch_processing_duration,
+            unprocessed_state_changes,
             queue_size,
         }
     }
@@ -143,94 +179,181 @@ impl ApplicationProcessor {
         let timer_kvs = &[KeyValue::new("op", "get")];
         let _timer_guard = Timer::start_with_labels(&self.processor_processing_latency, timer_kvs);
 
-        // 1. First load 100 state changes. Process the `global` state changes first
-        // and then the `ns_` state changes
+        // 1. Load state changes if cache is empty
         if cached_state_changes.is_empty() {
-            let unprocessed_state_changes = self
+            let unprocessed = self
                 .indexify_state
                 .reader()
                 .unprocessed_state_changes(executor_events_cursor, application_events_cursor)
                 .await?;
-            if let Some(cursor) = unprocessed_state_changes.application_state_change_cursor {
+            if let Some(cursor) = unprocessed.application_state_change_cursor {
                 application_events_cursor.replace(cursor);
-            };
-            if let Some(cursor) = unprocessed_state_changes.executor_state_change_cursor {
+            }
+            if let Some(cursor) = unprocessed.executor_state_change_cursor {
                 executor_events_cursor.replace(cursor);
-            };
-            let mut state_changes = unprocessed_state_changes.changes;
+            }
+            let mut state_changes = unprocessed.changes;
             state_changes.reverse();
             cached_state_changes.extend(state_changes);
         }
 
-        // 2. If there are no state changes to process, return
-        // and wait for the scheduler to wake us up again when there are state changes
+        self.unprocessed_state_changes
+            .record(cached_state_changes.len() as u64, &[]);
+
         if cached_state_changes.is_empty() {
             return Ok(());
         }
 
-        // 3. Fire a notification when handling multiple
-        // state changes in order to fill in the cache when
-        // the next state change is processed.
-        //
-        // 0 = we fetched all current state changes
-        // > 1 = we are processing cached state changes, we need to fetch more when done
-        if !cached_state_changes.is_empty() {
-            notify.notify_one();
-        }
+        let batch_timer = manual_timer!(self.batch_processing_duration, &[]);
 
-        // 4. Process the next state change from the queue
-        let state_change = cached_state_changes.pop().unwrap();
-        let sm_update = self.handle_state_change(&state_change).await;
+        // 2. Clone in_memory_state ONCE for the entire batch so state changes see each
+        //    other's effects
+        let indexes = self.indexify_state.in_memory_state.read().await.clone();
+        let mut indexes_guard = indexes.write().await;
 
-        // 5. Write the state change to the state store
-        // If there is an error processing the state change, we write a NOOP state
-        // change That way this problematic state change will never be processed
-        // again This most likely is a bug but in production we want to move
-        // along.
-        let sm_update = match sm_update {
-            Ok(sm_update) => sm_update,
-            Err(err) => {
-                // TODO: Determine if error is transient or not to determine if retrying should
-                // be done.
-                if err.to_string().contains("Operation timed out") {
-                    warn!(
-                        "transient error processing state change {}, retrying later: {:?}",
+        // 3. Initialize batch accumulators
+        let mut combined_update = SchedulerUpdateRequest::default();
+        let mut batch_state_changes: Vec<StateChange> = Vec::new();
+
+        // 4. Process all state changes using the shared in_memory_state
+        for state_change in std::mem::take(cached_state_changes) {
+            match self
+                .handle_state_change(&state_change, &mut indexes_guard)
+                .await
+            {
+                Ok(StateChangeResult::SchedulerUpdate(update)) => {
+                    combined_update.extend(*update);
+                    batch_state_changes.push(state_change.clone());
+                    self.record_latency(&state_change);
+                }
+                Ok(StateChangeResult::DeleteApplication(req)) => {
+                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
+                        .await?;
+                    let payload =
+                        RequestPayload::DeleteApplicationRequest((req, vec![state_change.clone()]));
+                    self.write_with_fallback(payload, state_change).await?;
+                }
+                Ok(StateChangeResult::DeleteRequest(req)) => {
+                    self.flush_batch(&mut combined_update, &mut batch_state_changes)
+                        .await?;
+                    let payload =
+                        RequestPayload::DeleteRequestRequest((req, vec![state_change.clone()]));
+                    self.write_with_fallback(payload, state_change).await?;
+                }
+                Err(err) => {
+                    error!(
+                        "error processing {}, marking as processed: {:?}",
                         state_change.change_type, err
                     );
-                    cached_state_changes.push(state_change);
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    return Ok(());
-                }
-                error!(
-                    "error processing state change {}, marking as processed: {:?}",
-                    state_change.change_type, err
-                );
-
-                // Sending NOOP SM Update
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::ProcessStateChanges(vec![state_change.clone()]),
+                    self.mark_as_processed(vec![state_change]).await?;
                 }
             }
-        };
-
-        // 6. Write the state change
-        if let Err(err) = self.indexify_state.write(sm_update).await {
-            // TODO: Determine if error is transient or not to determine if retrying should
-            // be done.
-            error!(
-                "error writing state change {}, marking as processed: {:?}",
-                state_change.change_type, err,
-            );
-            // 7. If SM update fails for whatever reason, lets just write a NOOP state
-            //    change
-            self.indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::ProcessStateChanges(vec![state_change.clone()]),
-                })
-                .await?;
         }
 
-        // Record the state transition latency
+        // 5. Flush remaining batch
+        self.flush_batch(&mut combined_update, &mut batch_state_changes)
+            .await?;
+
+        batch_timer.stop();
+        notify.notify_one();
+        Ok(())
+    }
+
+    /// Checks if an error is a transient RocksDB error that should be retried.
+    /// Based on https://docs.rs/rocksdb/latest/rocksdb/enum.ErrorKind.html
+    fn is_transient_error(err: &anyhow::Error) -> bool {
+        let err_str = err.to_string();
+        err_str.contains("TimedOut") || err_str.contains("Busy") || err_str.contains("timed out")
+    }
+
+    /// Writes to the state machine with retry and exponential backoff for
+    /// transient errors. Returns Ok(true) if write succeeded, Ok(false) if
+    /// failed (non-transient or retries exhausted).
+    async fn write_with_retry(&self, payload: RequestPayload) -> Result<bool> {
+        let mut delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
+
+        for attempt in 0..MAX_WRITE_RETRIES {
+            match self
+                .indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: payload.clone(),
+                })
+                .await
+            {
+                Ok(()) => return Ok(true),
+                Err(err) => {
+                    if Self::is_transient_error(&err) && attempt < MAX_WRITE_RETRIES - 1 {
+                        warn!(
+                            attempt = attempt + 1,
+                            max_retries = MAX_WRITE_RETRIES,
+                            delay_ms = delay.as_millis(),
+                            error = %err,
+                            "transient RocksDB error, retrying with backoff"
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                    } else {
+                        error!(
+                            attempt = attempt + 1,
+                            error = %err,
+                            "rocksdb write failed"
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    async fn flush_batch(
+        &self,
+        combined_update: &mut SchedulerUpdateRequest,
+        state_changes: &mut Vec<StateChange>,
+    ) -> Result<()> {
+        if state_changes.is_empty() {
+            return Ok(());
+        }
+
+        let batch = std::mem::take(state_changes);
+        let update = std::mem::take(combined_update);
+        let payload = RequestPayload::SchedulerUpdate((Box::new(update), batch.clone()));
+
+        if !self.write_with_retry(payload).await? {
+            error!(
+                "batch write failed, marking {} state changes as processed",
+                batch.len()
+            );
+            self.mark_as_processed(batch).await?;
+        }
+        Ok(())
+    }
+
+    async fn write_with_fallback(
+        &self,
+        payload: RequestPayload,
+        state_change: StateChange,
+    ) -> Result<()> {
+        if !self.write_with_retry(payload).await? {
+            error!(
+                "write failed for {}, marking as processed",
+                state_change.change_type
+            );
+            self.mark_as_processed(vec![state_change]).await?;
+        }
+        Ok(())
+    }
+
+    /// Marks state changes as processed with retry.
+    async fn mark_as_processed(&self, state_changes: Vec<StateChange>) -> Result<()> {
+        let payload = RequestPayload::ProcessStateChanges(state_changes);
+        if !self.write_with_retry(payload).await? {
+            error!("failed to mark state changes as processed after retries");
+        }
+        Ok(())
+    }
+
+    fn record_latency(&self, state_change: &StateChange) {
         self.state_transition_latency.record(
             get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
             &[KeyValue::new(
@@ -242,125 +365,88 @@ impl ApplicationProcessor {
                 },
             )],
         );
-        Ok(())
     }
 
     #[instrument(skip_all)]
     pub async fn handle_state_change(
         &self,
         state_change: &StateChange,
-    ) -> Result<StateMachineUpdateRequest> {
+        indexes_guard: &mut InMemoryState,
+    ) -> Result<StateChangeResult> {
         trace!("processing state change: {}", state_change);
-        let indexes = self.indexify_state.in_memory_state.read().await.clone();
-        let mut indexes_guard = indexes.write().await;
         let clock = indexes_guard.clock;
-        let task_creator =
-            function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
+        let task_creator = function_run_creator::FunctionRunCreator::new(clock);
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
         let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
 
-        let req = match &state_change.change_type {
+        let result = match &state_change.change_type {
             ChangeType::CreateFunctionCall(req) => {
                 let mut scheduler_update = task_creator
-                    .handle_blocking_function_call(&mut indexes_guard, req)
+                    .handle_blocking_function_call(indexes_guard, req)
                     .await?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
 
                 scheduler_update.extend(
                     task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::InvokeApplication(ev) => {
                 let scheduler_update = task_allocator.allocate_request(
-                    &mut indexes_guard,
+                    indexes_guard,
                     &ev.namespace,
                     &ev.application,
                     &ev.request_id,
                 )?;
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
-                    .handle_allocation_ingestion(&mut indexes_guard, req)
+                    .handle_allocation_ingestion(indexes_guard, req)
                     .await?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(
                     task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
-                    fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
+                    fe_manager.reconcile_executor_state(indexes_guard, &ev.executor_id)?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(
                     task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
-                    fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
+                    fe_manager.deregister_executor(indexes_guard, &ev.executor_id)?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
                 scheduler_update.extend(
                     task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
+                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
                 );
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
-            ChangeType::TombstoneApplication(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteApplicationRequest((
-                    DeleteApplicationRequest {
-                        namespace: request.namespace.clone(),
-                        name: request.application.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
-            ChangeType::TombstoneRequest(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteRequestRequest((
-                    DeleteRequestRequest {
-                        namespace: request.namespace.clone(),
-                        application: request.application.clone(),
-                        request_id: request.request_id.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
+            ChangeType::TombstoneApplication(request) => {
+                StateChangeResult::DeleteApplication(DeleteApplicationRequest {
+                    namespace: request.namespace.clone(),
+                    name: request.application.clone(),
+                })
+            }
+            ChangeType::TombstoneRequest(request) => {
+                StateChangeResult::DeleteRequest(DeleteRequestRequest {
+                    namespace: request.namespace.clone(),
+                    application: request.application.clone(),
+                    request_id: request.request_id.clone(),
+                })
+            }
         };
-        Ok(req)
+        Ok(result)
     }
 }

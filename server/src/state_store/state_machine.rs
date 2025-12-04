@@ -101,9 +101,24 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
+
+    let request_key = req.ctx.key();
+    let existing_request = txn
+        .get(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            request_key.as_bytes(),
+        )
+        .await?;
+    if existing_request.is_some() {
+        return Err(anyhow::anyhow!(format!(
+            "request id {} already exists for application {}",
+            req.ctx.request_id, req.application_name
+        )));
+    }
+
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
-        req.ctx.key().as_bytes(),
+        request_key.as_bytes(),
         &JsonEncoder::encode(&req.ctx)?,
     )
     .await?;
@@ -479,7 +494,7 @@ pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
-    for alloc in &request.new_allocations {
+    for alloc in request.new_allocations.values() {
         debug!(
             namespace = alloc.namespace,
             app = alloc.application,
