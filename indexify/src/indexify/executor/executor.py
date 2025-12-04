@@ -116,7 +116,8 @@ class Executor:
         metric_executor_info.info(executor_info)
 
     def run(self):
-        asyncio.new_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
         self._run_aio_task = asyncio.get_event_loop().create_task(
             self._run(),
