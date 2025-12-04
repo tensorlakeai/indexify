@@ -23,7 +23,7 @@ jobs:
     name: Build and Push example Executor Docker images
     runs-on: ubuntu-latest-xlarge
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
       - uses: actions/setup-python@v6

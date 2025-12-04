@@ -21,7 +21,7 @@ jobs:
     name: Build x86_64 Linux Binary
     runs-on: ubuntu-latest-xlarge
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
@@ -46,7 +46,7 @@ jobs:
     name: Build Aarch64 Linux Binary
     runs-on: ubuntu-latest-xlarge
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
