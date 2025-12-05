@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, fmt::Display, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -16,6 +16,7 @@ use rocksdb::{
     TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
+use saphyr::{Scalar, Yaml};
 use serde::{Deserialize, Serialize};
 use tracing::{error, warn};
 
@@ -147,6 +148,174 @@ impl Display for RocksDBConfig {
             self.log_level,
             self.compaction_style
         )
+    }
+}
+
+impl TryFrom<&Yaml<'_>> for RocksDBConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Yaml<'_>) -> Result<Self, Self::Error> {
+        let mapping = value
+            .as_mapping()
+            .ok_or(anyhow::anyhow!("expected mapping for rocksdb_config"))?;
+        let mut config = Self::default();
+
+        const CREATE_IF_MISSING: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("create_if_missing")));
+        if let Some(create_if_missing) = mapping.get(&CREATE_IF_MISSING) {
+            config.create_if_missing = create_if_missing.as_bool().ok_or(anyhow::anyhow!(
+                "expected boolean value for create_if_missing"
+            ))?;
+        }
+
+        const CREATE_MISSING_COLUMN_FAMILIES: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed(
+            "create_missing_column_families",
+        )));
+        if let Some(create_missing_column_families) = mapping.get(&CREATE_MISSING_COLUMN_FAMILIES) {
+            config.create_missing_column_families = create_missing_column_families
+                .as_bool()
+                .ok_or(anyhow::anyhow!(
+                    "expected boolean value for create_missing_column_families"
+                ))?;
+        }
+
+        const THREAD_COUNT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("thread_count")));
+        if let Some(threads) = mapping.get(&THREAD_COUNT) {
+            let threads = threads
+                .as_integer()
+                .ok_or(anyhow::anyhow!("expected integer value for threads"))?;
+            config.thread_count = threads.try_into()?;
+        }
+
+        const JOBS_COUNT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("jobs_count")));
+        if let Some(jobs_count) = mapping.get(&JOBS_COUNT) {
+            let jobs_count = jobs_count
+                .as_integer()
+                .ok_or(anyhow::anyhow!("expected integer value for job_count"))?;
+            config.jobs_count = jobs_count.try_into()?;
+        }
+
+        const MAX_WRITE_BUFFER_NUMBER: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("max_write_buffer_number")));
+        if let Some(max_write_buffer_number) = mapping.get(&MAX_WRITE_BUFFER_NUMBER) {
+            let max_write_buffer_number = max_write_buffer_number.as_integer().ok_or(
+                anyhow::anyhow!("expected integer value for max_write_buffer_number"),
+            )?;
+            config.max_write_buffer_number = max_write_buffer_number.try_into()?;
+        }
+
+        const WRITE_BUFFER_SIZE: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("write_buffer_size")));
+        if let Some(write_buffer_size) = mapping.get(&WRITE_BUFFER_SIZE) {
+            let write_buffer_size = write_buffer_size.as_integer().ok_or(anyhow::anyhow!(
+                "expected integer value for write_buffer_size"
+            ))?;
+            config.write_buffer_size = write_buffer_size.try_into()?;
+        }
+
+        const WAL_SIZE_LIMIT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("wal_size_limit")));
+        if let Some(wal_size_limit) = mapping.get(&WAL_SIZE_LIMIT) {
+            let wal_size_limit = wal_size_limit
+                .as_integer()
+                .ok_or(anyhow::anyhow!("expected integer value for wal_size_limit"))?;
+            config.wal_size_limit = wal_size_limit.try_into()?;
+        }
+
+        const MAX_TOTAL_WAL_SIZE: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("max_total_wal_size")));
+        if let Some(max_total_wal_size) = mapping.get(&MAX_TOTAL_WAL_SIZE) {
+            let max_total_wal_size = max_total_wal_size.as_integer().ok_or(anyhow::anyhow!(
+                "expected integer value for max_total_wal_size"
+            ))?;
+            config.max_total_wal_size = max_total_wal_size.try_into()?;
+        }
+
+        const TARGET_FILE_SIZE_BASE: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("target_file_size_base")));
+        if let Some(target_file_size_base) = mapping.get(&TARGET_FILE_SIZE_BASE) {
+            let target_file_size_base = target_file_size_base.as_integer().ok_or(
+                anyhow::anyhow!("expected integer value for target_file_size_base"),
+            )?;
+            config.target_file_size_base = target_file_size_base.try_into()?;
+        }
+
+        const TARGET_FILE_SIZE_MULTIPLIER: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("target_file_size_multiplier")));
+        if let Some(target_file_size_multiplier) = mapping.get(&TARGET_FILE_SIZE_MULTIPLIER) {
+            let target_file_size_multiplier =
+                target_file_size_multiplier
+                    .as_integer()
+                    .ok_or(anyhow::anyhow!(
+                        "expected integer value for target_file_size_multiplier"
+                    ))?;
+            config.target_file_size_multiplier = target_file_size_multiplier.try_into()?;
+        }
+
+        const LEVEL_ZERO_FILE_COMPACTION_TRIGGER: Yaml = Yaml::Value(Scalar::String(
+            Cow::Borrowed("level_zero_file_compaction_trigger"),
+        ));
+        if let Some(level_zero_file_compaction_trigger) =
+            mapping.get(&LEVEL_ZERO_FILE_COMPACTION_TRIGGER)
+        {
+            let level_zero_file_compaction_trigger = level_zero_file_compaction_trigger
+                .as_integer()
+                .ok_or(anyhow::anyhow!(
+                    "expected integer value for level_zero_file_compaction_trigger"
+                ))?;
+            config.level_zero_file_compaction_trigger =
+                level_zero_file_compaction_trigger.try_into()?;
+        }
+
+        const MAX_CONCURRENT_SUBCOMPACTIONS: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed(
+            "max_concurrent_subcompactions",
+        )));
+        if let Some(max_concurrent_subcompactions) = mapping.get(&MAX_CONCURRENT_SUBCOMPACTIONS) {
+            let max_concurrent_subcompactions =
+                max_concurrent_subcompactions
+                    .as_integer()
+                    .ok_or(anyhow::anyhow!(
+                        "expected integer value for max_concurrent_subcompactions"
+                    ))?;
+            config.max_concurrent_subcompactions = max_concurrent_subcompactions.try_into()?;
+        }
+
+        const ENABLE_PIPELINED_WRITES: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("enable_pipelined_writes")));
+        if let Some(enable_pipelined_writes) = mapping.get(&ENABLE_PIPELINED_WRITES) {
+            config.enable_pipelined_writes = enable_pipelined_writes.as_bool().ok_or(
+                anyhow::anyhow!("expected boolean value for enable_pipelined_writes"),
+            )?;
+        }
+
+        const KEEP_LOG_FILE_NUM: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("keep_log_file_num")));
+        if let Some(keep_log_file_num) = mapping.get(&KEEP_LOG_FILE_NUM) {
+            let keep_log_file_num = keep_log_file_num.as_integer().ok_or(anyhow::anyhow!(
+                "expected integer value for keep_log_file_num"
+            ))?;
+            config.keep_log_file_num = keep_log_file_num.try_into()?;
+        }
+
+        const LOG_LEVEL: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("log_level")));
+        if let Some(log_level) = mapping.get(&LOG_LEVEL) {
+            config.log_level = log_level
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected string value for log_level"))?
+                .to_string();
+        }
+
+        const COMPACTION_STYLE: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("compaction_style")));
+        if let Some(compaction_style) = mapping.get(&COMPACTION_STYLE) {
+            config.compaction_style = compaction_style
+                .as_str()
+                .ok_or(anyhow::anyhow!(
+                    "expected string value for compaction_style"
+                ))?
+                .to_string();
+        }
+
+        Ok(config)
     }
 }
 

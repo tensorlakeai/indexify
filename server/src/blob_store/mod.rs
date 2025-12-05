@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, ops::Range, sync::Arc};
+use std::{borrow::Cow, env, fmt::Debug, ops::Range, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
@@ -15,6 +15,7 @@ use object_store::{
     path::Path,
 };
 use opentelemetry::KeyValue;
+use saphyr::{Scalar, Yaml};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
@@ -46,6 +47,37 @@ impl Default for BlobStorageConfig {
             path: blob_store_path,
             region: None,
         }
+    }
+}
+
+impl TryFrom<(&'static str, &Yaml<'_>)> for BlobStorageConfig {
+    type Error = anyhow::Error;
+
+    fn try_from((name, value): (&'static str, &Yaml<'_>)) -> Result<Self, Self::Error> {
+        let mapping = value
+            .as_mapping()
+            .ok_or(anyhow::anyhow!("expected mapping for {name}"))?;
+
+        let mut config = Self::default();
+
+        const PATH: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("path")));
+        if let Some(path) = mapping.get(&PATH) {
+            config.path = path
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected string value for {name}.path"))?
+                .to_string();
+        }
+
+        const REGION: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("region")));
+        if let Some(region) = mapping.get(&REGION) {
+            let region = region
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected string value for {name}.region"))?
+                .to_string();
+            config.region = Some(region);
+        }
+
+        Ok(config)
     }
 }
 

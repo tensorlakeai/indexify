@@ -1,15 +1,14 @@
 use std::{
+    borrow::Cow,
+    collections::HashMap,
     env,
     fmt::{Debug, Display},
     net::SocketAddr,
     time::Duration,
 };
 
-use anyhow::Result;
-use figment::{
-    Figment,
-    providers::{Format, Serialized, Yaml},
-};
+use anyhow::{Result, anyhow};
+use saphyr::{LoadableYamlNode, Scalar, Yaml};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,7 +16,7 @@ use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDB
 
 const LOCAL_ENV: &str = "local";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueBackend {
     AmazonSqs { queue_url: String },
@@ -26,6 +25,55 @@ pub enum QueueBackend {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueConfig {
     pub backend: QueueBackend,
+}
+
+impl TryFrom<&Yaml<'_>> for QueueConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Yaml<'_>) -> Result<Self, Self::Error> {
+        const BACKEND: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("backend")));
+        let backend = value
+            .as_mapping()
+            .ok_or(anyhow::anyhow!("expected mapping for queue config"))?
+            .get(&BACKEND)
+            .ok_or(anyhow::anyhow!("expected 'backend' field in queue config"))?
+            .as_mapping()
+            .ok_or(anyhow::anyhow!(
+                "expected mapping value for 'backend' field in queue config"
+            ))?
+            .front()
+            .ok_or(anyhow::anyhow!("expected data in backend field config"))?;
+
+        let (key, value) = backend;
+        let key = key
+            .as_str()
+            .ok_or(anyhow::anyhow!("expected string key for backend field"))?;
+
+        match key {
+            "amazon_sqs" => {
+                let mapping = value.as_mapping().ok_or(anyhow::anyhow!(
+                    "expected mapping value for 'amazon_sqs' backend"
+                ))?;
+
+                const QUEUE_URL: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("queue_url")));
+                let queue_url = mapping
+                    .get(&QUEUE_URL)
+                    .ok_or(anyhow::anyhow!(
+                        "expected 'queue_url' field in 'amazon_sqs' backend"
+                    ))?
+                    .as_str()
+                    .ok_or(anyhow::anyhow!(
+                        "expected string value for 'queue_url' field in 'amazon_sqs' backend"
+                    ))?;
+                Ok(QueueConfig {
+                    backend: QueueBackend::AmazonSqs {
+                        queue_url: queue_url.to_string(),
+                    },
+                })
+            }
+            _ => Err(anyhow::anyhow!("unsupported backend: {key}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +91,7 @@ pub struct ExecutorCatalogEntry {
     #[serde(default)]
     pub gpu_model: Option<GpuModel>,
     #[serde(default)]
-    pub labels: std::collections::HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }
 
 impl Display for ExecutorCatalogEntry {
@@ -53,6 +101,97 @@ impl Display for ExecutorCatalogEntry {
             "Node: (name: {}, cpu_cores: {}, memory_gb: {}, disk_gb: {}, gpu_model: {:?}, labels: {:?})",
             self.name, self.cpu_cores, self.memory_gb, self.disk_gb, self.gpu_model, self.labels
         )
+    }
+}
+
+impl TryFrom<(usize, &Yaml<'_>)> for ExecutorCatalogEntry {
+    type Error = anyhow::Error;
+
+    fn try_from((index, value): (usize, &Yaml<'_>)) -> Result<Self, Self::Error> {
+        let mapping = value.as_mapping().ok_or(anyhow::anyhow!(
+            "expected mapping for executor catalog entry at index {index}"
+        ))?;
+
+        const NAME: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("name")));
+        let name = mapping
+            .get(&NAME)
+            .and_then(|n| n.as_str())
+            .ok_or(anyhow::anyhow!(
+                "expected name field for executor catalog entry at index {index}",
+            ))?
+            .to_string();
+
+        const CPU_CORES: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("cpu_cores")));
+        let cpu_cores = mapping
+            .get(&CPU_CORES)
+            .and_then(|c| c.as_integer())
+            .ok_or(anyhow::anyhow!(
+                "expected cpu_cores field for executor catalog entry at index {index}"
+            ))?
+            .try_into()?;
+
+        const MEMORY_GB: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("memory_gb")));
+        let memory_gb = mapping
+            .get(&MEMORY_GB)
+            .and_then(|m| m.as_integer())
+            .ok_or(anyhow::anyhow!(
+                "expected memory_gb field for executor catalog entry at index {index}",
+            ))?
+            .try_into()?;
+
+        const DISK_GB: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("disk_gb")));
+        let disk_gb = mapping
+            .get(&DISK_GB)
+            .and_then(|d| d.as_integer())
+            .ok_or(anyhow::anyhow!(
+                "expected disk_gb field for executor catalog entry at index {index}"
+            ))?
+            .try_into()?;
+
+        const GPU_MODEL: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("gpu_model")));
+        let gpu_model = match mapping.get(&GPU_MODEL) {
+            Some(gpu_model) => {
+                let gpu_model = gpu_model.as_mapping().ok_or(anyhow::anyhow!(
+                    "expected mapping for gpu_model field for executor catalog entry at index {index}"
+                ))?;
+
+                let name = gpu_model.get(&NAME).and_then(|n| n.as_str()).ok_or(anyhow::anyhow!(
+                    "expected name field for gpu_model field for executor catalog entry at index {index}"
+                ))?.to_string();
+
+                const COUNT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("count")));
+                let count = gpu_model.get(&COUNT).and_then(|c| c.as_integer()).ok_or(anyhow::anyhow!(
+                    "expected count field for gpu_model field for executor catalog entry at index {index}"
+                ))?.try_into()?;
+
+                Some(GpuModel { name, count })
+            }
+            None => None,
+        };
+
+        const LABELS: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("labels")));
+        let labels = match mapping.get(&LABELS).and_then(|l| l.as_mapping()) {
+            Some(labels) => {
+                labels.iter()
+                .enumerate()
+                .map(|(label_index, (k, v))| {
+                    let key = k.as_str().ok_or(anyhow::anyhow!("expected string key for label at index {label_index} in executor catalog entry at index {index}"))?;
+                    let value = v.as_str().ok_or(anyhow::anyhow!("expected string value for label at index {label_index} in executor catalog entry at index {index}"))?;
+                    Ok::<(String, String), anyhow::Error>((key.to_string(), value.to_string()))
+                })
+                .collect::<Result<HashMap<String, String>, _>>()?
+            }
+            None => HashMap::default(),
+        };
+
+        Ok(ExecutorCatalogEntry {
+            name,
+            cpu_cores,
+            memory_gb,
+            disk_gb,
+            gpu_model,
+            labels,
+        })
     }
 }
 
@@ -95,9 +234,16 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn from_path(path: &str) -> Result<ServerConfig> {
         let config_str = std::fs::read_to_string(path)?;
-        let figment = Figment::from(Serialized::defaults(ServerConfig::default()));
+        Self::from_yaml_str(&config_str)
+    }
 
-        let config: ServerConfig = figment.merge(Yaml::string(&config_str)).extract()?;
+    pub fn from_yaml_str(config_str: &str) -> Result<ServerConfig> {
+        let config_docs = Yaml::load_from_str(config_str)?;
+        let Some(config_doc) = config_docs.first() else {
+            return Ok(ServerConfig::default());
+        };
+
+        let config: ServerConfig = config_doc.try_into()?;
 
         config.validate()?;
         Ok(config)
@@ -128,6 +274,107 @@ impl ServerConfig {
             .instance_id
             .clone()
             .unwrap_or_else(|| format!("{}-{}", self.env, Uuid::new_v4()))
+    }
+}
+
+impl TryFrom<&Yaml<'_>> for ServerConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(yaml: &Yaml<'_>) -> Result<Self, Self::Error> {
+        let mapping = yaml
+            .as_mapping()
+            .ok_or(anyhow::anyhow!("expected a mapping"))?;
+        let mut config = Self::default();
+
+        const ENV: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("env")));
+        if let Some(env) = mapping.get(&ENV) {
+            config.env = env
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected a string for env"))?
+                .to_string();
+        }
+
+        const STATE_STORE_PATH: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("state_store_path")));
+        if let Some(state_store_path) = mapping.get(&STATE_STORE_PATH) {
+            config.state_store_path = state_store_path
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected a string for state_store_path"))?
+                .to_string();
+        }
+
+        const ROCKSDB_CONFIG: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("rocksdb_config")));
+        if let Some(rocksdb_config) = mapping.get(&ROCKSDB_CONFIG) {
+            config.rocksdb_config = rocksdb_config.try_into()?;
+        }
+
+        const LISTEN_ADDR: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("listen_addr")));
+        if let Some(listen_addr) = mapping.get(&LISTEN_ADDR) {
+            config.listen_addr = listen_addr
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected a string for listen_addr"))?
+                .to_string();
+        }
+
+        const LISTEN_ADDR_GRPC: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("listen_addr_grpc")));
+        if let Some(listen_addr_grpc) = mapping.get(&LISTEN_ADDR_GRPC) {
+            config.listen_addr_grpc = listen_addr_grpc
+                .as_str()
+                .ok_or(anyhow::anyhow!("expected a string for listen_addr_grpc"))?
+                .to_string();
+        }
+
+        const BLOB_STORAGE: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("blob_storage")));
+        if let Some(blob_storage) = mapping.get(&BLOB_STORAGE) {
+            config.blob_storage = ("blob_storage", blob_storage).try_into()?;
+        }
+
+        const KV_STORAGE: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("kv_storage")));
+        if let Some(kv_storage) = mapping.get(&KV_STORAGE) {
+            config.kv_storage = ("kv_storage", kv_storage).try_into()?;
+        }
+
+        const USAGE_QUEUE: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("usage_queue")));
+        if let Some(usage_queue) = mapping.get(&USAGE_QUEUE) {
+            config.usage_queue = Some(usage_queue.try_into()?);
+        }
+
+        const TELEMETRY: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("telemetry")));
+        if let Some(telemetry) = mapping.get(&TELEMETRY) {
+            config.telemetry = telemetry.try_into()?;
+        }
+
+        const EXECUTOR_CATALOG: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("executor_catalog")));
+        if let Some(executor_catalog) = mapping.get(&EXECUTOR_CATALOG) {
+            let executor_catalog = executor_catalog
+                .as_sequence()
+                .ok_or(anyhow::anyhow!("expected a sequence for executor_catalog"))?
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| {
+                    let entry: ExecutorCatalogEntry = (index, entry).try_into()?;
+                    Ok(entry)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            config.executor_catalog = executor_catalog;
+        }
+
+        const QUEUE_SIZE: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("queue_size")));
+        if let Some(queue_size) = mapping.get(&QUEUE_SIZE) {
+            let queue_size = queue_size
+                .as_integer()
+                .ok_or(anyhow::anyhow!("expected an integer for queue_size"))?;
+            config.queue_size = queue_size.try_into()?;
+        }
+
+        const CLOUD_EVENTS: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("cloud_events")));
+        if let Some(cloud_events) = mapping.get(&CLOUD_EVENTS) {
+            config.cloud_events = Some(cloud_events.try_into()?);
+        }
+
+        Ok(config)
     }
 }
 
@@ -178,6 +425,83 @@ impl Default for TelemetryConfig {
     }
 }
 
+impl TryFrom<&Yaml<'_>> for TelemetryConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Yaml<'_>) -> Result<Self, Self::Error> {
+        let mapping = value
+            .as_mapping()
+            .ok_or(anyhow!("expected mapping for telemetry"))?;
+        let mut config = Self::default();
+
+        const ENABLE_METRICS: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("enable_metrics")));
+        if let Some(enable_metrics) = mapping.get(&ENABLE_METRICS) {
+            config.enable_metrics = enable_metrics
+                .as_bool()
+                .ok_or_else(|| anyhow!("Expected boolean value for 'enable_metrics'"))?;
+        }
+
+        const ENDPOINT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("endpoint")));
+        if let Some(endpoint) = mapping.get(&ENDPOINT) {
+            config.endpoint = Some(
+                endpoint
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Expected string value for 'endpoint'"))?
+                    .to_string(),
+            );
+        }
+
+        const TRACING_EXPORTER: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("tracing_exporter")));
+        if let Some(tracing_exporter) = mapping.get(&TRACING_EXPORTER) {
+            let tracing_exporter = tracing_exporter
+                .as_str()
+                .ok_or_else(|| anyhow!("Expected string value for 'tracing_exporter'"))?;
+
+            let tracing_exporter = match tracing_exporter {
+                "stdout" => TracingExporter::Stdout,
+                "otlp" => TracingExporter::Otlp,
+                _ => return Err(anyhow!("Invalid value for 'tracing_exporter'")),
+            };
+
+            config.tracing_exporter = Some(tracing_exporter);
+        }
+
+        const METRICS_INTERVAL: Yaml =
+            Yaml::Value(Scalar::String(Cow::Borrowed("metrics_interval")));
+        if let Some(metrics_interval) = mapping.get(&METRICS_INTERVAL) {
+            let metrics_interval: u64 = metrics_interval
+                .as_integer()
+                .ok_or_else(|| anyhow!("Expected integer value for 'metrics_interval'"))?
+                .try_into()?;
+
+            config.metrics_interval = Duration::from_secs(metrics_interval);
+        }
+
+        const LOCAL_LOG_FILE: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("local_log_file")));
+        if let Some(local_log_file) = mapping.get(&LOCAL_LOG_FILE) {
+            config.local_log_file = Some(
+                local_log_file
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Expected string value for 'local_log_file'"))?
+                    .to_string(),
+            );
+        }
+
+        const INSTANCE_ID: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("instance_id")));
+        if let Some(instance_id) = mapping.get(&INSTANCE_ID) {
+            config.instance_id = Some(
+                instance_id
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Expected string value for 'instance_id'"))?
+                    .to_string(),
+            );
+        }
+
+        Ok(config)
+    }
+}
+
 // Serde module for Duration serialization/deserialization
 mod duration_serde {
     use std::time::Duration;
@@ -203,4 +527,23 @@ mod duration_serde {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CloudEventsConfig {
     pub endpoint: String,
+}
+
+impl TryFrom<&Yaml<'_>> for CloudEventsConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Yaml) -> Result<Self, Self::Error> {
+        const ENDPOINT: Yaml = Yaml::Value(Scalar::String(Cow::Borrowed("endpoint")));
+
+        let endpoint = value
+            .as_mapping()
+            .ok_or(anyhow::anyhow!("expected mapping for cloud events"))?
+            .get(&ENDPOINT)
+            .ok_or_else(|| anyhow!("missing 'endpoint' field"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Expected string value for 'endpoint'"))?
+            .to_string();
+
+        Ok(CloudEventsConfig { endpoint })
+    }
 }

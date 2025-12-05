@@ -45,6 +45,8 @@ executor_catalog:
     regions:
       - 'us-west-2'
       - 'eu-west-1'
+    labels:
+      gpu_size: xl
   - name: 'cpu-s'
     cpu_cores: 8
     memory_gb: 32

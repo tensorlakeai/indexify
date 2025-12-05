@@ -28,6 +28,8 @@ mod pb_helpers;
 mod utils;
 
 #[cfg(test)]
+mod config_test;
+#[cfg(test)]
 mod integration_test;
 #[cfg(test)]
 mod integration_test_blocking_calls;
