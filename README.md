@@ -182,7 +182,7 @@ indexify-cli executor
 
 Set the environment variable - 
 ```bash
-export INDEXIFY_URL=http://localhost:8900
+export TENSORLAKE_API_URL=http://localhost:8900
 ```
 
 Change the code in the workflow to the following -
