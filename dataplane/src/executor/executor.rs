@@ -8,9 +8,7 @@ use crate::executor::{
     executor_api::{
         executor_api_pb::ExecutorStatus, ChannelManager, ExecutorStateReporter, FunctionUri,
     },
-    function_executor::{
-        server_factory::SubprocessFunctionExecutorServerFactory, ,
-    },
+    function_executor::server_factory::SubprocessFunctionExecutorServerFactory,
     host_resources::HostResourcesProvider,
     monitoring::{
         health_check_handler::HealthCheckHandler,

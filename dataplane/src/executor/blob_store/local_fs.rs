@@ -41,12 +41,8 @@ impl BlobStoreImpl for LocalFsBlobStore {
         Ok(BlobMetadata { size_bytes })
     }
 
-    async fn presign_get_uri(
-        &self,
-        uri: &str,
-        _expires_in_sec: u64,
-    ) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        Ok((uri.to_string(), vec![]))
+    async fn presign_get_uri(&self, uri: &str, _expires_in_sec: u64) -> anyhow::Result<String> {
+        Ok(uri.to_string())
     }
 
     async fn upload(&self, uri: &str, data: bytes::Bytes) -> anyhow::Result<()> {
@@ -80,7 +76,7 @@ impl BlobStoreImpl for LocalFsBlobStore {
         _part_number: i32,
         _upload_id: &str,
         _expires_in_sec: u64,
-    ) -> anyhow::Result<(String, Vec<(String, String)>)> {
-        Ok((uri.to_string(), vec![]))
+    ) -> anyhow::Result<String> {
+        Ok(uri.to_string())
     }
 }

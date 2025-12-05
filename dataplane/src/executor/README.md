@@ -1,5 +1,7 @@
 # executor
 
+The Indexify Executor is a component that is in charge of spawning/allocating tasks to Tensorlake's Function Executor. It coordinates between the Function Executor and the Indexify Server.
+
 ## Components
 
 * Monitoring Server: Connects to Indexify server and reports its health. It serves a HTTP server on a configurable port, running on 7000 by default.

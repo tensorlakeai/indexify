@@ -13,11 +13,7 @@ pub struct BlobMetadata {
 pub trait BlobStoreImpl {
     async fn get(&self, uri: &str) -> Result<Bytes>;
     async fn get_metadata(&self, uri: &str) -> Result<BlobMetadata>;
-    async fn presign_get_uri(
-        &self,
-        uri: &str,
-        expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)>;
+    async fn presign_get_uri(&self, uri: &str, expires_in_sec: u64) -> Result<String>;
     async fn upload(&self, uri: &str, data: Bytes) -> Result<()>;
     async fn create_multipart_upload(&self, uri: &str) -> Result<String>;
     async fn complete_multipart_upload(
@@ -33,7 +29,7 @@ pub trait BlobStoreImpl {
         part_number: i32,
         upload_id: &str,
         expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)>;
+    ) -> Result<String>;
 }
 
 pub struct BlobStore {
@@ -64,11 +60,7 @@ impl BlobStoreImpl for BlobStore {
         self.s3.get_metadata(uri).await
     }
 
-    async fn presign_get_uri(
-        &self,
-        uri: &str,
-        expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)> {
+    async fn presign_get_uri(&self, uri: &str, expires_in_sec: u64) -> Result<String> {
         if uri.starts_with("file://") {
             return self.local.presign_get_uri(uri, expires_in_sec).await;
         }
@@ -119,7 +111,7 @@ impl BlobStoreImpl for BlobStore {
         part_number: i32,
         upload_id: &str,
         expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)> {
+    ) -> Result<String> {
         if uri.starts_with("file://") {
             return self
                 .local

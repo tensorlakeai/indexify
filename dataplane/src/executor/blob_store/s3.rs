@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::{
-    Client,
     presigning::PresigningConfig,
     primitives::ByteStream,
     types::{CompletedMultipartUpload, CompletedPart},
+    Client,
 };
 
 use crate::executor::blob_store::{BlobMetadata, BlobStoreImpl};
@@ -71,11 +71,7 @@ impl BlobStoreImpl for S3BlobStore {
         Ok(BlobMetadata { size_bytes })
     }
 
-    async fn presign_get_uri(
-        &self,
-        uri: &str,
-        expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)> {
+    async fn presign_get_uri(&self, uri: &str, expires_in_sec: u64) -> Result<String> {
         let (bucket, key) = Self::parse_uri(uri)?;
         let client = self
             .client
@@ -89,13 +85,7 @@ impl BlobStoreImpl for S3BlobStore {
                 expires_in_sec,
             ))?)
             .await?;
-        Ok((
-            presigned_request.uri().to_string(),
-            presigned_request
-                .headers()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-        ))
+        Ok(presigned_request.uri().to_string())
     }
 
     async fn upload(&self, uri: &str, data: bytes::Bytes) -> Result<()> {
@@ -192,7 +182,7 @@ impl BlobStoreImpl for S3BlobStore {
         part_number: i32,
         upload_id: &str,
         expires_in_sec: u64,
-    ) -> Result<(String, Vec<(String, String)>)> {
+    ) -> Result<String> {
         let (bucket, key) = Self::parse_uri(uri)?;
         let client = self
             .client
@@ -208,12 +198,6 @@ impl BlobStoreImpl for S3BlobStore {
                 expires_in_sec,
             ))?)
             .await?;
-        Ok((
-            presigned_request.uri().to_string(),
-            presigned_request
-                .headers()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-        ))
+        Ok(presigned_request.uri().to_string())
     }
 }
