@@ -696,7 +696,8 @@ class FunctionExecutorController:
                 allocation_ids_caused_termination=[alloc_info.allocation.allocation_id],
             )
 
-        self._start_allocation_finalization(alloc_info)
+        self._add_event(ShutdownInitiated(), source="shutdown")
+        # self._start_allocation_finalization(alloc_info)
 
     def _start_allocation_finalization(self, alloc_info: AllocationInfo) -> None:
         """Starts finalization for the given allocation.
