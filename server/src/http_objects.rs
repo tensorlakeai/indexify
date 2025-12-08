@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
 use axum::{
-    http::StatusCode,
+    http,
+    http::{HeaderValue, StatusCode, header::IntoHeaderName},
     response::{IntoResponse, Response},
 };
+use hyper::HeaderMap;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
@@ -17,6 +19,8 @@ use crate::{
 pub struct IndexifyAPIError {
     #[serde(skip)]
     status_code: StatusCode,
+    #[serde(skip)]
+    headers: HeaderMap,
     message: String,
 }
 
@@ -24,12 +28,9 @@ impl IndexifyAPIError {
     pub fn new(status_code: StatusCode, message: &str) -> Self {
         Self {
             status_code,
+            headers: HeaderMap::new(),
             message: message.to_string(),
         }
-    }
-
-    pub fn _bad_request(e: &str) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, e)
     }
 
     pub fn internal_error(e: anyhow::Error) -> Self {
@@ -51,12 +52,26 @@ impl IndexifyAPIError {
     pub fn conflict(message: &str) -> Self {
         Self::new(StatusCode::CONFLICT, message)
     }
+
+    pub fn insert_header<K: IntoHeaderName, V: Into<HeaderValue>>(&mut self, key: K, value: V) {
+        self.headers.insert(key, value.into());
+    }
 }
 
 impl IntoResponse for IndexifyAPIError {
     fn into_response(self) -> Response {
         error!("API Error: {} - {}", self.status_code, self.message);
-        (self.status_code, self.message).into_response()
+        let mut builder = http::response::Builder::new().status(self.status_code);
+
+        for (key, value) in self.headers.iter() {
+            builder = builder.header(key, value);
+        }
+
+        let response = builder
+            .body(self.message)
+            .expect("unable to create api error response");
+
+        response.into_response()
     }
 }
 

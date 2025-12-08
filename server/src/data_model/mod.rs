@@ -222,6 +222,35 @@ pub enum ComputeOp {
     FunctionCall(FunctionCall),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdempotencyToken {
+    pub user_key: String,
+    pub namespace: String,
+    pub application: String,
+}
+
+impl IdempotencyToken {
+    pub fn key(&self) -> String {
+        format!("{}|{}|{}", self.namespace, self.application, self.user_key)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status")]
+pub enum RequestIdempotencyStatus {
+    Pending { request_id: String },
+    Started { request_id: String },
+}
+
+impl RequestIdempotencyStatus {
+    pub fn request_id(&self) -> &str {
+        match self {
+            RequestIdempotencyStatus::Pending { request_id } => request_id,
+            RequestIdempotencyStatus::Started { request_id } => request_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct FunctionRun {
     pub id: FunctionCallId,
@@ -942,6 +971,9 @@ pub struct RequestCtx {
     pub application_name: String,
     pub application_version: String,
     pub request_id: String,
+    #[serde(default)]
+    #[builder(default)]
+    pub idempotency_key: Option<String>,
     #[serde(default)]
     #[builder(default)]
     pub outcome: Option<RequestOutcome>,

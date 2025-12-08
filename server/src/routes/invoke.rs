@@ -5,7 +5,7 @@ use axum::{
     Json,
     body::Body,
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue},
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
@@ -17,12 +17,20 @@ use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
+    data_model::{
+        self,
+        ApplicationState,
+        FunctionCallId,
+        IdempotencyToken,
+        InputArgs,
+        RequestCtxBuilder,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+        state_machine::EnsureIdempotentRequestError,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -127,11 +135,21 @@ struct RequestIdV1 {
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
+    params(
+        ("Idempotency-Key" = Option<String>, Header, description = "An optional idempotency key to ensure the request is only processed once. Unique per namespace/application.", max_length = 255 ),
+    ),
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
-        (status = 200, description = "request successful"),
-        (status = 400, description = "bad request"),
+        (status = OK, description = "request successful"),
+        (status = BAD_REQUEST, description = "bad request"),
+        (
+            status = CONFLICT,
+            description = "conflict",
+            headers(
+                ("Indexify-Request-Id" = Option<String>, description = "The unique identifier for the request that was previously made with the same idempotency key.")
+            )
+        ),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
@@ -153,6 +171,65 @@ pub async fn invoke_application_with_object_v1(
         .and_then(|value| value.to_str().ok())
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
+
+    let idempotency_key = headers
+        .get("Idempotency-Key")
+        .and_then(|value| value.to_str().ok())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    if idempotency_key.as_ref().is_some_and(|k| k.len() > 255) {
+        return Err(IndexifyAPIError::bad_request(
+            "Idempotency-Key header exceeds maximum length of 255 characters",
+        ));
+    }
+
+    state.metrics.requests.add(1, &[]);
+
+    let application = state
+        .indexify_state
+        .reader()
+        .get_application(&namespace, &application)
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
+        .ok_or(IndexifyAPIError::not_found("application not found"))?;
+
+    if let ApplicationState::Disabled { reason } = &application.state {
+        return Err(IndexifyAPIError::conflict(reason));
+    }
+
+    let idempotency_token = idempotency_key.clone().map(|key| IdempotencyToken {
+        user_key: key,
+        namespace: application.namespace.clone(),
+        application: application.name.clone(),
+    });
+
+    if let Some(token) = &idempotency_token {
+        match state
+            .indexify_state
+            .ensure_idempotent_request(&request_id, token)
+            .await
+        {
+            Ok(_) => {}
+            Err(EnsureIdempotentRequestError::AlreadyUsed { ref request_id }) => {
+                let mut err = IndexifyAPIError::conflict(
+                    "Idempotency key has already been used for this application",
+                );
+                err.insert_header(
+                    "Indexify-Request-Id",
+                    HeaderValue::from_str(request_id).unwrap(),
+                );
+                return Err(err);
+            }
+            Err(error) => {
+                error!(?error, "failed to ensure idempotent request");
+                return Err(IndexifyAPIError::internal_error(anyhow!(
+                    "failed to ensure idempotent request"
+                )));
+            }
+        }
+    }
 
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
@@ -181,19 +258,6 @@ pub async fn invoke_application_with_object_v1(
         .metrics
         .request_input_bytes
         .add(data_payload.size, &[]);
-    state.metrics.requests.add(1, &[]);
-
-    let application = state
-        .indexify_state
-        .reader()
-        .get_application(&namespace, &application)
-        .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
-        .ok_or(IndexifyAPIError::not_found("application not found"))?;
-
-    if let ApplicationState::Disabled { reason } = &application.state {
-        return Result::Err(IndexifyAPIError::conflict(reason));
-    }
 
     let function_call_id = FunctionCallId(request_id.clone());
 
@@ -241,6 +305,7 @@ pub async fn invoke_application_with_object_v1(
         .application_version(application.version.clone())
         .request_id(request_id.clone())
         .created_at(get_epoch_time_in_ms())
+        .idempotency_key(idempotency_key)
         .function_runs(fn_runs)
         .function_calls(fn_calls)
         .build()
@@ -249,6 +314,7 @@ pub async fn invoke_application_with_object_v1(
         namespace: namespace.clone(),
         application_name: application.name.clone(),
         ctx: request_ctx.clone(),
+        idempotency_token,
     });
 
     state

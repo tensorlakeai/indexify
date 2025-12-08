@@ -83,6 +83,7 @@ pub async fn invoke_application(
     let request = InvokeApplicationRequest {
         namespace: app.namespace.clone(),
         application_name: app.name.clone(),
+        idempotency_token: None,
         ctx,
     };
     indexify_state

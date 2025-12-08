@@ -23,6 +23,7 @@ use crate::{
         FunctionRunStatus,
         GcUrl,
         HostResources,
+        IdempotencyToken,
         RequestCtx,
         StateChange,
     },
@@ -186,6 +187,7 @@ pub struct InvokeApplicationRequest {
     pub namespace: String,
     pub application_name: String,
     pub ctx: RequestCtx,
+    pub idempotency_token: Option<IdempotencyToken>,
 }
 
 #[derive(Debug, Clone)]

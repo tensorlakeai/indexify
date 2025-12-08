@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use strum::AsRefStr;
+use thiserror::Error;
 use tracing::{debug, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
@@ -22,10 +23,13 @@ use crate::{
         ChangeType,
         GcUrl,
         GcUrlBuilder,
+        IdempotencyToken,
         NamespaceBuilder,
         RequestCtx,
+        RequestIdempotencyStatus,
         StateChange,
     },
+    state_store,
     state_store::{
         driver::{Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
@@ -50,6 +54,7 @@ pub enum IndexifyObjectsColumns {
     ApplicationVersions, //  Ns_ApplicationName_Version -> ApplicationVersion
     RequestCtx,           //  Ns_CG_RequestId -> RequestCtx
     RequestCtxSecondaryIndex, // NS_CG_RequestId_CreatedAt -> empty
+    RequestIdempotency,   //  Ns|ApplicationName|UserKey -> IdempotencyTokenState
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -101,6 +106,7 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
+
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         req.ctx.key().as_bytes(),
@@ -113,6 +119,18 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
         &[],
     )
     .await?;
+
+    if let Some(idempotency_token) = &req.idempotency_token {
+        let state = RequestIdempotencyStatus::Started {
+            request_id: req.ctx.request_id.clone(),
+        };
+        txn.put(
+            IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+            idempotency_token.key().as_bytes(),
+            &JsonEncoder::encode(&state)?,
+        )
+        .await?;
+    }
 
     info!(
         "created request: namespace: {}, app: {}",
@@ -582,6 +600,57 @@ pub(crate) async fn remove_allocation_usage_events(
         txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)
             .await?;
     }
+
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum EnsureIdempotentRequestError {
+    #[error("Idempotency key already used: {request_id}")]
+    AlreadyUsed { request_id: String },
+    #[error(transparent)]
+    Storage(#[from] state_store::driver::Error),
+    #[error(transparent)]
+    Serialization(#[from] anyhow::Error),
+}
+
+#[tracing::instrument(skip_all, fields(namespace = token.namespace, application_name = token.application))]
+pub(crate) async fn ensure_idempotent_request(
+    db: &RocksDBDriver,
+    current_request_id: &str,
+    token: &IdempotencyToken,
+) -> Result<(), EnsureIdempotentRequestError> {
+    let transaction = db.transaction();
+    let key = token.key();
+
+    let existing = transaction
+        .get(
+            IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+            key.as_bytes(),
+        )
+        .await?;
+
+    if let Some(existing) = existing {
+        let existing: RequestIdempotencyStatus = JsonEncoder::decode(&existing)?;
+        let request_id = existing.request_id();
+        return Err(EnsureIdempotentRequestError::AlreadyUsed {
+            request_id: request_id.to_string(),
+        });
+    }
+
+    let status = RequestIdempotencyStatus::Pending {
+        request_id: current_request_id.to_string(),
+    };
+
+    transaction
+        .put(
+            IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+            key.as_bytes(),
+            &JsonEncoder::encode(&status)?,
+        )
+        .await?;
+
+    transaction.commit().await?;
 
     Ok(())
 }

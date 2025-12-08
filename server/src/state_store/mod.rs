@@ -39,6 +39,11 @@ use crate::{
 pub mod executor_watches;
 use executor_watches::ExecutorWatches;
 
+use crate::{
+    data_model::IdempotencyToken,
+    state_store::state_machine::EnsureIdempotentRequestError,
+};
+
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
     pub entries: Vec<ExecutorCatalogEntry>,
@@ -548,6 +553,14 @@ impl IndexifyState {
         self.function_run_event_tx.subscribe()
     }
 
+    pub async fn ensure_idempotent_request(
+        &self,
+        current_request_id: &str,
+        token: &IdempotencyToken,
+    ) -> Result<(), EnsureIdempotentRequestError> {
+        state_machine::ensure_idempotent_request(self.db.as_ref(), current_request_id, token).await
+    }
+
     pub async fn shutdown(&self) {
         if let Some(exporter) = &self.cloud_events_exporter {
             exporter.wait_for_completion().await;
@@ -692,6 +705,7 @@ mod tests {
             .namespace("namespace1".to_string())
             .application_name("cg1".to_string())
             .request_id("foo1".to_string())
+            .idempotency_key(Some("idemp_key_1".to_string()))
             .function_calls(HashMap::from([(
                 function_run.id.clone(),
                 mock_function_call(),
@@ -708,6 +722,11 @@ mod tests {
                 namespace: "namespace".to_string(),
                 application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
+                idempotency_token: Some(IdempotencyToken {
+                    user_key: "idemp_key_1".to_string(),
+                    namespace: "namespace1".to_string(),
+                    application: "cg1".to_string(),
+                }),
             },
         )
         .unwrap();
@@ -730,6 +749,7 @@ mod tests {
                 namespace: "namespace".to_string(),
                 application_name: "graph_A".to_string(),
                 ctx: ctx.clone(),
+                idempotency_token: None,
             },
         )
         .unwrap();
@@ -748,6 +768,46 @@ mod tests {
         // state_change_3
         assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_ensuring_idempotent() {
+        let indexify_state = TestStateStore::new().await.unwrap().indexify_state;
+
+        let token = IdempotencyToken {
+            user_key: "idemp_key_1".to_string(),
+            namespace: "namespace1".to_string(),
+            application: "cg1".to_string(),
+        };
+
+        assert!(
+            indexify_state
+                .ensure_idempotent_request("request_1", &token)
+                .await
+                .is_ok()
+        );
+
+        let result = indexify_state
+            .ensure_idempotent_request("request_2", &token)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            result,
+            EnsureIdempotentRequestError::AlreadyUsed { .. }
+        ));
+
+        let token = IdempotencyToken {
+            user_key: "idemp_key_1".to_string(),
+            namespace: "namespace1".to_string(),
+            application: "cg2".to_string(),
+        };
+        assert!(
+            indexify_state
+                .ensure_idempotent_request("request_3", &token)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -774,6 +834,7 @@ mod tests {
             "ApplicationVersions",
             "RequestCtx",
             "RequestCtxSecondaryIndex",
+            "RequestIdempotency",
             "UnprocessedStateChanges",
             "Allocations",
             "AllocationUsage",
