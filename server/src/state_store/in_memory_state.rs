@@ -1308,16 +1308,6 @@ impl InMemoryState {
                 num_total_function_executors += 1;
                 // Use has_slots() which checks against pre-computed allocation_count
                 let has_slots = metadata.has_slots(capacity_threshold);
-                if !has_slots {
-                    info!(
-                        fe_id = metadata.function_executor.id.get(),
-                        allocation_count = metadata.allocation_count,
-                        max_concurrency = metadata.function_executor.max_concurrency,
-                        capacity_threshold = capacity_threshold,
-                        capacity = capacity_threshold * metadata.function_executor.max_concurrency,
-                        "FE has no slots available"
-                    );
-                }
                 if has_slots {
                     candidates.insert(CandidateFunctionExecutor {
                         executor_id: metadata.executor_id.clone(),
