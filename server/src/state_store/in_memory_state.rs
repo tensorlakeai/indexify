@@ -829,6 +829,23 @@ impl InMemoryState {
                             });
                             fe_allocations.retain(|_, ids| !ids.is_empty());
                         });
+
+                    // Decrement allocation count on the function executor
+                    let fn_uri = FunctionURI::from(allocation);
+                    if let Some(fe_meta) = self
+                        .function_executors_by_fn_uri
+                        .get_mut(&fn_uri)
+                        .and_then(|fe_map| fe_map.get_mut(&allocation.target.function_executor_id))
+                    {
+                        fe_meta.allocation_count = fe_meta.allocation_count.saturating_sub(1);
+                    } else {
+                        warn!(
+                            fe_id = allocation.target.function_executor_id.get(),
+                            allocation_id = %allocation.id,
+                            fn_uri = %fn_uri,
+                            "FE not found when trying to decrement allocation_count"
+                        );
+                    }
                 }
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
@@ -899,13 +916,37 @@ impl InMemoryState {
                     );
 
                     let fn_uri = FunctionURI::from(fe_meta.clone());
-                    self.function_executors_by_fn_uri
-                        .entry(fn_uri)
-                        .or_default()
-                        .insert(
-                            fe_meta.function_executor.id.clone(),
-                            Box::new(fe_meta.clone()),
+                    let fe_map = self.function_executors_by_fn_uri.entry(fn_uri).or_default();
+                    // Preserve existing allocation_count when updating FE metadata,
+                    // or initialize from allocations_by_executor for new FEs
+                    let mut fe_meta_to_insert = fe_meta.clone();
+                    if let Some(existing_fe) = fe_map.get(&fe_meta.function_executor.id) {
+                        debug!(
+                            fe_id = fe_meta.function_executor.id.get(),
+                            preserved_allocation_count = existing_fe.allocation_count,
+                            "preserving allocation_count when updating FE metadata"
                         );
+                        fe_meta_to_insert.allocation_count = existing_fe.allocation_count;
+                    } else {
+                        // New FE - initialize allocation_count from existing allocations
+                        // (important for FEs added after restart when allocations already exist)
+                        let initial_count = self
+                            .allocations_by_executor
+                            .get(&fe_meta.executor_id)
+                            .and_then(|by_fe| by_fe.get(&fe_meta.function_executor.id))
+                            .map(|allocs| allocs.len() as u32)
+                            .unwrap_or(0);
+                        fe_meta_to_insert.allocation_count = initial_count;
+                        debug!(
+                            fe_id = fe_meta.function_executor.id.get(),
+                            initial_allocation_count = initial_count,
+                            "new FE, initialized allocation_count from existing allocations"
+                        );
+                    }
+                    fe_map.insert(
+                        fe_meta.function_executor.id.clone(),
+                        Box::new(fe_meta_to_insert),
+                    );
 
                     info_if_state_store!(
                         ctx,
@@ -937,6 +978,25 @@ impl InMemoryState {
                             .entry(allocation.target.function_executor_id.clone())
                             .or_default()
                             .push(allocation.id.clone());
+
+                        // Increment allocation count on the function executor
+                        let fn_uri = FunctionURI::from(allocation);
+                        if let Some(fe_meta) = self
+                            .function_executors_by_fn_uri
+                            .get_mut(&fn_uri)
+                            .and_then(|fe_map| {
+                                fe_map.get_mut(&allocation.target.function_executor_id)
+                            })
+                        {
+                            fe_meta.allocation_count += 1;
+                        } else {
+                            warn!(
+                                fe_id = allocation.target.function_executor_id.get(),
+                                allocation_id = %allocation.id,
+                                fn_uri = %fn_uri,
+                                "FE not found when trying to increment allocation_count"
+                            );
+                        }
 
                         // Record metrics
                         self.function_run_pending_latency.record(
@@ -1076,6 +1136,19 @@ impl InMemoryState {
                             // Remove the function if no allocations left
                             fe_allocations.retain(|_, ids| !ids.is_empty());
                         });
+
+                    // Decrement allocation count on the function executor
+                    let fn_uri = FunctionURI::from(&allocation_output.allocation);
+                    if let Some(fe_meta) = self
+                        .function_executors_by_fn_uri
+                        .get_mut(&fn_uri)
+                        .and_then(|fe_map| {
+                            fe_map
+                                .get_mut(&allocation_output.allocation.target.function_executor_id)
+                        })
+                    {
+                        fe_meta.allocation_count = fe_meta.allocation_count.saturating_sub(1);
+                    }
 
                     // Executor's allocation is removed
                     changed_executors.insert(allocation_output.executor_id.clone());
@@ -1233,20 +1306,23 @@ impl InMemoryState {
                 }
                 // Count all non-terminated FEs
                 num_total_function_executors += 1;
-                // FIXME - Create a reverse index of fe_id -> # active allocations
-                let allocation_count = self
-                    .allocations_by_executor
-                    .get(&metadata.executor_id)
-                    .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
-                    .map(|allocs| allocs.len())
-                    .unwrap_or(0);
-                if (allocation_count as u32) <
-                    capacity_threshold * metadata.function_executor.max_concurrency
-                {
+                // Use has_slots() which checks against pre-computed allocation_count
+                let has_slots = metadata.has_slots(capacity_threshold);
+                if !has_slots {
+                    info!(
+                        fe_id = metadata.function_executor.id.get(),
+                        allocation_count = metadata.allocation_count,
+                        max_concurrency = metadata.function_executor.max_concurrency,
+                        capacity_threshold = capacity_threshold,
+                        capacity = capacity_threshold * metadata.function_executor.max_concurrency,
+                        "FE has no slots available"
+                    );
+                }
+                if has_slots {
                     candidates.insert(CandidateFunctionExecutor {
                         executor_id: metadata.executor_id.clone(),
                         function_executor_id: metadata.function_executor.id.clone(),
-                        allocation_count,
+                        allocation_count: metadata.allocation_count as usize,
                     });
                 }
             }
@@ -2002,6 +2078,7 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor: function_executor.clone(),
             desired_state: FunctionExecutorState::Running,
+            allocation_count: 0,
         };
 
         // Test case 1: No tasks - should return false
@@ -2133,6 +2210,7 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor,
             desired_state: FunctionExecutorState::Running,
+            allocation_count: 0,
         };
         assert!(state.has_pending_tasks(&fe_metadata2));
 

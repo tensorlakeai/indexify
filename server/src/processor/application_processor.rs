@@ -456,24 +456,14 @@ impl ApplicationProcessor {
                     .blocked_runs_index
                     .has_blocked_for_function(&fn_uri)
                 {
-                    // Calculate available capacity on the FE that just freed up
+                    // Get available slots from the FE's pre-computed allocation_count.
+                    // The count was already decremented in update_state() when UpsertExecutor
+                    // processed the allocation output from the executor.
                     let available_slots = indexes_guard
                         .function_executors_by_fn_uri
                         .get(&fn_uri)
                         .and_then(|fes| fes.get(&allocation.target.function_executor_id))
-                        .map(|fe_meta| {
-                            let capacity =
-                                self.queue_size * fe_meta.function_executor.max_concurrency;
-                            let current = indexes_guard
-                                .allocations_by_executor
-                                .get(&allocation.target.executor_id)
-                                .and_then(|by_fe| {
-                                    by_fe.get(&allocation.target.function_executor_id)
-                                })
-                                .map(|allocs| allocs.len() as u32)
-                                .unwrap_or(0);
-                            capacity.saturating_sub(current) as usize
-                        })
+                        .map(|fe_meta| fe_meta.available_slots(self.queue_size) as usize)
                         .unwrap_or(1);
 
                     if available_slots > 0 {
