@@ -53,10 +53,23 @@ const ApplicationDetailsPage = () => {
         const response = await axios.get(url)
         const data = response.data
 
-        setShallowGraphRequests([...data.requests])
+        // Only update if we have data
+        if (data.requests && data.requests.length > 0) {
+          setShallowGraphRequests([...data.requests])
+        }
 
-        setPrevCursor(data.prev_cursor)
-        setNextCursor(data.next_cursor)
+        // Update cursors based on the response and direction
+        if (direction === 'forward') {
+          setNextCursor(data.next_cursor || null)
+          if (data.requests && data.requests.length > 0) {
+            setPrevCursor(cursor)
+          }
+        } else {
+          setPrevCursor(data.prev_cursor || null)
+          if (data.requests && data.requests.length > 0) {
+            setNextCursor(cursor)
+          }
+        }
       } catch (error) {
         console.error('Error fetching requests:', error)
       } finally {

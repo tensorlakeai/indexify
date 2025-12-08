@@ -114,18 +114,6 @@ impl RequestStateChangeEvent {
             }
         }
     }
-
-    pub fn request_status(&self) -> &str {
-        match self {
-            RequestStateChangeEvent::RequestCreated(_) => "Pending",
-            RequestStateChangeEvent::RequestFinished(_) => "Finished",
-            RequestStateChangeEvent::RequestStarted(_) |
-            RequestStateChangeEvent::FunctionRunCreated(_) |
-            RequestStateChangeEvent::FunctionRunAssigned(_) |
-            RequestStateChangeEvent::FunctionRunCompleted(_) |
-            RequestStateChangeEvent::FunctionRunMatchedCache(_) => "Running",
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -42,6 +42,10 @@ pub mod executor_api_descriptor {
         tonic::include_file_descriptor_set!("executor_api_descriptor");
 }
 
+fn otel_axum_filter(path: &str) -> bool {
+    path.starts_with("/healthz") || path.starts_with("/docs") || path.starts_with("/ui")
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
@@ -276,7 +280,7 @@ impl Service {
         if self.config.telemetry.tracing_enabled() {
             router = router
                 .layer(OtelInResponseLayer)
-                .layer(OtelAxumLayer::default());
+                .layer(OtelAxumLayer::default().filter(otel_axum_filter));
         }
 
         let router = router
