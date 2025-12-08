@@ -42,7 +42,7 @@ jobs:
     outputs:
       version: ${{ steps.version_extraction.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - id: version_extraction
         run:
           echo "version=$(cargo metadata --format-version 1 | jq '.packages[] |
@@ -56,7 +56,7 @@ jobs:
       - build-release-packages
       - extract-version
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
       - run: mkdir -p /tmp/release
@@ -87,7 +87,7 @@ jobs:
       - extract-version
       - create-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
 
