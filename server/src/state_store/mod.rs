@@ -22,7 +22,7 @@ use tracing::{debug, error, info, span};
 use crate::{
     cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
-    data_model::{ExecutorId, StateMachineMetadata},
+    data_model::{ExecutorId, FunctionRunStatus, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
@@ -481,7 +481,9 @@ impl IndexifyState {
                         let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
                         let function_run =
                             ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
-                        if let Some(function_run) = function_run {
+                        if let Some(function_run) = function_run &&
+                            function_run.status == FunctionRunStatus::Pending
+                        {
                             changes.push(RequestStateChangeEvent::FunctionRunCreated(
                                 request_events::FunctionRunCreated {
                                     namespace: function_run.namespace.clone(),
