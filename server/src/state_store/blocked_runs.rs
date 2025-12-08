@@ -239,19 +239,17 @@ impl BlockedRunsIndex {
         }
 
         // Remove from requirements index - O(1) thanks to reverse lookup
-        if let Some(requirements) = self.requirements_by_run.remove(run_key) {
-            if let Some(runs) = self.blocked_by_requirements.get_mut(&requirements) {
+        if let Some(requirements) = self.requirements_by_run.remove(run_key)
+            && let Some(runs) = self.blocked_by_requirements.get_mut(&requirements) {
                 runs.remove(run_key);
             }
-        }
 
         // Remove from FunctionURI index - O(1) thanks to HashSet
         let fn_uri = self.fn_uri_by_run.remove(run_key);
-        if let Some(ref uri) = fn_uri {
-            if let Some(runs) = self.blocked_by_fn_uri.get_mut(uri) {
+        if let Some(ref uri) = fn_uri
+            && let Some(runs) = self.blocked_by_fn_uri.get_mut(uri) {
                 runs.remove(run_key);
             }
-        }
 
         fn_uri
     }
