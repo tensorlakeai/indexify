@@ -52,6 +52,7 @@ impl ExecutorCatalog {
     }
 }
 
+pub mod blocked_runs;
 pub mod driver;
 pub mod in_memory_state;
 #[cfg(feature = "migrations")]

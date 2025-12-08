@@ -207,6 +207,11 @@ impl FunctionRunCreator {
         );
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
+        // Note: We don't need to add the allocation to updated_allocations here.
+        // The allocation is already updated by UpsertExecutor which also removes it
+        // from allocations_by_executor in the in-memory state. Adding it here would
+        // cause a duplicate write to the persistent store.
+
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),

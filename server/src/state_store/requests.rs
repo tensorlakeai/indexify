@@ -22,12 +22,19 @@ use crate::{
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionURI,
         GcUrl,
         HostResources,
         RequestCtx,
         StateChange,
     },
-    state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
+    state_store::{
+        IndexifyState,
+        blocked_runs::FunctionRunRequirements,
+        executor_watches::ExecutorWatch,
+        in_memory_state::FunctionRunKey,
+        state_changes,
+    },
 };
 
 #[derive(Debug)]
@@ -89,6 +96,13 @@ pub struct SchedulerUpdateRequest {
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
     pub state_changes: Vec<StateChange>,
+
+    /// Blocked runs to add to the index (runs that couldn't be allocated).
+    /// Each entry contains (run_key, fn_uri, requirements).
+    pub blocked_runs_to_add: Vec<(FunctionRunKey, FunctionURI, FunctionRunRequirements)>,
+
+    /// Blocked runs to remove from the index (runs that were allocated or cancelled).
+    pub blocked_runs_to_remove: Vec<FunctionRunKey>,
 }
 
 impl SchedulerUpdateRequest {
@@ -118,6 +132,11 @@ impl SchedulerUpdateRequest {
         }
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
+
+        // Merge blocked runs
+        self.blocked_runs_to_add.extend(other.blocked_runs_to_add);
+        self.blocked_runs_to_remove
+            .extend(other.blocked_runs_to_remove);
     }
 
     /// Adds an allocation to updated_allocations, handling the case where the

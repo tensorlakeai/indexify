@@ -4,13 +4,22 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use opentelemetry::{
     KeyValue,
     metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
+
+/// Logs an info! message only when ctx is "state_store"
+macro_rules! info_if_state_store {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx == "state_store" {
+            info!($($arg)*);
+        }
+    };
+}
 
 use crate::{
     data_model::{
@@ -40,9 +49,10 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::low_latency_boundaries,
+    metrics::{low_latency_boundaries, Timer},
     state_store::{
         ExecutorCatalog,
+        blocked_runs::BlockedRunsIndex,
         executor_watches::ExecutorWatch,
         requests::RequestPayload,
         scanner::StateReader,
@@ -156,6 +166,8 @@ impl Ord for CandidateFunctionExecutor {
 pub struct CandidateFunctionExecutors {
     pub function_executors: BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
+    /// Total number of function executors for this function (regardless of capacity or state)
+    pub num_total_function_executors: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -276,10 +288,15 @@ pub struct InMemoryState {
     // Maps executor catalog entry names to function runs that match those catalog entry labels
     pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
 
+    /// Blocked runs indexed by ExecutorClass for O(1) lookup when executor frees capacity.
+    /// Jobs are assigned to ALL executor classes that can handle them.
+    pub blocked_runs_index: BlockedRunsIndex,
+
     // Histogram metrics for task latency measurements for direct recording
     function_run_pending_latency: Histogram<f64>,
     allocation_running_latency: Histogram<f64>,
     allocation_completion_latency: Histogram<f64>,
+    candidate_function_executors_duration: Histogram<f64>,
 }
 
 /// InMemoryMetrics manages observable metrics for the InMemoryState
@@ -525,6 +542,13 @@ impl InMemoryState {
             .with_description("Time tasks spend from creation to completion")
             .build();
 
+        let candidate_function_executors_duration = meter
+            .f64_histogram("indexify.candidate_function_executors_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time to find candidate function executors")
+            .build();
+
         // Creating Namespaces
         let mut namespaces = im::HashMap::new();
         let mut applications = im::HashMap::new();
@@ -629,10 +653,12 @@ impl InMemoryState {
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
+            blocked_runs_index: BlockedRunsIndex::default(),
             // metrics
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
+            candidate_function_executors_duration,
         };
 
         // Populate the catalog index for all existing function runs
@@ -653,7 +679,7 @@ impl InMemoryState {
         &mut self,
         new_clock: u64,
         state_machine_update_request: &RequestPayload,
-        _ctx: &str,
+        ctx: &str,
     ) -> Result<HashSet<ExecutorId>> {
         // keep track of what clock we are at for this update state
         self.clock = new_clock;
@@ -852,7 +878,11 @@ impl InMemoryState {
                     else {
                         error!(
                             executor_id = fe_meta.executor_id.get(),
-                            "executor not found for new function executor"
+                            fe_id = fe_meta.function_executor.id.get(),
+                            namespace = fe_meta.function_executor.namespace,
+                            app = fe_meta.function_executor.application_name,
+                            fn_name = fe_meta.function_executor.function_name,
+                            "executor not found for new function executor - FE will NOT be added to state"
                         );
                         continue;
                     };
@@ -874,6 +904,16 @@ impl InMemoryState {
                             fe_meta.function_executor.id.clone(),
                             Box::new(fe_meta.clone()),
                         );
+
+                    info_if_state_store!(
+                        ctx,
+                        executor_id = fe_meta.executor_id.get(),
+                        fe_id = fe_meta.function_executor.id.get(),
+                        namespace = fe_meta.function_executor.namespace,
+                        app = fe_meta.function_executor.application_name,
+                        fn_name = fe_meta.function_executor.function_name,
+                        "added FE to in-memory state"
+                    );
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
@@ -900,6 +940,19 @@ impl InMemoryState {
                         self.function_run_pending_latency.record(
                             get_elapsed_time(function_run.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
+                        );
+
+                        info_if_state_store!(
+                            ctx,
+                            allocation_id = %allocation.id,
+                            executor_id = allocation.target.executor_id.get(),
+                            fe_id = allocation.target.function_executor_id.get(),
+                            namespace = &allocation.namespace,
+                            app = &allocation.application,
+                            fn_name = &allocation.function,
+                            request_id = &allocation.request_id,
+                            fn_call_id = allocation.function_call_id.to_string(),
+                            "added allocation to in-memory state"
                         );
 
                         // Executor has a new allocation
@@ -960,6 +1013,14 @@ impl InMemoryState {
                         executor.free_resources = free_resources.clone();
                     }
                 }
+
+                // Update blocked runs index
+                for run_key in &req.blocked_runs_to_remove {
+                    self.blocked_runs_index.unblock(run_key);
+                }
+                for (run_key, fn_uri, requirements) in req.blocked_runs_to_add.iter().cloned() {
+                    self.blocked_runs_index.block(run_key, fn_uri, requirements);
+                }
             }
             RequestPayload::UpsertExecutor(req) => {
                 self.executors
@@ -975,6 +1036,12 @@ impl InMemoryState {
                         }),
                     );
                 }
+
+                // Register executor class in blocked runs index
+                let executor_class =
+                    crate::state_store::blocked_runs::ExecutorClass::from_executor(&req.executor);
+                self.blocked_runs_index
+                    .register_executor_class(executor_class);
 
                 for allocation_output in &req.allocation_outputs {
                     // Record metrics from the existing allocation in primary index
@@ -1036,6 +1103,7 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
+    /// Get the resource requirements for a function run.
     pub fn fe_resource_for_function_run(
         &self,
         function_run: &FunctionRun,
@@ -1047,14 +1115,17 @@ impl InMemoryState {
                 &function_run.application,
                 &function_run.version,
             ))
-            .ok_or(anyhow!(
-                "application version: {} not found",
-                function_run.version
-            ))?;
+            .ok_or(Error::ApplicationVersionNotFound {
+                version: function_run.version.clone(),
+                function_name: function_run.name.clone(),
+            })?;
         let function = application
             .functions
             .get(&function_run.name)
-            .ok_or(anyhow!("function: {} not found", function_run.name))?;
+            .ok_or(Error::FunctionNotFound {
+                version: function_run.version.clone(),
+                function_name: function_run.name.clone(),
+            })?;
         Ok(function.resources.clone())
     }
 
@@ -1134,11 +1205,13 @@ impl InMemoryState {
         function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
+        let _timer = Timer::start_with_labels(&self.candidate_function_executors_duration, &[]);
         let mut candidates = BTreeSet::new();
 
         let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
+        let mut num_total_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for (_, metadata) in function_executors.iter() {
                 if metadata.function_executor.state == FunctionExecutorState::Pending ||
@@ -1155,6 +1228,8 @@ impl InMemoryState {
                 ) {
                     continue;
                 }
+                // Count all non-terminated FEs
+                num_total_function_executors += 1;
                 // FIXME - Create a reverse index of fe_id -> # active allocations
                 let allocation_count = self
                     .allocations_by_executor
@@ -1176,6 +1251,7 @@ impl InMemoryState {
         Ok(CandidateFunctionExecutors {
             function_executors: candidates,
             num_pending_function_executors,
+            num_total_function_executors,
         })
     }
 
@@ -1286,10 +1362,29 @@ impl InMemoryState {
         function_runs
     }
 
+    /// Get function runs by their keys. Used for O(1) blocked runs lookup.
+    pub fn get_function_runs_by_keys(&self, keys: &[FunctionRunKey]) -> Vec<FunctionRun> {
+        let mut function_runs = Vec::with_capacity(keys.len());
+        for key in keys {
+            if let Some(function_run) = self.function_runs.get(key) {
+                // Only include pending runs (not yet allocated)
+                if matches!(function_run.status, FunctionRunStatus::Pending) {
+                    function_runs.push(*function_run.clone());
+                }
+            }
+        }
+        function_runs
+    }
+
+    /// Find FE candidates for vacuum to free up resources.
+    /// Only considers FEs from DIFFERENT functions than the requesting one.
+    /// This allows reclaiming resources from idle FEs of other applications
+    /// without affecting FEs of the same function (which should be reused).
     #[tracing::instrument(skip_all)]
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
+        requesting_fn_uri: &FunctionURI,
     ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
@@ -1329,6 +1424,14 @@ impl InMemoryState {
                 }
 
                 let fe = &fe_metadata.function_executor;
+
+                // IMPORTANT: Skip FEs for the SAME function as the requesting one.
+                // We only vacuum FEs from OTHER functions to free up resources.
+                let fe_uri = FunctionURI::from(fe);
+                if fe_uri == *requesting_fn_uri {
+                    continue;
+                }
+
                 let Some(executor) = self.executors.get(executor_id) else {
                     function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
@@ -1360,11 +1463,9 @@ impl InMemoryState {
                     }
                     if !found_allowlist_match {
                         debug!(
-                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
+                            "Candidate for removal: idle function executor {} from executor {} (different function)",
                             fe.id.get(),
                             executor_id.get(),
-                            fe.version,
-                            latest_cg_version
                         );
                         can_be_removed = true;
                     }
@@ -1387,7 +1488,7 @@ impl InMemoryState {
                         .is_ok()
                     {
                         debug!(
-                            "Found sufficient space on executor {} by removing {} function executors",
+                            "Found sufficient space on executor {} by removing {} function executors from other functions",
                             executor_id.get(),
                             function_executors_to_remove.len()
                         );
@@ -1396,7 +1497,7 @@ impl InMemoryState {
                 }
             }
             debug!(
-                "Could not find sufficient space on executor {} even after vacuuming",
+                "Could not find sufficient space on executor {} even after vacuuming other functions",
                 executor_id.get()
             );
         }
@@ -1404,7 +1505,8 @@ impl InMemoryState {
         Ok(Vec::new())
     }
 
-    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+    /// Check if there are any pending (non-terminal) function runs for a given FE.
+    pub fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
             fe_meta.function_executor.namespace, fe_meta.function_executor.application_name
@@ -1542,10 +1644,12 @@ impl InMemoryState {
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
+            blocked_runs_index: self.blocked_runs_index.clone(),
             // metrics
             function_run_pending_latency: self.function_run_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
             allocation_completion_latency: self.allocation_completion_latency.clone(),
+            candidate_function_executors_duration: self.candidate_function_executors_duration.clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
         }))
@@ -1726,8 +1830,22 @@ impl InMemoryState {
 }
 
 #[cfg(test)]
-mod test_helpers {
+pub mod test_helpers {
     use super::*;
+
+    /// Create a FunctionRunKey for testing.
+    pub fn make_function_run_key(
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_call_id: &str,
+    ) -> FunctionRunKey {
+        FunctionRunKey(format!(
+            "{}|{}|{}|{}",
+            namespace, application, request_id, function_call_id
+        ))
+    }
+
     /// Macro to easily bootstrap an InMemoryState for tests.
     ///
     /// Usage:
@@ -1760,9 +1878,11 @@ mod test_helpers {
                 request_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
                 function_runs_by_catalog_entry: im::HashMap::new(),
+                blocked_runs_index: BlockedRunsIndex::default(),
                 function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
+                candidate_function_executors_duration: global::meter("test").f64_histogram("test").build(),
                 function_runs: im::OrdMap::new(),
                 unallocated_function_runs: im::OrdSet::new(),
             }

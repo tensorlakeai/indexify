@@ -19,9 +19,10 @@ use crate::{
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionURI,
         RunningFunctionRunStatus,
     },
-    metrics::low_latency_boundaries,
+    metrics::{low_latency_boundaries, Timer},
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
@@ -79,20 +80,22 @@ impl FunctionExecutorManager {
         }
     }
 
-    /// Vacuum phase - identifies function executors that should be terminated
-    /// Returns scheduler update for cleanup actions
+    /// Vacuum phase - identifies function executors from OTHER functions that should be terminated
+    /// to free up resources. Only vacuums FEs from different functions than the requesting one.
+    /// Returns scheduler update for cleanup actions.
     #[tracing::instrument(skip_all, target = "scheduler")]
     fn vacuum(
         &self,
         in_memory_state: &mut InMemoryState,
         fe_resource: &FunctionResources,
+        requesting_fn_uri: &FunctionURI,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
         let function_executors_to_mark =
-            in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
+            in_memory_state.vacuum_function_executors_candidates(fe_resource, requesting_fn_uri)?;
 
         debug!(
-            "vacuum phase identified {} function executors to mark for termination",
+            "vacuum phase identified {} function executors from other functions to mark for termination",
             function_executors_to_mark.len(),
         );
 
@@ -114,7 +117,7 @@ impl FunctionExecutorManager {
                 namespace = fe.function_executor.namespace,
                 fn_executor_id = fe.function_executor.id.get(),
                 executor_id = fe.executor_id.get(),
-                "marked function executor for termination",
+                "marked function executor for termination (vacuuming for different function)",
             );
         }
         Ok(update)
@@ -131,11 +134,15 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         let mut vacuum_triggered = false;
+
+        // If no executors have space, try to vacuum FEs from OTHER functions
+        // (not the same function - those should be reused, not recreated)
         if candidates.is_empty() {
-            debug!("no executors are available to create function executor");
+            debug!("no executors have capacity, trying to vacuum FEs from other functions");
             vacuum_triggered = true;
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
-            let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
+            let requesting_fn_uri = FunctionURI::from(fn_run);
+            let vacuum_update = self.vacuum(in_memory_state, &fe_resource, &requesting_fn_uri)?;
             update.extend(vacuum_update);
             in_memory_state.update_state(
                 self.clock,
@@ -144,6 +151,26 @@ impl FunctionExecutorManager {
             )?;
             candidates = in_memory_state.candidate_executors(fn_run)?;
         }
+
+        // If still no candidates after vacuum, return (function run will be blocked)
+        if candidates.is_empty() {
+            debug!(
+                namespace = fn_run.namespace,
+                app = fn_run.application,
+                fn_name = fn_run.name,
+                fn_call_id = fn_run.id.to_string(),
+                "no executor capacity for new FE, function run will be blocked"
+            );
+            self.metrics.create_fe_duration.record(
+                create_start.elapsed().as_secs_f64(),
+                &[
+                    KeyValue::new("num_candidates", 0i64),
+                    KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
+                ],
+            );
+            return Ok(update);
+        }
+
         debug!(
             "found {} candidates for creating function executor",
             candidates.len()
@@ -152,10 +179,7 @@ impl FunctionExecutorManager {
             create_start.elapsed().as_secs_f64(),
             &[
                 KeyValue::new("num_candidates", candidates.len() as i64),
-                KeyValue::new(
-                    "vacuum_triggered",
-                    if vacuum_triggered { 1i64 } else { 0i64 },
-                ),
+                KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
             ],
         );
 
@@ -581,69 +605,60 @@ impl FunctionExecutorManager {
         )
     }
 
-    /// Selects or creates a function executor for the given function run
-    /// Returns the allocation target and any scheduler updates
+    /// Ensures a function executor exists for the given function run.
+    /// Creates a new FE if all existing FEs are at capacity.
+    /// Returns any scheduler updates from FE creation.
     #[tracing::instrument(skip_all, target = "scheduler")]
-    pub fn select_or_create_function_executor(
+    pub fn ensure_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
         function_run: &FunctionRun,
-    ) -> Result<(Option<AllocationTarget>, SchedulerUpdateRequest)> {
-        let start = std::time::Instant::now();
+    ) -> Result<SchedulerUpdateRequest> {
+        let _timer = Timer::start_with_labels(&self.metrics.select_or_create_fe_duration, &[]);
         let mut update = SchedulerUpdateRequest::default();
 
-        let mut function_executors =
+        let function_executors =
             in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
 
-        // If no function executors are available, create one
-        if function_executors.function_executors.is_empty() &&
-            function_executors.num_pending_function_executors == 0
-        {
+        // Create a new FE if all existing FEs are at capacity.
+        // This allows scaling out when there's executor capacity.
+        // Note: We intentionally don't check num_pending_function_executors here -
+        // newly created FEs start in Unknown state (counted as "pending"), and waiting
+        // for them to transition to Running would cause stalls and limit parallelism.
+        // The create_function_executor call below will check if there's actual executor
+        // capacity, so we won't over-create FEs beyond what the cluster can handle.
+        if function_executors.function_executors.is_empty() {
             debug!(
                 namespace = function_run.namespace,
                 app = function_run.application,
-                fn = function_run.name,
-                request_id = function_run.request_id,
-                "no function executors found"
+                fn_name = function_run.name,
+                fn_call_id = function_run.id.to_string(),
+                num_pending = function_executors.num_pending_function_executors,
+                num_total = function_executors.num_total_function_executors,
+                "no FEs with capacity, attempting to create new FE"
             );
             let fe_update = self.create_function_executor(in_memory_state, function_run)?;
             update.extend(fe_update);
-
-            in_memory_state.update_state(
-                self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
-                "function_executor_manager",
-            )?;
-
-            function_executors =
-                in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
-
-            self.metrics.select_or_create_fe_duration.record(
-                start.elapsed().as_secs_f64(),
-                &[
-                    KeyValue::new("created_new_fe", 1i64),
-                    KeyValue::new(
-                        "num_candidates",
-                        function_executors.function_executors.len() as i64,
-                    ),
-                ],
-            );
-        } else {
-            self.metrics.select_or_create_fe_duration.record(
-                start.elapsed().as_secs_f64(),
-                &[
-                    KeyValue::new("created_new_fe", 0i64),
-                    KeyValue::new(
-                        "num_candidates",
-                        function_executors.function_executors.len() as i64,
-                    ),
-                ],
-            );
         }
 
+        Ok(update)
+    }
+
+    /// Selects the best function executor for the given function run.
+    /// Uses least-loaded policy (fewest allocations).
+    /// Returns None if no FE has capacity.
+    pub fn select_function_executor(
+        &self,
+        in_memory_state: &InMemoryState,
+        function_run: &FunctionRun,
+    ) -> Result<Option<AllocationTarget>> {
+        let function_executors =
+            in_memory_state.candidate_function_executors(function_run, self.queue_size)?;
+
         debug!(
-            num_function_executors = function_executors.function_executors.len(),
-            num_pending_function_executors = function_executors.num_pending_function_executors,
+            num_candidates = function_executors.function_executors.len(),
+            num_pending = function_executors.num_pending_function_executors,
+            num_total = function_executors.num_total_function_executors,
             "found function executors for function run",
         );
 
@@ -659,7 +674,7 @@ impl FunctionExecutorManager {
             AllocationTarget::new(fe.executor_id.clone(), fe.function_executor_id.clone())
         });
 
-        Ok((selected_fe, update))
+        Ok(selected_fe)
     }
 
     /// Completely deregisters an executor and handles all associated cleanup

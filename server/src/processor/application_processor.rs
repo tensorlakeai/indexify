@@ -12,7 +12,7 @@ const MAX_WRITE_RETRIES: u32 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 100;
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, StateChange},
+    data_model::{Application, ApplicationState, ChangeType, FunctionURI, StateChange},
     manual_timer,
     metrics::{Timer, low_latency_boundaries},
     processor::{
@@ -22,6 +22,7 @@ use crate::{
     },
     state_store::{
         IndexifyState,
+        blocked_runs::ExecutorClass,
         in_memory_state::InMemoryState,
         requests::{
             CreateOrUpdateApplicationRequest,
@@ -222,6 +223,18 @@ impl ApplicationProcessor {
                 .await
             {
                 Ok(StateChangeResult::SchedulerUpdate(update)) => {
+                    // Update blocked runs index so subsequent state changes in this batch
+                    // can see which functions have blocked runs (avoids redundant allocation attempts)
+                    for (run_key, fn_uri, requirements) in &update.blocked_runs_to_add {
+                        indexes_guard.blocked_runs_index.block(
+                            run_key.clone(),
+                            fn_uri.clone(),
+                            requirements.clone(),
+                        );
+                    }
+                    for run_key in &update.blocked_runs_to_remove {
+                        indexes_guard.blocked_runs_index.unblock(run_key);
+                    }
                     combined_update.extend(*update);
                     batch_state_changes.push(state_change.clone());
                     self.record_latency(&state_change);
@@ -387,50 +400,210 @@ impl ApplicationProcessor {
                     .await?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
 
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
-                );
+                // Try to allocate and block failures
+                let alloc_update = task_allocator
+                    .allocate_function_runs(indexes_guard, unallocated_function_runs)?;
+                scheduler_update.extend(alloc_update);
+
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::InvokeApplication(ev) => {
-                let scheduler_update = task_allocator.allocate_request(
-                    indexes_guard,
-                    &ev.namespace,
-                    &ev.application,
-                    &ev.request_id,
-                )?;
+                let scheduler_update =
+                    task_allocator.allocate_request(
+                        indexes_guard,
+                        &ev.namespace,
+                        &ev.application,
+                        &ev.request_id,
+                    )?;
+
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(indexes_guard, req)
                     .await?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
-                );
+
+                // Allocate child runs created by handle_allocation_ingestion.
+                // Use scheduler_update.unallocated_function_runs() NOT indexes_guard -
+                // we only want runs from THIS allocation completion, not ALL unallocated runs.
+                let child_runs = scheduler_update.unallocated_function_runs();
+
+                if !child_runs.is_empty() {
+                    let alloc_update = task_allocator
+                        .allocate_function_runs(indexes_guard, child_runs)?;
+                    scheduler_update.extend(alloc_update);
+                }
+
+                // Also check blocked runs - when allocation completes, capacity is freed
+                // and we should try to unblock waiting runs.
+                if let Some(allocation) =
+                    indexes_guard.get_allocation_by_id(&req.allocation_id)
+                {
+                    // Construct FunctionURI from the completed allocation
+                    let fn_uri = FunctionURI {
+                        namespace: allocation.namespace.clone(),
+                        application: allocation.application.clone(),
+                        function: allocation.function.clone(),
+                        version: allocation.application_version.clone(),
+                    };
+
+                    // First try O(1) lookup for same function (most common case)
+                    let has_same_function_blocked = indexes_guard
+                        .blocked_runs_index
+                        .has_blocked_for_function(&fn_uri);
+
+                    if has_same_function_blocked {
+                        // Calculate available capacity on the FE that just freed up
+                        let available_slots = indexes_guard
+                            .function_executors_by_fn_uri
+                            .get(&fn_uri)
+                            .and_then(|fes| fes.get(&allocation.target.function_executor_id))
+                            .map(|fe_meta| {
+                                let capacity =
+                                    self.queue_size * fe_meta.function_executor.max_concurrency;
+                                let current = indexes_guard
+                                    .allocations_by_executor
+                                    .get(&allocation.target.executor_id)
+                                    .and_then(|by_fe| {
+                                        by_fe.get(&allocation.target.function_executor_id)
+                                    })
+                                    .map(|allocs| allocs.len() as u32)
+                                    .unwrap_or(0);
+                                capacity.saturating_sub(current) as usize
+                            })
+                            .unwrap_or(1);
+
+                        if available_slots > 0 {
+                            let blocked_keys = indexes_guard
+                                .blocked_runs_index
+                                .get_runs_for_function(&fn_uri, available_slots);
+
+                            let candidate_runs =
+                                indexes_guard.get_function_runs_by_keys(&blocked_keys);
+
+                            if !candidate_runs.is_empty() {
+                                // Use retry_blocked_runs since these are from blocked index
+                                let alloc_update = task_allocator
+                                    .retry_blocked_runs(indexes_guard, candidate_runs)?;
+                                scheduler_update.extend(alloc_update);
+                            }
+                        }
+                    } else {
+                        // No blocked runs for same function - check other functions
+                        // by executor class (O(1) lookup, may return runs from any function)
+                        if let Some(executor) =
+                            indexes_guard.executors.get(&allocation.target.executor_id)
+                        {
+                            let executor_class = ExecutorClass::from_executor(executor);
+                            let blocked_keys = indexes_guard
+                                .blocked_runs_index
+                                .get_runs_for_class(&executor_class);
+
+                            if !blocked_keys.is_empty() {
+                                // Limit to queue_size - one FE's worth of capacity
+                                let limited_keys: Vec<_> = blocked_keys
+                                    .into_iter()
+                                    .take(self.queue_size as usize)
+                                    .collect();
+
+                                let candidate_runs =
+                                    indexes_guard.get_function_runs_by_keys(&limited_keys);
+
+                                if !candidate_runs.is_empty() {
+                                    // Use retry_blocked_runs since these are from blocked index
+                                    let alloc_update = task_allocator
+                                        .retry_blocked_runs(indexes_guard, candidate_runs)?;
+                                    scheduler_update.extend(alloc_update);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
-                );
+
+                // First, allocate any runs created by reconcile_executor_state (e.g., retries)
+                let reconcile_runs = scheduler_update.unallocated_function_runs();
+                if !reconcile_runs.is_empty() {
+                    debug!(
+                        executor_id = %ev.executor_id,
+                        reconcile_runs = reconcile_runs.len(),
+                        "Allocating runs from reconcile_executor_state"
+                    );
+
+                    let alloc_update = task_allocator
+                        .allocate_function_runs(indexes_guard, reconcile_runs)?;
+                    scheduler_update.extend(alloc_update);
+                }
+
+                // O(1) lookup: Get blocked runs for this executor's class
+                if let Some(executor) = indexes_guard.executors.get(&ev.executor_id) {
+                    let executor_class = ExecutorClass::from_executor(executor);
+                    let blocked_keys =
+                        indexes_guard.blocked_runs_index.get_runs_for_class(&executor_class);
+
+                    if !blocked_keys.is_empty() {
+                        debug!(
+                            executor_id = %ev.executor_id,
+                            executor_class_cpu = executor_class.cpu_ms,
+                            executor_class_mem = executor_class.memory_bytes,
+                            blocked_count = blocked_keys.len(),
+                            "O(1) lookup: found blocked runs for executor class"
+                        );
+
+                        // Limit how many blocked runs we try to avoid O(k) work
+                        const MAX_BLOCKED_RUNS_TO_TRY: usize = 100;
+                        let limited_keys: Vec<_> = blocked_keys
+                            .into_iter()
+                            .take(MAX_BLOCKED_RUNS_TO_TRY)
+                            .collect();
+                        let candidate_runs =
+                            indexes_guard.get_function_runs_by_keys(&limited_keys);
+
+                        if !candidate_runs.is_empty() {
+                            debug!(
+                                executor_id = %ev.executor_id,
+                                candidate_runs = candidate_runs.len(),
+                                "Attempting to allocate blocked jobs for executor"
+                            );
+
+                            // Use retry_blocked_runs since these are from blocked index
+                            let alloc_update = task_allocator
+                                .retry_blocked_runs(indexes_guard, candidate_runs)?;
+                            scheduler_update.extend(alloc_update);
+                        }
+                    }
+                } else {
+                    // Fallback to scanning if executor not found (shouldn't happen)
+                    warn!(
+                        executor_id = %ev.executor_id,
+                        "Executor not found in state, falling back to full scan"
+                    );
+                    let candidate_runs = indexes_guard.unallocated_function_runs();
+                    if !candidate_runs.is_empty() {
+                        // These are unallocated runs, not blocked retries
+                        let alloc_update = task_allocator
+                            .allocate_function_runs(indexes_guard, candidate_runs)?;
+                        scheduler_update.extend(alloc_update);
+                    }
+                }
+
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::TombStoneExecutor(ev) => {
                 let mut scheduler_update =
                     fe_manager.deregister_executor(indexes_guard, &ev.executor_id)?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(indexes_guard, unallocated_function_runs)?,
-                );
+
+                // Try to allocate and block failures
+                let alloc_update = task_allocator
+                    .allocate_function_runs(indexes_guard, unallocated_function_runs)?;
+
+                scheduler_update.extend(alloc_update);
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::TombstoneApplication(request) => {
