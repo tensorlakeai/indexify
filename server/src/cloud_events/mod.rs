@@ -164,7 +164,6 @@ fn create_export_request(
         key_value_string("type", "ai.tensorlake.progress_update"),
         key_value_string("source", "/tensorlake/indexify_server"),
         key_value_string("timestamp", &now.to_rfc3339()),
-        key_value_string("ai.tensorlake.status", update.request_status()),
         KeyValue {
             key: "data".to_string(),
             value: Some(data),
@@ -788,7 +787,6 @@ mod tests {
         assert!(log_attrs_keys.contains("type"));
         assert!(log_attrs_keys.contains("source"));
         assert!(log_attrs_keys.contains("timestamp"));
-        assert!(log_attrs_keys.contains("ai.tensorlake.status"));
         assert!(log_attrs_keys.contains("data"));
 
         for kv in &log_record.attributes {
@@ -796,10 +794,6 @@ mod tests {
                 "specversion" => assert_eq!(kv.value, string_value("1.0")),
                 "type" => assert_eq!(kv.value, string_value("ai.tensorlake.progress_update")),
                 "source" => assert_eq!(kv.value, string_value("/tensorlake/indexify_server")),
-                "ai.tensorlake.status" => assert!(matches!(
-                    &kv.value,
-                    Some(av) if matches!(&av.value, Some(Value::StringValue(_)))
-                )),
                 "id" => assert!(matches!(
                     &kv.value,
                     Some(av) if matches!(&av.value, Some(Value::StringValue(_)))
@@ -835,36 +829,6 @@ mod tests {
         };
 
         assert_eq!(scope.name, "ai.tensorlake.request.id:req-789");
-    }
-
-    #[test]
-    fn test_create_export_request_with_failure_outcome() {
-        let event = RequestStateChangeEvent::finished(
-            "test-ns",
-            "test-app",
-            "1.0.2",
-            "req-fail-123",
-            RequestOutcome::Failure(RequestFailureReason::InternalError),
-        );
-
-        let result = super::create_export_request(&event);
-        assert!(result.is_ok());
-
-        let request = result.unwrap();
-        let resource_logs = &request.resource_logs[0];
-        let log_record = &resource_logs.scope_logs[0].log_records[0];
-
-        // Find ai.tensorlake.status attribute
-        let status_attr = log_record
-            .attributes
-            .iter()
-            .find(|kv| kv.key == "ai.tensorlake.status")
-            .expect("Expected ai.tensorlake.status attribute");
-
-        assert!(matches!(
-            &status_attr.value,
-            Some(av) if matches!(&av.value, Some(Value::StringValue(s)) if s == "Finished")
-        ));
     }
 
     #[test]
