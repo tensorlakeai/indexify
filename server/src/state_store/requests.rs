@@ -101,7 +101,8 @@ pub struct SchedulerUpdateRequest {
     /// Each entry contains (run_key, fn_uri, requirements).
     pub blocked_runs_to_add: Vec<(FunctionRunKey, FunctionURI, FunctionRunRequirements)>,
 
-    /// Blocked runs to remove from the index (runs that were allocated or cancelled).
+    /// Blocked runs to remove from the index (runs that were allocated or
+    /// cancelled).
     pub blocked_runs_to_remove: Vec<FunctionRunKey>,
 }
 

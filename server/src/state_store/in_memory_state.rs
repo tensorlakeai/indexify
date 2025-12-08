@@ -49,7 +49,7 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::{low_latency_boundaries, Timer},
+    metrics::{Timer, low_latency_boundaries},
     state_store::{
         ExecutorCatalog,
         blocked_runs::BlockedRunsIndex,
@@ -166,7 +166,8 @@ impl Ord for CandidateFunctionExecutor {
 pub struct CandidateFunctionExecutors {
     pub function_executors: BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
-    /// Total number of function executors for this function (regardless of capacity or state)
+    /// Total number of function executors for this function (regardless of
+    /// capacity or state)
     pub num_total_function_executors: usize,
 }
 
@@ -288,8 +289,9 @@ pub struct InMemoryState {
     // Maps executor catalog entry names to function runs that match those catalog entry labels
     pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
 
-    /// Blocked runs indexed by ExecutorClass for O(1) lookup when executor frees capacity.
-    /// Jobs are assigned to ALL executor classes that can handle them.
+    /// Blocked runs indexed by ExecutorClass for O(1) lookup when executor
+    /// frees capacity. Jobs are assigned to ALL executor classes that can
+    /// handle them.
     pub blocked_runs_index: BlockedRunsIndex,
 
     // Histogram metrics for task latency measurements for direct recording
@@ -1119,13 +1121,14 @@ impl InMemoryState {
                 version: function_run.version.clone(),
                 function_name: function_run.name.clone(),
             })?;
-        let function = application
-            .functions
-            .get(&function_run.name)
-            .ok_or(Error::FunctionNotFound {
-                version: function_run.version.clone(),
-                function_name: function_run.name.clone(),
-            })?;
+        let function =
+            application
+                .functions
+                .get(&function_run.name)
+                .ok_or(Error::FunctionNotFound {
+                    version: function_run.version.clone(),
+                    function_name: function_run.name.clone(),
+                })?;
         Ok(function.resources.clone())
     }
 
@@ -1505,7 +1508,8 @@ impl InMemoryState {
         Ok(Vec::new())
     }
 
-    /// Check if there are any pending (non-terminal) function runs for a given FE.
+    /// Check if there are any pending (non-terminal) function runs for a given
+    /// FE.
     pub fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
@@ -1649,7 +1653,9 @@ impl InMemoryState {
             function_run_pending_latency: self.function_run_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
             allocation_completion_latency: self.allocation_completion_latency.clone(),
-            candidate_function_executors_duration: self.candidate_function_executors_duration.clone(),
+            candidate_function_executors_duration: self
+                .candidate_function_executors_duration
+                .clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
         }))
@@ -1882,7 +1888,9 @@ pub mod test_helpers {
                 function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
-                candidate_function_executors_duration: global::meter("test").f64_histogram("test").build(),
+                candidate_function_executors_duration: global::meter("test")
+                    .f64_histogram("test")
+                    .build(),
                 function_runs: im::OrdMap::new(),
                 unallocated_function_runs: im::OrdSet::new(),
             }

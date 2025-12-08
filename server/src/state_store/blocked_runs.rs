@@ -2,8 +2,10 @@ use std::hash::{Hash, Hasher};
 
 use tracing::debug;
 
-use crate::data_model::{ExecutorMetadata, FunctionURI};
-use crate::state_store::in_memory_state::FunctionRunKey;
+use crate::{
+    data_model::{ExecutorMetadata, FunctionURI},
+    state_store::in_memory_state::FunctionRunKey,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutorClass {
@@ -43,16 +45,16 @@ impl ExecutorClass {
         }
     }
 
-    /// Check if this executor class can handle the given function run requirements.
-    /// Returns true if executor has >= resources than the function run needs.
+    /// Check if this executor class can handle the given function run
+    /// requirements. Returns true if executor has >= resources than the
+    /// function run needs.
     pub fn can_handle(&self, requirements: &FunctionRunRequirements) -> bool {
-        self.cpu_ms >= requirements.cpu_ms
-            && self.memory_bytes >= requirements.memory_bytes
-            && self.disk_bytes >= requirements.disk_bytes
-            && self.gpu_count >= requirements.gpu_count
-            && (requirements.gpu_model.is_none()
-                || self.gpu_model == requirements.gpu_model)
-            && (requirements.region.is_none() || self.region == requirements.region)
+        self.cpu_ms >= requirements.cpu_ms &&
+            self.memory_bytes >= requirements.memory_bytes &&
+            self.disk_bytes >= requirements.disk_bytes &&
+            self.gpu_count >= requirements.gpu_count &&
+            (requirements.gpu_model.is_none() || self.gpu_model == requirements.gpu_model) &&
+            (requirements.region.is_none() || self.region == requirements.region)
     }
 }
 
@@ -66,26 +68,28 @@ pub type FunctionRunRequirements = ExecutorClass;
 /// When an FE frees capacity, O(1) lookup by function.
 #[derive(Debug, Clone, Default)]
 pub struct BlockedRunsIndex {
-    /// Function runs assigned to executor classes (O(1) lookup when executor frees capacity).
-    /// A function run can be in MULTIPLE class buckets. Using HashSet prevents duplicates
-    /// and enables O(1) removal.
+    /// Function runs assigned to executor classes (O(1) lookup when executor
+    /// frees capacity). A function run can be in MULTIPLE class buckets.
+    /// Using HashSet prevents duplicates and enables O(1) removal.
     pub blocked_by_class: im::HashMap<ExecutorClass, im::HashSet<FunctionRunKey>>,
 
-    /// Function runs indexed by FunctionURI for O(1) lookup when FE frees capacity.
-    /// When an FE completes an allocation, we can directly find blocked runs
-    /// for that same function without scanning all blocked runs.
-    /// Using HashSet prevents duplicates and enables O(1) removal.
+    /// Function runs indexed by FunctionURI for O(1) lookup when FE frees
+    /// capacity. When an FE completes an allocation, we can directly find
+    /// blocked runs for that same function without scanning all blocked
+    /// runs. Using HashSet prevents duplicates and enables O(1) removal.
     pub blocked_by_fn_uri: im::HashMap<FunctionURI, im::HashSet<FunctionRunKey>>,
 
     /// Function runs indexed by their requirements.
-    /// O(1) insert/remove, O(K) scan when new executor joins (K = distinct requirement types).
-    /// This replaces the old `unassigned` Vector for better performance.
+    /// O(1) insert/remove, O(K) scan when new executor joins (K = distinct
+    /// requirement types). This replaces the old `unassigned` Vector for
+    /// better performance.
     pub blocked_by_requirements: im::HashMap<FunctionRunRequirements, im::HashSet<FunctionRunKey>>,
 
     /// Reverse index: function run → its requirements (for O(1) removal).
     pub requirements_by_run: im::HashMap<FunctionRunKey, FunctionRunRequirements>,
 
-    /// Reverse index: function run → which classes it's assigned to (for O(K) removal).
+    /// Reverse index: function run → which classes it's assigned to (for O(K)
+    /// removal).
     pub classes_by_run: im::HashMap<FunctionRunKey, im::HashSet<ExecutorClass>>,
 
     /// Known executor classes.
@@ -96,9 +100,11 @@ pub struct BlockedRunsIndex {
 }
 
 impl BlockedRunsIndex {
-    /// Block a function run - assign to ALL executor classes that can handle it.
+    /// Block a function run - assign to ALL executor classes that can handle
+    /// it.
     ///
-    /// All runs are also indexed by requirements for O(K) lookup when new executors join.
+    /// All runs are also indexed by requirements for O(K) lookup when new
+    /// executors join.
     pub fn block(
         &mut self,
         run_key: FunctionRunKey,
@@ -169,8 +175,8 @@ impl BlockedRunsIndex {
 
     /// Register a new executor class (when new executor type joins).
     ///
-    /// Scans requirement keys (O(K) where K = distinct requirement types) and assigns
-    /// matching runs to this class.
+    /// Scans requirement keys (O(K) where K = distinct requirement types) and
+    /// assigns matching runs to this class.
     pub fn register_executor_class(&mut self, new_class: ExecutorClass) {
         debug!(
             cpu_ms = new_class.cpu_ms,
@@ -239,17 +245,19 @@ impl BlockedRunsIndex {
         }
 
         // Remove from requirements index - O(1) thanks to reverse lookup
-        if let Some(requirements) = self.requirements_by_run.remove(run_key)
-            && let Some(runs) = self.blocked_by_requirements.get_mut(&requirements) {
-                runs.remove(run_key);
-            }
+        if let Some(requirements) = self.requirements_by_run.remove(run_key) &&
+            let Some(runs) = self.blocked_by_requirements.get_mut(&requirements)
+        {
+            runs.remove(run_key);
+        }
 
         // Remove from FunctionURI index - O(1) thanks to HashSet
         let fn_uri = self.fn_uri_by_run.remove(run_key);
-        if let Some(ref uri) = fn_uri
-            && let Some(runs) = self.blocked_by_fn_uri.get_mut(uri) {
-                runs.remove(run_key);
-            }
+        if let Some(ref uri) = fn_uri &&
+            let Some(runs) = self.blocked_by_fn_uri.get_mut(uri)
+        {
+            runs.remove(run_key);
+        }
 
         fn_uri
     }
@@ -283,7 +291,8 @@ impl BlockedRunsIndex {
     }
 
     /// Get count of unassigned function runs (no matching executor type). O(1).
-    /// A run is unassigned if it has requirements but is not in any class bucket.
+    /// A run is unassigned if it has requirements but is not in any class
+    /// bucket.
     pub fn unassigned_count(&self) -> usize {
         // Total blocked - assigned = unassigned
         // classes_by_run tracks runs that have at least one matching class

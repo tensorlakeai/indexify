@@ -85,12 +85,14 @@ impl<'a> FunctionRunProcessor<'a> {
             .collect();
         self.allocate_function_runs(in_memory_state, function_runs)
     }
-    
-    /// Allocate function runs. For new runs, checks the blocked index first to skip
-    /// allocation attempts for functions that already have blocked runs.
+
+    /// Allocate function runs. For new runs, checks the blocked index first to
+    /// skip allocation attempts for functions that already have blocked
+    /// runs.
     ///
-    /// `is_retry`: Set to true when retrying runs from the blocked index. This skips
-    /// the blocked index check since those runs ARE in the blocked index.
+    /// `is_retry`: Set to true when retrying runs from the blocked index. This
+    /// skips the blocked index check since those runs ARE in the blocked
+    /// index.
     pub fn allocate_function_runs(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -118,8 +120,9 @@ impl<'a> FunctionRunProcessor<'a> {
         let _timer = Timer::start_with_labels(&self.metrics.allocate_function_runs_duration, &[]);
         let mut update = SchedulerUpdateRequest::default();
 
-        // Track functions that have no FE capacity to avoid repeated allocation attempts
-        // within this batch. This is a local optimization - we use FunctionURI as key.
+        // Track functions that have no FE capacity to avoid repeated allocation
+        // attempts within this batch. This is a local optimization - we use
+        // FunctionURI as key.
         let mut no_capacity_functions: std::collections::HashSet<FunctionURI> =
             std::collections::HashSet::new();
 
@@ -138,8 +141,8 @@ impl<'a> FunctionRunProcessor<'a> {
 
             // For new runs (not retries), check if function already has blocked runs.
             // This avoids expensive allocation attempts when capacity is exhausted.
-            if !is_retry
-                && in_memory_state
+            if !is_retry &&
+                in_memory_state
                     .blocked_runs_index
                     .has_blocked_for_function(&fn_uri)
             {
@@ -320,7 +323,8 @@ impl<'a> FunctionRunProcessor<'a> {
     }
 
     /// Extract requirements from a function run.
-    /// Uses the function definition from the application version to get resource requirements.
+    /// Uses the function definition from the application version to get
+    /// resource requirements.
     pub fn get_run_requirements(
         &self,
         in_memory_state: &InMemoryState,
@@ -360,5 +364,5 @@ impl<'a> FunctionRunProcessor<'a> {
             gpu_model,
             region,
         }
-    } 
+    }
 }

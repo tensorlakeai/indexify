@@ -224,7 +224,8 @@ impl ApplicationProcessor {
             {
                 Ok(StateChangeResult::SchedulerUpdate(update)) => {
                     // Update blocked runs index so subsequent state changes in this batch
-                    // can see which functions have blocked runs (avoids redundant allocation attempts)
+                    // can see which functions have blocked runs (avoids redundant allocation
+                    // attempts)
                     for (run_key, fn_uri, requirements) in &update.blocked_runs_to_add {
                         indexes_guard.blocked_runs_index.block(
                             run_key.clone(),
@@ -408,13 +409,12 @@ impl ApplicationProcessor {
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
             ChangeType::InvokeApplication(ev) => {
-                let scheduler_update =
-                    task_allocator.allocate_request(
-                        indexes_guard,
-                        &ev.namespace,
-                        &ev.application,
-                        &ev.request_id,
-                    )?;
+                let scheduler_update = task_allocator.allocate_request(
+                    indexes_guard,
+                    &ev.namespace,
+                    &ev.application,
+                    &ev.request_id,
+                )?;
 
                 StateChangeResult::SchedulerUpdate(Box::new(scheduler_update))
             }
@@ -429,16 +429,14 @@ impl ApplicationProcessor {
                 let child_runs = scheduler_update.unallocated_function_runs();
 
                 if !child_runs.is_empty() {
-                    let alloc_update = task_allocator
-                        .allocate_function_runs(indexes_guard, child_runs)?;
+                    let alloc_update =
+                        task_allocator.allocate_function_runs(indexes_guard, child_runs)?;
                     scheduler_update.extend(alloc_update);
                 }
 
                 // Also check blocked runs - when allocation completes, capacity is freed
                 // and we should try to unblock waiting runs.
-                if let Some(allocation) =
-                    indexes_guard.get_allocation_by_id(&req.allocation_id)
-                {
+                if let Some(allocation) = indexes_guard.get_allocation_by_id(&req.allocation_id) {
                     // Construct FunctionURI from the completed allocation
                     let fn_uri = FunctionURI {
                         namespace: allocation.namespace.clone(),
@@ -535,16 +533,17 @@ impl ApplicationProcessor {
                         "Allocating runs from reconcile_executor_state"
                     );
 
-                    let alloc_update = task_allocator
-                        .allocate_function_runs(indexes_guard, reconcile_runs)?;
+                    let alloc_update =
+                        task_allocator.allocate_function_runs(indexes_guard, reconcile_runs)?;
                     scheduler_update.extend(alloc_update);
                 }
 
                 // O(1) lookup: Get blocked runs for this executor's class
                 if let Some(executor) = indexes_guard.executors.get(&ev.executor_id) {
                     let executor_class = ExecutorClass::from_executor(executor);
-                    let blocked_keys =
-                        indexes_guard.blocked_runs_index.get_runs_for_class(&executor_class);
+                    let blocked_keys = indexes_guard
+                        .blocked_runs_index
+                        .get_runs_for_class(&executor_class);
 
                     if !blocked_keys.is_empty() {
                         debug!(
@@ -561,8 +560,7 @@ impl ApplicationProcessor {
                             .into_iter()
                             .take(MAX_BLOCKED_RUNS_TO_TRY)
                             .collect();
-                        let candidate_runs =
-                            indexes_guard.get_function_runs_by_keys(&limited_keys);
+                        let candidate_runs = indexes_guard.get_function_runs_by_keys(&limited_keys);
 
                         if !candidate_runs.is_empty() {
                             debug!(
@@ -572,8 +570,8 @@ impl ApplicationProcessor {
                             );
 
                             // Use retry_blocked_runs since these are from blocked index
-                            let alloc_update = task_allocator
-                                .retry_blocked_runs(indexes_guard, candidate_runs)?;
+                            let alloc_update =
+                                task_allocator.retry_blocked_runs(indexes_guard, candidate_runs)?;
                             scheduler_update.extend(alloc_update);
                         }
                     }
@@ -586,8 +584,8 @@ impl ApplicationProcessor {
                     let candidate_runs = indexes_guard.unallocated_function_runs();
                     if !candidate_runs.is_empty() {
                         // These are unallocated runs, not blocked retries
-                        let alloc_update = task_allocator
-                            .allocate_function_runs(indexes_guard, candidate_runs)?;
+                        let alloc_update =
+                            task_allocator.allocate_function_runs(indexes_guard, candidate_runs)?;
                         scheduler_update.extend(alloc_update);
                     }
                 }

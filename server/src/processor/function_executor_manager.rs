@@ -22,7 +22,7 @@ use crate::{
         FunctionURI,
         RunningFunctionRunStatus,
     },
-    metrics::{low_latency_boundaries, Timer},
+    metrics::{Timer, low_latency_boundaries},
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
@@ -80,9 +80,10 @@ impl FunctionExecutorManager {
         }
     }
 
-    /// Vacuum phase - identifies function executors from OTHER functions that should be terminated
-    /// to free up resources. Only vacuums FEs from different functions than the requesting one.
-    /// Returns scheduler update for cleanup actions.
+    /// Vacuum phase - identifies function executors from OTHER functions that
+    /// should be terminated to free up resources. Only vacuums FEs from
+    /// different functions than the requesting one. Returns scheduler
+    /// update for cleanup actions.
     #[tracing::instrument(skip_all, target = "scheduler")]
     fn vacuum(
         &self,
@@ -165,7 +166,10 @@ impl FunctionExecutorManager {
                 create_start.elapsed().as_secs_f64(),
                 &[
                     KeyValue::new("num_candidates", 0i64),
-                    KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
+                    KeyValue::new(
+                        "vacuum_triggered",
+                        if vacuum_triggered { 1i64 } else { 0i64 },
+                    ),
                 ],
             );
             return Ok(update);
@@ -179,7 +183,10 @@ impl FunctionExecutorManager {
             create_start.elapsed().as_secs_f64(),
             &[
                 KeyValue::new("num_candidates", candidates.len() as i64),
-                KeyValue::new("vacuum_triggered", if vacuum_triggered { 1i64 } else { 0i64 }),
+                KeyValue::new(
+                    "vacuum_triggered",
+                    if vacuum_triggered { 1i64 } else { 0i64 },
+                ),
             ],
         );
 
