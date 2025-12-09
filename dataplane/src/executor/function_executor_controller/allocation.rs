@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use tokio::time::Instant;
 use tracing::info;
@@ -16,27 +19,29 @@ use crate::executor::{
     function_executor::{
         function_executor_service::{
             allocation_result, allocation_update::Update,
+            execution_plan_update as fe_execution_plan_update, function_arg::Source as FESource,
             function_executor_client::FunctionExecutorClient, Allocation as FEAllocation,
             AllocationFailureReason as FEAllocationFailureReason, AllocationFunctionCall,
             AllocationOutcomeCode as FEAllocationOutcomeCode, AllocationOutputBlob,
             AllocationOutputBlobRequest, AllocationProgress, AllocationResult, AllocationUpdate,
             Blob, CreateAllocationRequest, DeleteAllocationRequest,
-            ExecutionPlanUpdates as FEExecutionPlanUpdates, FunctionCall as FEFunctionCall,
-            FunctionInputs, WatchAllocationStateRequest,
+            ExecutionPlanUpdates as FEExecutionPlanUpdates, FunctionInputs,
+            WatchAllocationStateRequest,
         },
         FunctionExecutor,
     },
     function_executor_controller::blob_utils::presign_write_only_blob,
 };
 
-const CREATE_ALLOCATION_TIMEOUT_SECS: u32 = 5;
-const SEND_ALLOCATION_UPDATE_TIMEOUT_SECS: u32 = 5;
-const DELETE_ALLOCATION_TIMEOUT_SECS: u32 = 5;
+const CREATE_ALLOCATION_TIMEOUT_SECS: u64 = 5;
+const SEND_ALLOCATION_UPDATE_TIMEOUT_SECS: u64 = 5;
+const DELETE_ALLOCATION_TIMEOUT_SECS: u64 = 5;
 
-const SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS: u32 = 5;
-const SERVER_CALL_FUNCTION_RPC_BACKOFF_SECS: u32 = 2;
-const SERVER_CALL_FUNCTION_RPC_MAX_RETRIES: u32 = 3;
+const SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS: u64 = 5;
+const SERVER_CALL_FUNCTION_RPC_BACKOFF_SECS: u64 = 2;
+const SERVER_CALL_FUNCTION_RPC_MAX_RETRIES: u64 = 3;
 
+#[derive(Clone)]
 pub struct AllocationInput {
     pub function_inputs: FunctionInputs,
     pub request_error_blob_uri: String,
@@ -57,6 +62,7 @@ impl AllocationInput {
     }
 }
 
+#[derive(Clone)]
 pub struct AllocationOutput {
     pub outcome_code: AllocationOutcomeCode,
     pub failure_reason: Option<AllocationFailureReason>,
@@ -67,20 +73,12 @@ pub struct AllocationOutput {
 
 impl AllocationOutput {
     pub fn new(
+        outcome_code: AllocationOutcomeCode,
+        failure_reason: Option<AllocationFailureReason>,
         fe_result: Option<AllocationResult>,
         function_outputs_blob_uri: Option<String>,
         execution_duration_ms: Option<u64>,
     ) -> Self {
-        let outcome_code = if let Some(result) = fe_result {
-            Some(result.outcome_code())
-        } else {
-            None
-        };
-        let failure_reason = if let Some(result) = fe_result {
-            Some(result.failure_reason())
-        } else {
-            None
-        };
         Self {
             outcome_code,
             failure_reason,
@@ -92,7 +90,7 @@ impl AllocationOutput {
 
     pub fn internal_error(&self, execution_duration_ms: Option<u64>) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::InternalError),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -102,7 +100,7 @@ impl AllocationOutput {
 
     pub fn function_timeout(&self, execution_duration_ms: Option<u64>) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::FunctionTimeout),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -115,7 +113,7 @@ impl AllocationOutput {
         execution_duration_ms: Option<u64>,
     ) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::FunctionError),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -128,7 +126,7 @@ impl AllocationOutput {
         execution_duration_ms: Option<u64>,
     ) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::FunctionError),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -138,7 +136,7 @@ impl AllocationOutput {
 
     pub fn allocation_cancelled(&self, execution_duration_ms: Option<u64>) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::AllocationCancelled),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -148,7 +146,7 @@ impl AllocationOutput {
 
     pub fn allocation_didn_run_because_function_executor_terminated(&self) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::FunctionExecutorTerminated),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -161,7 +159,7 @@ impl AllocationOutput {
         execution_duration_ms: Option<u64>,
     ) -> AllocationOutput {
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason: Some(AllocationFailureReason::Oom),
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -184,12 +182,8 @@ impl AllocationOutput {
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
                 Some(AllocationFailureReason::FunctionTimeout)
             }
-            FunctionExecutorTerminationReason::Unhealthy => {
-                Some(AllocationFailureReason::Unhealthy)
-            }
-            FunctionExecutorTerminationReason::FunctionCancelled => {
-                Some(AllocationFailureReason::FunctionCancelled)
-            }
+            FunctionExecutorTerminationReason::Unhealthy => None,
+            FunctionExecutorTerminationReason::FunctionCancelled => None,
             FunctionExecutorTerminationReason::InternalError => {
                 Some(AllocationFailureReason::InternalError)
             }
@@ -199,7 +193,7 @@ impl AllocationOutput {
             FunctionExecutorTerminationReason::Oom => Some(AllocationFailureReason::Oom),
         };
         Self {
-            outcome_code: Some(AllocationOutcomeCode::Failure),
+            outcome_code: AllocationOutcomeCode::Failure,
             failure_reason,
             fe_result: None,
             function_outputs_blob_uri: None,
@@ -227,6 +221,7 @@ fn to_server_alloc_failure_reason(
     }
 }
 
+#[derive(Clone)]
 pub struct AllocationInfo {
     pub allocation: Allocation,
     pub allocation_timeout_ms: u64,
@@ -253,6 +248,7 @@ impl AllocationInfo {
     }
 }
 
+#[derive(Clone)]
 struct BlobInfo {
     id: String,
     uri: String,
@@ -321,12 +317,17 @@ impl AllocationRunner {
             .channel()
             .ok_or("Channel is None")?
             .clone();
+        let inputs = if let Some(input) = self.alloc_info.input {
+            Some(input.function_inputs.clone())
+        } else {
+            None
+        };
 
         let fe_alloc = FEAllocation {
             request_id: self.alloc_info.allocation.request_id.clone(),
             function_call_id: self.alloc_info.allocation.function_call_id.clone(),
             allocation_id: self.alloc_info.allocation.allocation_id.clone(),
-            inputs: self.alloc_info.input.function_inputs.clone(),
+            inputs,
             result: None,
         };
 
@@ -362,10 +363,10 @@ impl AllocationRunner {
                 Ok(Ok(Some(state))) => state,
                 Ok(Ok(None)) => break, // EOF
                 Ok(Err(e)) => {
-                    // return Err(AllocationError::FailedLeavingFEInUndefinedState(e).into());
+                    return Err(AllocationError::FailedLeavingFEInUndefinedState(e));
                 }
                 Err(_) => {
-                    // return Err(AllocationError::Timeout.into());
+                    return Err(AllocationError::Timeout);
                 }
             };
 
@@ -384,7 +385,7 @@ impl AllocationRunner {
                     .insert(output_blob_request.id().to_string(), output_blob_request);
                 if !self
                     .pending_output_blobs
-                    .contains_key(output_blob_request.id().to_string())
+                    .contains_key(output_blob_request.id())
                 {
                     let output_blob = self.create_output_blob(output_blob_request).await?;
                     let update = AllocationUpdate {
@@ -405,7 +406,7 @@ impl AllocationRunner {
             for function_call in response.function_calls {
                 if let Some(updates) = function_call.updates {
                     if let Some(root_function_call_id) = updates.root_function_call_id {
-                        fe_function_calls.insert(root_function_call_id, function_call)
+                        fe_function_calls.insert(root_function_call_id, function_call);
                     }
                 }
                 if let Some(args_blob) = function_call.args_blob {
@@ -427,13 +428,13 @@ impl AllocationRunner {
             // TODO: self.reconcile_function_call_watchers(&mut client, &response.function_call_watchers)
             // .await?;
 
-            if response.request_state_operations.is_some() {
-                // TODO: self.reconcile_request_state_operations(
-                //     &mut client,
-                //     &response.request_state_operations,
-                // )
-                // .await?;
-            }
+            // if response.request_state_operations {
+            // TODO: self.reconcile_request_state_operations(
+            //     &mut client,
+            //     &response.request_state_operations,
+            // )
+            // .await?;
+            // }
 
             // if let Some(result) = response.result {
             //     allocation_result = Some(result);
@@ -451,18 +452,22 @@ impl AllocationRunner {
         )
         .await?;
 
-        let execution_end_time = Instant::now();
+        let execution_end_time = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64();
 
         let mut function_outputs_blob_uri: Option<String> = None;
 
         if let Some(result) = &allocation_result {
             if let Some(uploaded_blob) = &result.uploaded_function_outputs_blob {
-                let blob_info = self
-                    .pending_output_blobs
-                    .get(&uploaded_blob.id)
-                    .ok_or_else(|| {
-                        info!("failing allocation because its outputs blob is not found");
-                    })?;
+                let blob_id = match uploaded_blob.id {
+                    Some(id) => id,
+                    None => return Err(AllocationError::OutputBlobNotFound),
+                };
+                let blob_info = self.pending_output_blobs.get(&blob_id).ok_or(|| {
+                    info!("failing allocation because its outputs blob is not found");
+                    Err(AllocationError::OutputBlobNotFound)
+                })?;
 
                 function_outputs_blob_uri = Some(blob_info.uri.clone());
 
@@ -476,16 +481,11 @@ impl AllocationRunner {
                 self.pending_output_blobs.remove(uploaded_blob.id());
 
                 if let Some(outputs) = &result.outputs {
-                    if let Some(allocation_result::Outputs::Updates(updates)) = outputs {
+                    if let allocation_result::Outputs::Updates(updates) = outputs {
                         to_server_execution_plan_updates(
-                            updates,
-                            function_outputs_blob_uri.as_ref(),
-                        )
-                        .map_err(|e| {
-                            info!(
-                            "failing allocation because its FE execution plan updates are invalid",
+                            updates.to_owned(),
+                            function_outputs_blob_uri.as_ref().map(|s| &**s),
                         );
-                        })?;
                     }
                 }
             }
@@ -499,7 +499,7 @@ impl AllocationRunner {
     }
 
     async fn create_output_blob(
-        &self,
+        &mut self,
         fe_output_blob_request: AllocationOutputBlobRequest,
     ) -> Result<Blob, Box<dyn std::error::Error>> {
         let blob_uri = format!(
@@ -517,14 +517,14 @@ impl AllocationRunner {
         };
 
         self.pending_output_blobs
-            .insert(fe_output_blob_request.id().to_string(), blob_info);
+            .insert(fe_output_blob_request.id().to_string(), blob_info.clone());
 
         let blob = presign_write_only_blob(
             &blob_info.id,
             &blob_info.uri,
             &blob_info.upload_id,
             fe_output_blob_request.size(),
-            self.blob_store,
+            self.blob_store.clone(),
         )
         .await?;
         Ok(blob)
@@ -535,58 +535,136 @@ fn to_server_execution_plan_updates(
     fe_execution_plan_updates: FEExecutionPlanUpdates,
     args_blob_uri: Option<&str>,
 ) -> ExecutionPlanUpdates {
-    let mut server_execution_plan_updates: Vec<ExecutionPlanUpdates> = Vec::new();
+    let mut server_execution_plan_updates: Vec<ExecutionPlanUpdate> = Vec::new();
 
     for fe_update in fe_execution_plan_updates.updates {
-        server_execution_plan_updates.push(ExecutionPlanUpdate {
-            op: execution_plan_update::Op::FunctionCall(to_server_function_call(
-                fe_update.op,
-                args_blob_uri,
-            )),
-        });
+        if let Some(function_call) = to_server_function_call(fe_update.op, args_blob_uri) {
+            server_execution_plan_updates.push(ExecutionPlanUpdate {
+                op: Some(execution_plan_update::Op::FunctionCall(function_call)),
+            });
+        }
+    }
+    ExecutionPlanUpdates {
+        updates: server_execution_plan_updates,
+        root_function_call_id: None,
+        start_at: None,
     }
 }
 
 fn to_server_function_call(
-    fe_function_call: FEFunctionCall,
+    op: Option<fe_execution_plan_update::Op>,
     args_blob_uri: Option<&str>,
-) -> FunctionCall {
+) -> Option<FunctionCall> {
     let mut server_args: Vec<FunctionArg> = Vec::new();
-    for fe_arg in fe_function_call.args {
-        if let Some(allocation_result::Outputs::Value(value)) = fe_arg {
-            if let Some(manifest) = value.manifest {
-                let arg = FunctionArg {
-                    source: Some(Source::InlineData(DataPayload {
-                        id: None,
-                        uri: Some(args_blob_uri),
-                        encoding: manifest.encoding,
-                        encoding_version: manifest.encoding_version,
-                        content_type: manifest.content_type,
-                        metadata_size: manifest.metadata_size,
-                        offset: value.offset,
-                        size: manifest.size,
-                        sha256_hash: manifest.sha256_hash,
-                        source_function_call_id: manifest.source_function_call_id,
-                    })),
-                };
-                server_args.push(value);
+    if let Some(fe_execution_plan_update::Op::FunctionCall(fe_function_call)) = op {
+        for fe_arg in fe_function_call.args {
+            match fe_arg.source {
+                Some(FESource::FunctionCallId(fe_call_id)) => {
+                    let arg = FunctionArg {
+                        source: Some(Source::FunctionCallId(fe_call_id)),
+                    };
+                    server_args.push(arg);
+                }
+                Some(FESource::Value(value)) => {
+                    if let Some(manifest) = value.manifest {
+                        let arg = FunctionArg {
+                            source: Some(Source::InlineData(DataPayload {
+                                id: None,
+                                uri: args_blob_uri.map(|uri| uri.to_string()),
+                                encoding: manifest.encoding,
+                                encoding_version: manifest.encoding_version,
+                                content_type: manifest.content_type,
+                                metadata_size: manifest.metadata_size,
+                                offset: value.offset,
+                                size: manifest.size,
+                                sha256_hash: manifest.sha256_hash,
+                                source_function_call_id: manifest.source_function_call_id,
+                            })),
+                        };
+
+                        server_args.push(arg);
+                    }
+                }
+                None => {
+                    let arg = FunctionArg { source: None };
+                    server_args.push(arg);
+                }
+            }
+        }
+        let target = if let Some(val) = fe_function_call.target {
+            FunctionRef {
+                namespace: val.namespace,
+                application_name: val.application_name,
+                application_version: val.application_version,
+                function_name: val.function_name,
+            }
+        } else {
+            FunctionRef {
+                namespace: None,
+                application_name: None,
+                application_version: None,
+                function_name: None,
+            }
+        };
+        return Some(FunctionCall {
+            id: fe_function_call.id,
+            target: Some(target),
+            args: server_args,
+            call_metadata: fe_function_call.call_metadata,
+        });
+    }
+    None
+}
+
+enum AllocationError {
+    NotFound,
+    InvalidEncoding,
+    InvalidContentType,
+    InvalidMetadataSize,
+    InvalidOffset,
+    InvalidSize,
+    InvalidSha256Hash,
+    InvalidSourceFunctionCallId,
+}
+
+impl std::error::Error for AllocationError {}
+
+impl std::fmt::Display for AllocationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AllocationError::NotFound => write!(f, "allocation not found"),
+            AllocationError::InvalidEncoding => write!(f, "invalid encoding"),
+            AllocationError::InvalidContentType => write!(f, "invalid content type"),
+            AllocationError::InvalidMetadataSize => write!(f, "invalid metadata size"),
+            AllocationError::InvalidOffset => write!(f, "invalid offset"),
+            AllocationError::InvalidSize => write!(f, "invalid size"),
+            AllocationError::InvalidSha256Hash => write!(f, "invalid sha256 hash"),
+            AllocationError::InvalidSourceFunctionCallId => {
+                write!(f, "invalid source function call id")
             }
         }
     }
-    let target = if let Some(val) = fe_function_call.target {
-        FunctionRef {
-            namespace: val.namespace,
-            application_name: val.application_name,
-            application_version: val.application_version,
-            function_name: val.function_name,
+}
+
+impl std::fmt::Debug for AllocationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AllocationError::NotFound => write!(f, "allocation not found"),
+            AllocationError::InvalidEncoding => write!(f, "invalid encoding"),
+            AllocationError::InvalidContentType => write!(f, "invalid content type"),
+            AllocationError::InvalidMetadataSize => write!(f, "invalid metadata size"),
+            AllocationError::InvalidOffset => write!(f, "invalid offset"),
+            AllocationError::InvalidSize => write!(f, "invalid size"),
+            AllocationError::InvalidSha256Hash => write!(f, "invalid sha256 hash"),
+            AllocationError::InvalidSourceFunctionCallId => {
+                write!(f, "invalid source function call id")
+            }
         }
-    } else {
-        None
-    };
-    FunctionCall {
-        id: fe_function_call.id,
-        target,
-        args: server_args,
-        call_metadata: fe_function_call.call_metadata,
+    }
+}
+
+impl std::fmt::Debug for Allocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Allocation {{ id: {}, size: {} }}", self.id, self.size)
     }
 }

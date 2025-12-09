@@ -6,16 +6,17 @@ use crate::executor::{
         executor_api_pb::{
             Allocation, FunctionExecutorDescription, FunctionExecutorState, FunctionExecutorStatus,
         },
-        ChannelManager, ExecutorStateReporter,
+        ChannelManager, ExecutorStateReconciler, ExecutorStateReporter,
     },
     function_executor::{
         server_factory::SubprocessFunctionExecutorServerFactory, FunctionExecutor,
     },
-    function_executor_controller::allocation::AllocationInfo,
+    function_executor_controller::{allocation::AllocationInfo, events::Event},
 };
 
 pub mod allocation;
 pub mod blob_utils;
+pub mod events;
 
 pub enum FEControllerState {
     NotStarted,
@@ -31,13 +32,13 @@ pub struct FunctionExecutorController {
     fe_server_factory: SubprocessFunctionExecutorServerFactory,
     channel_manager: Arc<ChannelManager>,
     state_reporter: ExecutorStateReporter,
-    state_reconciler: ExecutorStateReconciler,
+    state_reconciler: Arc<ExecutorStateReconciler>,
     blob_store: BlobStore,
     cache_path: PathBuf,
     fe: FunctionExecutor,
     internal_state: FEControllerState,
     reported_state: FunctionExecutorState,
-    events: Vec<Box<dyn BaseEvent>>,
+    events: Vec<Event>,
     allocations: HashMap<String, AllocationInfo>,
     runnable_allocations: Vec<AllocationInfo>,
     running_allocations: Vec<AllocationInfo>,
@@ -50,7 +51,7 @@ impl FunctionExecutorController {
         fe_server_factory: SubprocessFunctionExecutorServerFactory,
         channel_manager: Arc<ChannelManager>,
         state_reporter: ExecutorStateReporter,
-        state_reconciler: ExecutorStateReconciler,
+        state_reconciler: Arc<ExecutorStateReconciler>,
         blob_store: BlobStore,
         cache_path: PathBuf,
     ) -> Self {
@@ -75,8 +76,8 @@ impl FunctionExecutorController {
             fe,
             internal_state: FEControllerState::NotStarted,
             reported_state: FunctionExecutorState {
-                description: fe_description,
-                status: FunctionExecutorStatus::Unknown,
+                description: Some(fe_description),
+                status: Some(FunctionExecutorStatus::Unknown as i32),
                 termination_reason: None,
                 allocation_ids_caused_termination: Vec::new(),
             },
@@ -91,7 +92,7 @@ impl FunctionExecutorController {
         &self.fe_description.id()
     }
 
-    pub fn add_allocation(&self, allocation: Allocation) {
+    pub fn add_allocation(&mut self, allocation: Allocation) {
         // TODO
     }
 
@@ -99,8 +100,8 @@ impl FunctionExecutorController {
         self.allocations.contains_key(allocation_id)
     }
 
-    pub fn remove_allocation(&self, allocation_id: &str) {
-        if let Some(alloc_info) = self.allocations.get(allocation_id) {
+    pub fn remove_allocation(&mut self, allocation_id: &str) {
+        if let Some(alloc_info) = self.allocations.get_mut(allocation_id) {
             if alloc_info.is_completed {
                 return;
             }

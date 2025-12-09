@@ -35,9 +35,10 @@ pub struct FunctionExecutorInitializationResult {
     pub response: Option<InitializeResponse>,
 }
 
+#[derive(Clone)]
 pub struct FunctionExecutor {
     server_factory: Arc<dyn FunctionExecutorServerFactory>,
-    server: Option<Box<dyn FunctionExecutorServer>>,
+    server: Option<Arc<Mutex<dyn FunctionExecutorServer>>>,
     channel: Option<Channel>,
     metrics: Arc<Mutex<Metrics>>,
     health_checker: Option<Arc<HealthChecker>>,
@@ -106,7 +107,8 @@ impl FunctionExecutor {
                             })
                         } else {
                             let is_oom = if let Some(server) = self.server.as_ref() {
-                                server.status().await == FunctionExecutorServerStatus::OomKilled
+                                server.lock().await.status().await
+                                    == FunctionExecutorServerStatus::OomKilled
                             } else {
                                 false
                             };
@@ -138,8 +140,8 @@ impl FunctionExecutor {
             // Channel will be dropped
         }
 
-        if let Some(mut server) = self.server.take() {
-            server.kill().await?;
+        if let Some(server) = self.server.take() {
+            server.lock().await.kill().await?;
         }
 
         Ok(())
@@ -150,7 +152,7 @@ impl FunctionExecutor {
         customer_code_timeout_sec: f64,
     ) -> Result<Channel, Box<dyn std::error::Error>> {
         if let Some(server) = self.server.as_ref() {
-            let address = format!("http://{}", server.address().to_string());
+            let address = format!("http://{}", server.lock().await.address().to_string());
             let channel = Channel::from_shared(address)?
                 .connect_timeout(Duration::from_secs_f64(customer_code_timeout_sec))
                 .connect()

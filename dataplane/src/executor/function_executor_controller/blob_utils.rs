@@ -52,16 +52,17 @@ pub async fn presign_write_only_blob(
 ) -> Result<Blob, Box<dyn std::error::Error>> {
     let mut chunks: Vec<BlobChunk> = Vec::new();
 
-    while let mut chunk_total_size = 0 < size {
+    let mut chunk_total_size = 0;
+    while chunk_total_size < size {
         let upload_chunk_uri = blob_store
             .presign_upload_part_uri(
                 blob_uri,
-                chunks.len() + 1 as i32,
+                (chunks.len() + 1) as i32,
                 upload_id,
                 MAX_PRESIGNED_URI_EXPIRATION_SEC,
             )
             .await?;
-        let chunk_size = if chunks.len() < OUTPUT_BLOB_OPTIMAL_CHUNKS_COUNT {
+        let chunk_size = if (chunks.len() as u64) < OUTPUT_BLOB_OPTIMAL_CHUNKS_COUNT {
             BLOB_OPTIMAL_CHUNK_SIZE_BYTES
         } else {
             OUTPUT_BLOB_SLOWER_CHUNK_SIZE_BYTES
@@ -74,8 +75,8 @@ pub async fn presign_write_only_blob(
         });
     }
 
-    return Blob {
+    return Ok(Blob {
         id: Some(blob_id.to_string()),
         chunks,
-    };
+    });
 }

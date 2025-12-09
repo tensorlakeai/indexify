@@ -13,6 +13,7 @@ use crate::executor::blob_store::{BlobMetadata, BlobStoreImpl};
 
 const MAX_RETRIES: u32 = 3;
 
+#[derive(Debug, Clone)]
 pub struct S3BlobStore {
     client: Option<Client>,
 }

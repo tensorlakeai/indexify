@@ -32,6 +32,7 @@ pub trait BlobStoreImpl {
     ) -> Result<String>;
 }
 
+#[derive(Debug, Clone)]
 pub struct BlobStore {
     local: LocalFsBlobStore,
     s3: S3BlobStore,

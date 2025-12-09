@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use crate::executor::blob_store::{BlobMetadata, BlobStoreImpl};
 
+#[derive(Debug, Clone)]
 pub struct LocalFsBlobStore;
 
 impl LocalFsBlobStore {

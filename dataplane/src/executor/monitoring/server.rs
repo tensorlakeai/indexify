@@ -1,18 +1,18 @@
 use std::convert::Infallible;
 
-use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{
-    Method, Request, Response, StatusCode,
     body::{self, Bytes},
     server::conn::http1,
     service::service_fn,
+    Method, Request, Response, StatusCode,
 };
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
 use crate::executor::monitoring::{
-    handler::Handler, health_check_handler::HealthCheckHandler,
-    prometheus_metrics_handler::PrometheusMetricsHandler,
+    desired_state_handler::DesiredStateHandler, handler::Handler,
+    health_check_handler::HealthCheckHandler, prometheus_metrics_handler::PrometheusMetricsHandler,
     reported_state_handler::ReportedStateHandler, startup_probe_handler::StartupProbeHandler,
 };
 
@@ -24,6 +24,7 @@ pub struct MonitoringServer {
     health_probe_handler: HealthCheckHandler,
     metrics_handler: PrometheusMetricsHandler,
     reported_state_handler: ReportedStateHandler,
+    desired_state_handler: DesiredStateHandler,
 }
 
 impl MonitoringServer {
@@ -34,6 +35,7 @@ impl MonitoringServer {
         health_probe_handler: HealthCheckHandler,
         metrics_handler: PrometheusMetricsHandler,
         reported_state_handler: ReportedStateHandler,
+        desired_state_handler: DesiredStateHandler,
     ) -> Self {
         MonitoringServer {
             host,
@@ -42,6 +44,7 @@ impl MonitoringServer {
             health_probe_handler,
             metrics_handler,
             reported_state_handler,
+            desired_state_handler,
         }
     }
 
@@ -82,6 +85,7 @@ impl MonitoringServer {
             }
             (&Method::POST, "/monitoring/metrics") => self.metrics_handler.handle(request).await,
             (&Method::POST, "/state/reported") => self.reported_state_handler.handle(request).await,
+            (&Method::POST, "/state/desired") => self.desired_state_handler.handle(request).await,
 
             _ => {
                 let mut not_found = Response::new(empty());

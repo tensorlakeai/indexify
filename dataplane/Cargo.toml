@@ -28,6 +28,7 @@ sysinfo = "0.37.2"
 tokio = { version = "1.48.0", features = ["full"] }
 tonic = { version = "0.14.2", features = ["channel", "tls-aws-lc"] }
 tonic-prost = "0.14.2"
+tonic-types = "0.14.2"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 url = "2.5.6"

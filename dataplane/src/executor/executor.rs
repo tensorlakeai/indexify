@@ -6,12 +6,13 @@ use tokio::sync::Mutex;
 use crate::executor::{
     blob_store::BlobStore,
     executor_api::{
-        executor_api_pb::ExecutorStatus, ChannelManager, ExecutorStateReporter, FunctionUri,
+        executor_api_pb::ExecutorStatus, ChannelManager, ExecutorStateReconciler,
+        ExecutorStateReporter, FunctionUri,
     },
     function_executor::server_factory::SubprocessFunctionExecutorServerFactory,
     host_resources::HostResourcesProvider,
     monitoring::{
-        health_check_handler::HealthCheckHandler,
+        desired_state_handler::DesiredStateHandler, health_check_handler::HealthCheckHandler,
         health_checker::generic_health_checker::GenericHealthChecker,
         prometheus_metrics_handler::PrometheusMetricsHandler,
         reported_state_handler::ReportedStateHandler, server::MonitoringServer,
@@ -23,7 +24,7 @@ pub struct Executor {
     startup_probe_handler: StartupProbeHandler,
     channel_manager: Arc<ChannelManager>,
     state_reporter: ExecutorStateReporter,
-    state_reconciler: ExecutorStateReconciler,
+    state_reconciler: Arc<Mutex<ExecutorStateReconciler>>,
     monitoring_server: MonitoringServer,
     registry: Arc<Registry>,
 }
@@ -32,7 +33,7 @@ impl Executor {
     pub async fn new(
         id: String,
         version: String,
-        labels: HashMap<String, String>,
+        labels: &mut HashMap<String, String>,
         cache_path: PathBuf,
         // TODO: use trait here
         health_checker: Arc<Mutex<GenericHealthChecker>>,
@@ -52,32 +53,30 @@ impl Executor {
         let channel_manager =
             Arc::new(ChannelManager::new(grpc_server_addr, config_path.clone()).await?);
         let startup_probe_handler = StartupProbeHandler::new();
-        let state_reporter = ExecutorStateReporter::new(
+        let mut state_reporter = ExecutorStateReporter::new(
             id.clone(),
             version.clone(),
-            &mut labels,
+            labels,
             parse_function_uris(function_uris),
             channel_manager.clone(),
             host_resource_provider,
             health_checker.clone(),
             catalog_entry_name.clone(),
         );
-        let state_reconciler = ExecutorStateReconciler::new(
+        let state_reconciler = Arc::new(Mutex::new(ExecutorStateReconciler::new(
             id,
             function_executor_server_factory,
-            server_addr,
-            config_path,
             cache_path,
             blob_store,
-            channel_manager,
-            state_reporter,
-        );
+            channel_manager.clone(),
+            state_reporter.clone(),
+        )));
         state_reporter.update_executor_status(ExecutorStatus::StartingUp);
         Ok(Executor {
             startup_probe_handler,
             channel_manager,
-            state_reporter,
-            state_reconciler,
+            state_reporter: state_reporter.clone(),
+            state_reconciler: state_reconciler.clone(),
             monitoring_server: MonitoringServer::new(
                 monitoring_server_host,
                 monitoring_server_port,
@@ -85,7 +84,7 @@ impl Executor {
                 HealthCheckHandler::new(health_checker.clone()),
                 PrometheusMetricsHandler::new(registry.clone()),
                 ReportedStateHandler::new(state_reporter),
-                // DesiredStateHandler::new(state_reconciler),
+                DesiredStateHandler::new(state_reconciler),
             ),
             registry,
         })

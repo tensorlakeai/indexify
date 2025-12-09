@@ -1,7 +1,9 @@
 use std::net::TcpListener;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 use crate::executor::function_executor::server::FunctionExecutorServer;
 
@@ -25,11 +27,12 @@ pub trait FunctionExecutorServerFactory: Send + Sync {
     async fn create(
         &self,
         config: FunctionExecutorServerConfiguration,
-    ) -> Result<Box<dyn FunctionExecutorServer>, Box<dyn std::error::Error>>;
+    ) -> Result<Arc<Mutex<dyn FunctionExecutorServer>>, Box<dyn std::error::Error>>;
 
     async fn destroy(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
+#[derive(Debug, Clone)]
 pub struct SubprocessFunctionExecutorServerFactory {
     verbose_logs: bool,
 }
@@ -55,7 +58,7 @@ impl FunctionExecutorServerFactory for SubprocessFunctionExecutorServerFactory {
     async fn create(
         &self,
         config: FunctionExecutorServerConfiguration,
-    ) -> Result<Box<dyn FunctionExecutorServer>, Box<dyn std::error::Error>> {
+    ) -> Result<Arc<Mutex<dyn FunctionExecutorServer>>, Box<dyn std::error::Error>> {
         let port = Self::find_free_port()?;
         let address = Self::server_address(port);
 
@@ -76,11 +79,11 @@ impl FunctionExecutorServerFactory for SubprocessFunctionExecutorServerFactory {
             .stderr(Stdio::inherit())
             .spawn()?;
 
-        Ok(Box::new(
+        Ok(Arc::new(Mutex::new(
             crate::executor::function_executor::subprocess::SubprocessFunctionExecutorServer::new(
                 child, address,
             ),
-        ))
+        )))
     }
 
     async fn destroy(&self) -> Result<(), Box<dyn std::error::Error>> {

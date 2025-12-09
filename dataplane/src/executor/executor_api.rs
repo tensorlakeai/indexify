@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, path::PathBuf, sync::Arc, time::Duration};
 
 use serde::Deserialize;
 use tokio::{
@@ -6,19 +6,22 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tonic::{
-    Request,
     transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity},
+    Request,
 };
 use tracing::{error, info, warn};
 
 use crate::executor::{
+    blob_store::BlobStore,
     executor_api::executor_api_pb::{
-        AllocationResult, AllowedFunction, ExecutorState, ExecutorStatus, ExecutorUpdate,
-        FunctionCallWatch, FunctionExecutorState, ReportExecutorStateRequest,
-        executor_api_client::ExecutorApiClient,
+        executor_api_client::ExecutorApiClient, AllocationResult, AllowedFunction,
+        DesiredExecutorState, ExecutorState, ExecutorStatus, ExecutorUpdate, FunctionCallWatch,
+        FunctionExecutorState, ReportExecutorStateRequest,
     },
+    function_executor::server_factory::SubprocessFunctionExecutorServerFactory,
+    function_executor_controller::FunctionExecutorController,
     host_resources::{HostResources, HostResourcesProvider},
-    monitoring::health_checker::{HealthChecker, generic_health_checker::GenericHealthChecker},
+    monitoring::health_checker::{generic_health_checker::GenericHealthChecker, HealthChecker},
 };
 
 const REPORTING_INTERVAL_SEC: u64 = 5;
@@ -395,6 +398,52 @@ impl ExecutorStateReporter {
             );
         }
     }
+}
+
+pub struct ExecutorStateReconciler {
+    executor_id: String,
+    function_executor_server_factory: SubprocessFunctionExecutorServerFactory,
+    cache_path: PathBuf,
+    blob_store: BlobStore,
+    channel_manager: Arc<ChannelManager>,
+    state_reporter: ExecutorStateReporter,
+    // TODO: function call watch dispatcher
+    function_executor_controller: HashMap<String, FunctionExecutorController>,
+    shutting_down_fe_ids: Vec<String>,
+    last_server_clock: Option<u64>,
+    function_call_watch_info: HashMap<String, FunctionCallWatchInfo>,
+    last_desired_state: Option<DesiredExecutorState>,
+}
+
+impl ExecutorStateReconciler {
+    pub fn new(
+        executor_id: String,
+        function_executor_server_factory: SubprocessFunctionExecutorServerFactory,
+        cache_path: PathBuf,
+        blob_store: BlobStore,
+        channel_manager: Arc<ChannelManager>,
+        state_reporter: ExecutorStateReporter,
+    ) -> Self {
+        ExecutorStateReconciler {
+            executor_id,
+            function_executor_server_factory,
+            cache_path,
+            blob_store,
+            channel_manager,
+            state_reporter,
+            function_executor_controller: HashMap::new(),
+            shutting_down_fe_ids: Vec::new(),
+            last_server_clock: None,
+            function_call_watch_info: HashMap::new(),
+            last_desired_state: None,
+        }
+    }
+
+    pub fn get_desired_state(&self) -> Option<DesiredExecutorState> {
+        self.last_desired_state.clone()
+    }
+
+    pub async fn run(&self) {}
 }
 
 fn executor_labels() -> HashMap<String, String> {

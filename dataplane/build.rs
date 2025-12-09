@@ -22,13 +22,17 @@ fn main() -> Result<()> {
         .protoc_arg("--experimental_allow_proto3_optional") // Required for building on Ubuntu 22.04
         .compile_protos(&client_proto_files, &["proto"])?;
 
-    let server_proto_files = ["./proto/function_executor.proto", "./proto/status.proto"];
+    let server_proto_files = [
+        "./proto/function_executor.proto",
+        "./proto/google/rpc/status.proto",
+    ];
 
     tonic_prost_build::configure()
         .build_client(true)
         .build_server(false)
         .compile_well_known_types(true)
-        .extern_path(".google.protobuf", "::prost_types:")
+        .extern_path(".google.protobuf", "::prost_types")
+        .extern_path(".google.rpc", "::tonic_types")
         .file_descriptor_set_path(out_dir.join("function_executor_descriptor.bin"))
         .protoc_arg("--experimental_allow_proto3_optional") // Required for building on Ubuntu 22.04
         .compile_protos(&server_proto_files, &["proto"])?;
