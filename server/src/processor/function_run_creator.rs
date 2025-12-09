@@ -5,6 +5,7 @@ use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
+        Allocation,
         AllocationOutputIngestedEvent,
         ApplicationVersion,
         ComputeOp,
@@ -153,11 +154,12 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        let Some(allocation) =
-            in_memory_state.get_allocation_by_id(&alloc_finished_event.allocation_id)
+        let allocation_id = Allocation::get_id_from_key(&alloc_finished_event.allocation_key);
+
+        let Some(allocation) = in_memory_state.get_allocation_by_id(&allocation_id.clone().into())
         else {
             error!(
-                allocation_id = %alloc_finished_event.allocation_id,
+                allocation_id = allocation_id,
                 "allocation not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());

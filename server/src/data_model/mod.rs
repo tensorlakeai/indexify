@@ -94,6 +94,12 @@ impl fmt::Display for AllocationId {
     }
 }
 
+impl From<String> for AllocationId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
 impl Deref for AllocationId {
     type Target = str;
 
@@ -147,6 +153,14 @@ impl AllocationBuilder {
 }
 
 impl Allocation {
+    pub fn get_id_from_key(key: &str) -> String {
+        key.split('|')
+            .nth(3)
+            .map(|s| s.to_string())
+            .expect("Allocation ID should be 3rd string in allocation key")
+            .to_string()
+    }
+
     pub fn key(&self) -> String {
         Allocation::key_from(
             &self.namespace,
@@ -1804,7 +1818,7 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    pub allocation_id: AllocationId,
+    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
 }
 

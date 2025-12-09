@@ -12,7 +12,7 @@ const MAX_WRITE_RETRIES: u32 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 100;
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, FunctionURI, StateChange},
+    data_model::{Allocation, Application, ApplicationState, ChangeType, FunctionURI, StateChange},
     manual_timer,
     metrics::{Timer, low_latency_boundaries},
     processor::{
@@ -436,7 +436,8 @@ impl ApplicationProcessor {
 
                 // Also check blocked runs - when allocation completes, capacity is freed
                 // and we should try to unblock waiting runs.
-                let Some(allocation) = indexes_guard.get_allocation_by_id(&req.allocation_id)
+                let allocation_id = Allocation::get_id_from_key(&req.allocation_key);
+                let Some(allocation) = indexes_guard.get_allocation_by_id(&allocation_id.into())
                 else {
                     return Ok(StateChangeResult::SchedulerUpdate(Box::new(
                         scheduler_update,
