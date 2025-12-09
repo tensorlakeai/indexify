@@ -8,13 +8,12 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, sse::Event},
 };
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
@@ -124,48 +123,14 @@ struct RequestIdV1 {
     request_id: String,
 }
 
-fn validate_idempotency_key(key: &str) -> Result<(), &'static str> {
-    if key.is_empty() {
-        return Err("idempotency key cannot be empty");
-    }
-    if key.len() > 256 {
-        return Err("idempotency key cannot exceed 256 characters");
-    }
-    Ok(())
-}
-
-/// Generates a deterministic request_id from namespace, application, and
-/// idempotency key. Uses SHA256 hash encoded as base64url, truncated to 21
-/// characters (matching nanoid length).
-fn request_id_from_idempotency_key(
-    namespace: &str,
-    application: &str,
-    idempotency_key: &str,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(namespace.as_bytes());
-    hasher.update(b"|");
-    hasher.update(application.as_bytes());
-    hasher.update(b"|");
-    hasher.update(idempotency_key.as_bytes());
-    let hash = hasher.finalize();
-
-    // Encode as base64url and take first 21 chars to match nanoid length
-    let encoded = URL_SAFE_NO_PAD.encode(hash);
-    encoded[..21].to_string()
-}
-
 /// Make a request to application
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
-    params(
-        ("X-Idempotency-Key" = Option<String>, Header, description = "Optional idempotency key. If a request with this key already exists, returns the existing request ID (idempotent). Must be unique within the namespace/application scope.")
-    ),
     responses(
-        (status = 200, description = "request successful (or idempotent response for existing request)"),
+        (status = 200, description = "request successful"),
         (status = 400, description = "bad request"),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
@@ -177,58 +142,11 @@ pub async fn invoke_application_with_object_v1(
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.requests, &[]);
-
+    let request_id = nanoid::nanoid!();
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json");
-
-    // Check for idempotency key - generates deterministic request_id from hash.
-    let idempotency_key = headers
-        .get("X-Idempotency-Key")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty());
-
-    // Generate request_id: hash of idempotency key if provided, otherwise nanoid
-    let request_id = if let Some(key) = idempotency_key {
-        validate_idempotency_key(key)
-            .map_err(|e| IndexifyAPIError::bad_request(&format!("invalid idempotency key: {e}")))?;
-
-        // Generate deterministic request_id from namespace, app, and idempotency key
-        let generated_id = request_id_from_idempotency_key(&namespace, &application, key);
-
-        // Check if request already exists - if so, return idempotent response
-        let existing = state
-            .indexify_state
-            .reader()
-            .request_ctx(&namespace, &application, &generated_id)
-            .await
-            .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!("failed to check request existence: {e}"))
-            })?;
-
-        if existing.is_some() {
-            // Idempotent response - return the existing request ID
-            if accept_header.contains("application/json") {
-                return Ok(Json(RequestIdV1 {
-                    id: generated_id.clone(),
-                    request_id: generated_id,
-                })
-                .into_response());
-            }
-            if accept_header.contains("text/event-stream") {
-                return return_sse_response(state.clone(), namespace, application, generated_id)
-                    .await;
-            }
-            return Err(IndexifyAPIError::bad_request(
-                "accept header must be application/json or text/event-stream",
-            ));
-        }
-
-        generated_id
-    } else {
-        nanoid::nanoid!()
-    };
 
     let encoding = headers
         .get("Content-Type")
@@ -236,20 +154,21 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
+    let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
         .get_blob_store(&namespace)
-        .put(&request_id, Box::pin(payload_stream))
+        .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
             error!("failed to write to blob store: {:?}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
     let data_payload = data_model::DataPayload {
-        id: request_id.clone(),
+        id: nanoid::nanoid!(),
         metadata_size: 0,
         path: put_result.url,
         size: put_result.size_bytes,
@@ -395,69 +314,4 @@ async fn return_sse_response(
                 .text("keep-alive-text"),
         )
         .into_response())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_idempotency_key_valid() {
-        // Valid idempotency keys - more permissive than request IDs
-        assert!(validate_idempotency_key("abc123").is_ok());
-        assert!(validate_idempotency_key("my-request-id").is_ok());
-        assert!(validate_idempotency_key("order/2024/001").is_ok()); // slashes allowed
-        assert!(validate_idempotency_key("user@example.com:order:123").is_ok()); // special chars allowed
-        assert!(validate_idempotency_key("a").is_ok()); // Single char
-        assert!(validate_idempotency_key("a".repeat(256).as_str()).is_ok()); // Max length
-    }
-
-    #[test]
-    fn test_validate_idempotency_key_empty() {
-        assert_eq!(
-            validate_idempotency_key(""),
-            Err("idempotency key cannot be empty")
-        );
-    }
-
-    #[test]
-    fn test_validate_idempotency_key_too_long() {
-        let long_key = "a".repeat(257);
-        assert_eq!(
-            validate_idempotency_key(&long_key),
-            Err("idempotency key cannot exceed 256 characters")
-        );
-    }
-
-    #[test]
-    fn test_request_id_from_idempotency_key_deterministic() {
-        // Same inputs should always produce same output
-        let id1 = request_id_from_idempotency_key("ns1", "app1", "key1");
-        let id2 = request_id_from_idempotency_key("ns1", "app1", "key1");
-        assert_eq!(id1, id2);
-
-        // Different inputs should produce different outputs
-        let id3 = request_id_from_idempotency_key("ns1", "app1", "key2");
-        assert_ne!(id1, id3);
-
-        let id4 = request_id_from_idempotency_key("ns2", "app1", "key1");
-        assert_ne!(id1, id4);
-
-        let id5 = request_id_from_idempotency_key("ns1", "app2", "key1");
-        assert_ne!(id1, id5);
-    }
-
-    #[test]
-    fn test_request_id_from_idempotency_key_format() {
-        let id = request_id_from_idempotency_key("namespace", "application", "my-order-123");
-
-        // Should be 21 characters (matching nanoid length)
-        assert_eq!(id.len(), 21);
-
-        // Should only contain base64url characters (alphanumeric, -, _)
-        assert!(
-            id.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        );
-    }
 }
