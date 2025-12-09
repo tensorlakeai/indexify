@@ -154,7 +154,12 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        let allocation_id = Allocation::get_id_from_key(&alloc_finished_event.allocation_key);
+        let mut allocation_id: String = "".to_string();
+        if let Some(alloc_id) = &alloc_finished_event.allocation_id {
+            allocation_id = alloc_id.to_string();
+        } else if let Some(alloc_key) = &alloc_finished_event.allocation_key {
+            allocation_id = Allocation::get_id_from_key(alloc_key);
+        }
 
         let Some(allocation) = in_memory_state.get_allocation_by_id(&allocation_id.clone().into())
         else {
