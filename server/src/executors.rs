@@ -600,10 +600,11 @@ impl ExecutorManager {
                         .map(|allocations| {
                             allocations
                                 .get(&fe_meta.function_executor.id)
-                                .map(|allocations| {
-                                    allocations
+                                .map(|allocation_ids| {
+                                    allocation_ids
                                         .iter()
-                                        .map(|allocation| allocation.as_ref().clone().into())
+                                        .filter_map(|id| state.get_allocation_by_id(id))
+                                        .map(|allocation| allocation.into())
                                         .collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default()

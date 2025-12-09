@@ -17,9 +17,12 @@ use crate::{
     http_objects::{
         Allocation,
         ApplicationVersion,
+        AutoscalerDemand,
         CacheKey,
         CreateNamespace,
         ExecutorCatalog,
+        ExecutorClass,
+        ExecutorClassDemand,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
         Function,
@@ -56,6 +59,7 @@ use crate::{
             list_unprocessed_state_changes,
             list_executor_catalog,
             get_application_by_version,
+            get_autoscaler_demand,
             healthz_handler,
         ),
         components(
@@ -76,6 +80,9 @@ use crate::{
                 HealthzChecks,
                 HealthzResponse,
                 Application,
+                AutoscalerDemand,
+                ExecutorClass,
+                ExecutorClassDemand,
             )
         ),
         tags(
@@ -131,6 +138,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/versions/{version}",
             get(get_application_by_version).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/autoscaler/demand",
+            get(get_autoscaler_demand).with_state(route_state.clone()),
         )
         .route("/healthz", get(healthz_handler).with_state(route_state.clone()))
         .route("/ui", get(ui_index_handler))
@@ -566,4 +577,45 @@ pub async fn healthz_handler(
     }
 
     Ok(Json(response))
+}
+
+/// Get autoscaler demand information - blocked jobs grouped by executor class.
+/// This endpoint is used by autoscalers to determine scaling decisions.
+#[utoipa::path(
+    get,
+    path = "/internal/autoscaler/demand",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Get autoscaler demand information", body = AutoscalerDemand),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn get_autoscaler_demand(
+    State(state): State<RouteState>,
+) -> Result<Json<AutoscalerDemand>, IndexifyAPIError> {
+    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+    let blocked_runs_index = &in_memory_state.blocked_runs_index;
+
+    let demand_by_class: Vec<ExecutorClassDemand> = blocked_runs_index
+        .demand_by_class()
+        .into_iter()
+        .map(|(class, count)| ExecutorClassDemand {
+            executor_class: ExecutorClass {
+                cpu_ms: class.cpu_ms,
+                memory_bytes: class.memory_bytes,
+                disk_bytes: class.disk_bytes,
+                gpu_count: class.gpu_count,
+                gpu_model: class.gpu_model,
+                region: class.region,
+            },
+            blocked_count: count,
+        })
+        .collect();
+
+    Ok(Json(AutoscalerDemand {
+        total_blocked: blocked_runs_index.total_blocked(),
+        unassigned_count: blocked_runs_index.unassigned_count(),
+        known_classes_count: blocked_runs_index.known_classes().count(),
+        demand_by_class,
+    }))
 }

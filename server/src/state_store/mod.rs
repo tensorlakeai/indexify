@@ -23,6 +23,7 @@ use crate::{
     cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateMachineMetadata},
+    manual_timer,
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
@@ -51,6 +52,7 @@ impl ExecutorCatalog {
     }
 }
 
+pub mod blocked_runs;
 pub mod driver;
 pub mod in_memory_state;
 #[cfg(feature = "migrations")]
@@ -240,6 +242,8 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         debug!("writing state machine update request: {:#?}", request);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
+
+        let rocksdb_timer = manual_timer!(self.metrics.state_write_rocksdb, timer_kv);
         let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
@@ -372,13 +376,16 @@ impl IndexifyState {
         )
         .await?;
         txn.commit().await?;
+        rocksdb_timer.stop();
 
+        let in_memory_timer = manual_timer!(self.metrics.state_write_in_memory, timer_kv);
         let mut changed_executors = self
             .in_memory_state
             .write()
             .await
             .update_state(current_state_id, &request.payload, "state_store")
             .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
+        in_memory_timer.stop();
 
         if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
             let impacted_executors = self
@@ -397,7 +404,8 @@ impl IndexifyState {
             changed_executors.insert(req.executor.id.clone());
         }
 
-        // Notify the executors with state changes
+        let executor_notify_timer =
+            manual_timer!(self.metrics.state_write_executor_notify, timer_kv);
         {
             let mut executor_states = self.executor_states.write().await;
             for executor_id in changed_executors {
@@ -416,8 +424,12 @@ impl IndexifyState {
         if should_notify_usage_reporter && let Err(err) = self.usage_events_tx.send(()) {
             error!("failed to notify of usage event, ignoring: {err:?}",);
         }
+        executor_notify_timer.stop();
 
+        let request_state_change_timer =
+            manual_timer!(self.metrics.state_write_request_state_change, timer_kv);
         self.handle_request_state_changes(&request).await;
+        request_state_change_timer.stop();
 
         // This needs to be after the transaction is committed because if the gc
         // runs before the gc urls are written, the gc process will not see the
@@ -459,7 +471,7 @@ impl IndexifyState {
             RequestPayload::SchedulerUpdate((sched_update, _)) => {
                 let mut changes = sched_update
                     .new_allocations
-                    .iter()
+                    .values()
                     .map(|allocation| {
                         RequestStateChangeEvent::FunctionRunAssigned(
                             request_events::FunctionRunAssigned {
