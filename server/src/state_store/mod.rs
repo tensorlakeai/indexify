@@ -303,11 +303,7 @@ impl IndexifyState {
             error!("failed to notify of usage event, ignoring: {err:?}",);
         }
 
-        {
-            let _timer =
-                Timer::start_with_labels(&self.metrics.state_write_request_state_change, timer_kv);
-            self.handle_request_state_changes(&request).await;
-        }
+        self.handle_request_state_changes(&request, timer_kv).await;
         // This needs to be after the transaction is committed because if the gc
         // runs before the gc urls are written, the gc process will not see the
         // urls.
@@ -443,7 +439,7 @@ impl IndexifyState {
         };
 
         let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
-        new_state_changes.extend(allocation_ingestion_events.clone());
+        new_state_changes.extend(allocation_ingestion_events);
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes).await?;
         }
@@ -469,7 +465,13 @@ impl IndexifyState {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_request_state_changes(&self, update_request: &StateMachineUpdateRequest) {
+    async fn handle_request_state_changes(
+        &self,
+        update_request: &StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+    ) {
+        let _timer =
+            Timer::start_with_labels(&self.metrics.state_write_request_state_change, timer_kv);
         if !self.events_receiver_waiting() {
             return;
         }
