@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     fmt::{Debug, Display},
     net::SocketAddr,
@@ -6,18 +7,15 @@ use std::{
 };
 
 use anyhow::Result;
-use figment::{
-    Figment,
-    providers::{Format, Serialized, Yaml},
-};
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use uuid::Uuid;
 
 use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
 
 const LOCAL_ENV: &str = "local";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueBackend {
     AmazonSqs { queue_url: String },
@@ -43,7 +41,7 @@ pub struct ExecutorCatalogEntry {
     #[serde(default)]
     pub gpu_model: Option<GpuModel>,
     #[serde(default)]
-    pub labels: std::collections::HashMap<String, String>,
+    pub labels: HashMap<String, String>,
 }
 
 impl Display for ExecutorCatalogEntry {
@@ -56,34 +54,46 @@ impl Display for ExecutorCatalogEntry {
     }
 }
 
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
+    #[serde_inline_default(LOCAL_ENV.to_string())]
     pub env: String,
+    #[serde(default = "default_state_store_path")]
     pub state_store_path: String,
+    #[serde(default)]
     pub rocksdb_config: RocksDBConfig,
+    #[serde_inline_default("0.0.0.0:8900".to_string())]
     pub listen_addr: String,
+    #[serde_inline_default("0.0.0.0:8901".to_string())]
     pub listen_addr_grpc: String,
+    #[serde(default)]
     pub blob_storage: BlobStorageConfig,
+    #[serde(default)]
     pub kv_storage: BlobStorageConfig,
+    #[serde(default)]
     pub usage_queue: Option<QueueConfig>,
+    #[serde(default)]
     pub telemetry: TelemetryConfig,
+    #[serde(default)]
     pub executor_catalog: Vec<ExecutorCatalogEntry>,
+    #[serde_inline_default(1)]
     pub queue_size: u32,
+    #[serde(default)]
     pub cloud_events: Option<CloudEventsConfig>,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        let state_store_path = env::current_dir().unwrap().join("indexify_storage/state");
         ServerConfig {
             env: LOCAL_ENV.to_string(),
-            state_store_path: state_store_path.to_str().unwrap().to_string(),
-            rocksdb_config: RocksDBConfig::default(),
+            state_store_path: default_state_store_path(),
+            rocksdb_config: Default::default(),
             listen_addr: "0.0.0.0:8900".to_string(),
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
             kv_storage: Default::default(),
-            telemetry: TelemetryConfig::default(),
+            telemetry: Default::default(),
             executor_catalog: Vec::new(),
             queue_size: 1,
             usage_queue: None,
@@ -92,12 +102,23 @@ impl Default for ServerConfig {
     }
 }
 
+fn default_state_store_path() -> String {
+    env::current_dir()
+        .expect("unable to get current directory")
+        .join("indexify_storage/state")
+        .to_str()
+        .expect("unable to get path as string")
+        .to_string()
+}
+
 impl ServerConfig {
     pub fn from_path(path: &str) -> Result<ServerConfig> {
         let config_str = std::fs::read_to_string(path)?;
-        let figment = Figment::from(Serialized::defaults(ServerConfig::default()));
+        Self::from_yaml_str(&config_str)
+    }
 
-        let config: ServerConfig = figment.merge(Yaml::string(&config_str)).extract()?;
+    fn from_yaml_str(config_str: &str) -> Result<ServerConfig> {
+        let config: ServerConfig = serde_saphyr::from_str(config_str)?;
 
         config.validate()?;
         Ok(config)
@@ -138,24 +159,31 @@ pub enum TracingExporter {
     Otlp,
 }
 
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     // Enable metrics.
+    #[serde(default)]
     pub enable_metrics: bool,
     // OpenTelemetry collector grpc endpoint for both traces and metrics.
     // If specified, both traces and metrics will be sent to this endpoint.
     // Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var or to localhost:4317 if empty.
+    #[serde(default)]
     pub endpoint: Option<String>,
     // Defines the exporter to use for tracing.
     // If not specified, we won't export traces anywhere.
+    #[serde(default)]
     pub tracing_exporter: Option<TracingExporter>,
     // Metrics export interval. Defaults to 10 seconds.
     #[serde(with = "duration_serde")]
+    #[serde_inline_default(Duration::from_secs(10))]
     pub metrics_interval: Duration,
     // Optional path to write local logs to a rotating file.
+    #[serde(default)]
     pub local_log_file: Option<String>,
     // Instance ID for this Indexify server instance.
     // Used as a metric attribute "indexify.instance.id".
+    #[serde(default)]
     pub instance_id: Option<String>,
 }
 
@@ -203,4 +231,19 @@ mod duration_serde {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CloudEventsConfig {
     pub endpoint: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::ServerConfig;
+
+    #[test]
+    pub fn should_parse_sample_config() {
+        let config_yaml = include_str!("../sample_config.yaml");
+        let config = ServerConfig::from_yaml_str(config_yaml).expect("unable to parse from yaml");
+
+        assert_eq!("local", config.env);
+
+        assert_eq!(3, config.executor_catalog.len());
+    }
 }
