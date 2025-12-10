@@ -34,12 +34,6 @@ from indexify.executor.monitoring.health_checker.generic_health_checker import (
     short_help="Runs Executor that connects to the Indexify server and starts running its tasks",
 )
 @click.option(
-    "--server-addr",
-    "server_address",
-    default="localhost:8900",
-    help="Address of Indexify HTTP Server to connect to",
-)
-@click.option(
     "--grpc-server-addr",
     "grpc_server_address",
     default="localhost:8901",
@@ -111,7 +105,6 @@ from indexify.executor.monitoring.health_checker.generic_health_checker import (
 @click.pass_context
 def executor(
     ctx: click.Context,
-    server_address: str,
     grpc_server_address: str,
     verbose: bool,
     very_verbose: bool,
@@ -140,7 +133,6 @@ def executor(
     logger.info(
         "starting executor",
         hostname=gethostname(),
-        server_address=server_address,
         grpc_server_address=grpc_server_address,
         config_path=config_path,
         executor_version=executor_version,
@@ -194,7 +186,6 @@ def executor(
         function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
             verbose_logs=verbose or very_verbose
         ),
-        server_addr=server_address,
         grpc_server_addr=grpc_server_address,
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,

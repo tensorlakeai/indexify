@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -37,9 +38,22 @@ from .metrics.state_reporter import (
 )
 from .monitoring.health_checker.health_checker import HealthChecker
 
-_REPORTING_INTERVAL_SEC = 5
-_REPORTING_BACKOFF_SEC = 5
-_REPORT_RPC_TIMEOUT_SEC = 5
+_MIN_REPORTING_INTERVAL_SEC: float = 5.0
+_MAX_REPORTING_INTERVAL_SEC: float = 300.0  # 5 minutes
+# The first retry is under 30 sec Executor reporting deadline so Server might not unregister the Executor
+# on first retry and we might not lose work already done by allocations running on Executor.
+# Subsequent retries back-off exponentially to reduce load on Server and allow Server to unregister the Executor
+# to "reset" Server internal state which might mitigate some bugs on Server side.
+_REPORTING_BACKOFF_MULTIPLIER: float = (
+    3.0  # 15 sec, 45 sec, 135 sec, 300 sec, 300 sec, ...
+)
+_REPORT_RPC_TIMEOUT_SEC: float = 5.0
+# Time to accumulate more state changes before sending another report.
+# The larger the value then more latency we add into the system but the less load on Server.
+# Large clusters might want to use a larger value to reduce load on Server.
+_REPORT_BATCH_DELAY_MS: int = int(
+    os.getenv("INDEXIFY_STATE_REPORT_BATCH_DELAY_MS", "50")
+)
 
 
 @dataclass
@@ -91,7 +105,6 @@ class ExecutorStateReporter:
             total_function_executor_resources=self._total_function_executor_resources,
         )
         self._state_report_worker: asyncio.Task | None = None
-        self._periodic_state_report_scheduler: asyncio.Task | None = None
 
         # Mutable fields
         self._state_report_scheduled_event: asyncio.Event = asyncio.Event()
@@ -193,30 +206,20 @@ class ExecutorStateReporter:
         self._state_report_worker = asyncio.create_task(
             self._state_report_worker_loop(), name="state_reporter_worker"
         )
-        self._periodic_state_report_scheduler = asyncio.create_task(
-            self._periodic_state_report_scheduler_loop(),
-            name="state_reporter_periodic_scheduler",
-        )
 
     async def shutdown(self) -> None:
         """Tries to do one last state report and shuts down the state reporter.
 
         Doesn't raise any exceptions."""
-        if self._state_report_worker is not None:
-            self._state_report_worker.cancel()
+        state_report_worker: asyncio.Task = self._state_report_worker
+        if state_report_worker is not None:
+            # Set to None before cancelling because worker loop checks it to exit.
+            self._state_report_worker = None
+            state_report_worker.cancel()
             try:
-                await self._state_report_worker
+                await state_report_worker
             except asyncio.CancelledError:
                 pass  # Expected exception
-            self._state_report_worker = None
-
-        if self._periodic_state_report_scheduler is not None:
-            self._periodic_state_report_scheduler.cancel()
-            try:
-                await self._periodic_state_report_scheduler
-            except asyncio.CancelledError:
-                pass
-            self._periodic_state_report_scheduler = None
 
         # Don't retry state report if it failed during shutdown.
         # We only do best effort last state report and Server might not be available.
@@ -235,50 +238,39 @@ class ExecutorStateReporter:
                 exc_info=e,
             )
 
-    async def _periodic_state_report_scheduler_loop(self) -> None:
-        while True:
-            self._state_report_scheduled_event.set()
-            await asyncio.sleep(_REPORTING_INTERVAL_SEC)
-
     async def _state_report_worker_loop(self) -> None:
         """Runs the state reporter.
 
-        Never raises any exceptions.
+        Never raises any exceptions except CancelledError when the executor is shutting down.
         """
+        periodic_reporting_interval_sec: float = _MIN_REPORTING_INTERVAL_SEC
         while True:
             stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
             while True:
-                await self._state_report_scheduled_event.wait()
-                # Clear the event immidiately to report again asap if needed. This reduces latency in the system.
+                await self._wait_state_report_scheduled(periodic_reporting_interval_sec)
+                # Clear the event because we're reporting the current state now, no need to report the same again.
                 self._state_report_scheduled_event.clear()
-                try:
-                    state: ExecutorState = self._current_executor_state()
-                    update: ExecutorUpdate = self._remove_pending_update()
-                    request: ReportExecutorStateRequest = ReportExecutorStateRequest(
-                        executor_state=state,
-                        executor_update=update,
+                report_state_request: ReportExecutorStateRequest = (
+                    ReportExecutorStateRequest(
+                        executor_state=self._current_executor_state(),
+                        executor_update=self._remove_pending_update(),
                     )
-                    _log_reported_executor_update(update, self._logger)
-                    self._last_state_report_request = request
+                )
 
-                    with (
-                        metric_state_report_rpc_errors.count_exceptions(),
-                        metric_state_report_rpc_latency.time(),
-                    ):
-                        metric_state_report_rpcs.inc()
-                        await stub.report_executor_state(
-                            request, timeout=_REPORT_RPC_TIMEOUT_SEC
-                        )
-                    self._state_reported_event.set()
-                    self._health_checker.server_connection_state_changed(
-                        is_healthy=True, status_message="grpc server channel is healthy"
-                    )
+                try:
+                    await self._report_state(stub, report_state_request)
+                    periodic_reporting_interval_sec = _MIN_REPORTING_INTERVAL_SEC
                 except Exception as e:
-                    self._add_to_pending_update(update)
+                    self._add_to_pending_update(report_state_request.executor_update)
+                    periodic_reporting_interval_sec = min(
+                        periodic_reporting_interval_sec * _REPORTING_BACKOFF_MULTIPLIER,
+                        _MAX_REPORTING_INTERVAL_SEC,
+                    )
                     self._logger.error(
-                        f"failed to report state to the server, backing-off for {_REPORTING_BACKOFF_SEC} sec.",
+                        f"failed to report state to the server, backing-off for {periodic_reporting_interval_sec} sec.",
                         exc_info=e,
                     )
+
                     # The periodic state reports serve as channel health monitoring requests
                     # (same as TCP keep-alive). Channel Manager returns the same healthy channel
                     # for all RPCs that we do from Executor to Server. So all the RPCs benefit
@@ -288,8 +280,57 @@ class ExecutorStateReporter:
                         status_message="grpc server channel is unhealthy",
                     )
                     await self._channel_manager.fail_shared_channel()
-                    await asyncio.sleep(_REPORTING_BACKOFF_SEC)
                     break  # exit the inner loop to use the recreated channel
+
+    async def _wait_state_report_scheduled(
+        self, periodic_reporting_interval_sec: float
+    ) -> None:
+        """Waits until a state report is scheduled.
+
+        Doesn't raise any exceptions except CancelledError when the executor is shutting down.
+        """
+        wait_state_report_scheduled_event: asyncio.Task = asyncio.create_task(
+            self._state_report_scheduled_event.wait(),
+            name="wait_state_report_scheduled_event",
+        )
+
+        try:
+            # Ublock conditions: state report scheduled, timeout waiting or
+            # aio cancellation raised as CancelledError with immediate return.
+            done, _ = await asyncio.wait(
+                [wait_state_report_scheduled_event],
+                timeout=periodic_reporting_interval_sec,
+            )
+        finally:
+            wait_state_report_scheduled_event.cancel()
+
+        if len(done) > 0:
+            # If state report is not the periodic one then wait a bit more to accumulate more state
+            # changes before sending another report to Server.
+            await asyncio.sleep(_REPORT_BATCH_DELAY_MS / 1000.0)
+
+    async def _report_state(
+        self,
+        stub: ExecutorAPIStub,
+        request: ReportExecutorStateRequest,
+    ) -> None:
+        """Report the provided Executor state to Server.
+
+        Raises exception on error.
+        """
+        _log_reported_executor_update(request.executor_update, self._logger)
+        self._last_state_report_request = request
+
+        with (
+            metric_state_report_rpc_errors.count_exceptions(),
+            metric_state_report_rpc_latency.time(),
+        ):
+            metric_state_report_rpcs.inc()
+            await stub.report_executor_state(request, timeout=_REPORT_RPC_TIMEOUT_SEC)
+        self._state_reported_event.set()
+        self._health_checker.server_connection_state_changed(
+            is_healthy=True, status_message="grpc server channel is healthy"
+        )
 
     def _current_executor_state(self) -> ExecutorState:
         """Returns the current executor state."""

@@ -24,3 +24,12 @@ metric_state_reconciliation_latency: prometheus_client.Histogram = (
         "state_reconciliation", "Executor state reconciliation"
     )
 )
+
+metric_last_desired_state_allocations = prometheus_client.Gauge(
+    "last_desired_state_allocations",
+    "Number of allocations in the last desired state recieved from Server",
+)
+metric_last_desired_state_function_executors = prometheus_client.Gauge(
+    "last_desired_state_function_executors",
+    "Number of function executors in the last desired state recieved from Server",
+)
