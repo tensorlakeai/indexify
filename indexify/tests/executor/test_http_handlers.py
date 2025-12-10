@@ -219,6 +219,8 @@ class TestMetrics(unittest.TestCase):
             "state_reconciliation_errors_total",
             "state_reconciliation_latency_seconds_count",
             "state_reconciliation_latency_seconds_sum",
+            "last_desired_state_allocations",
+            "last_desired_state_function_executors",
         ]
         metrics: Dict[str, Metric] = fetch_metrics(self)
 
@@ -233,7 +235,6 @@ class TestMetrics(unittest.TestCase):
         self.assertIn("id", info_sample.labels)
         self.assertIn("version", info_sample.labels)
         self.assertIn("cache_path", info_sample.labels)
-        self.assertIn("server_addr", info_sample.labels)
         self.assertIn("grpc_server_addr", info_sample.labels)
         self.assertIn("config_path", info_sample.labels)
         self.assertIn("hostname", info_sample.labels)
