@@ -436,12 +436,7 @@ impl ApplicationProcessor {
 
                 // Also check blocked runs - when allocation completes, capacity is freed
                 // and we should try to unblock waiting runs.
-                let mut allocation_id: String = "".to_string();
-                if let Some(alloc_id) = &req.allocation_id {
-                    allocation_id = alloc_id.to_string();
-                } else if let Some(alloc_key) = &req.allocation_key {
-                    allocation_id = Allocation::get_id_from_key(alloc_key);
-                }
+                let allocation_id = Allocation::get_id_from_key(&req.allocation_key);
                 let Some(allocation) = indexes_guard.get_allocation_by_id(&allocation_id.into())
                 else {
                     return Ok(StateChangeResult::SchedulerUpdate(Box::new(

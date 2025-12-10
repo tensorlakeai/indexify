@@ -100,12 +100,6 @@ impl From<String> for AllocationId {
     }
 }
 
-impl From<&str> for AllocationId {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
 impl Deref for AllocationId {
     type Target = str;
 
@@ -1824,10 +1818,7 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    #[serde(default)]
-    pub allocation_id: Option<AllocationId>,
-    #[serde(default)]
-    pub allocation_key: Option<String>,
+    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
 }
 
