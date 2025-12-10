@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use strum::AsRefStr;
+use thiserror::Error;
 use tracing::{debug, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
@@ -26,6 +27,7 @@ use crate::{
         RequestCtx,
         StateChange,
     },
+    state_store,
     state_store::{
         driver::{Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
@@ -84,8 +86,38 @@ pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequ
     Ok(())
 }
 
+#[derive(Debug, Error)]
+pub enum CreateRequestError {
+    #[error(transparent)]
+    Error(#[from] anyhow::Error),
+
+    #[error(transparent)]
+    DriverError(#[from] state_store::driver::Error),
+
+    #[error("This request has already been submitted")]
+    Conflict,
+}
+
 #[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application_name, request_id = req.ctx.request_id))]
-pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -> Result<()> {
+pub async fn create_request(
+    txn: &Transaction,
+    req: &InvokeApplicationRequest,
+) -> Result<(), CreateRequestError> {
+    let ctx_key = req.ctx.key();
+
+    let has_old_ctx = txn
+        .get(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            ctx_key.as_bytes(),
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("failed to get old request ctx: {err}"))?
+        .is_some();
+
+    if has_old_ctx {
+        return Err(CreateRequestError::Conflict);
+    }
+
     let application_key = Application::key_from(&req.namespace, &req.application_name);
     let cg = txn
         .get(
@@ -96,14 +128,15 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
         .ok_or(anyhow::anyhow!("Application not found"))?;
     let app: Application = JsonEncoder::decode(&cg)?;
     if let Some(reason) = app.state.as_disabled() {
-        return Err(anyhow::anyhow!("Application is not enabled: {reason}"));
+        return Err(anyhow::anyhow!("Application is not enabled: {reason}").into());
     }
     if app.tombstoned {
-        return Err(anyhow::anyhow!("Application is tomb-stoned"));
+        return Err(anyhow::anyhow!("Application is tomb-stoned").into());
     }
+
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
-        req.ctx.key().as_bytes(),
+        ctx_key.as_bytes(),
         &JsonEncoder::encode(&req.ctx)?,
     )
     .await?;

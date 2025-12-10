@@ -16,6 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
+use thiserror::Error;
 use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
@@ -38,6 +39,8 @@ use crate::{
 
 pub mod executor_watches;
 use executor_watches::ExecutorWatches;
+
+use crate::state_store::state_machine::CreateRequestError;
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
@@ -153,6 +156,15 @@ struct PersistentWriteResult {
     new_state_changes: Vec<StateChange>,
 }
 
+#[derive(Debug, Error)]
+pub enum WriteError {
+    #[error(transparent)]
+    Error(#[from] anyhow::Error),
+
+    #[error(transparent)]
+    CreateRequest(#[from] CreateRequestError),
+}
+
 impl IndexifyState {
     pub async fn new(
         path: PathBuf,
@@ -242,7 +254,7 @@ impl IndexifyState {
             request_type = request.payload.to_string(),
         )
     )]
-    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<(), WriteError> {
         debug!("writing state machine update request: {:#?}", request);
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
@@ -321,7 +333,7 @@ impl IndexifyState {
         &self,
         request: &StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
-    ) -> Result<PersistentWriteResult> {
+    ) -> Result<PersistentWriteResult, WriteError> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
         let txn = self.db.transaction();
@@ -455,7 +467,9 @@ impl IndexifyState {
             },
         )
         .await?;
-        txn.commit().await?;
+        txn.commit()
+            .await
+            .map_err(|err| WriteError::Error(err.into()))?;
 
         Ok(PersistentWriteResult {
             current_state_id,
@@ -882,7 +896,7 @@ mod tests {
     async fn _write_to_test_state_store(
         indexify_state: &Arc<IndexifyState>,
         application: Application,
-    ) -> Result<()> {
+    ) -> Result<(), WriteError> {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateApplication(Box::new(

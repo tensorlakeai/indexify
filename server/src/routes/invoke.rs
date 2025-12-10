@@ -5,7 +5,7 @@ use axum::{
     Json,
     body::Body,
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderName},
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
@@ -13,16 +13,25 @@ use futures::{Stream, StreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
-use uuid::Uuid;
+use uuid::{Uuid, uuid};
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
+    data_model::{
+        self,
+        Application,
+        ApplicationState,
+        FunctionCallId,
+        InputArgs,
+        RequestCtxBuilder,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
+        WriteError,
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+        state_machine::CreateRequestError,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -127,11 +136,15 @@ struct RequestIdV1 {
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
+    params(
+        ("x-request-idempotency-key" = Option<String>, Header, description = "Treat the request as idempotent for the given application namespace, name and this key.", max_length = 255),
+    ),
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
-        (status = 200, description = "request successful"),
-        (status = 400, description = "bad request"),
+        (status = OK, description = "request successful"),
+        (status = BAD_REQUEST, description = "bad request"),
+        (status = CONFLICT, description = "application disabled or duplicate idempotent request"),
         (status = INTERNAL_SERVER_ERROR, description = "internal server error")
     ),
 )]
@@ -142,7 +155,17 @@ pub async fn invoke_application_with_object_v1(
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.requests, &[]);
-    let request_id = nanoid::nanoid!();
+
+    let application = state
+        .indexify_state
+        .reader()
+        .get_application(&namespace, &application)
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
+        .ok_or(IndexifyAPIError::not_found("application not found"))?;
+
+    let request_id = resolve_request_id(&headers, &application)?;
+
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
@@ -154,14 +177,13 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
         .get_blob_store(&namespace)
-        .put(&payload_key, Box::pin(payload_stream))
+        .put(&request_id, Box::pin(payload_stream))
         .await
         .map_err(|e| {
             error!("failed to write to blob store: {:?}", e);
@@ -182,14 +204,6 @@ pub async fn invoke_application_with_object_v1(
         .request_input_bytes
         .add(data_payload.size, &[]);
     state.metrics.requests.add(1, &[]);
-
-    let application = state
-        .indexify_state
-        .reader()
-        .get_application(&namespace, &application)
-        .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
-        .ok_or(IndexifyAPIError::not_found("application not found"))?;
 
     if let ApplicationState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
@@ -255,7 +269,12 @@ pub async fn invoke_application_with_object_v1(
         .indexify_state
         .write(StateMachineUpdateRequest { payload })
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+        .map_err(|e| match e {
+            WriteError::CreateRequest(CreateRequestError::Conflict) => {
+                IndexifyAPIError::conflict(&format!("request id already exists: {request_id}"))
+            }
+            e => IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")),
+        })?;
 
     if accept_header.contains("application/json") {
         return Ok(Json(RequestIdV1 {
@@ -314,4 +333,119 @@ async fn return_sse_response(
                 .text("keep-alive-text"),
         )
         .into_response())
+}
+
+const REQUEST_ID_NAMESPACE: Uuid = uuid!("a7334912-af46-4619-8d7e-7afa4458f62f");
+const IDEMPOTENCY_KEY_HEADER: HeaderName = HeaderName::from_static("x-request-idempotency-key");
+
+fn resolve_request_id(
+    headers: &HeaderMap,
+    application: &Application,
+) -> Result<String, IndexifyAPIError> {
+    let Some(key) = headers
+        .get(IDEMPOTENCY_KEY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    else {
+        return Ok(nanoid::nanoid!());
+    };
+
+    if key.len() > 255 {
+        return Err(IndexifyAPIError::bad_request(
+            "X-Request-Idempotency-Key header exceeds maximum length of 255 characters",
+        ));
+    }
+
+    let request_id_value = format!("{}:{}:{}", application.namespace, application.name, key);
+
+    let request_id = Uuid::new_v5(&REQUEST_ID_NAMESPACE, request_id_value.as_bytes());
+
+    Ok(request_id.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::HeaderValue;
+
+    use super::*;
+    use crate::data_model::{ApplicationBuilder, ApplicationEntryPoint, DataPayloadBuilder};
+
+    fn create_app() -> Application {
+        let code = DataPayloadBuilder::default()
+            .path("a path".to_string())
+            .metadata_size(0)
+            .offset(0)
+            .size(0)
+            .sha256_hash("sha256".to_string())
+            .build()
+            .expect("build data payload should be successful");
+
+        let entry_point = ApplicationEntryPoint {
+            function_name: "main".to_string(),
+            input_serializer: "json".to_string(),
+            output_serializer: "json".to_string(),
+            output_type_hints_base64: "json".to_string(),
+        };
+
+        ApplicationBuilder::default()
+            .namespace("ns1".to_string())
+            .name("myapp".to_string())
+            .tombstoned(false)
+            .description("some description".to_string())
+            .version("1.0".to_string())
+            .code(code)
+            .functions(HashMap::new())
+            .entrypoint(entry_point)
+            .build()
+            .expect("build application should be successful")
+    }
+
+    #[test]
+    pub fn test_resolve_request_id_no_header() {
+        let headers = HeaderMap::new();
+        let app = create_app();
+
+        let result =
+            resolve_request_id(&headers, &app).expect("resolve request id should be successful");
+
+        assert_eq!(result.len(), 21);
+    }
+
+    #[test]
+    pub fn test_resolve_request_id_empty_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static(""));
+        let app = create_app();
+
+        let result =
+            resolve_request_id(&headers, &app).expect("resolve request id should be successful");
+
+        assert_eq!(result.len(), 21);
+    }
+
+    #[test]
+    pub fn test_resolve_request_id_header_too_long() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_str(&("a".repeat(256))).expect("should be valid header"),
+        );
+        let app = create_app();
+
+        let result =
+            resolve_request_id(&headers, &app).expect_err("resolve request id should error");
+        let response = result.into_response();
+        assert_eq!(response.status(), 400);
+    }
+
+    #[test]
+    pub fn test_resolve_request_id_header_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("abc-1234"));
+        let app = create_app();
+
+        let result = resolve_request_id(&headers, &app).expect("should resolve request id");
+        assert_eq!("1a00a958-a460-53ac-9540-e73c873c54a4", result);
+    }
 }
