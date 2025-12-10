@@ -219,6 +219,8 @@ class TestMetrics(unittest.TestCase):
             "state_reconciliation_errors_total",
             "state_reconciliation_latency_seconds_count",
             "state_reconciliation_latency_seconds_sum",
+            "last_desired_state_allocations",
+            "last_desired_state_function_executors",
         ]
         metrics: Dict[str, Metric] = fetch_metrics(self)
 

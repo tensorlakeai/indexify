@@ -42,6 +42,8 @@ from .function_executor_controller.function_call_watch_dispatcher import (
 from .metrics.state_reconciler import (
     metric_desired_state_stream_errors,
     metric_desired_state_streams,
+    metric_last_desired_state_allocations,
+    metric_last_desired_state_function_executors,
     metric_state_reconciliation_errors,
     metric_state_reconciliation_latency,
     metric_state_reconciliations,
@@ -308,9 +310,16 @@ class ExecutorStateReconciler:
                 )
                 break  # Timeout reached, stream might be unhealthy, exit the loop to recreate the stream.
 
+            # Update the metrics asap because the show the latest received desired state,
+            # not the latest reconciled state.
+            metric_last_desired_state_allocations.set(len(new_state.allocations))
+            metric_last_desired_state_function_executors.set(
+                len(new_state.function_executors)
+            )
+
             self._last_server_clock = new_state.clock
             # Always read the latest desired state value from the stream so
-            # we're never acting on stale desired states.
+            # we're never acting on a stale desired states.
             async with self._last_desired_state_lock:
                 self._last_desired_state = new_state
                 self._last_desired_state_change_notifier.notify_all()

@@ -37,8 +37,15 @@ from .metrics.state_reporter import (
 )
 from .monitoring.health_checker.health_checker import HealthChecker
 
-_REPORTING_INTERVAL_SEC = 5
-_REPORTING_BACKOFF_SEC = 5
+_MIN_REPORTING_INTERVAL_SEC = 5
+_MAX_REPORTING_INTERVAL_SEC = 300  # 5 minutes
+# The first retry is under 30 sec Executor reporting deadline so Server might not unregister the Executor
+# on first retry and we might not lose work already done by allocations running on Executor.
+# Subsequent retries back-off exponentially to reduce load on Server and allow Server to unregister the Executor
+# to "reset" Server internal state which might mitigate some bugs on Server side.
+_REPORTING_BACKOFF_MULTIPLIER = (
+    3  # 5 sec, 15 sec, 45 sec, 135 sec, 300 sec, 300 sec, ...
+)
 _REPORT_RPC_TIMEOUT_SEC = 5
 
 
@@ -238,13 +245,14 @@ class ExecutorStateReporter:
     async def _periodic_state_report_scheduler_loop(self) -> None:
         while True:
             self._state_report_scheduled_event.set()
-            await asyncio.sleep(_REPORTING_INTERVAL_SEC)
+            await asyncio.sleep(_MIN_REPORTING_INTERVAL_SEC)
 
     async def _state_report_worker_loop(self) -> None:
         """Runs the state reporter.
 
         Never raises any exceptions.
         """
+        reporting_interval_sec: int = _MIN_REPORTING_INTERVAL_SEC
         while True:
             stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
             while True:
@@ -273,10 +281,11 @@ class ExecutorStateReporter:
                     self._health_checker.server_connection_state_changed(
                         is_healthy=True, status_message="grpc server channel is healthy"
                     )
+                    reporting_interval_sec: int = _MIN_REPORTING_INTERVAL_SEC
                 except Exception as e:
                     self._add_to_pending_update(update)
                     self._logger.error(
-                        f"failed to report state to the server, backing-off for {_REPORTING_BACKOFF_SEC} sec.",
+                        f"failed to report state to the server, backing-off for {reporting_interval_sec} sec.",
                         exc_info=e,
                     )
                     # The periodic state reports serve as channel health monitoring requests
@@ -288,7 +297,11 @@ class ExecutorStateReporter:
                         status_message="grpc server channel is unhealthy",
                     )
                     await self._channel_manager.fail_shared_channel()
-                    await asyncio.sleep(_REPORTING_BACKOFF_SEC)
+                    await asyncio.sleep(reporting_interval_sec)
+                    reporting_interval_sec = min(
+                        reporting_interval_sec * _REPORTING_BACKOFF_MULTIPLIER,
+                        _MAX_REPORTING_INTERVAL_SEC,
+                    )
                     break  # exit the inner loop to use the recreated channel
 
     def _current_executor_state(self) -> ExecutorState:
