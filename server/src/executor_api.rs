@@ -53,6 +53,7 @@ use crate::{
     },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
+    metrics::GrpcMetrics,
     pb_helpers::blob_store_url_to_path,
     state_store::{
         IndexifyState,
@@ -548,6 +549,7 @@ pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
     blob_storage_registry: Arc<BlobStorageRegistry>,
+    grpc_metrics: GrpcMetrics,
 }
 
 impl ExecutorAPIService {
@@ -560,6 +562,7 @@ impl ExecutorAPIService {
             indexify_state,
             executor_manager,
             blob_storage_registry,
+            grpc_metrics: GrpcMetrics::new(),
         }
     }
 
@@ -833,6 +836,8 @@ impl ExecutorApi for ExecutorAPIService {
         request: Request<ReportExecutorStateRequest>,
     ) -> Result<Response<ReportExecutorStateResponse>, Status> {
         let start = Instant::now();
+        let _timer = self.grpc_metrics.record_request("report_executor_state");
+
         let executor_state = request
             .get_ref()
             .executor_state
@@ -916,6 +921,10 @@ impl ExecutorApi for ExecutorAPIService {
         &self,
         request: Request<GetDesiredExecutorStatesRequest>,
     ) -> Result<Response<Self::get_desired_executor_statesStream>, Status> {
+        let _timer = self
+            .grpc_metrics
+            .record_request("get_desired_executor_states");
+
         let executor_id = request
             .get_ref()
             .executor_id
@@ -963,6 +972,8 @@ impl ExecutorApi for ExecutorAPIService {
         &self,
         request: Request<executor_api_pb::FunctionCallRequest>,
     ) -> Result<Response<executor_api_pb::FunctionCallResponse>, Status> {
+        let _timer = self.grpc_metrics.record_request("call_function");
+
         let req = request.into_inner();
         let updates = req
             .updates
