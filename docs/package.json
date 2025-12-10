@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "mintlify": "^4.2.213"
+    "mintlify": "^4.2.226"
   },
   "overrides": {
     "tar-fs": "^3.1.1" 
