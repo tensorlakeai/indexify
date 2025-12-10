@@ -253,9 +253,9 @@ class ExecutorStateReconciler:
             desired_states_stream: AsyncIterable[DesiredExecutorState] | None = None
             try:
                 stub = ExecutorAPIStub(await self._channel_manager.get_shared_channel())
-                # Report state once before starting the stream so Server
-                # doesn't use stale state it knew about this Executor in the past.
-                await self._state_reporter.report_state_and_wait_for_completion()
+                # # Report state once before starting the stream so Server
+                # # doesn't use stale state it knew about this Executor in the past.
+                # await self._state_reporter.report_state_and_wait_for_completion()
 
                 desired_states_stream = stub.get_desired_executor_states(
                     GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
@@ -339,6 +339,15 @@ class ExecutorStateReconciler:
 
             with metric_state_reconciliation_latency.time():
                 metric_state_reconciliations.inc()
+                print(
+                    "Reconciling new desired state: fe_ids: ",
+                    [fe.id for fe in last_reconciled_state.function_executors],
+                    " alloc_ids: ",
+                    [
+                        alloc.allocation_id
+                        for alloc in last_reconciled_state.allocations
+                    ],
+                )
                 await self._reconcile_state(last_reconciled_state)
                 # Update the clock regardless of success or failure.
                 # This is to show Server that we actually processed the message.
