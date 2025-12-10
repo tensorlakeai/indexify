@@ -4,27 +4,17 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use opentelemetry::{
     KeyValue,
     metrics::{Histogram, ObservableGauge},
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, trace, warn};
-
-/// Logs an info! message only when ctx is "state_store"
-macro_rules! info_if_state_store {
-    ($ctx:expr, $($arg:tt)*) => {
-        if $ctx == "state_store" {
-            info!($($arg)*);
-        }
-    };
-}
+use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
         Allocation,
-        AllocationId,
         Application,
         ApplicationState,
         ApplicationVersion,
@@ -49,10 +39,9 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::{Timer, low_latency_boundaries},
+    metrics::low_latency_boundaries,
     state_store::{
         ExecutorCatalog,
-        blocked_runs::BlockedRunsIndex,
         executor_watches::ExecutorWatch,
         requests::RequestPayload,
         scanner::StateReader,
@@ -166,9 +155,6 @@ impl Ord for CandidateFunctionExecutor {
 pub struct CandidateFunctionExecutors {
     pub function_executors: BTreeSet<CandidateFunctionExecutor>,
     pub num_pending_function_executors: usize,
-    /// Total number of function executors for this function (regardless of
-    /// capacity or state)
-    pub num_total_function_executors: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -265,13 +251,10 @@ pub struct InMemoryState {
         im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
 
-    // Primary index: AllocationId -> Allocation (for all active request allocations)
+    // ExecutorId -> (FE ID -> List of Allocations)
     #[allow(clippy::vec_box)]
-    pub active_request_allocations: im::HashMap<AllocationId, Box<Allocation>>,
-
-    // Secondary index: ExecutorId -> (FE ID -> List of Allocation IDs)
     pub allocations_by_executor:
-        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<AllocationId>>>,
+        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
     // TaskKey -> Task
     pub unallocated_function_runs: im::OrdSet<FunctionRunKey>,
@@ -289,16 +272,10 @@ pub struct InMemoryState {
     // Maps executor catalog entry names to function runs that match those catalog entry labels
     pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
 
-    /// Blocked runs indexed by ExecutorClass for O(1) lookup when executor
-    /// frees capacity. Jobs are assigned to ALL executor classes that can
-    /// handle them.
-    pub blocked_runs_index: BlockedRunsIndex,
-
     // Histogram metrics for task latency measurements for direct recording
     function_run_pending_latency: Histogram<f64>,
     allocation_running_latency: Histogram<f64>,
     allocation_completion_latency: Histogram<f64>,
-    candidate_function_executors_duration: Histogram<f64>,
 }
 
 /// InMemoryMetrics manages observable metrics for the InMemoryState
@@ -544,13 +521,6 @@ impl InMemoryState {
             .with_description("Time tasks spend from creation to completion")
             .build();
 
-        let candidate_function_executors_duration = meter
-            .f64_histogram("indexify.candidate_function_executors_duration")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time to find candidate function executors")
-            .build();
-
         // Creating Namespaces
         let mut namespaces = im::HashMap::new();
         let mut applications = im::HashMap::new();
@@ -578,11 +548,9 @@ impl InMemoryState {
             }
         }
         // Creating Allocated Tasks By Function by Executor
-        let mut active_request_allocations: im::HashMap<AllocationId, Box<Allocation>> =
-            im::HashMap::new();
         let mut allocations_by_executor: im::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, Vec<AllocationId>>,
+            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
         > = im::HashMap::new();
         {
             let (allocations, _) = reader
@@ -597,16 +565,12 @@ impl InMemoryState {
                 if allocation.is_terminal() {
                     continue;
                 }
-                // Add to primary index
-                active_request_allocations
-                    .insert(allocation.id.clone(), Box::new(allocation.clone()));
-                // Add ID to secondary index
                 allocations_by_executor
                     .entry(allocation.target.executor_id.clone())
                     .or_default()
                     .entry(allocation.target.function_executor_id.clone())
                     .or_default()
-                    .push(allocation.id.clone());
+                    .push(Box::new(allocation));
             }
         }
 
@@ -648,19 +612,16 @@ impl InMemoryState {
             function_runs,
             unallocated_function_runs,
             request_ctx,
-            active_request_allocations,
             allocations_by_executor,
             // function executors by executor are not known at startup
             executor_states: im::HashMap::new(),
             function_executors_by_fn_uri: im::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
-            blocked_runs_index: BlockedRunsIndex::default(),
             // metrics
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
-            candidate_function_executors_duration,
         };
 
         // Populate the catalog index for all existing function runs
@@ -681,7 +642,7 @@ impl InMemoryState {
         &mut self,
         new_clock: u64,
         state_machine_update_request: &RequestPayload,
-        ctx: &str,
+        _ctx: &str,
     ) -> Result<HashSet<ExecutorId>> {
         // keep track of what clock we are at for this update state
         self.clock = new_clock;
@@ -816,36 +777,12 @@ impl InMemoryState {
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
                 for allocation in &req.updated_allocations {
-                    // Update allocation in primary index (keep it for the request's lifetime)
-                    self.active_request_allocations
-                        .insert(allocation.id.clone(), Box::new(allocation.clone()));
-
-                    // Remove ID from secondary index since allocation is no longer active
                     self.allocations_by_executor
                         .entry(allocation.target.executor_id.clone())
-                        .and_modify(|fe_allocations| {
-                            fe_allocations.iter_mut().for_each(|(_, allocation_ids)| {
-                                allocation_ids.retain(|id| id != &allocation.id);
-                            });
-                            fe_allocations.retain(|_, ids| !ids.is_empty());
-                        });
-
-                    // Decrement allocation count on the function executor
-                    let fn_uri = FunctionURI::from(allocation);
-                    if let Some(fe_meta) = self
-                        .function_executors_by_fn_uri
-                        .get_mut(&fn_uri)
-                        .and_then(|fe_map| fe_map.get_mut(&allocation.target.function_executor_id))
-                    {
-                        fe_meta.allocation_count = fe_meta.allocation_count.saturating_sub(1);
-                    } else {
-                        warn!(
-                            fe_id = allocation.target.function_executor_id.get(),
-                            allocation_id = %allocation.id,
-                            fn_uri = %fn_uri,
-                            "FE not found when trying to decrement allocation_count"
-                        );
-                    }
+                        .or_default()
+                        .entry(allocation.target.function_executor_id.clone())
+                        .or_default()
+                        .push(Box::new(allocation.clone()));
                 }
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
                     for function_call_id in function_call_ids {
@@ -892,16 +829,12 @@ impl InMemoryState {
                     }
                 }
 
-                for fe_meta in req.new_function_executors.values().cloned() {
+                for fe_meta in req.new_function_executors.clone() {
                     let Some(executor_state) = self.executor_states.get_mut(&fe_meta.executor_id)
                     else {
                         error!(
                             executor_id = fe_meta.executor_id.get(),
-                            fe_id = fe_meta.function_executor.id.get(),
-                            namespace = fe_meta.function_executor.namespace,
-                            app = fe_meta.function_executor.application_name,
-                            fn_name = fe_meta.function_executor.function_name,
-                            "executor not found for new function executor - FE will NOT be added to state"
+                            "executor not found for new function executor"
                         );
                         continue;
                     };
@@ -916,105 +849,34 @@ impl InMemoryState {
                     );
 
                     let fn_uri = FunctionURI::from(fe_meta.clone());
-                    let fe_map = self.function_executors_by_fn_uri.entry(fn_uri).or_default();
-                    // Preserve existing allocation_count when updating FE metadata,
-                    // or initialize from allocations_by_executor for new FEs
-                    let mut fe_meta_to_insert = fe_meta.clone();
-                    if let Some(existing_fe) = fe_map.get(&fe_meta.function_executor.id) {
-                        debug!(
-                            fe_id = fe_meta.function_executor.id.get(),
-                            preserved_allocation_count = existing_fe.allocation_count,
-                            "preserving allocation_count when updating FE metadata"
+                    self.function_executors_by_fn_uri
+                        .entry(fn_uri)
+                        .or_default()
+                        .insert(
+                            fe_meta.function_executor.id.clone(),
+                            Box::new(fe_meta.clone()),
                         );
-                        fe_meta_to_insert.allocation_count = existing_fe.allocation_count;
-                    } else {
-                        // New FE - initialize allocation_count from existing allocations
-                        // (important for FEs added after restart when allocations already exist)
-                        let initial_count = self
-                            .allocations_by_executor
-                            .get(&fe_meta.executor_id)
-                            .and_then(|by_fe| by_fe.get(&fe_meta.function_executor.id))
-                            .map(|allocs| allocs.len() as u32)
-                            .unwrap_or(0);
-                        fe_meta_to_insert.allocation_count = initial_count;
-                        debug!(
-                            fe_id = fe_meta.function_executor.id.get(),
-                            initial_allocation_count = initial_count,
-                            "new FE, initialized allocation_count from existing allocations"
-                        );
-                    }
-                    fe_map.insert(
-                        fe_meta.function_executor.id.clone(),
-                        Box::new(fe_meta_to_insert),
-                    );
-
-                    info_if_state_store!(
-                        ctx,
-                        executor_id = fe_meta.executor_id.get(),
-                        fe_id = fe_meta.function_executor.id.get(),
-                        namespace = fe_meta.function_executor.namespace,
-                        app = fe_meta.function_executor.application_name,
-                        fn_name = fe_meta.function_executor.function_name,
-                        "added FE to in-memory state"
-                    );
 
                     // Executor has a new function executor
                     changed_executors.insert(fe_meta.executor_id.clone());
                 }
 
-                for allocation in req.new_allocations.values() {
+                for allocation in &req.new_allocations {
                     if let Some(function_run) = self.function_runs.get(&allocation.into()) {
                         self.unallocated_function_runs
                             .remove(&function_run.clone().into());
 
-                        // Add to primary index
-                        self.active_request_allocations
-                            .insert(allocation.id.clone(), Box::new(allocation.clone()));
-
-                        // Add ID to secondary index
                         self.allocations_by_executor
                             .entry(allocation.target.executor_id.clone())
                             .or_default()
                             .entry(allocation.target.function_executor_id.clone())
                             .or_default()
-                            .push(allocation.id.clone());
-
-                        // Increment allocation count on the function executor
-                        let fn_uri = FunctionURI::from(allocation);
-                        if let Some(fe_meta) = self
-                            .function_executors_by_fn_uri
-                            .get_mut(&fn_uri)
-                            .and_then(|fe_map| {
-                                fe_map.get_mut(&allocation.target.function_executor_id)
-                            })
-                        {
-                            fe_meta.allocation_count += 1;
-                        } else {
-                            warn!(
-                                fe_id = allocation.target.function_executor_id.get(),
-                                allocation_id = %allocation.id,
-                                fn_uri = %fn_uri,
-                                "FE not found when trying to increment allocation_count"
-                            );
-                        }
+                            .push(Box::new(allocation.clone()));
 
                         // Record metrics
                         self.function_run_pending_latency.record(
                             get_elapsed_time(function_run.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
-                        );
-
-                        info_if_state_store!(
-                            ctx,
-                            allocation_id = %allocation.id,
-                            executor_id = allocation.target.executor_id.get(),
-                            fe_id = allocation.target.function_executor_id.get(),
-                            namespace = &allocation.namespace,
-                            app = &allocation.application,
-                            fn_name = &allocation.function,
-                            request_id = &allocation.request_id,
-                            fn_call_id = allocation.function_call_id.to_string(),
-                            "added allocation to in-memory state"
                         );
 
                         // Executor has a new allocation
@@ -1075,14 +937,6 @@ impl InMemoryState {
                         executor.free_resources = free_resources.clone();
                     }
                 }
-
-                // Update blocked runs index
-                for run_key in &req.blocked_runs_to_remove {
-                    self.blocked_runs_index.unblock(run_key);
-                }
-                for (run_key, fn_uri, requirements) in req.blocked_runs_to_add.iter().cloned() {
-                    self.blocked_runs_index.block(run_key, fn_uri, requirements);
-                }
             }
             RequestPayload::UpsertExecutor(req) => {
                 self.executors
@@ -1099,59 +953,45 @@ impl InMemoryState {
                     );
                 }
 
-                // Register executor class in blocked runs index
-                let executor_class =
-                    crate::state_store::blocked_runs::ExecutorClass::from_executor(&req.executor);
-                self.blocked_runs_index
-                    .register_executor_class(executor_class);
-
                 for allocation_output in &req.allocation_outputs {
-                    // Record metrics from the existing allocation in primary index
-                    if let Some(existing) = self
-                        .active_request_allocations
-                        .get(&allocation_output.allocation.id)
+                    // Remove the allocation
                     {
-                        self.allocation_running_latency.record(
-                            get_elapsed_time(existing.created_at, TimeUnit::Milliseconds),
-                            &[KeyValue::new(
-                                "outcome",
-                                allocation_output.allocation.outcome.to_string(),
-                            )],
-                        );
-                    }
+                        self.allocations_by_executor
+                            .entry(allocation_output.executor_id.clone())
+                            .and_modify(|fe_allocations| {
+                                // TODO: This can be optimized by keeping a new index of task_id to
+                                // FE,       we should measure the
+                                // overhead.
+                                fe_allocations.iter_mut().for_each(|(_, allocations)| {
+                                    if let Some(index) = allocations
+                                        .iter()
+                                        .position(|a| a.id == allocation_output.allocation.id)
+                                    {
+                                        let allocation = &allocations[index];
+                                        // Record metrics
+                                        self.allocation_running_latency.record(
+                                            get_elapsed_time(
+                                                allocation.created_at,
+                                                TimeUnit::Milliseconds,
+                                            ),
+                                            &[KeyValue::new(
+                                                "outcome",
+                                                allocation_output.allocation.outcome.to_string(),
+                                            )],
+                                        );
 
-                    // Update allocation in primary index (keep it, just update with new outcome)
-                    self.active_request_allocations.insert(
-                        allocation_output.allocation.id.clone(),
-                        Box::new(allocation_output.allocation.clone()),
-                    );
+                                        // Remove the allocation
+                                        allocations.remove(index);
+                                    }
+                                });
 
-                    // Remove ID from secondary index (executor no longer needs to track it)
-                    self.allocations_by_executor
-                        .entry(allocation_output.executor_id.clone())
-                        .and_modify(|fe_allocations| {
-                            fe_allocations.iter_mut().for_each(|(_, allocation_ids)| {
-                                allocation_ids.retain(|id| id != &allocation_output.allocation.id);
+                                // Remove the function if no allocations left
+                                fe_allocations.retain(|_, f| !f.is_empty());
                             });
-                            // Remove the function if no allocations left
-                            fe_allocations.retain(|_, ids| !ids.is_empty());
-                        });
 
-                    // Decrement allocation count on the function executor
-                    let fn_uri = FunctionURI::from(&allocation_output.allocation);
-                    if let Some(fe_meta) = self
-                        .function_executors_by_fn_uri
-                        .get_mut(&fn_uri)
-                        .and_then(|fe_map| {
-                            fe_map
-                                .get_mut(&allocation_output.allocation.target.function_executor_id)
-                        })
-                    {
-                        fe_meta.allocation_count = fe_meta.allocation_count.saturating_sub(1);
+                        // Executor's allocation is removed
+                        changed_executors.insert(allocation_output.executor_id.clone());
                     }
-
-                    // Executor's allocation is removed
-                    changed_executors.insert(allocation_output.executor_id.clone());
 
                     // Record metrics
                     self.allocation_completion_latency.record(
@@ -1178,7 +1018,6 @@ impl InMemoryState {
         Ok(changed_executors)
     }
 
-    /// Get the resource requirements for a function run.
     pub fn fe_resource_for_function_run(
         &self,
         function_run: &FunctionRun,
@@ -1190,18 +1029,14 @@ impl InMemoryState {
                 &function_run.application,
                 &function_run.version,
             ))
-            .ok_or(Error::ApplicationVersionNotFound {
-                version: function_run.version.clone(),
-                function_name: function_run.name.clone(),
-            })?;
-        let function =
-            application
-                .functions
-                .get(&function_run.name)
-                .ok_or(Error::FunctionNotFound {
-                    version: function_run.version.clone(),
-                    function_name: function_run.name.clone(),
-                })?;
+            .ok_or(anyhow!(
+                "application version: {} not found",
+                function_run.version
+            ))?;
+        let function = application
+            .functions
+            .get(&function_run.name)
+            .ok_or(anyhow!("function: {} not found", function_run.name))?;
         Ok(function.resources.clone())
     }
 
@@ -1281,13 +1116,11 @@ impl InMemoryState {
         function_run: &FunctionRun,
         capacity_threshold: u32,
     ) -> Result<CandidateFunctionExecutors> {
-        let _timer = Timer::start_with_labels(&self.candidate_function_executors_duration, &[]);
         let mut candidates = BTreeSet::new();
 
         let fn_uri = FunctionURI::from(function_run);
         let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
         let mut num_pending_function_executors = 0;
-        let mut num_total_function_executors = 0;
         if let Some(function_executors) = function_executors {
             for (_, metadata) in function_executors.iter() {
                 if metadata.function_executor.state == FunctionExecutorState::Pending ||
@@ -1304,15 +1137,20 @@ impl InMemoryState {
                 ) {
                     continue;
                 }
-                // Count all non-terminated FEs
-                num_total_function_executors += 1;
-                // Use has_slots() which checks against pre-computed allocation_count
-                let has_slots = metadata.has_slots(capacity_threshold);
-                if has_slots {
+                // FIXME - Create a reverse index of fe_id -> # active allocations
+                let allocation_count = self
+                    .allocations_by_executor
+                    .get(&metadata.executor_id)
+                    .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
+                    .map(|allocs| allocs.len())
+                    .unwrap_or(0);
+                if (allocation_count as u32) <
+                    capacity_threshold * metadata.function_executor.max_concurrency
+                {
                     candidates.insert(CandidateFunctionExecutor {
                         executor_id: metadata.executor_id.clone(),
                         function_executor_id: metadata.function_executor.id.clone(),
-                        allocation_count: metadata.allocation_count as usize,
+                        allocation_count,
                     });
                 }
             }
@@ -1320,15 +1158,10 @@ impl InMemoryState {
         Ok(CandidateFunctionExecutors {
             function_executors: candidates,
             num_pending_function_executors,
-            num_total_function_executors,
         })
     }
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
-        // Collect function call IDs for allocations to remove
-        let function_call_ids: std::collections::HashSet<_> =
-            function_runs.iter().map(|fr| fr.id.clone()).collect();
-
         for function_run in function_runs.iter() {
             self.function_runs.remove(&function_run.clone().into());
             self.unallocated_function_runs
@@ -1337,16 +1170,12 @@ impl InMemoryState {
             self.unindex_function_run_from_catalog(function_run);
         }
 
-        // Remove allocations from primary index
-        self.active_request_allocations
-            .retain(|_, allocation| !function_call_ids.contains(&allocation.function_call_id));
-
-        // Remove allocation IDs from secondary index
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
-            for (_fe_id, allocation_ids) in allocations_by_fe.iter_mut() {
-                allocation_ids.retain(|alloc_id| {
-                    // Check if this allocation belongs to a deleted function run
-                    self.active_request_allocations.contains_key(alloc_id)
+            for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
+                allocations.retain(|allocation| {
+                    !function_runs
+                        .iter()
+                        .any(|function_run| function_run.id == allocation.function_call_id)
                 });
             }
         }
@@ -1403,14 +1232,6 @@ impl InMemoryState {
         self.delete_function_runs(function_runs_to_remove);
     }
 
-    /// Find an allocation by its key. Searches through all executors'
-    /// allocations.
-    pub fn get_allocation_by_id(&self, allocation_id: &AllocationId) -> Option<Allocation> {
-        self.active_request_allocations
-            .get(allocation_id)
-            .map(|a| *a.clone())
-    }
-
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
         let unallocated_function_run_keys = self
             .unallocated_function_runs
@@ -1431,29 +1252,10 @@ impl InMemoryState {
         function_runs
     }
 
-    /// Get function runs by their keys. Used for O(1) blocked runs lookup.
-    pub fn get_function_runs_by_keys(&self, keys: &[FunctionRunKey]) -> Vec<FunctionRun> {
-        let mut function_runs = Vec::with_capacity(keys.len());
-        for key in keys {
-            if let Some(function_run) = self.function_runs.get(key) {
-                // Only include pending runs (not yet allocated)
-                if matches!(function_run.status, FunctionRunStatus::Pending) {
-                    function_runs.push(*function_run.clone());
-                }
-            }
-        }
-        function_runs
-    }
-
-    /// Find FE candidates for vacuum to free up resources.
-    /// Only considers FEs from DIFFERENT functions than the requesting one.
-    /// This allows reclaiming resources from idle FEs of other applications
-    /// without affecting FEs of the same function (which should be reused).
     #[tracing::instrument(skip_all)]
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
-        requesting_fn_uri: &FunctionURI,
     ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
@@ -1493,14 +1295,6 @@ impl InMemoryState {
                 }
 
                 let fe = &fe_metadata.function_executor;
-
-                // IMPORTANT: Skip FEs for the SAME function as the requesting one.
-                // We only vacuum FEs from OTHER functions to free up resources.
-                let fe_uri = FunctionURI::from(fe);
-                if fe_uri == *requesting_fn_uri {
-                    continue;
-                }
-
                 let Some(executor) = self.executors.get(executor_id) else {
                     function_executors_to_remove.push(*fe_metadata.clone());
                     continue;
@@ -1532,9 +1326,11 @@ impl InMemoryState {
                     }
                     if !found_allowlist_match {
                         debug!(
-                            "Candidate for removal: idle function executor {} from executor {} (different function)",
+                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
                             fe.id.get(),
                             executor_id.get(),
+                            fe.version,
+                            latest_cg_version
                         );
                         can_be_removed = true;
                     }
@@ -1557,7 +1353,7 @@ impl InMemoryState {
                         .is_ok()
                     {
                         debug!(
-                            "Found sufficient space on executor {} by removing {} function executors from other functions",
+                            "Found sufficient space on executor {} by removing {} function executors",
                             executor_id.get(),
                             function_executors_to_remove.len()
                         );
@@ -1566,7 +1362,7 @@ impl InMemoryState {
                 }
             }
             debug!(
-                "Could not find sufficient space on executor {} even after vacuuming other functions",
+                "Could not find sufficient space on executor {} even after vacuuming",
                 executor_id.get()
             );
         }
@@ -1574,9 +1370,7 @@ impl InMemoryState {
         Ok(Vec::new())
     }
 
-    /// Check if there are any pending (non-terminal) function runs for a given
-    /// FE.
-    pub fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
             fe_meta.function_executor.namespace, fe_meta.function_executor.application_name
@@ -1606,14 +1400,12 @@ impl InMemoryState {
         let mut function_call_outcomes = Vec::new();
         for executor_watch in executor_watches.iter() {
             let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
-                // Function run may not exist yet if the executor registered a watch
-                // before the application processor created the function run
-                trace!(
+                error!(
                     namspace = executor_watch.namespace.clone(),
                     app = executor_watch.application.clone(),
                     request_id = executor_watch.request_id.clone(),
                     function_call_id = executor_watch.function_call_id.clone(),
-                    "function run not found for executor watch, will retry on next poll",
+                    "function run not found for executor watch",
                 );
                 continue;
             };
@@ -1687,7 +1479,7 @@ impl InMemoryState {
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
                 .unwrap_or(&Vec::new())
                 .iter()
-                .filter_map(|alloc_id| self.get_allocation_by_id(alloc_id))
+                .map(|allocation| *allocation.clone())
                 .collect::<Vec<_>>();
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
@@ -1708,20 +1500,15 @@ impl InMemoryState {
             application_versions: self.application_versions.clone(),
             executors: self.executors.clone(),
             request_ctx: self.request_ctx.clone(),
-            active_request_allocations: self.active_request_allocations.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_states: self.executor_states.clone(),
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
-            blocked_runs_index: self.blocked_runs_index.clone(),
             // metrics
             function_run_pending_latency: self.function_run_pending_latency.clone(),
             allocation_running_latency: self.allocation_running_latency.clone(),
             allocation_completion_latency: self.allocation_completion_latency.clone(),
-            candidate_function_executors_duration: self
-                .candidate_function_executors_duration
-                .clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
         }))
@@ -1902,22 +1689,8 @@ impl InMemoryState {
 }
 
 #[cfg(test)]
-pub mod test_helpers {
+mod test_helpers {
     use super::*;
-
-    /// Create a FunctionRunKey for testing.
-    pub fn make_function_run_key(
-        namespace: &str,
-        application: &str,
-        request_id: &str,
-        function_call_id: &str,
-    ) -> FunctionRunKey {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            namespace, application, request_id, function_call_id
-        ))
-    }
-
     /// Macro to easily bootstrap an InMemoryState for tests.
     ///
     /// Usage:
@@ -1945,18 +1718,13 @@ pub mod test_helpers {
                 executors: im::HashMap::new(),
                 executor_states: im::HashMap::new(),
                 function_executors_by_fn_uri: im::HashMap::new(),
-                active_request_allocations: im::HashMap::new(),
                 allocations_by_executor: im::HashMap::new(),
                 request_ctx: im::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
                 function_runs_by_catalog_entry: im::HashMap::new(),
-                blocked_runs_index: BlockedRunsIndex::default(),
                 function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_running_latency: global::meter("test").f64_histogram("test").build(),
                 allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
-                candidate_function_executors_duration: global::meter("test")
-                    .f64_histogram("test")
-                    .build(),
                 function_runs: im::OrdMap::new(),
                 unallocated_function_runs: im::OrdSet::new(),
             }
@@ -2068,7 +1836,6 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor: function_executor.clone(),
             desired_state: FunctionExecutorState::Running,
-            allocation_count: 0,
         };
 
         // Test case 1: No tasks - should return false
@@ -2200,7 +1967,6 @@ mod tests {
             executor_id: executor_id.clone(),
             function_executor,
             desired_state: FunctionExecutorState::Running,
-            allocation_count: 0,
         };
         assert!(state.has_pending_tasks(&fe_metadata2));
 

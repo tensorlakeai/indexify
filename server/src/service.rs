@@ -301,7 +301,7 @@ impl Service {
     }
 }
 
-async fn shutdown_signal(handle: Handle<SocketAddr>, shutdown_tx: watch::Sender<()>) {
+async fn shutdown_signal(handle: Handle, shutdown_tx: watch::Sender<()>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await

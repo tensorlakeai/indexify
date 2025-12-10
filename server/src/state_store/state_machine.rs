@@ -479,7 +479,7 @@ pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
-    for alloc in request.new_allocations.values() {
+    for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
             app = alloc.application,

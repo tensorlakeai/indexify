@@ -8,7 +8,6 @@ use anyhow::Result;
 use crate::{
     data_model::{
         Allocation,
-        AllocationId,
         Application,
         ComputeOp,
         DataPayload,
@@ -22,19 +21,12 @@ use crate::{
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
-        FunctionURI,
         GcUrl,
         HostResources,
         RequestCtx,
         StateChange,
     },
-    state_store::{
-        IndexifyState,
-        blocked_runs::FunctionRunRequirements,
-        executor_watches::ExecutorWatch,
-        in_memory_state::FunctionRunKey,
-        state_changes,
-    },
+    state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
 };
 
 #[derive(Debug)]
@@ -87,32 +79,22 @@ pub enum RequestPayload {
 
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
-    pub new_allocations: HashMap<AllocationId, Allocation>,
+    pub new_allocations: Vec<Allocation>,
     pub updated_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
-    pub new_function_executors: HashMap<FunctionExecutorId, FunctionExecutorServerMetadata>,
+    pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
     pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
     pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
     pub state_changes: Vec<StateChange>,
-
-    /// Blocked runs to add to the index (runs that couldn't be allocated).
-    /// Each entry contains (run_key, fn_uri, requirements).
-    pub blocked_runs_to_add: Vec<(FunctionRunKey, FunctionURI, FunctionRunRequirements)>,
-
-    /// Blocked runs to remove from the index (runs that were allocated or
-    /// cancelled).
-    pub blocked_runs_to_remove: Vec<FunctionRunKey>,
 }
 
 impl SchedulerUpdateRequest {
     /// Extends this SchedulerUpdateRequest with contents from another one
     pub fn extend(&mut self, other: SchedulerUpdateRequest) {
         self.new_allocations.extend(other.new_allocations);
-        for allocation in other.updated_allocations {
-            self.add_updated_allocation(allocation);
-        }
+        self.updated_allocations.extend(other.updated_allocations);
         for (ctx_key, function_run_ids) in other.updated_function_runs {
             self.updated_function_runs
                 .entry(ctx_key)
@@ -126,55 +108,16 @@ impl SchedulerUpdateRequest {
         self.remove_executors.extend(other.remove_executors);
         self.new_function_executors
             .extend(other.new_function_executors);
-        for (executor_id, fe_ids) in other.remove_function_executors {
-            for fe_id in fe_ids {
-                self.add_removed_function_executor(&executor_id, fe_id);
-            }
-        }
+        self.remove_function_executors
+            .extend(other.remove_function_executors);
         self.updated_executor_resources
             .extend(other.updated_executor_resources);
-
-        // Merge blocked runs
-        self.blocked_runs_to_add.extend(other.blocked_runs_to_add);
-        self.blocked_runs_to_remove
-            .extend(other.blocked_runs_to_remove);
-    }
-
-    /// Adds an allocation to updated_allocations, handling the case where the
-    /// allocation was created in the same batch (exists in
-    /// new_allocations). If so, removes it from new_allocations since it
-    /// was never persisted.
-    pub fn add_updated_allocation(&mut self, allocation: Allocation) {
-        if self.new_allocations.remove(&allocation.id).is_some() {
-            // Allocation was created in this batch - just remove it, no need to persist
-            return;
-        }
-        self.updated_allocations.push(allocation);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
         allocation.outcome =
             FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
-        self.add_updated_allocation(allocation.clone());
-    }
-
-    /// Adds a function executor to remove_function_executors, handling the case
-    /// where the FE was created in the same batch (exists in
-    /// new_function_executors). If so, removes it from
-    /// new_function_executors since it was never persisted.
-    pub fn add_removed_function_executor(
-        &mut self,
-        executor_id: &ExecutorId,
-        fe_id: FunctionExecutorId,
-    ) {
-        if self.new_function_executors.remove(&fe_id).is_some() {
-            // FE was created in this batch - just remove it, no need to persist
-            return;
-        }
-        self.remove_function_executors
-            .entry(executor_id.clone())
-            .or_default()
-            .insert(fe_id);
+        self.updated_allocations.push(allocation.clone());
     }
 
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {
