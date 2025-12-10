@@ -178,6 +178,7 @@ pub struct Timer<'a, T: TimerUpdate + Sync> {
 }
 
 impl<'a, T: TimerUpdate + Sync> Timer<'a, T> {
+    #[must_use]
     pub fn start_with_labels(metric: &'a T, labels: &'a [KeyValue]) -> Self {
         Self {
             start: Instant::now(),
