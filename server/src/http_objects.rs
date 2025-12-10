@@ -874,37 +874,6 @@ pub struct UnallocatedFunctionRuns {
     pub function_runs: Vec<FunctionRun>,
 }
 
-/// Executor class - represents a group of executors with the same capabilities.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ExecutorClass {
-    pub cpu_ms: u32,
-    pub memory_bytes: u64,
-    pub disk_bytes: u64,
-    pub gpu_count: u32,
-    pub gpu_model: Option<String>,
-    pub region: Option<String>,
-}
-
-/// Demand for a specific executor class.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ExecutorClassDemand {
-    pub executor_class: ExecutorClass,
-    pub blocked_count: usize,
-}
-
-/// Autoscaler demand information - blocked jobs grouped by executor class.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AutoscalerDemand {
-    /// Total number of blocked jobs (waiting for capacity).
-    pub total_blocked: usize,
-    /// Jobs that have no matching executor type (need new executor class).
-    pub unassigned_count: usize,
-    /// Number of known executor classes.
-    pub known_classes_count: usize,
-    /// Demand per executor class (jobs waiting for each class).
-    pub demand_by_class: Vec<ExecutorClassDemand>,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnExecutor {
     pub count: usize,

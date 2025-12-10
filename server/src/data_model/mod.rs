@@ -94,18 +94,6 @@ impl fmt::Display for AllocationId {
     }
 }
 
-impl From<String> for AllocationId {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for AllocationId {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
 impl Deref for AllocationId {
     type Target = str;
 
@@ -159,14 +147,6 @@ impl AllocationBuilder {
 }
 
 impl Allocation {
-    pub fn get_id_from_key(key: &str) -> String {
-        key.split('|')
-            .nth(3)
-            .map(|s| s.to_string())
-            .expect("Allocation ID should be 3rd string in allocation key")
-            .to_string()
-    }
-
     pub fn key(&self) -> String {
         Allocation::key_from(
             &self.namespace,
@@ -1233,17 +1213,6 @@ impl From<&FunctionRun> for FunctionURI {
     }
 }
 
-impl From<&Allocation> for FunctionURI {
-    fn from(allocation: &Allocation) -> Self {
-        FunctionURI {
-            namespace: allocation.namespace.clone(),
-            application: allocation.application.clone(),
-            function: allocation.function.clone(),
-            version: allocation.application_version.clone(),
-        }
-    }
-}
-
 impl Display for FunctionURI {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -1704,10 +1673,6 @@ pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_executor: FunctionExecutor,
     pub desired_state: FunctionExecutorState,
-    /// Number of active allocations on this function executor.
-    /// Updated when allocations are added/removed in update_state.
-    #[builder(default)]
-    pub allocation_count: u32,
 }
 
 impl Eq for FunctionExecutorServerMetadata {}
@@ -1736,25 +1701,11 @@ impl FunctionExecutorServerMetadata {
             executor_id,
             function_executor,
             desired_state,
-            allocation_count: 0,
         }
     }
 
     pub fn fn_uri_str(&self) -> String {
         self.function_executor.fn_uri_str()
-    }
-
-    /// Returns the number of available slots on this function executor.
-    /// `queue_size` is the multiplier for max_concurrency (typically the queue
-    /// depth).
-    pub fn available_slots(&self, queue_size: u32) -> u32 {
-        let capacity = queue_size * self.function_executor.max_concurrency;
-        capacity.saturating_sub(self.allocation_count)
-    }
-
-    /// Returns true if this function executor has at least one available slot.
-    pub fn has_slots(&self, queue_size: u32) -> bool {
-        self.available_slots(queue_size) > 0
     }
 }
 
@@ -1824,10 +1775,7 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    #[serde(default)]
-    pub allocation_id: Option<AllocationId>,
-    #[serde(default)]
-    pub allocation_key: Option<String>,
+    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
 }
 

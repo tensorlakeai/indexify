@@ -1,11 +1,14 @@
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    vec,
+};
 
 use anyhow::Result;
 use tracing::{error, trace, warn};
 
 use crate::{
     data_model::{
-        Allocation,
         AllocationOutputIngestedEvent,
         ApplicationVersion,
         ComputeOp,
@@ -28,18 +31,23 @@ use crate::{
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
+        IndexifyState,
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
 
 pub struct FunctionRunCreator {
+    indexify_state: Arc<IndexifyState>,
     clock: u64,
 }
 
 impl FunctionRunCreator {
-    pub fn new(clock: u64) -> Self {
-        Self { clock }
+    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
+        Self {
+            indexify_state,
+            clock,
+        }
     }
 }
 
@@ -154,17 +162,16 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        let mut allocation_id: String = "".to_string();
-        if let Some(alloc_id) = &alloc_finished_event.allocation_id {
-            allocation_id = alloc_id.to_string();
-        } else if let Some(alloc_key) = &alloc_finished_event.allocation_key {
-            allocation_id = Allocation::get_id_from_key(alloc_key);
-        }
-
-        let Some(allocation) = in_memory_state.get_allocation_by_id(&allocation_id.clone().into())
+        // If allocation_key is not None, then the output is coming from an allocation,
+        // not from cache.
+        let Some(allocation) = self
+            .indexify_state
+            .reader()
+            .get_allocation(&alloc_finished_event.allocation_key)
+            .await?
         else {
             error!(
-                allocation_id = allocation_id,
+                allocation_key = alloc_finished_event.allocation_key,
                 "allocation not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
@@ -213,11 +220,6 @@ impl FunctionRunCreator {
             &application_version,
         );
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
-
-        // Note: We don't need to add the allocation to updated_allocations here.
-        // The allocation is already updated by UpsertExecutor which also removes it
-        // from allocations_by_executor in the in-memory state. Adding it here would
-        // cause a duplicate write to the persistent store.
 
         in_memory_state.update_state(
             self.clock,
