@@ -300,6 +300,10 @@ pub struct StateStoreMetrics {
     pub driver_deletes: Counter<u64>,
     pub driver_commits: Counter<u64>,
     pub driver_commits_errors: Counter<u64>,
+    pub state_write_persistent_storage: Histogram<f64>,
+    pub state_write_in_memory: Histogram<f64>,
+    pub state_write_executor_notify: Histogram<f64>,
+    pub state_write_request_state_change: Histogram<f64>,
 }
 
 impl Default for StateStoreMetrics {
@@ -363,6 +367,34 @@ impl StateStoreMetrics {
             .with_description("Number of state driver commit errors")
             .build();
 
+        let state_write_persistent_storage = meter
+            .f64_histogram("indexify.state_machine_write_persistent_storage_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("RocksDB transaction commit latency in seconds")
+            .build();
+
+        let state_write_in_memory = meter
+            .f64_histogram("indexify.state_machine_write_in_memory_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("In-memory state update latency in seconds")
+            .build();
+
+        let state_write_executor_notify = meter
+            .f64_histogram("indexify.state_machine_write_executor_notify_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Executor state change notification latency in seconds")
+            .build();
+
+        let state_write_request_state_change = meter
+            .f64_histogram("indexify.state_machine_write_request_state_change_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Request state change update latency in seconds")
+            .build();
+
         Self {
             state_write,
             state_read,
@@ -373,6 +405,10 @@ impl StateStoreMetrics {
             driver_deletes,
             driver_commits,
             driver_commits_errors,
+            state_write_persistent_storage,
+            state_write_in_memory,
+            state_write_executor_notify,
+            state_write_request_state_change,
         }
     }
 }
