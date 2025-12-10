@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
       - name: Setup Rust
@@ -49,7 +49,7 @@ jobs:
     steps:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
       - name: Setup Rust
@@ -75,7 +75,7 @@ jobs:
     name: Lint Python packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Install poetry
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Download indexify-server
@@ -197,7 +197,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download indexify-server
         uses: actions/download-artifact@v6

@@ -22,7 +22,7 @@ use tracing::{debug, error, info, span};
 use crate::{
     cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
-    data_model::{ExecutorId, StateMachineMetadata},
+    data_model::{ExecutorId, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
@@ -147,6 +147,12 @@ where
     driver::open_database(options, metrics).map_err(Into::into)
 }
 
+struct PersistentWriteResult {
+    current_state_id: u64,
+    should_notify_usage_reporter: bool,
+    new_state_changes: Vec<StateChange>,
+}
+
 impl IndexifyState {
     pub async fn new(
         path: PathBuf,
@@ -237,9 +243,87 @@ impl IndexifyState {
         )
     )]
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
-        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         debug!("writing state machine update request: {:#?}", request);
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
+
+        let write_result = self.write_in_persiste_store(&request, timer_kv).await?;
+
+        let mut changed_executors = {
+            let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
+            self.in_memory_state
+                .write()
+                .await
+                .update_state(
+                    write_result.current_state_id,
+                    &request.payload,
+                    "state_store",
+                )
+                .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?
+        };
+
+        if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
+            let impacted_executors = self
+                .executor_watches
+                .impacted_executors(
+                    &request.updated_function_runs,
+                    &request.updated_request_states,
+                )
+                .await;
+            changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
+        }
+        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
+            !req.watch_function_calls.is_empty() &&
+            req.update_executor_state
+        {
+            changed_executors.insert(req.executor.id.clone());
+        }
+
+        // Notify the executors with state changes
+        {
+            let _timer =
+                Timer::start_with_labels(&self.metrics.state_write_executor_notify, timer_kv);
+            let mut executor_states = self.executor_states.write().await;
+            for executor_id in changed_executors {
+                if let Some(executor_state) = executor_states.get_mut(&executor_id) {
+                    executor_state.notify();
+                }
+            }
+        }
+
+        if !write_result.new_state_changes.is_empty() &&
+            let Err(err) = self.change_events_tx.send(())
+        {
+            error!("failed to notify of state change event, ignoring: {err:?}",);
+        }
+
+        if write_result.should_notify_usage_reporter &&
+            let Err(err) = self.usage_events_tx.send(())
+        {
+            error!("failed to notify of usage event, ignoring: {err:?}",);
+        }
+
+        self.handle_request_state_changes(&request, timer_kv).await;
+        // This needs to be after the transaction is committed because if the gc
+        // runs before the gc urls are written, the gc process will not see the
+        // urls.
+        match &request.payload {
+            RequestPayload::DeleteApplicationRequest(_) |
+            RequestPayload::DeleteRequestRequest(_) => {
+                self.gc_tx.send(()).unwrap();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn write_in_persiste_store(
+        &self,
+        request: &StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+    ) -> Result<PersistentWriteResult> {
+        let _timer =
+            Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
         let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
@@ -373,67 +457,21 @@ impl IndexifyState {
         .await?;
         txn.commit().await?;
 
-        let mut changed_executors = self
-            .in_memory_state
-            .write()
-            .await
-            .update_state(current_state_id, &request.payload, "state_store")
-            .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
-
-        if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
-            let impacted_executors = self
-                .executor_watches
-                .impacted_executors(
-                    &request.updated_function_runs,
-                    &request.updated_request_states,
-                )
-                .await;
-            changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
-        }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
-            !req.watch_function_calls.is_empty() &&
-            req.update_executor_state
-        {
-            changed_executors.insert(req.executor.id.clone());
-        }
-
-        // Notify the executors with state changes
-        {
-            let mut executor_states = self.executor_states.write().await;
-            for executor_id in changed_executors {
-                if let Some(executor_state) = executor_states.get_mut(&executor_id) {
-                    executor_state.notify();
-                }
-            }
-        }
-
-        if !new_state_changes.is_empty() &&
-            let Err(err) = self.change_events_tx.send(())
-        {
-            error!("failed to notify of state change event, ignoring: {err:?}",);
-        }
-
-        if should_notify_usage_reporter && let Err(err) = self.usage_events_tx.send(()) {
-            error!("failed to notify of usage event, ignoring: {err:?}",);
-        }
-
-        self.handle_request_state_changes(&request).await;
-
-        // This needs to be after the transaction is committed because if the gc
-        // runs before the gc urls are written, the gc process will not see the
-        // urls.
-        match &request.payload {
-            RequestPayload::DeleteApplicationRequest(_) |
-            RequestPayload::DeleteRequestRequest(_) => {
-                self.gc_tx.send(()).unwrap();
-            }
-            _ => {}
-        }
-        Ok(())
+        Ok(PersistentWriteResult {
+            current_state_id,
+            new_state_changes,
+            should_notify_usage_reporter,
+        })
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_request_state_changes(&self, update_request: &StateMachineUpdateRequest) {
+    async fn handle_request_state_changes(
+        &self,
+        update_request: &StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+    ) {
+        let _timer =
+            Timer::start_with_labels(&self.metrics.state_write_request_state_change, timer_kv);
         if !self.events_receiver_waiting() {
             return;
         }

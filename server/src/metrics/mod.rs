@@ -288,6 +288,71 @@ pub mod queue {
     }
 }
 
+/// Timer that owns its labels and records duration on drop
+pub struct GrpcTimer {
+    start: Instant,
+    histogram: Histogram<f64>,
+    handler: &'static str,
+}
+
+impl Drop for GrpcTimer {
+    fn drop(&mut self) {
+        self.histogram.record(
+            self.start.elapsed().as_secs_f64(),
+            &[KeyValue::new("handler", self.handler)],
+        );
+    }
+}
+
+/// Metrics for gRPC Executor API handlers defined in executor_api.rs
+#[derive(Clone, Debug)]
+pub struct GrpcMetrics {
+    /// Counter for total requests per handler
+    pub requests: Counter<u64>,
+    /// Histogram for request duration per handler
+    pub request_duration: Histogram<f64>,
+}
+
+impl Default for GrpcMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GrpcMetrics {
+    pub fn new() -> Self {
+        let meter = opentelemetry::global::meter("grpc_executor_api");
+
+        let requests = meter
+            .u64_counter("indexify.grpc.requests_total")
+            .with_description("Total number of gRPC requests by handler")
+            .build();
+
+        let request_duration = meter
+            .f64_histogram("indexify.grpc.request_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("gRPC request duration in seconds by handler")
+            .build();
+
+        Self {
+            requests,
+            request_duration,
+        }
+    }
+
+    /// Record a request and start a timer for the given handler.
+    /// Returns a GrpcTimer that records duration on drop.
+    pub fn record_request(&self, handler: &'static str) -> GrpcTimer {
+        self.requests.add(1, &[KeyValue::new("handler", handler)]);
+        GrpcTimer {
+            start: Instant::now(),
+            histogram: self.request_duration.clone(),
+            handler,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct StateStoreMetrics {
@@ -300,12 +365,10 @@ pub struct StateStoreMetrics {
     pub driver_deletes: Counter<u64>,
     pub driver_commits: Counter<u64>,
     pub driver_commits_errors: Counter<u64>,
-}
-
-impl Default for StateStoreMetrics {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub state_write_persistent_storage: Histogram<f64>,
+    pub state_write_in_memory: Histogram<f64>,
+    pub state_write_executor_notify: Histogram<f64>,
+    pub state_write_request_state_change: Histogram<f64>,
 }
 
 impl StateStoreMetrics {
@@ -363,6 +426,34 @@ impl StateStoreMetrics {
             .with_description("Number of state driver commit errors")
             .build();
 
+        let state_write_persistent_storage = meter
+            .f64_histogram("indexify.state_machine_write_persistent_storage_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("RocksDB transaction commit latency in seconds")
+            .build();
+
+        let state_write_in_memory = meter
+            .f64_histogram("indexify.state_machine_write_in_memory_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("In-memory state update latency in seconds")
+            .build();
+
+        let state_write_executor_notify = meter
+            .f64_histogram("indexify.state_machine_write_executor_notify_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Executor state change notification latency in seconds")
+            .build();
+
+        let state_write_request_state_change = meter
+            .f64_histogram("indexify.state_machine_write_request_state_change_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Request state change update latency in seconds")
+            .build();
+
         Self {
             state_write,
             state_read,
@@ -373,6 +464,10 @@ impl StateStoreMetrics {
             driver_deletes,
             driver_commits,
             driver_commits_errors,
+            state_write_persistent_storage,
+            state_write_in_memory,
+            state_write_executor_notify,
+            state_write_request_state_change,
         }
     }
 }
