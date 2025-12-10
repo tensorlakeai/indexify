@@ -45,7 +45,7 @@ pub struct FunctionExecutorController {
 }
 
 impl FunctionExecutorController {
-    pub fn new(
+    pub async fn new(
         executor_id: String,
         fe_description: FunctionExecutorDescription,
         fe_server_factory: SubprocessFunctionExecutorServerFactory,
@@ -55,18 +55,19 @@ impl FunctionExecutorController {
         blob_store: BlobStore,
         cache_path: PathBuf,
     ) -> Self {
-        let fe = fe_server_factory.create_function_executor(
+        let fe = create_function_executor(
             executor_id.clone(),
             fe_description.clone(),
             channel_manager.clone(),
             state_reconciler.clone(),
             blob_store.clone(),
             cache_path.clone(),
-        );
+        )
+        .await;
 
         Self {
             executor_id,
-            fe_description,
+            fe_description: fe_description.clone(),
             fe_server_factory,
             channel_manager,
             state_reporter,
@@ -92,7 +93,7 @@ impl FunctionExecutorController {
         &self.fe_description.id()
     }
 
-    pub fn add_allocation(&mut self, allocation: Allocation) {
+    pub fn add_allocation(&mut self, _allocation: Allocation) {
         // TODO
     }
 
@@ -108,4 +109,15 @@ impl FunctionExecutorController {
             alloc_info.is_cancelled = true;
         }
     }
+}
+
+async fn create_function_executor(
+    _executor_id: String,
+    _fe_description: FunctionExecutorDescription,
+    _channel_manager: Arc<ChannelManager>,
+    _state_reconciler: Arc<ExecutorStateReconciler>,
+    _blob_store: BlobStore,
+    _cache_path: PathBuf,
+) -> FunctionExecutor {
+    todo!()
 }

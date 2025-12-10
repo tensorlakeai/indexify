@@ -317,7 +317,7 @@ impl AllocationRunner {
             .channel()
             .ok_or("Channel is None")?
             .clone();
-        let inputs = if let Some(input) = self.alloc_info.input {
+        let inputs = if let Some(input) = self.alloc_info.clone().input {
             Some(input.function_inputs.clone())
         } else {
             None
@@ -353,7 +353,7 @@ impl AllocationRunner {
             .into_inner();
 
         let mut previous_progress: Option<AllocationProgress> = None;
-        let mut allocation_result: Option<AllocationResult> = None;
+        let allocation_result: Option<AllocationResult> = None;
         let mut deadline = Instant::now() + no_progress_timeout;
 
         loop {
@@ -363,10 +363,10 @@ impl AllocationRunner {
                 Ok(Ok(Some(state))) => state,
                 Ok(Ok(None)) => break, // EOF
                 Ok(Err(e)) => {
-                    return Err(AllocationError::FailedLeavingFEInUndefinedState(e));
+                    return Err(Box::new(e));
                 }
                 Err(_) => {
-                    return Err(AllocationError::Timeout);
+                    return Err("Allocation timeout".into());
                 }
             };
 
@@ -381,8 +381,10 @@ impl AllocationRunner {
                 HashMap::new();
             for output_blob_request in response.output_blob_requests {
                 // TODO: validate fe output blob req
-                fe_output_blob_requests
-                    .insert(output_blob_request.id().to_string(), output_blob_request);
+                fe_output_blob_requests.insert(
+                    output_blob_request.id().to_string(),
+                    output_blob_request.clone(),
+                );
                 if !self
                     .pending_output_blobs
                     .contains_key(output_blob_request.id())
@@ -404,9 +406,9 @@ impl AllocationRunner {
             }
             let mut fe_function_calls: HashMap<String, AllocationFunctionCall> = HashMap::new();
             for function_call in response.function_calls {
-                if let Some(updates) = function_call.updates {
+                if let Some(updates) = function_call.clone().updates {
                     if let Some(root_function_call_id) = updates.root_function_call_id {
-                        fe_function_calls.insert(root_function_call_id, function_call);
+                        fe_function_calls.insert(root_function_call_id, function_call.clone());
                     }
                 }
                 if let Some(args_blob) = function_call.args_blob {
@@ -460,19 +462,19 @@ impl AllocationRunner {
 
         if let Some(result) = &allocation_result {
             if let Some(uploaded_blob) = &result.uploaded_function_outputs_blob {
-                let blob_id = match uploaded_blob.id {
+                let blob_id = match uploaded_blob.clone().id {
                     Some(id) => id,
-                    None => return Err(AllocationError::OutputBlobNotFound),
+                    None => return Err("Failed to parse output blob id".into()),
                 };
-                let blob_info = self.pending_output_blobs.get(&blob_id).ok_or(|| {
+                let blob_info = self.pending_output_blobs.get(&blob_id).ok_or({
                     info!("failing allocation because its outputs blob is not found");
-                    Err(AllocationError::OutputBlobNotFound)
+                    "Output blob not found"
                 })?;
 
                 function_outputs_blob_uri = Some(blob_info.uri.clone());
 
                 let mut parts_etag: Vec<String> = Vec::new();
-                for blob_chunk in uploaded_blob.chunks {
+                for blob_chunk in uploaded_blob.clone().chunks {
                     parts_etag.push(blob_chunk.etag().to_string())
                 }
                 self.blob_store
@@ -614,57 +616,4 @@ fn to_server_function_call(
         });
     }
     None
-}
-
-enum AllocationError {
-    NotFound,
-    InvalidEncoding,
-    InvalidContentType,
-    InvalidMetadataSize,
-    InvalidOffset,
-    InvalidSize,
-    InvalidSha256Hash,
-    InvalidSourceFunctionCallId,
-}
-
-impl std::error::Error for AllocationError {}
-
-impl std::fmt::Display for AllocationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            AllocationError::NotFound => write!(f, "allocation not found"),
-            AllocationError::InvalidEncoding => write!(f, "invalid encoding"),
-            AllocationError::InvalidContentType => write!(f, "invalid content type"),
-            AllocationError::InvalidMetadataSize => write!(f, "invalid metadata size"),
-            AllocationError::InvalidOffset => write!(f, "invalid offset"),
-            AllocationError::InvalidSize => write!(f, "invalid size"),
-            AllocationError::InvalidSha256Hash => write!(f, "invalid sha256 hash"),
-            AllocationError::InvalidSourceFunctionCallId => {
-                write!(f, "invalid source function call id")
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for AllocationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            AllocationError::NotFound => write!(f, "allocation not found"),
-            AllocationError::InvalidEncoding => write!(f, "invalid encoding"),
-            AllocationError::InvalidContentType => write!(f, "invalid content type"),
-            AllocationError::InvalidMetadataSize => write!(f, "invalid metadata size"),
-            AllocationError::InvalidOffset => write!(f, "invalid offset"),
-            AllocationError::InvalidSize => write!(f, "invalid size"),
-            AllocationError::InvalidSha256Hash => write!(f, "invalid sha256 hash"),
-            AllocationError::InvalidSourceFunctionCallId => {
-                write!(f, "invalid source function call id")
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for Allocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Allocation {{ id: {}, size: {} }}", self.id, self.size)
-    }
 }

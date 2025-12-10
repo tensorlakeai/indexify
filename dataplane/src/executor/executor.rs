@@ -40,7 +40,6 @@ impl Executor {
         function_uris: Vec<String>,
         // TODO: use trait here
         function_executor_server_factory: SubprocessFunctionExecutorServerFactory,
-        server_addr: String,
         grpc_server_addr: String,
         config_path: Option<String>,
         monitoring_server_host: String,
