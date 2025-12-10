@@ -28,25 +28,30 @@ pub mod registry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobStorageConfig {
+    #[serde(default = "default_blob_store_path")]
     pub path: String,
+    #[serde(default)]
     pub region: Option<String>,
 }
 
 impl Default for BlobStorageConfig {
     fn default() -> Self {
-        let blob_store_path = format!(
-            "file://{}",
-            env::current_dir()
-                .expect("unable to get current directory")
-                .join("indexify_storage/blobs")
-                .to_str()
-                .expect("unable to get path as string")
-        );
         BlobStorageConfig {
-            path: blob_store_path,
+            path: default_blob_store_path(),
             region: None,
         }
     }
+}
+
+fn default_blob_store_path() -> String {
+    format!(
+        "file://{}",
+        env::current_dir()
+            .expect("unable to get current directory")
+            .join("indexify_storage/blobs")
+            .to_str()
+            .expect("unable to get path as string")
+    )
 }
 
 #[derive(Debug, Clone)]

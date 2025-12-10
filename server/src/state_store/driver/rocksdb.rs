@@ -17,6 +17,7 @@ use rocksdb::{
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use tracing::{error, warn};
 
 use crate::{
@@ -49,56 +50,73 @@ impl Error {
     }
 }
 
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RocksDBConfig {
     /// Create if missing
+    #[serde_inline_default(true)]
     pub create_if_missing: bool,
 
     /// Create missing column families
+    #[serde_inline_default(true)]
     pub create_missing_column_families: bool,
 
     /// The number of threads to start for flushing and compaction
+    #[serde_inline_default(1)]
     pub thread_count: i32,
 
     /// The maximum number of threads to use for flushing and compaction
+    #[serde_inline_default(2)]
     pub jobs_count: i32,
 
     /// The maximum number of write buffers which can be used
+    #[serde_inline_default(2)]
     pub max_write_buffer_number: i32,
 
     /// The amount of data each write buffer can build up in memory (in bytes)
+    #[serde_inline_default(32 * 1024 * 1024)] // 32 MiB
     pub write_buffer_size: usize,
 
     /// The write-ahead-log size threshold to trigger archived WAL deletion (in
     /// bytes)
+    #[serde_inline_default(0)]
     pub wal_size_limit: u64,
 
     /// The total max write-ahead-log size before column family flushes (in
     /// bytes)
+    #[serde_inline_default(1024 * 1024 * 1024)] // 1 GiB
     pub max_total_wal_size: u64,
 
     /// The target file size for compaction (in bytes)
+    #[serde_inline_default(64 * 1024 * 1024)] // 64 MiB
     pub target_file_size_base: u64,
 
     /// The target file size multiplier for each compaction level
+    #[serde_inline_default(2)]
     pub target_file_size_multiplier: i32,
 
     /// The number of files needed to trigger level 0 compaction
+    #[serde_inline_default(4)]
     pub level_zero_file_compaction_trigger: i32,
 
     /// The maximum number threads which will perform compactions
+    #[serde_inline_default(4)]
     pub max_concurrent_subcompactions: u32,
 
     /// Whether to use separate queues for WAL writes and memtable writes
+    #[serde_inline_default(true)]
     pub enable_pipelined_writes: bool,
 
     /// The maximum number of information log files to keep
+    #[serde_inline_default(10)]
     pub keep_log_file_num: usize,
 
     /// The information log level of the RocksDB library
+    #[serde_inline_default("warn".to_string())]
     pub log_level: String,
 
     /// Database compaction style
+    #[serde_inline_default("level".to_string())]
     pub compaction_style: String,
 }
 
