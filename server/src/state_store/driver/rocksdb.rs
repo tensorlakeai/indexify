@@ -492,7 +492,7 @@ pub(crate) struct RocksDBTransaction {
 impl super::InnerTransaction for RocksDBTransaction {
     async fn commit(&self) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
-        Increment::inc(&self.db.metrics.driver_commits, attrs);
+        let _inc = Increment::inc(&self.db.metrics.driver_commits, attrs);
 
         let mut guard = self.tx.lock().await;
         let tx = guard.take().expect("Transaction not initialized");
