@@ -1174,8 +1174,8 @@ pub struct FunctionURI {
     pub version: String,
 }
 
-impl From<FunctionExecutorServerMetadata> for FunctionURI {
-    fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
+impl From<&FunctionExecutorServerMetadata> for FunctionURI {
+    fn from(fe_meta: &FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
             application: fe_meta.function_executor.application_name.clone(),
@@ -1185,9 +1185,14 @@ impl From<FunctionExecutorServerMetadata> for FunctionURI {
     }
 }
 
-impl From<Box<FunctionExecutorServerMetadata>> for FunctionURI {
-    fn from(fe_meta: Box<FunctionExecutorServerMetadata>) -> Self {
-        FunctionURI::from(*fe_meta)
+impl From<&Box<FunctionExecutorServerMetadata>> for FunctionURI {
+    fn from(fe_meta: &Box<FunctionExecutorServerMetadata>) -> Self {
+        FunctionURI {
+            namespace: fe_meta.function_executor.namespace.clone(),
+            application: fe_meta.function_executor.application_name.clone(),
+            function: fe_meta.function_executor.function_name.clone(),
+            version: fe_meta.function_executor.version.clone(),
+        }
     }
 }
 
