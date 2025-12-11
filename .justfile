@@ -9,6 +9,15 @@ nightly-toolchain:
     rustup toolchain install nightly
     rustup component add --toolchain nightly rustfmt
 
+[doc('Install the necessary tools to build and test Indexify')]
+install-tools: && nightly-toolchain
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    uv venv --allow-existing
+    uv tool install poetry
+    cargo binstall -V > /dev/null || cargo install cargo-binstall
+    cargo binstall cargo-nextest --locked --secure --no-confirm
+    cargo binstall cargo-flamegraph --locked --secure --no-confirm
+
 [doc('Reformat Rust components')]
 fmt-rust: nightly-toolchain
     rustup run nightly cargo fmt
@@ -73,7 +82,7 @@ clean: clean-rust
 
 [doc('Test Rust components')]
 test-rust:
-    cargo test --workspace -- --test-threads 1
+    cargo nextest run
 
 [doc('Test Indexify')]
 [working-directory: 'indexify/tests']
@@ -96,6 +105,10 @@ run-server:
 run-server-with-console:
     RUSTFLAGS="--cfg tokio_unstable" cargo run -p indexify-server --features console-subscriber
 
+[doc('Run a local Indexify server capturing flamegraphs')]
+run-server-with-flamegraph:
+    cargo flamegraph -p indexify-server
+
 [doc('Run a dev Indexify executor')]
 [working-directory: 'indexify']
 run-executor:
@@ -111,18 +124,15 @@ lint-fix:
 
 [doc('Run Jaeger to collect traces locally')]
 run-jaeger:
-    docker run -d --name jaeger \
-        -e COLLECTOR_OTLP_ENABLED=true \
-        -e COLLECTOR_OTLP_GRPC_HOST_PORT=0.0.0.0:4317 \
-        -p 6831:6831/udp \
-        -p 6832:6832/udp \
-        -p 5778:5778 \
-        -p 16686:16686 \
-        -p 4317:4317 \
-        -p 4318:4318 \
-        -p 14250:14250 \
-        -p 14268:14268 \
-        -p 14269:14269 \
-        -p 9411:9411 \
-        jaegertracing/all-in-one:latest \
-        --set=receivers.otlp.protocols.grpc.endpoint="0.0.0.0:4317"
+    docker run -d --rm --name jaeger \
+      -p 16686:16686 \
+      -p 4317:4317 \
+      -p 4318:4318 \
+      -p 5778:5778 \
+      -p 9411:9411 \
+      cr.jaegertracing.io/jaegertracing/jaeger:2.13.0
+
+[doc('Run Tensorlake benchmarks')]
+[working-directory: 'indexify']
+run-tl-benchmarks:
+    poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
