@@ -222,47 +222,47 @@ pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
 
-    pub namespaces: im::HashMap<String, Box<Namespace>>,
+    pub namespaces: imbl::HashMap<String, Box<Namespace>>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub applications: im::HashMap<String, Box<Application>>,
+    pub applications: imbl::HashMap<String, Box<Application>>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub application_versions: im::OrdMap<String, Box<ApplicationVersion>>,
+    pub application_versions: imbl::OrdMap<String, Box<ApplicationVersion>>,
 
     // ExecutorId -> ExecutorMetadata
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
-    pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
+    pub executors: imbl::HashMap<ExecutorId, Box<ExecutorMetadata>>,
 
     // ExecutorId -> (FE ID -> List of Function Executors)
-    pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
 
-    pub function_executors_by_fn_uri: im::HashMap<
+    pub function_executors_by_fn_uri: imbl::HashMap<
         FunctionURI,
-        im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+        imbl::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
 
     // ExecutorId -> (FE ID -> List of Allocations)
     #[allow(clippy::vec_box)]
     pub allocations_by_executor:
-        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
+        imbl::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
 
     // TaskKey -> Task
-    pub unallocated_function_runs: im::OrdSet<FunctionRunKey>,
+    pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
 
     // Function Run Key -> Function Run
-    pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
+    pub function_runs: imbl::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
     // Request Context
-    pub request_ctx: im::OrdMap<RequestCtxKey, Box<RequestCtx>>,
+    pub request_ctx: imbl::OrdMap<RequestCtxKey, Box<RequestCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
 
     // Index: Executor Catalog Entry Name -> Set of Function Run Keys
     // Maps executor catalog entry names to function runs that match those catalog entry labels
-    pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
+    pub function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>>,
 
     // Histogram metrics for task latency measurements for direct recording
     metrics: InMemoryStoreMetrics,
@@ -491,8 +491,8 @@ impl InMemoryState {
         let metrics = InMemoryStoreMetrics::new();
 
         // Creating Namespaces
-        let mut namespaces = im::HashMap::new();
-        let mut applications = im::HashMap::new();
+        let mut namespaces = imbl::HashMap::new();
+        let mut applications = imbl::HashMap::new();
         {
             let all_ns = reader.get_all_namespaces().await?;
             for ns in &all_ns {
@@ -507,7 +507,7 @@ impl InMemoryState {
             }
         }
 
-        let mut application_versions = im::OrdMap::new();
+        let mut application_versions = imbl::OrdMap::new();
         {
             let all_cg_versions: Vec<(String, ApplicationVersion)> = reader
                 .get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)
@@ -517,10 +517,10 @@ impl InMemoryState {
             }
         }
         // Creating Allocated Tasks By Function by Executor
-        let mut allocations_by_executor: im::HashMap<
+        let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
             HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
-        > = im::HashMap::new();
+        > = imbl::HashMap::new();
         {
             let (allocations, _) = reader
                 .get_rows_from_cf_with_limits::<Allocation>(
@@ -543,7 +543,7 @@ impl InMemoryState {
             }
         }
 
-        let mut request_ctx = im::OrdMap::new();
+        let mut request_ctx = imbl::OrdMap::new();
         {
             let all_app_request_ctx: Vec<(String, RequestCtx)> = reader
                 .get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)
@@ -557,8 +557,8 @@ impl InMemoryState {
             }
         }
 
-        let mut function_runs = im::OrdMap::new();
-        let mut unallocated_function_runs = im::OrdSet::new();
+        let mut function_runs = imbl::OrdMap::new();
+        let mut unallocated_function_runs = imbl::OrdSet::new();
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
                 if function_run.status == FunctionRunStatus::Pending {
@@ -569,22 +569,22 @@ impl InMemoryState {
         }
 
         // Build the index of function runs by catalog entry
-        let function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>> =
-            im::HashMap::new();
+        let function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>> =
+            imbl::HashMap::new();
 
         let mut in_memory_state = Self {
             clock,
             namespaces,
             applications,
             application_versions,
-            executors: im::HashMap::new(),
+            executors: imbl::HashMap::new(),
             function_runs,
             unallocated_function_runs,
             request_ctx,
             allocations_by_executor,
             // function executors by executor are not known at startup
-            executor_states: im::HashMap::new(),
-            function_executors_by_fn_uri: im::HashMap::new(),
+            executor_states: imbl::HashMap::new(),
+            function_executors_by_fn_uri: imbl::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
             metrics,
@@ -686,7 +686,8 @@ impl InMemoryState {
                                     ctx.function_runs
                                         .insert(function_run.id.clone(), function_run.clone());
                                 }
-                                self.function_runs
+                                let _ = self
+                                    .function_runs
                                     .entry(FunctionRunKey(function_run.key()))
                                     .and_modify(|existing_function_run| {
                                         *existing_function_run = Box::new(function_run.clone());
@@ -987,7 +988,8 @@ impl InMemoryState {
                 for allocation_output in &req.allocation_outputs {
                     // Remove the allocation
                     {
-                        self.allocations_by_executor
+                        let _ = self
+                            .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
                                 // TODO: This can be optimized by keeping a new index of task_id to
@@ -1643,7 +1645,8 @@ impl InMemoryState {
 
         // Remove from all catalog entries
         for catalog_entry in &self.executor_catalog.entries {
-            self.function_runs_by_catalog_entry
+            let _ = self
+                .function_runs_by_catalog_entry
                 .entry(catalog_entry.name.clone())
                 .and_modify(|run_keys| {
                     run_keys.remove(&function_run_key);
@@ -1711,19 +1714,19 @@ mod test_helpers {
         fn default() -> Self {
             Self {
                 clock: 0,
-                namespaces: im::HashMap::new(),
-                applications: im::HashMap::new(),
-                application_versions: im::OrdMap::new(),
-                executors: im::HashMap::new(),
-                executor_states: im::HashMap::new(),
-                function_executors_by_fn_uri: im::HashMap::new(),
-                allocations_by_executor: im::HashMap::new(),
-                request_ctx: im::OrdMap::new(),
+                namespaces: imbl::HashMap::new(),
+                applications: imbl::HashMap::new(),
+                application_versions: imbl::OrdMap::new(),
+                executors: imbl::HashMap::new(),
+                executor_states: imbl::HashMap::new(),
+                function_executors_by_fn_uri: imbl::HashMap::new(),
+                allocations_by_executor: imbl::HashMap::new(),
+                request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
-                function_runs_by_catalog_entry: im::HashMap::new(),
+                function_runs_by_catalog_entry: imbl::HashMap::new(),
                 metrics: InMemoryStoreMetrics::new(),
-                function_runs: im::OrdMap::new(),
-                unallocated_function_runs: im::OrdSet::new(),
+                function_runs: imbl::OrdMap::new(),
+                unallocated_function_runs: imbl::OrdSet::new(),
             }
         }
     }
@@ -2239,7 +2242,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut application_versions = im::OrdMap::new();
+        let mut application_versions = imbl::OrdMap::new();
         application_versions.insert(app_version.key(), Box::new(app_version));
 
         // Create function runs
@@ -2248,7 +2251,7 @@ mod tests {
         let fn_run_gpu =
             create_test_function_run("test-ns", "test-app", "req-3", "gpu_task", "1.0");
 
-        let mut function_runs = im::OrdMap::new();
+        let mut function_runs = imbl::OrdMap::new();
         function_runs.insert(
             FunctionRunKey(fn_run_light.key()),
             Box::new(fn_run_light.clone()),
