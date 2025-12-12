@@ -20,7 +20,7 @@ impl InstanceRequestSpan {
 impl<B> MakeSpan<B> for InstanceRequestSpan {
     fn make_span(&mut self, _: &Request<B>) -> Span {
         tracing::info_span!(
-            "Indexify instance request",
+            "request",
             env = %self.env,
             instance_id = %self.instance_id,
         )
