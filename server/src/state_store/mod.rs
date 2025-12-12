@@ -195,7 +195,8 @@ impl IndexifyState {
             .await?,
         ));
 
-        // Create observable gauge for total executors with callback that reads from in_memory_state
+        // Create observable gauge for total executors with callback that reads from
+        // in_memory_state
         let meter = opentelemetry::global::meter("state_store");
         let indexes_weak = Arc::downgrade(&indexes);
         let total_executors_gauge = meter
