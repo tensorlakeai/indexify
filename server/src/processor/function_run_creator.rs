@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tracing::{error, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::{
     data_model::{
@@ -125,6 +125,13 @@ impl FunctionRunCreator {
         in_memory_state: &mut InMemoryState,
         alloc_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<SchedulerUpdateRequest> {
+        info!(
+            namespace = alloc_finished_event.namespace,
+            application = alloc_finished_event.application,
+            request_id = alloc_finished_event.request_id,
+            function = alloc_finished_event.function,
+            "handling allocation ingestion",
+        );
         let Some(mut request_ctx) = in_memory_state
             .request_ctx
             .get(

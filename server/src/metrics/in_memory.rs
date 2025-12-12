@@ -7,7 +7,6 @@ pub struct InMemoryStoreMetrics {
     pub function_run_pending_latency: Histogram<f64>,
     pub allocation_running_latency: Histogram<f64>,
     pub allocation_completion_latency: Histogram<f64>,
-
     pub scheduler_update_push_allocation_to_executors: Histogram<f64>,
     pub scheduler_update_index_function_run_by_catalog: Histogram<f64>,
     pub scheduler_update_delete_requests: Histogram<f64>,

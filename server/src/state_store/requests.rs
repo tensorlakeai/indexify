@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use tracing::info;
 
 use crate::{
     data_model::{
@@ -113,6 +114,15 @@ impl SchedulerUpdateRequest {
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
+        info!(
+            allocation_id = allocation.id.to_string(),
+            request_id = allocation.request_id.clone(),
+            namespace = allocation.namespace.clone(),
+            app = allocation.application.clone(),
+            fn = allocation.function.clone(),
+            fn_executor_id = allocation.target.function_executor_id.to_string(),
+            "cancelling allocation",
+        );
         allocation.outcome =
             FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
         self.updated_allocations.push(allocation.clone());
