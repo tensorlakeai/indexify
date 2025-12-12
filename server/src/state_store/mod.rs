@@ -9,8 +9,8 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use in_memory_state::{InMemoryMetrics, InMemoryState};
-use opentelemetry::KeyValue;
+use in_memory_state::InMemoryState;
+use opentelemetry::{KeyValue, metrics::ObservableGauge};
 use request_events::RequestStateChangeEvent;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
@@ -107,8 +107,6 @@ pub struct IndexifyState {
     pub usage_event_id_seq: Arc<AtomicU64>,
 
     pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
-    pub gc_tx: watch::Sender<()>,
-    pub gc_rx: watch::Receiver<()>,
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
@@ -117,10 +115,11 @@ pub struct IndexifyState {
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
-    _in_memory_state_metrics: InMemoryMetrics,
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
     pub cloud_events_exporter: Option<CloudEventsExporter>,
+    // Observable gauge for tracking total executors - must be kept alive for callback to fire
+    _total_executors_gauge: ObservableGauge<u64>,
 }
 
 pub(crate) fn open_database<I>(
@@ -183,7 +182,6 @@ impl IndexifyState {
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
 
-        let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
@@ -196,7 +194,24 @@ impl IndexifyState {
             )
             .await?,
         ));
-        let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
+
+        // Create observable gauge for total executors with callback that reads from
+        // in_memory_state
+        let meter = opentelemetry::global::meter("state_store");
+        let indexes_weak = Arc::downgrade(&indexes);
+        let total_executors_gauge = meter
+            .u64_observable_gauge("indexify.total_executors")
+            .with_description("Total number of executors")
+            .with_callback(move |observer| {
+                if let Some(in_memory_state) = indexes_weak.upgrade() {
+                    // Use try_read to avoid blocking the metrics collection thread
+                    if let Ok(state) = in_memory_state.try_read() {
+                        observer.observe(state.executors.len() as u64, &[]);
+                    }
+                }
+            })
+            .build();
+
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
@@ -204,10 +219,7 @@ impl IndexifyState {
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
-            gc_tx,
-            gc_rx,
             metrics: state_store_metrics,
-            _in_memory_state_metrics: in_memory_state_metrics,
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
@@ -215,6 +227,7 @@ impl IndexifyState {
             usage_events_rx,
             executor_watches: ExecutorWatches::new(),
             cloud_events_exporter,
+            _total_executors_gauge: total_executors_gauge,
         });
 
         info!(
@@ -232,10 +245,6 @@ impl IndexifyState {
         Ok(s)
     }
 
-    pub fn get_gc_watcher(&self) -> tokio::sync::watch::Receiver<()> {
-        self.gc_rx.clone()
-    }
-
     #[tracing::instrument(
         skip(self, request),
         fields(
@@ -247,7 +256,7 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
 
-        let write_result = self.write_in_persiste_store(&request, timer_kv).await?;
+        let write_result = self.write_in_persistent_store(&request, timer_kv).await?;
 
         let mut changed_executors = {
             let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
@@ -291,33 +300,26 @@ impl IndexifyState {
             }
         }
 
-        if !write_result.new_state_changes.is_empty() &&
-            let Err(err) = self.change_events_tx.send(())
         {
-            error!("failed to notify of state change event, ignoring: {err:?}",);
-        }
+            let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
+            if !write_result.new_state_changes.is_empty() &&
+                let Err(err) = self.change_events_tx.send(())
+            {
+                error!("failed to notify of state change event, ignoring: {err:?}",);
+            }
 
-        if write_result.should_notify_usage_reporter &&
-            let Err(err) = self.usage_events_tx.send(())
-        {
-            error!("failed to notify of usage event, ignoring: {err:?}",);
+            if write_result.should_notify_usage_reporter &&
+                let Err(err) = self.usage_events_tx.send(())
+            {
+                error!("failed to notify of usage event, ignoring: {err:?}",);
+            }
         }
 
         self.handle_request_state_changes(&request, timer_kv).await;
-        // This needs to be after the transaction is committed because if the gc
-        // runs before the gc urls are written, the gc process will not see the
-        // urls.
-        match &request.payload {
-            RequestPayload::DeleteApplicationRequest(_) |
-            RequestPayload::DeleteRequestRequest(_) => {
-                self.gc_tx.send(()).unwrap();
-            }
-            _ => {}
-        }
         Ok(())
     }
 
-    async fn write_in_persiste_store(
+    async fn write_in_persistent_store(
         &self,
         request: &StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
@@ -377,6 +379,7 @@ impl IndexifyState {
                         app = allocation_output.allocation.application.as_str(),
                         fn = allocation_output.allocation.function.as_str(),
                         allocation_id = allocation_output.allocation.id.to_string(),
+                        allocation_outcome = allocation_output.allocation.outcome.to_string(),
                         "upserted allocation from executor",
                     );
                     if allocation_upsert_result.create_state_change {
@@ -428,9 +431,6 @@ impl IndexifyState {
                 self.executor_watches
                     .remove_executor(request.executor_id.get())
                     .await;
-            }
-            RequestPayload::RemoveGcUrls(urls) => {
-                state_machine::remove_gc_urls(&txn, urls.clone()).await?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;

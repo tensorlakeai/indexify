@@ -372,6 +372,7 @@ pub struct StateStoreMetrics {
     pub state_write_in_memory: Histogram<f64>,
     pub state_write_executor_notify: Histogram<f64>,
     pub state_write_request_state_change: Histogram<f64>,
+    pub state_change_notify: Histogram<f64>,
 }
 
 impl StateStoreMetrics {
@@ -457,6 +458,13 @@ impl StateStoreMetrics {
             .with_description("Request state change update latency in seconds")
             .build();
 
+        let state_change_notify = meter
+            .f64_histogram("indexify.state_change_notify_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("State change notification latency in seconds")
+            .build();
+
         Self {
             state_write,
             state_read,
@@ -471,6 +479,7 @@ impl StateStoreMetrics {
             state_write_in_memory,
             state_write_executor_notify,
             state_write_request_state_change,
+            state_change_notify,
         }
     }
 }

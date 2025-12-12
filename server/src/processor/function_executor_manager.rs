@@ -277,7 +277,6 @@ impl FunctionExecutorManager {
             return Ok(update);
         }
 
-        let mut failed_function_runs = 0;
         // Handle allocations for FEs to be removed and update function runs
         for fe in function_executors_to_remove {
             info!(
@@ -360,18 +359,47 @@ impl FunctionExecutorManager {
                         &updated_alloc,
                         &application_version,
                     );
+                    info!(
+                        allocation_id = updated_alloc.id.to_string(),
+                        request_id = updated_alloc.request_id.clone(),
+                        namespace = updated_alloc.namespace.clone(),
+                        app = updated_alloc.application.clone(),
+                        fn = updated_alloc.function.clone(),
+                        fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
+                        outcome = updated_alloc.outcome.to_string(),
+                        blame_alloc_id = blame_alloc_ids.contains(&alloc.id.to_string()),
+                        "function executor terminated, updating allocation outcome",
+                    );
                     update.updated_allocations.push(updated_alloc);
-                    // Count failed function runs for logging
-                    if function_run.status == FunctionRunStatus::Completed {
-                        failed_function_runs += 1;
-                    }
                 } else {
                     // Function Executor is not terminated but getting removed. This means that
                     // we're cancelling all allocs on it. And retrying their
                     // function runs without increasing retries counters.
                     function_run.status = FunctionRunStatus::Pending;
+                    updated_alloc.outcome =
+                        FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
+                    info!(
+                        allocation_id = updated_alloc.id.to_string(),
+                        request_id = updated_alloc.request_id.clone(),
+                        namespace = updated_alloc.namespace.clone(),
+                        app = updated_alloc.application.clone(),
+                        fn = updated_alloc.function.clone(),
+                        fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
+                        outcome = updated_alloc.outcome.to_string(),
+                        "function executor is being removed, cancelling allocation",
+                    );
                     update.updated_allocations.push(updated_alloc);
                 }
+
+                info!(
+                    request_id = function_run.request_id.clone(),
+                    namespace = function_run.namespace.clone(),
+                    app = function_run.application.clone(),
+                    fn = function_run.name.clone(),
+                    status = function_run.status.to_string(),
+                    outcome = function_run.outcome.map(|o| o.to_string()),
+                    "updating function run to request context because function executor is being removed",
+                );
 
                 update.add_function_run(*function_run.clone(), &mut ctx);
 
@@ -382,13 +410,6 @@ impl FunctionExecutorManager {
                         .insert(ctx.key(), *ctx.clone());
                 }
             }
-        }
-
-        if failed_function_runs > 0 {
-            info!(
-                num_failed_allocations = failed_function_runs,
-                "failed allocations on executor due to function executor terminations",
-            );
         }
 
         // Add function executors to remove list

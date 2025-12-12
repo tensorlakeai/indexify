@@ -15,7 +15,6 @@ mod tests {
         state_store::{
             requests::{
                 CreateOrUpdateApplicationRequest,
-                DeleteApplicationRequest,
                 NamespaceRequest,
                 RequestPayload,
                 StateMachineUpdateRequest,
@@ -26,47 +25,6 @@ mod tests {
         },
         testing::{FinalizeFunctionRunArgs, TestService, allocation_key_from_proto},
     };
-
-    #[tokio::test]
-    async fn test_get_gc_urls() -> Result<()> {
-        let test_srv = TestService::new().await?;
-        let indexify_state = test_srv.service.indexify_state.clone();
-
-        // Initially, no GC URLs
-        let (urls, cursor) = indexify_state.reader().get_gc_urls(None).await?;
-        assert_eq!(urls.len(), 0);
-        assert!(cursor.is_none());
-
-        // Create an application
-        test_state_store::with_simple_application(&indexify_state).await;
-        test_srv.process_all_state_changes().await?;
-
-        // Delete the application to generate GC URLs
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TombstoneApplication(DeleteApplicationRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    name: "graph_A".to_string(),
-                }),
-            })
-            .await?;
-        test_srv.process_all_state_changes().await?;
-
-        // Now there should be GC URLs
-        let (urls, cursor) = indexify_state.reader().get_gc_urls(None).await?;
-        assert!(urls.len() > 0);
-        assert!(cursor.is_none()); // Since limit is None, all should be returned
-
-        // Test with limit
-        let limit = Some(urls.len() / 2);
-        let (limited_urls, cursor) = indexify_state.reader().get_gc_urls(limit).await?;
-        if urls.len() > 1 {
-            assert_eq!(limited_urls.len(), limit.unwrap());
-            assert!(cursor.is_some());
-        }
-
-        Ok(())
-    }
 
     #[tokio::test]
     async fn test_all_unprocessed_state_changes() -> Result<()> {
