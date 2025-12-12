@@ -52,7 +52,7 @@ _REPORT_RPC_TIMEOUT_SEC: float = 5.0
 # The larger the value then more latency we add into the system but the less load on Server.
 # Large clusters might want to use a larger value to reduce load on Server.
 _REPORT_BATCH_DELAY_MS: int = int(
-    os.getenv("INDEXIFY_STATE_REPORT_BATCH_DELAY_MS", "50")
+    os.getenv("INDEXIFY_STATE_REPORT_BATCH_DELAY_MS", "0")
 )
 
 
@@ -105,6 +105,11 @@ class ExecutorStateReporter:
             total_function_executor_resources=self._total_function_executor_resources,
         )
         self._state_report_worker: asyncio.Task | None = None
+        if _REPORT_BATCH_DELAY_MS != 0:
+            self._logger.info(
+                "state report batching enabled",
+                batch_delay_ms=_REPORT_BATCH_DELAY_MS,
+            )
 
         # Mutable fields
         self._state_report_scheduled_event: asyncio.Event = asyncio.Event()
