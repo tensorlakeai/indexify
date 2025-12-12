@@ -16,6 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
+use thiserror::Error;
 use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
@@ -38,6 +39,8 @@ use crate::{
 
 pub mod executor_watches;
 use executor_watches::ExecutorWatches;
+
+use crate::state_store::{driver::TransactionOptionsBuilder, state_machine::CreateRequestError};
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
@@ -152,6 +155,15 @@ struct PersistentWriteResult {
     new_state_changes: Vec<StateChange>,
 }
 
+#[derive(Debug, Error)]
+pub enum WriteError {
+    #[error(transparent)]
+    Error(#[from] anyhow::Error),
+
+    #[error(transparent)]
+    CreateRequest(#[from] CreateRequestError),
+}
+
 impl IndexifyState {
     pub async fn new(
         path: PathBuf,
@@ -251,7 +263,7 @@ impl IndexifyState {
             request_type = request.payload.to_string(),
         )
     )]
-    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<(), WriteError> {
         debug!("writing state machine update request: {:#?}", request);
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
@@ -323,10 +335,19 @@ impl IndexifyState {
         &self,
         request: &StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
-    ) -> Result<PersistentWriteResult> {
+    ) -> Result<PersistentWriteResult, WriteError> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
-        let txn = self.db.transaction();
+
+        let txn_opts = TransactionOptionsBuilder::default()
+            .use_snapshot(matches!(
+                request.payload,
+                RequestPayload::InvokeApplication(_)
+            ))
+            .build()
+            .map_err(anyhow::Error::from)?;
+
+        let txn = self.db.transaction(txn_opts);
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -455,7 +476,9 @@ impl IndexifyState {
             },
         )
         .await?;
-        txn.commit().await?;
+        txn.commit()
+            .await
+            .map_err(|err| WriteError::Error(err.into()))?;
 
         Ok(PersistentWriteResult {
             current_state_id,
@@ -617,19 +640,22 @@ mod tests {
     use test_state_store::TestStateStore;
 
     use super::*;
-    use crate::data_model::{
-        Application,
-        InputArgs,
-        Namespace,
-        RequestCtxBuilder,
-        StateChangeId,
-        test_objects::tests::{
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-            mock_application,
-            mock_data_payload,
-            mock_function_call,
+    use crate::{
+        data_model::{
+            Application,
+            InputArgs,
+            Namespace,
+            RequestCtxBuilder,
+            StateChangeId,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_application,
+                mock_data_payload,
+                mock_function_call,
+            },
         },
+        state_store::driver::TransactionOptions,
     };
 
     #[tokio::test]
@@ -713,7 +739,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let function_run = tests::mock_application()
             .to_version()
             .unwrap()
@@ -752,7 +778,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_1).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
@@ -761,7 +787,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_2).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeApplicationRequest {
@@ -882,7 +908,7 @@ mod tests {
     async fn _write_to_test_state_store(
         indexify_state: &Arc<IndexifyState>,
         application: Application,
-    ) -> Result<()> {
+    ) -> Result<(), WriteError> {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateApplication(Box::new(

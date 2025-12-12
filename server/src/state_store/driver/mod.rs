@@ -64,12 +64,18 @@ impl Error {
     }
 }
 
+#[derive(Builder, Default, Clone, Debug)]
+pub struct TransactionOptions {
+    #[builder(default)]
+    pub use_snapshot: bool,
+}
+
 /// Writer defines all the write operations for a given driver.
 #[async_trait]
 #[allow(dead_code)]
 pub trait Writer {
     /// Start a new Transaction in the database.
-    fn transaction(&self) -> Transaction;
+    fn transaction(&self, options: TransactionOptions) -> Transaction;
 
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
 

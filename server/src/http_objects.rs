@@ -32,7 +32,8 @@ impl IndexifyAPIError {
         Self::new(StatusCode::BAD_REQUEST, e)
     }
 
-    pub fn internal_error(e: anyhow::Error) -> Self {
+    pub fn internal_error<T: Into<anyhow::Error>>(e: T) -> Self {
+        let e: anyhow::Error = e.into();
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str())
     }
 

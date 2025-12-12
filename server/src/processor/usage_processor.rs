@@ -25,7 +25,11 @@ use crate::{
     },
     metrics::{Timer, low_latency_boundaries},
     queue::Queue,
-    state_store::{IndexifyState, driver::Writer, state_machine},
+    state_store::{
+        IndexifyState,
+        driver::{TransactionOptions, Writer},
+        state_machine,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -252,7 +256,10 @@ impl UsageProcessor {
         processed_events: Vec<AllocationUsageEvent>,
     ) -> Result<()> {
         for attempt in 1..=self.max_attempts {
-            let txn = self.indexify_state.db.transaction();
+            let txn = self
+                .indexify_state
+                .db
+                .transaction(TransactionOptions::default());
 
             if let Err(error) =
                 state_machine::remove_allocation_usage_events(&txn, processed_events.as_slice())
