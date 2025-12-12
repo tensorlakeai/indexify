@@ -32,10 +32,8 @@ def indexify_map_reduce_benchmark_api(num_maps: int) -> ReducerAccumulator:
 @function()
 def map_function(data: str) -> MappedItem:
     print(f"{time.time()}: map_function: {data}")
-    # Random delay between 0.1 and 2.0 seconds
-    delay = random.uniform(0.1, 2.0)
-    time.sleep(delay)
-    return MappedItem(data=data, delay=delay, completed_at=time.time())
+    time.sleep(1.0)
+    return MappedItem(data=data, delay=1.0, completed_at=time.time())
 
 
 @function()
