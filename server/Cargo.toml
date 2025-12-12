@@ -57,7 +57,6 @@ priority-queue = "2.6.0"
 rust-embed = { version = "8.8.0", features = ["mime-guess"] }
 pin-project-lite = "0.2.16"
 pin-project = "1.1.10"
-im = { version = "15.1.0" }
 async-trait = "0.1.89"
 rocksdb = { version = "0.24.0" }
 strum = { version = "0.27.2", features = ["derive"] }
@@ -73,6 +72,7 @@ opentelemetry-stdout = { version = "0.31.0", default-features = false, features 
 console-subscriber = { version = "0.5.0", optional = true }
 tonic-types = "0.14.2"
 tokio-util = { version = "0.7.17", features = ["rt"] }
+imbl = "6.1.0"
 
 
 [dev-dependencies]
