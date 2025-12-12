@@ -358,6 +358,7 @@ impl IndexifyState {
                         app = allocation_output.allocation.application.as_str(),
                         fn = allocation_output.allocation.function.as_str(),
                         allocation_id = allocation_output.allocation.id.to_string(),
+                        allocation_outcome = allocation_output.allocation.outcome.to_string(),
                         "upserted allocation from executor",
                     );
                     if allocation_upsert_result.create_state_change {
