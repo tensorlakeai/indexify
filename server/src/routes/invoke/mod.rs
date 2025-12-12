@@ -1,4 +1,6 @@
-use std::{collections::HashMap, time::Duration};
+mod saga;
+
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -9,6 +11,7 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
+use derive_builder::Builder;
 use futures::{Stream, StreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
@@ -27,6 +30,7 @@ use crate::{
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
+    routes::invoke::saga::InvokeApplicationSagaBuilder,
     state_store::{
         WriteError,
         request_events::RequestStateChangeEvent,
@@ -132,6 +136,11 @@ struct RequestIdV1 {
     request_id: String,
 }
 
+enum ResponseType {
+    Json,
+    Sse,
+}
+
 /// Make a request to application
 #[utoipa::path(
     post,
@@ -166,10 +175,28 @@ pub async fn invoke_application_with_object_v1(
 
     let request_id = resolve_request_id(&headers, &application)?;
 
+    let blob_storage = state.blob_storage.get_blob_store(&application.namespace);
+
+    let saga = InvokeApplicationSagaBuilder::default()
+        .blob_storage(blob_storage)
+        .request_id(request_id.clone())
+        .build()
+        .map_err(|err| IndexifyAPIError::internal_error(anyhow!("failed to build saga: {err}")))?;
+
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json");
+
+    let response_type = if accept_header.contains("application/json") {
+        ResponseType::Json
+    } else if accept_header.contains("text/event-stream") {
+        ResponseType::Sse
+    } else {
+        return Err(IndexifyAPIError::bad_request(
+            "Unsupported Accept header. Supported: application/json, text/event-stream",
+        ));
+    };
 
     let encoding = headers
         .get("Content-Type")
@@ -180,15 +207,10 @@ pub async fn invoke_application_with_object_v1(
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-    let put_result = state
-        .blob_storage
-        .get_blob_store(&namespace)
-        .put(&request_id, Box::pin(payload_stream))
+    let put_result = saga
+        .store_body(Box::pin(payload_stream))
         .await
-        .map_err(|e| {
-            error!("failed to write to blob store: {:?}", e);
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
-        })?;
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let data_payload = data_model::DataPayload {
         id: nanoid::nanoid!(),
         metadata_size: 0,
@@ -276,26 +298,29 @@ pub async fn invoke_application_with_object_v1(
             e => IndexifyAPIError::internal_error(anyhow!("failed to write: {e}")),
         })?;
 
-    if accept_header.contains("application/json") {
-        return Ok(Json(RequestIdV1 {
-            id: request_id.clone(),
-            request_id: request_id.clone(),
-        })
-        .into_response());
+    match response_type {
+        ResponseType::Json => {
+            saga.commit();
+            Ok(Json(RequestIdV1 {
+                id: request_id.clone(),
+                request_id: request_id.clone(),
+            })
+            .into_response())
+        }
+        ResponseType::Sse => {
+            return_sse_response(
+                // cloning the state is cheap because all its fields are inside arcs
+                state.clone(),
+                namespace,
+                application.name,
+                request_id,
+            )
+            .await
+            .inspect(|e| {
+                saga.commit();
+            })
+        }
     }
-    if accept_header.contains("text/event-stream") {
-        return return_sse_response(
-            // cloning the state is cheap because all its fields are inside arcs
-            state.clone(),
-            namespace,
-            application.name,
-            request_id,
-        )
-        .await;
-    }
-    Err(IndexifyAPIError::bad_request(
-        "accept header must be application/json or text/event-stream",
-    ))
 }
 
 /// Stream progress of a request until it is completed
