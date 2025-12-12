@@ -238,7 +238,7 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
 
-        let write_result = self.write_in_persiste_store(&request, timer_kv).await?;
+        let write_result = self.write_in_persistent_store(&request, timer_kv).await?;
 
         let mut changed_executors = {
             let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
@@ -282,23 +282,26 @@ impl IndexifyState {
             }
         }
 
-        if !write_result.new_state_changes.is_empty() &&
-            let Err(err) = self.change_events_tx.send(())
         {
-            error!("failed to notify of state change event, ignoring: {err:?}",);
-        }
+            let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
+            if !write_result.new_state_changes.is_empty() &&
+                let Err(err) = self.change_events_tx.send(())
+            {
+                error!("failed to notify of state change event, ignoring: {err:?}",);
+            }
 
-        if write_result.should_notify_usage_reporter &&
-            let Err(err) = self.usage_events_tx.send(())
-        {
-            error!("failed to notify of usage event, ignoring: {err:?}",);
+            if write_result.should_notify_usage_reporter &&
+                let Err(err) = self.usage_events_tx.send(())
+            {
+                error!("failed to notify of usage event, ignoring: {err:?}",);
+            }
         }
 
         self.handle_request_state_changes(&request, timer_kv).await;
         Ok(())
     }
 
-    async fn write_in_persiste_store(
+    async fn write_in_persistent_store(
         &self,
         request: &StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
