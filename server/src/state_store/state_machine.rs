@@ -100,12 +100,6 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
-    info!(
-        "creating request: namespace: {}, app: {}, request_id: {}",
-        req.namespace,
-        req.application_name,
-        req.ctx.key(),
-    );
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         req.ctx.key().as_bytes(),
