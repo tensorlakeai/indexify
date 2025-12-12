@@ -23,7 +23,16 @@ use tracing::{error, warn};
 use crate::{
     metrics::{Increment, StateStoreMetrics},
     state_store::{
-        driver::{Driver, Error as DriverError, IterOptions, Range, RangeOptions, Reader, Writer},
+        driver::{
+            Driver,
+            Error as DriverError,
+            IterOptions,
+            Range,
+            RangeOptions,
+            Reader,
+            TransactionOptions,
+            Writer,
+        },
         scanner::CursorDirection,
     },
 };
@@ -277,8 +286,12 @@ impl RocksDBDriver {
 
 #[async_trait]
 impl Writer for RocksDBDriver {
-    fn transaction(&self) -> super::Transaction {
-        let tx = self.db.transaction();
+    fn transaction(&self, options: TransactionOptions) -> super::Transaction {
+        let write_opts = rocksdb::WriteOptions::default();
+        let mut tx_opts = rocksdb::TransactionOptions::default();
+        tx_opts.set_snapshot(options.use_snapshot);
+
+        let tx = self.db.transaction_opt(&write_opts, &tx_opts);
 
         // The database reference must always outlive
         // the transaction. If it doesn't then this

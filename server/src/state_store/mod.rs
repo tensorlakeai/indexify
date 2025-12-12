@@ -40,7 +40,7 @@ use crate::{
 pub mod executor_watches;
 use executor_watches::ExecutorWatches;
 
-use crate::state_store::state_machine::CreateRequestError;
+use crate::state_store::{driver::TransactionOptionsBuilder, state_machine::CreateRequestError};
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
@@ -336,7 +336,16 @@ impl IndexifyState {
     ) -> Result<PersistentWriteResult, WriteError> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
-        let txn = self.db.transaction();
+
+        let txn_opts = TransactionOptionsBuilder::default()
+            .use_snapshot(matches!(
+                request.payload,
+                RequestPayload::InvokeApplication(_)
+            ))
+            .build()
+            .map_err(anyhow::Error::from)?;
+
+        let txn = self.db.transaction(txn_opts);
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -631,19 +640,22 @@ mod tests {
     use test_state_store::TestStateStore;
 
     use super::*;
-    use crate::data_model::{
-        Application,
-        InputArgs,
-        Namespace,
-        RequestCtxBuilder,
-        StateChangeId,
-        test_objects::tests::{
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-            mock_application,
-            mock_data_payload,
-            mock_function_call,
+    use crate::{
+        data_model::{
+            Application,
+            InputArgs,
+            Namespace,
+            RequestCtxBuilder,
+            StateChangeId,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_application,
+                mock_data_payload,
+                mock_function_call,
+            },
         },
+        state_store::driver::TransactionOptions,
     };
 
     #[tokio::test]
@@ -727,7 +739,7 @@ mod tests {
     #[tokio::test]
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let function_run = tests::mock_application()
             .to_version()
             .unwrap()
@@ -766,7 +778,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_1).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let state_change_2 = state_changes::upsert_executor(
             &indexify_state.state_change_id_seq,
             &TEST_EXECUTOR_ID.into(),
@@ -775,7 +787,7 @@ mod tests {
         state_machine::save_state_changes(&tx, &state_change_2).await?;
         tx.commit().await?;
 
-        let tx = indexify_state.db.transaction();
+        let tx = indexify_state.db.transaction(TransactionOptions::default());
         let state_change_3 = state_changes::invoke_application(
             &indexify_state.state_change_id_seq,
             &InvokeApplicationRequest {

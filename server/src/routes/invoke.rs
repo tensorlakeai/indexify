@@ -273,7 +273,7 @@ pub async fn invoke_application_with_object_v1(
             WriteError::CreateRequest(CreateRequestError::Conflict) => {
                 IndexifyAPIError::conflict(&format!("request id already exists: {request_id}"))
             }
-            e => IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")),
+            e => IndexifyAPIError::internal_error(anyhow!("failed to write: {e}")),
         })?;
 
     if accept_header.contains("application/json") {
