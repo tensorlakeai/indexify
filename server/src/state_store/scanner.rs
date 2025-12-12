@@ -12,7 +12,6 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
-        GcUrl,
         Namespace,
         RequestCtx,
         StateChange,
@@ -136,22 +135,6 @@ impl StateReader {
             .map_err(|e| anyhow::anyhow!("Deserialization error: {e}"))?;
 
         Ok(Some(result))
-    }
-
-    pub async fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "get_gc_urls")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let limit = limit.unwrap_or(usize::MAX);
-        let (urls, cursor) = self
-            .get_rows_from_cf_with_limits::<GcUrl>(
-                &[],
-                None,
-                IndexifyObjectsColumns::GcUrls,
-                Some(limit),
-            )
-            .await?;
-        Ok((urls, cursor))
     }
 
     pub async fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {

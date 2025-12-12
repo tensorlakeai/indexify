@@ -183,7 +183,7 @@ impl BlobStorage {
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))
     }
 
-    pub async fn delete(&self, key: &str) -> Result<()> {
+    pub async fn _delete(&self, key: &str) -> Result<()> {
         self.object_store
             .delete(&object_store::path::Path::from(key))
             .await?;
@@ -191,7 +191,7 @@ impl BlobStorage {
     }
 
     #[cfg(test)]
-    pub async fn read_bytes(&self, key: &str) -> Result<Bytes> {
+    pub async fn _read_bytes(&self, key: &str) -> Result<Bytes> {
         let mut reader = self.get(key, None).await?;
         let mut bytes = BytesMut::new();
         while let Some(chunk) = reader.next().await {

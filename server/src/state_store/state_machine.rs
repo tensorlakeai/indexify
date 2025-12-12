@@ -20,7 +20,6 @@ use crate::{
         Application,
         ApplicationVersion,
         ChangeType,
-        GcUrl,
         GcUrlBuilder,
         NamespaceBuilder,
         RequestCtx,
@@ -101,6 +100,12 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
+    info!(
+        "creating request: namespace: {}, app: {}, request_id: {}",
+        req.namespace,
+        req.application_name,
+        req.ctx.key(),
+    );
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         req.ctx.key().as_bytes(),
@@ -197,7 +202,7 @@ pub(crate) async fn upsert_allocation(
 
 #[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application, request_id = req.request_id))]
 pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
-    info!("Deleting request");
+    info!("deleting request");
 
     // Check if the request was deleted before the task completes
     let request_ctx_key = RequestCtx::key_from(&req.namespace, &req.application, &req.request_id);
@@ -214,7 +219,7 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
             info!(
                 request_ctx_key = &request_ctx_key,
                 request_id = &req.request_id,
-                "Request to delete not found"
+                "request to delete not found"
             );
             return Ok(());
         }
@@ -264,8 +269,7 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
     }
 
     // Delete Request Context
-    delete_cf_prefix(
-        txn,
+    txn.delete(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         request_ctx_key.as_bytes(),
     )
@@ -393,19 +397,6 @@ pub(crate) async fn create_or_update_application(
     Ok(())
 }
 
-async fn delete_cf_prefix(txn: &Transaction, cf: &str, prefix: &[u8]) -> Result<()> {
-    let iter = txn.iter(cf, prefix.to_vec()).await;
-
-    for kv in iter {
-        let (key, _) = kv?;
-        if !key.starts_with(prefix) {
-            break;
-        }
-        txn.delete(cf, &key).await?;
-    }
-    Ok(())
-}
-
 #[tracing::instrument(skip(txn), fields(namespace = namespace, name = name))]
 pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
     info!("deleting application");
@@ -461,17 +452,6 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
             .await?;
     }
 
-    Ok(())
-}
-
-pub async fn remove_gc_urls(txn: &Transaction, urls: Vec<GcUrl>) -> Result<()> {
-    for url in urls {
-        txn.delete(
-            IndexifyObjectsColumns::GcUrls.as_ref(),
-            url.key().as_bytes(),
-        )
-        .await?;
-    }
     Ok(())
 }
 

@@ -107,8 +107,6 @@ pub struct IndexifyState {
     pub usage_event_id_seq: Arc<AtomicU64>,
 
     pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
-    pub gc_tx: watch::Sender<()>,
-    pub gc_rx: watch::Receiver<()>,
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
@@ -183,7 +181,6 @@ impl IndexifyState {
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
 
-        let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
@@ -204,8 +201,6 @@ impl IndexifyState {
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
-            gc_tx,
-            gc_rx,
             metrics: state_store_metrics,
             _in_memory_state_metrics: in_memory_state_metrics,
             change_events_tx,
@@ -230,10 +225,6 @@ impl IndexifyState {
         info!(db_version = sm_meta.db_version, "db version discovered");
 
         Ok(s)
-    }
-
-    pub fn get_gc_watcher(&self) -> tokio::sync::watch::Receiver<()> {
-        self.gc_rx.clone()
     }
 
     #[tracing::instrument(
@@ -304,16 +295,6 @@ impl IndexifyState {
         }
 
         self.handle_request_state_changes(&request, timer_kv).await;
-        // This needs to be after the transaction is committed because if the gc
-        // runs before the gc urls are written, the gc process will not see the
-        // urls.
-        match &request.payload {
-            RequestPayload::DeleteApplicationRequest(_) |
-            RequestPayload::DeleteRequestRequest(_) => {
-                self.gc_tx.send(()).unwrap();
-            }
-            _ => {}
-        }
         Ok(())
     }
 
@@ -428,9 +409,6 @@ impl IndexifyState {
                 self.executor_watches
                     .remove_executor(request.executor_id.get())
                     .await;
-            }
-            RequestPayload::RemoveGcUrls(urls) => {
-                state_machine::remove_gc_urls(&txn, urls.clone()).await?;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;

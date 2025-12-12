@@ -5,11 +5,7 @@ use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
-use tokio::{
-    self,
-    signal,
-    sync::{Mutex, watch},
-};
+use tokio::{self, signal, sync::watch};
 use tonic::transport::Server;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -25,11 +21,7 @@ use crate::{
     executors::ExecutorManager,
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
-    processor::{
-        application_processor::ApplicationProcessor,
-        gc::Gc,
-        usage_processor::UsageProcessor,
-    },
+    processor::{application_processor::ApplicationProcessor, usage_processor::UsageProcessor},
     queue::Queue,
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
@@ -55,7 +47,6 @@ pub struct Service {
     pub blob_storage_registry: Arc<BlobStorageRegistry>,
     pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
-    pub gc_executor: Arc<Mutex<Gc>>,
     pub application_processor: Arc<ApplicationProcessor>,
     pub usage_processor: Arc<UsageProcessor>,
 }
@@ -113,12 +104,6 @@ impl Service {
         let executor_manager =
             ExecutorManager::new(indexify_state.clone(), blob_storage_registry.clone()).await;
 
-        let gc_executor = Arc::new(Mutex::new(Gc::new(
-            indexify_state.clone(),
-            blob_storage_registry.clone(),
-            shutdown_rx.clone(),
-        )));
-
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
@@ -140,7 +125,6 @@ impl Service {
             blob_storage_registry,
             indexify_state,
             executor_manager,
-            gc_executor,
             application_processor,
             usage_processor,
         })
@@ -148,7 +132,7 @@ impl Service {
 
     pub async fn start(&mut self) -> Result<()> {
         let span = info_span!(
-            "Initializing Service",
+            "service",
             env = self.config.env,
             "indexify-instance" = self.config.instance_id()
         );
@@ -163,7 +147,7 @@ impl Service {
         let instance_id = self.config.instance_id();
         tokio::task::spawn_blocking(move || {
             let span = info_span!(
-                "initializing application processor",
+                "application processor",
                 env,
                 "indexify-instance" = instance_id
             );
@@ -210,14 +194,6 @@ impl Service {
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
         };
-        let gc_executor = self.gc_executor.clone();
-        tokio::spawn(
-            async move {
-                let gc_executor_guard = gc_executor.lock().await;
-                gc_executor_guard.start().await;
-            }
-            .instrument(span.clone()),
-        );
 
         let handle = Handle::new();
         let handle_sh = handle.clone();
