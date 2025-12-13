@@ -258,13 +258,20 @@ impl Service {
                     )
                     .build_v1()
                     .unwrap();
+                // 4GB max message size for large execution plans
+                const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+
                 Server::builder()
                     .layer(instance_trace)
-                    .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
-                        indexify_state,
-                        executor_manager,
-                        blog_storage_registry,
-                    )))
+                    .add_service(
+                        ExecutorApiServer::new(ExecutorAPIService::new(
+                            indexify_state,
+                            executor_manager,
+                            blog_storage_registry,
+                        ))
+                        .max_decoding_message_size(MAX_MESSAGE_SIZE)
+                        .max_encoding_message_size(MAX_MESSAGE_SIZE),
+                    )
                     .add_service(reflection_service)
                     .serve_with_shutdown(addr_grpc, async move {
                         shutdown_rx.changed().await.ok();

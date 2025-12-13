@@ -1,6 +1,6 @@
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig};
+use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig, WithTonicConfig};
 use opentelemetry_sdk::{Resource, trace::TracerProviderBuilder};
 use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
 use tracing::Metadata;
@@ -61,7 +61,10 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
             );
             match tracing_exporter {
                 TracingExporter::Otlp => {
-                    let mut otlp = OtlpSpanExporter::builder().with_tonic();
+                    // Use gzip compression to reduce payload size and avoid gRPC message limits
+                    let mut otlp = OtlpSpanExporter::builder()
+                        .with_tonic()
+                        .with_compression(opentelemetry_otlp::Compression::Gzip);
                     if let Some(endpoint) = &config.telemetry.endpoint {
                         otlp = otlp.with_endpoint(endpoint);
                     }

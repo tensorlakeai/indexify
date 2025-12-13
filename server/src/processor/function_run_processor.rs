@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use opentelemetry::metrics::Histogram;
 use tracing::{debug, error, warn};
@@ -9,6 +11,7 @@ use crate::{
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionURI,
         RequestCtx,
         RequestCtxKey,
         RunningFunctionRunStatus,
@@ -68,7 +71,23 @@ impl<'a> FunctionRunProcessor<'a> {
         let _ = Timer::start_with_labels(allocate_function_runs_latency, &[]);
         let mut update = SchedulerUpdateRequest::default();
 
+        // Early exit if no executors are available - no point iterating function runs
+        if in_memory_state.executors.is_empty() {
+            return Ok(update);
+        }
+
+        // Track function URIs that have no resources available.
+        // If allocation fails for one function run due to no resources,
+        // all other runs of the same function will also fail - skip them.
+        let mut no_resources_for_fn: HashSet<FunctionURI> = HashSet::new();
+
         for function_run in function_runs {
+            // Skip if we already know there are no resources for this function
+            let fn_uri = FunctionURI::from(&function_run);
+            if no_resources_for_fn.contains(&fn_uri) {
+                continue;
+            }
+
             let Some(mut ctx) = in_memory_state
                 .request_ctx
                 .get(&function_run.clone().into())
@@ -79,6 +98,10 @@ impl<'a> FunctionRunProcessor<'a> {
 
             match self.create_allocation(in_memory_state, &function_run, &mut ctx) {
                 Ok(allocation_update) => {
+                    // If no allocation was created, mark this function as having no resources
+                    if allocation_update.new_allocations.is_empty() {
+                        no_resources_for_fn.insert(fn_uri);
+                    }
                     update.extend(allocation_update);
                 }
                 Err(err) => {
@@ -116,6 +139,8 @@ impl<'a> FunctionRunProcessor<'a> {
                                 crate::data_model::RequestFailureReason::ConstraintUnsatisfiable,
                             ));
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
+                            // Mark as unsatisfiable so we skip other runs of same function
+                            no_resources_for_fn.insert(fn_uri);
                         }
 
                         continue;
