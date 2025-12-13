@@ -1780,8 +1780,8 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
+    pub allocation: Allocation,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
