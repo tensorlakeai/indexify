@@ -20,7 +20,6 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
-    cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
@@ -107,19 +106,21 @@ pub struct IndexifyState {
 
     pub state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
+    pub request_event_id_seq: Arc<AtomicU64>,
 
     pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
+    pub request_events_tx: watch::Sender<()>,
+    pub request_events_rx: watch::Receiver<()>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
-    pub cloud_events_exporter: Option<CloudEventsExporter>,
     // Observable gauge for tracking total executors - must be kept alive for callback to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
 }
@@ -151,6 +152,7 @@ where
 struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
+    should_notify_request_events: bool,
     new_state_changes: Vec<StateChange>,
 }
 
@@ -159,7 +161,6 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
-        cloud_events_exporter: Option<CloudEventsExporter>,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -187,6 +188,7 @@ impl IndexifyState {
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+        let (request_events_tx, request_events_rx) = tokio::sync::watch::channel(());
 
         let indexes = Arc::new(RwLock::new(
             InMemoryState::new(
@@ -204,6 +206,7 @@ impl IndexifyState {
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
+            request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             metrics: state_store_metrics,
@@ -212,8 +215,9 @@ impl IndexifyState {
             in_memory_state: indexes,
             usage_events_tx,
             usage_events_rx,
+            request_events_tx,
+            request_events_rx,
             executor_watches: ExecutorWatches::new(),
-            cloud_events_exporter,
             _in_memory_store_gauges: in_memory_store_gauges,
         });
 
@@ -225,6 +229,11 @@ impl IndexifyState {
         info!(
             usage_event_id = s.usage_event_id_seq.load(atomic::Ordering::Relaxed),
             "initialized state store with last usage id",
+        );
+
+        info!(
+            request_event_id = s.request_event_id_seq.load(atomic::Ordering::Relaxed),
+            "initialized state store with last request event id",
         );
 
         info!(db_version = sm_meta.db_version, "db version discovered");
@@ -300,9 +309,14 @@ impl IndexifyState {
             {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
+
+            if write_result.should_notify_request_events &&
+                let Err(err) = self.request_events_tx.send(())
+            {
+                error!("failed to notify of request state change event, ignoring: {err:?}",);
+            }
         }
 
-        self.handle_request_state_changes(&request, timer_kv).await;
         Ok(())
     }
 
@@ -422,13 +436,27 @@ impl IndexifyState {
             state_machine::save_state_changes(&txn, &new_state_changes).await?;
         }
 
+        // Persist request state change events in the same transaction
+        let request_state_changes = self.build_request_state_change_events(request);
+        let should_notify_request_events = !request_state_changes.is_empty();
+        if should_notify_request_events {
+            state_machine::persist_request_state_change_events(
+                &txn,
+                request_state_changes,
+                &self.request_event_id_seq,
+            )
+            .await?;
+        }
+
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
+        let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);
         write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
                 last_usage_idx: current_usage_sequence_id,
+                last_request_event_idx: current_request_event_id,
                 db_version: self.db_version,
             },
         )
@@ -439,22 +467,16 @@ impl IndexifyState {
             current_state_id,
             new_state_changes,
             should_notify_usage_reporter,
+            should_notify_request_events,
         })
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn handle_request_state_changes(
+    /// Build request state change events from a state machine update request
+    fn build_request_state_change_events(
         &self,
         update_request: &StateMachineUpdateRequest,
-        timer_kv: &[KeyValue],
-    ) {
-        let _timer =
-            Timer::start_with_labels(&self.metrics.state_write_request_state_change, timer_kv);
-        if !self.events_receiver_waiting() {
-            return;
-        }
-
-        let state_changes = match &update_request.payload {
+    ) -> Vec<RequestStateChangeEvent> {
+        match &update_request.payload {
             RequestPayload::InvokeApplication(request) => {
                 vec![RequestStateChangeEvent::RequestStarted(
                     RequestStartedEvent {
@@ -527,33 +549,7 @@ impl IndexifyState {
                 changes
             }
             _ => vec![],
-        };
-
-        self.emit_request_state_change_updates(state_changes).await
-    }
-
-    async fn emit_request_state_change_updates(&self, changes: Vec<RequestStateChangeEvent>) {
-        debug!(
-            changes = changes.len(),
-            "Emitting request state change updates"
-        );
-        for change in changes {
-            if let Some(cloud_events_exporter) = &self.cloud_events_exporter {
-                cloud_events_exporter
-                    .send_request_state_change_event(&change)
-                    .await
-            }
-
-            if self.function_run_event_tx.receiver_count() > 0 &&
-                let Err(error) = self.function_run_event_tx.send(change)
-            {
-                error!(?error, "Failed to send request state change update");
-            }
         }
-    }
-
-    fn events_receiver_waiting(&self) -> bool {
-        self.function_run_event_tx.receiver_count() > 0 || self.cloud_events_exporter.is_some()
     }
 
     pub fn reader(&self) -> scanner::StateReader {
@@ -562,12 +558,6 @@ impl IndexifyState {
 
     pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
         self.function_run_event_tx.subscribe()
-    }
-
-    pub async fn shutdown(&self) {
-        if let Some(exporter) = &self.cloud_events_exporter {
-            exporter.wait_for_completion().await;
-        }
     }
 }
 
@@ -585,6 +575,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
             db_version: 0,
             last_change_idx: 0,
             last_usage_idx: 0,
+            last_request_event_idx: 0,
         }),
     }
 }

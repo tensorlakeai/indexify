@@ -30,6 +30,8 @@ pub struct StateMachineMetadata {
     pub last_change_idx: u64,
     #[serde(default)]
     pub last_usage_idx: u64,
+    #[serde(default)]
+    pub last_request_event_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]

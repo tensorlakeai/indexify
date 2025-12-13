@@ -25,7 +25,6 @@ mod tests {
             },
         },
         executors::EXECUTOR_TIMEOUT,
-        service::Service,
         state_store::{
             driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
             requests::{
@@ -81,7 +80,7 @@ mod tests {
     #[tokio::test]
     async fn test_can_process_initial_graph_state_changes() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke a simple graph
         test_state_store::with_simple_application(&indexify_state).await;
@@ -120,7 +119,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_executor_allocates_tasks() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke a simple graph
         test_state_store::with_simple_application(&indexify_state).await;
@@ -144,7 +143,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_app_request_completion() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke the app
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -297,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn test_graph_deletion_with_allocations() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the graph
         test_state_store::with_simple_application(&indexify_state).await;
@@ -344,6 +343,9 @@ mod tests {
         // verify that everything was deleted
         assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
+        // Drain request state change events before checking column counts
+        test_srv.drain_request_state_change_events().await?;
+
         // This makes sure we never leak any data on deletion!
         assert_cf_counts(
             indexify_state.db.clone(),
@@ -363,7 +365,7 @@ mod tests {
     #[tokio::test]
     async fn test_application_deletion_after_completion() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the app
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -493,6 +495,9 @@ mod tests {
             test_srv.process_all_state_changes().await?;
             assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
+            // Drain request state change events before checking column counts
+            test_srv.drain_request_state_change_events().await?;
+
             // This makes sure we never leak any data on deletion!
             assert_cf_counts(
                 indexify_state.db.clone(),
@@ -514,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn test_app_failure_on_request_error() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the application
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -590,7 +595,7 @@ mod tests {
         assert!(reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke the app
         let request_id =
@@ -722,7 +727,7 @@ mod tests {
         assert!(!reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the application
         test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
@@ -808,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn test_executor_task_reassignment() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the graph
         test_state_store::with_simple_application(&indexify_state).await;
@@ -912,7 +917,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_read_and_delete_application() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
         let _ = test_state_store::with_simple_application(&indexify_state).await;
 
         let (applications, _) = test_srv
@@ -953,7 +958,7 @@ mod tests {
     #[tokio::test]
     async fn test_disabling_app() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // create the application
         let mut app =
@@ -989,7 +994,7 @@ mod tests {
     #[tokio::test]
     async fn test_tombstone_application() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // create the application without invoking
         test_state_store::create_or_update_application(&indexify_state, "app_1", 0).await;
@@ -1030,7 +1035,7 @@ mod tests {
     #[tokio::test]
     async fn test_tombstone_request() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the application to create a request
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -1071,7 +1076,7 @@ mod tests {
     #[tokio::test]
     async fn test_upgrade_application_and_requests() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
@@ -1108,7 +1113,7 @@ mod tests {
     #[tokio::test]
     async fn test_request_failure_reason_out_of_memory() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke the app
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -1177,6 +1182,211 @@ mod tests {
             allocation.outcome,
             FunctionRunOutcome::Failure(FunctionRunFailureReason::OutOfMemory)
         );
+
+        Ok(())
+    }
+
+    /// Test that request state change events are persisted to RocksDB
+    /// and contain the expected event types as the request progresses
+    #[tokio::test]
+    async fn test_request_state_change_events_persistence() -> Result<()> {
+        use crate::state_store::request_events::RequestStateChangeEvent;
+
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Initially, no request state change events should exist
+        let (events, _) = indexify_state
+            .reader()
+            .request_state_change_events(None)
+            .await?;
+        assert!(events.is_empty(), "Expected no events initially");
+
+        // Invoke the application - this should generate RequestStarted event
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // Check that RequestStarted event was persisted
+        let (events, _) = indexify_state
+            .reader()
+            .request_state_change_events(None)
+            .await?;
+        assert!(
+            !events.is_empty(),
+            "Expected RequestStarted event to be persisted"
+        );
+
+        let has_request_started = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::RequestStarted(_)) &&
+                e.event.request_id() == request_id
+        });
+        assert!(
+            has_request_started,
+            "Expected RequestStarted event for request_id {}",
+            request_id
+        );
+
+        // Register executor and process - this should generate FunctionRunAssigned
+        let executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        let (events, _) = indexify_state
+            .reader()
+            .request_state_change_events(None)
+            .await?;
+
+        let has_function_run_assigned = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::FunctionRunAssigned(_)) &&
+                e.event.request_id() == request_id
+        });
+        assert!(
+            has_function_run_assigned,
+            "Expected FunctionRunAssigned event for request_id {}",
+            request_id
+        );
+
+        let has_function_run_created = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::FunctionRunCreated(_)) &&
+                e.event.request_id() == request_id
+        });
+        assert!(
+            has_function_run_created,
+            "Expected FunctionRunCreated event for request_id {}",
+            request_id
+        );
+
+        // Finalize the first allocation
+        {
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.allocations.len(), 1);
+            let allocation = desired_state.allocations.first().unwrap();
+            executor
+                .finalize_allocation(
+                    allocation,
+                    FinalizeFunctionRunArgs::new(
+                        allocation_key_from_proto(allocation),
+                        Some(mock_updates()),
+                        None,
+                    )
+                    .function_run_outcome(FunctionRunOutcome::Success),
+                )
+                .await?;
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // Check that FunctionRunCompleted event was persisted
+        let (events, _) = indexify_state
+            .reader()
+            .request_state_change_events(None)
+            .await?;
+
+        let has_function_run_completed = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::FunctionRunCompleted(_)) &&
+                e.event.request_id() == request_id
+        });
+        assert!(
+            has_function_run_completed,
+            "Expected FunctionRunCompleted event for request_id {}",
+            request_id
+        );
+
+        // Finalize remaining allocations (fn_b and fn_c)
+        {
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.allocations.len(), 2);
+
+            for allocation in desired_state.allocations {
+                executor
+                    .finalize_allocation(
+                        &allocation,
+                        FinalizeFunctionRunArgs::new(
+                            allocation_key_from_proto(&allocation),
+                            None,
+                            Some(mock_data_payload()),
+                        )
+                        .function_run_outcome(FunctionRunOutcome::Success),
+                    )
+                    .await?;
+            }
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // Finalize fn_d
+        {
+            let desired_state = executor.desired_state().await;
+            let allocation = desired_state.allocations.first().unwrap();
+            executor
+                .finalize_allocation(
+                    allocation,
+                    FinalizeFunctionRunArgs::new(
+                        allocation_key_from_proto(allocation),
+                        None,
+                        Some(mock_data_payload()),
+                    )
+                    .function_run_outcome(FunctionRunOutcome::Success),
+                )
+                .await?;
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // Check that RequestFinished event was persisted
+        let (events, _) = indexify_state
+            .reader()
+            .request_state_change_events(None)
+            .await?;
+
+        let has_request_finished = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::RequestFinished(_)) &&
+                e.event.request_id() == request_id
+        });
+        assert!(
+            has_request_finished,
+            "Expected RequestFinished event for request_id {}",
+            request_id
+        );
+
+        // Verify all expected event types are present
+        let event_types: HashSet<String> = events
+            .iter()
+            .filter(|e| e.event.request_id() == request_id)
+            .map(|e| e.event.message().to_string())
+            .collect();
+
+        assert!(
+            event_types.contains("Request Started"),
+            "Missing 'Request Started' event type"
+        );
+        assert!(
+            event_types.contains("Function Run Created"),
+            "Missing 'Function Run Created' event type"
+        );
+        assert!(
+            event_types.contains("Function Run Assigned"),
+            "Missing 'Function Run Assigned' event type"
+        );
+        assert!(
+            event_types.contains("Function Run Completed"),
+            "Missing 'Function Run Completed' event type"
+        );
+        assert!(
+            event_types.contains("Request Finished"),
+            "Missing 'Request Finished' event type"
+        );
+
+        // Verify events are ordered by ID (monotonically increasing)
+        let request_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.event.request_id() == request_id)
+            .collect();
+
+        for i in 1..request_events.len() {
+            assert!(
+                request_events[i].id.value() > request_events[i - 1].id.value(),
+                "Events should be monotonically ordered by ID"
+            );
+        }
 
         Ok(())
     }

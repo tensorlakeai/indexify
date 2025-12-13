@@ -5,11 +5,50 @@ use crate::{
     state_store::requests::AllocationOutput,
 };
 
+/// Unique identifier for a request state change event
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct RequestStateChangeEventId(u64);
+
+impl RequestStateChangeEventId {
+    pub fn new(seq: u64) -> Self {
+        Self(seq)
+    }
+
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for RequestStateChangeEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub trait RequestEventMetadata {
     fn namespace(&self) -> &str;
     fn application_name(&self) -> &str;
     fn application_version(&self) -> &str;
     fn request_id(&self) -> &str;
+}
+
+/// A persisted request state change event with a unique ID
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PersistedRequestStateChangeEvent {
+    pub id: RequestStateChangeEventId,
+    pub event: RequestStateChangeEvent,
+}
+
+impl PersistedRequestStateChangeEvent {
+    pub fn new(id: RequestStateChangeEventId, event: RequestStateChangeEvent) -> Self {
+        Self { id, event }
+    }
+
+    /// Generate a key for storing in RocksDB
+    /// Uses a zero-padded sequence number for proper lexicographic ordering
+    pub fn key(&self) -> String {
+        format!("{:020}", self.id.value())
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

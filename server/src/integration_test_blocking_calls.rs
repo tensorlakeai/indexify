@@ -12,7 +12,6 @@ mod tests {
                 mock_executor_metadata,
             },
         },
-        service::Service,
         state_store::{executor_watches::ExecutorWatch, test_state_store},
         testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
@@ -20,7 +19,7 @@ mod tests {
     #[tokio::test]
     async fn test_app_request_completion_blocking_calls() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke the app
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
@@ -172,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn test_executor_watches_blocking_function_calls() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Invoke the app
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
