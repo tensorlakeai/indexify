@@ -10,7 +10,6 @@ pub struct InMemoryStoreMetrics {
     pub function_run_pending_latency: Histogram<f64>,
     pub allocation_running_latency: Histogram<f64>,
     pub allocation_completion_latency: Histogram<f64>,
-    pub scheduler_update_push_allocation_to_executors: Histogram<f64>,
     pub scheduler_update_index_function_run_by_catalog: Histogram<f64>,
     pub scheduler_update_delete_requests: Histogram<f64>,
     pub scheduler_update_insert_function_executors: Histogram<f64>,
@@ -43,13 +42,6 @@ impl InMemoryStoreMetrics {
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from creation to completion")
-            .build();
-
-        let scheduler_update_push_allocation_to_executors = meter
-            .f64_histogram("indexify.scheduler_update.push_allocation_to_executors")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend pushing an allocation to executors")
             .build();
 
         let scheduler_update_index_function_run_by_catalog = meter
@@ -105,7 +97,6 @@ impl InMemoryStoreMetrics {
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
-            scheduler_update_push_allocation_to_executors,
             scheduler_update_index_function_run_by_catalog,
             scheduler_update_delete_requests,
             scheduler_update_insert_function_executors,

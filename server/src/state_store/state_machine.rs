@@ -150,10 +150,22 @@ pub(crate) async fn upsert_allocation(
         return Ok(allocation_upsert_result);
     };
     let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
-    // idempotency check guaranteeing that we emit a finalizing state change only
-    // once.
+
+    // Idempotency check: skip if allocation is already terminal
     if existing_allocation.is_terminal() {
         warn!("allocation already terminal, skipping setting outputs");
+        return Ok(allocation_upsert_result);
+    }
+
+    // Version-based optimistic locking: only update if incoming version >= existing
+    // This prevents stale updates from overwriting newer ones in race conditions
+    // (e.g., FE termination vs executor-reported outcome)
+    if allocation.vector_clock() < existing_allocation.vector_clock() {
+        warn!(
+            incoming_clock = allocation.vector_clock().value(),
+            existing_clock = existing_allocation.vector_clock().value(),
+            "allocation has stale vector clock, skipping update"
+        );
         return Ok(allocation_upsert_result);
     }
 

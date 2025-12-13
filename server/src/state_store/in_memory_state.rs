@@ -37,7 +37,6 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::Timer,
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -535,41 +534,14 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
-                {
-                    let _timer = Timer::start_with_labels(
-                        &self.metrics.scheduler_update_push_allocation_to_executors,
-                        &[],
-                    );
-                    // Remove completed allocations from allocations_by_executor
-                    for allocation in &req.updated_allocations {
-                        let _ = self
-                            .allocations_by_executor
-                            .entry(allocation.target.executor_id.clone())
-                            .and_modify(|fe_allocations| {
-                                if let Some(allocations) =
-                                    fe_allocations.get_mut(&allocation.target.function_executor_id)
-                                {
-                                    if let Some(existing_allocation) =
-                                        allocations.remove(&allocation.id)
-                                    {
-                                        // Record metrics
-                                        self.metrics.allocation_running_latency.record(
-                                            get_elapsed_time(
-                                                existing_allocation.created_at,
-                                                TimeUnit::Milliseconds,
-                                            ),
-                                            &[KeyValue::new(
-                                                "outcome",
-                                                allocation.outcome.to_string(),
-                                            )],
-                                        );
-                                    }
-                                }
-                                // Remove the function executor entry if no allocations left
-                                fe_allocations.retain(|_, f| !f.is_empty());
-                            });
-                        changed_executors.insert(allocation.target.executor_id.clone());
-                    }
+                // Note: Allocations are removed from allocations_by_executor in two places:
+                // 1. UpsertExecutor handler - when allocation output is ingested
+                // 2. remove_function_executors handling below - when FE is terminated
+                // So we don't need to remove updated_allocations here.
+
+                // Track executors with updated allocations for notification
+                for allocation in &req.updated_allocations {
+                    changed_executors.insert(allocation.target.executor_id.clone());
                 }
 
                 {
