@@ -63,6 +63,9 @@ pub enum IndexifyObjectsColumns {
 
     // State changes for applications -> Request updates
     ApplicationStateChanges,
+
+    // CF to hold the events we need to send out for observability
+    RequestStateChangeEvents,
 }
 
 pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {

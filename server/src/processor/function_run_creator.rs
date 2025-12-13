@@ -258,7 +258,6 @@ impl FunctionRunCreator {
                 function_run.request_error = Some(request_error_payload.clone());
             }
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
-            let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
             // Mark the other function runs which are still running as cancelled

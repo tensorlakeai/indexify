@@ -797,6 +797,7 @@ mod tests {
             "Stats",
             "ExecutorStateChanges",
             "ApplicationStateChanges",
+            "RequestStateChangeEvents",
         ];
 
         let columns_iter = columns
