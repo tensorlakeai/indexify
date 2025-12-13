@@ -449,10 +449,19 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
     Ok(())
 }
 
+pub struct SchedulerUpdateResult {
+    pub usage_recorded: bool,
+}
+
 pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
-) -> Result<()> {
+    usage_event_id_seq: Option<&AtomicU64>,
+) -> Result<SchedulerUpdateResult> {
+    let mut result = SchedulerUpdateResult {
+        usage_recorded: false,
+    };
+
     for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
@@ -495,10 +504,13 @@ pub(crate) async fn handle_scheduler_update(
         .await?;
     }
     for alloc in &request.updated_allocations {
-        upsert_allocation(txn, alloc, None).await?;
+        let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq).await?;
+        if upsert_result.usage_recorded {
+            result.usage_recorded = true;
+        }
     }
 
-    Ok(())
+    Ok(result)
 }
 
 pub(crate) async fn save_state_changes(

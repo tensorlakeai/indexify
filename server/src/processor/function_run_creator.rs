@@ -201,7 +201,9 @@ impl FunctionRunCreator {
         }
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
-        scheduler_update.updated_allocations.push(allocation.clone());
+        scheduler_update
+            .updated_allocations
+            .push(allocation.clone());
         function_run.output = alloc_finished_event.data_payload.clone();
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
             function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
