@@ -1,6 +1,9 @@
-use opentelemetry::metrics::Histogram;
+use std::sync::Arc;
 
-use crate::metrics::low_latency_boundaries;
+use opentelemetry::metrics::{Histogram, ObservableGauge};
+use tokio::sync::RwLock;
+
+use crate::{metrics::low_latency_boundaries, state_store::in_memory_state::InMemoryState};
 
 #[derive(Clone)]
 pub struct InMemoryStoreMetrics {
@@ -110,6 +113,66 @@ impl InMemoryStoreMetrics {
             scheduler_update_remove_function_executors,
             scheduler_update_remove_executors,
             scheduler_update_free_executor_resources,
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub struct InMemoryStoreGauges {
+    pub total_executors: ObservableGauge<u64>,
+    pub active_requests: ObservableGauge<u64>,
+    pub active_allocations: ObservableGauge<u64>,
+    pub unallocated_function_runs: ObservableGauge<u64>,
+}
+
+impl InMemoryStoreGauges {
+    pub fn new(in_memory_state: Arc<RwLock<InMemoryState>>) -> Self {
+        let meter = opentelemetry::global::meter("state_store");
+        let state_clone = in_memory_state.clone();
+        let total_executors = meter
+            .u64_observable_gauge("indexify.total_executors")
+            .with_description("Total number of executors")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.executors.len() as u64, &[]);
+                }
+            })
+            .build();
+        let state_clone = in_memory_state.clone();
+        let active_requests = meter
+            .u64_observable_gauge("indexify.active_requests")
+            .with_description("Number of active requests")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.request_ctx.len() as u64, &[]);
+                }
+            })
+            .build();
+        let state_clone = in_memory_state.clone();
+        let active_allocations = meter
+            .u64_observable_gauge("indexify.active_allocations")
+            .with_description("Number of active allocations")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.allocations_by_executor.len() as u64, &[]);
+                }
+            })
+            .build();
+        let state_clone = in_memory_state;
+        let unallocated_function_runs = meter
+            .u64_observable_gauge("indexify.unallocated_function_runs")
+            .with_description("Number of unallocated function runs")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.unallocated_function_runs.len() as u64, &[]);
+                }
+            })
+            .build();
+        Self {
+            total_executors,
+            active_requests,
+            active_allocations,
+            unallocated_function_runs,
         }
     }
 }

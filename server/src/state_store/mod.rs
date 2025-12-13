@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use in_memory_state::InMemoryState;
-use opentelemetry::{KeyValue, metrics::ObservableGauge};
+use opentelemetry::KeyValue;
 use request_events::RequestStateChangeEvent;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
@@ -31,6 +31,7 @@ use crate::{
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
+        in_memory_metrics::InMemoryStoreGauges,
         request_events::RequestStartedEvent,
         serializer::{JsonEncode, JsonEncoder},
     },
@@ -52,6 +53,7 @@ impl ExecutorCatalog {
 }
 
 pub mod driver;
+pub mod in_memory_metrics;
 pub mod in_memory_state;
 #[cfg(feature = "migrations")]
 pub mod migration_runner;
@@ -119,7 +121,7 @@ pub struct IndexifyState {
     pub executor_watches: ExecutorWatches,
     pub cloud_events_exporter: Option<CloudEventsExporter>,
     // Observable gauge for tracking total executors - must be kept alive for callback to fire
-    _total_executors_gauge: ObservableGauge<u64>,
+    _in_memory_store_gauges: InMemoryStoreGauges,
 }
 
 pub(crate) fn open_database<I>(
@@ -195,22 +197,7 @@ impl IndexifyState {
             .await?,
         ));
 
-        // Create observable gauge for total executors with callback that reads from
-        // in_memory_state
-        let meter = opentelemetry::global::meter("state_store");
-        let indexes_weak = Arc::downgrade(&indexes);
-        let total_executors_gauge = meter
-            .u64_observable_gauge("indexify.total_executors")
-            .with_description("Total number of executors")
-            .with_callback(move |observer| {
-                if let Some(in_memory_state) = indexes_weak.upgrade() {
-                    // Use try_read to avoid blocking the metrics collection thread
-                    if let Ok(state) = in_memory_state.try_read() {
-                        observer.observe(state.executors.len() as u64, &[]);
-                    }
-                }
-            })
-            .build();
+        let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
 
         let s = Arc::new(Self {
             db,
@@ -227,7 +214,7 @@ impl IndexifyState {
             usage_events_rx,
             executor_watches: ExecutorWatches::new(),
             cloud_events_exporter,
-            _total_executors_gauge: total_executors_gauge,
+            _in_memory_store_gauges: in_memory_store_gauges,
         });
 
         info!(

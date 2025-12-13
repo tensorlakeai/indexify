@@ -1,4 +1,5 @@
 use anyhow::Result;
+use opentelemetry::metrics::Histogram;
 use tracing::{debug, error, warn};
 
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
         RequestCtxKey,
         RunningFunctionRunStatus,
     },
+    metrics::Timer,
     processor::function_executor_manager::FunctionExecutorManager,
     state_store::{
         self,
@@ -36,6 +38,7 @@ impl<'a> FunctionRunProcessor<'a> {
         namespace: &str,
         application: &str,
         request_id: &str,
+        allocate_function_runs_latency: &Histogram<f64>,
     ) -> Result<SchedulerUpdateRequest> {
         let request_key = RequestCtxKey::new(namespace, application, request_id);
         let Some(request_ctx) = in_memory_state.request_ctx.get(&request_key) else {
@@ -48,7 +51,11 @@ impl<'a> FunctionRunProcessor<'a> {
             .filter(|fr| matches!(fr.status, FunctionRunStatus::Pending))
             .cloned()
             .collect();
-        self.allocate_function_runs(in_memory_state, function_runs)
+        self.allocate_function_runs(
+            in_memory_state,
+            function_runs,
+            allocate_function_runs_latency,
+        )
     }
 
     #[tracing::instrument(skip(self, in_memory_state, function_runs))]
@@ -56,7 +63,9 @@ impl<'a> FunctionRunProcessor<'a> {
         &self,
         in_memory_state: &mut InMemoryState,
         function_runs: Vec<FunctionRun>,
+        allocate_function_runs_latency: &Histogram<f64>,
     ) -> Result<SchedulerUpdateRequest> {
+        let _ = Timer::start_with_labels(allocate_function_runs_latency, &[]);
         let mut update = SchedulerUpdateRequest::default();
 
         for function_run in function_runs {

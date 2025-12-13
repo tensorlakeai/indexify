@@ -122,8 +122,6 @@ pub fn init_provider(
     Ok(())
 }
 
-pub mod in_memory;
-
 pub mod api_io_stats {
     use opentelemetry::metrics::Counter;
 

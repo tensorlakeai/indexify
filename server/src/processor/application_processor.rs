@@ -30,6 +30,8 @@ pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
+    pub handle_state_change_latency: Histogram<f64>,
+    pub allocate_function_runs_latency: Histogram<f64>,
     pub queue_size: u32,
 }
 
@@ -51,10 +53,26 @@ impl ApplicationProcessor {
             .with_description("Latency of state transitions before processing in seconds")
             .build();
 
+        let handle_state_change_latency = meter
+            .f64_histogram("indexify.handle_state_change_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of state change handling in seconds")
+            .build();
+
+        let allocate_function_runs_latency = meter
+            .f64_histogram("indexify.allocate_function_runs_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of function runs allocation in seconds")
+            .build();
+
         Self {
             indexify_state,
             state_transition_latency,
             processor_processing_latency,
+            handle_state_change_latency,
+            allocate_function_runs_latency,
             queue_size,
         }
     }
@@ -251,6 +269,11 @@ impl ApplicationProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         trace!("processing state change: {}", state_change);
+        let kvs = &[KeyValue::new(
+            "change_type",
+            state_change.change_type.to_string(),
+        )];
+        let _timer_guard = Timer::start_with_labels(&self.handle_state_change_latency, kvs);
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let mut indexes_guard = indexes.write().await;
         let clock = indexes_guard.clock;
@@ -267,10 +290,11 @@ impl ApplicationProcessor {
                     .await?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
 
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
-                );
+                scheduler_update.extend(task_allocator.allocate_function_runs(
+                    &mut indexes_guard,
+                    unallocated_function_runs,
+                    &self.allocate_function_runs_latency,
+                )?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
                         Box::new(scheduler_update),
@@ -284,6 +308,7 @@ impl ApplicationProcessor {
                     &ev.namespace,
                     &ev.application,
                     &ev.request_id,
+                    &self.allocate_function_runs_latency,
                 )?;
 
                 StateMachineUpdateRequest {
@@ -298,10 +323,11 @@ impl ApplicationProcessor {
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
-                );
+                scheduler_update.extend(task_allocator.allocate_function_runs(
+                    &mut indexes_guard,
+                    unallocated_function_runs,
+                    &self.allocate_function_runs_latency,
+                )?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
                         Box::new(scheduler_update),
@@ -313,10 +339,11 @@ impl ApplicationProcessor {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
-                );
+                scheduler_update.extend(task_allocator.allocate_function_runs(
+                    &mut indexes_guard,
+                    unallocated_function_runs,
+                    &self.allocate_function_runs_latency,
+                )?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
@@ -329,10 +356,11 @@ impl ApplicationProcessor {
                 let mut scheduler_update =
                     fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(
-                    task_allocator
-                        .allocate_function_runs(&mut indexes_guard, unallocated_function_runs)?,
-                );
+                scheduler_update.extend(task_allocator.allocate_function_runs(
+                    &mut indexes_guard,
+                    unallocated_function_runs,
+                    &self.allocate_function_runs_latency,
+                )?);
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
