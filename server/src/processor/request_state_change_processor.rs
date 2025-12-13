@@ -211,19 +211,10 @@ impl RequestStateChangeProcessor {
             }
         }
 
-        // Send to broadcast channel for in-process subscribers
-        if self.indexify_state.function_run_event_tx.receiver_count() > 0 {
-            if let Err(error) = self
-                .indexify_state
-                .function_run_event_tx
-                .send(event.event.clone())
-            {
-                error!(
-                    ?error,
-                    "Failed to send request state change event to broadcast channel"
-                );
-            }
-        }
+        let _ = self
+            .indexify_state
+            .function_run_event_tx
+            .send(event.event.clone());
 
         Ok(())
     }
