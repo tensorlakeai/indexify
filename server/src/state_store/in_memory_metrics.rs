@@ -122,6 +122,7 @@ pub struct InMemoryStoreGauges {
     pub total_executors: ObservableGauge<u64>,
     pub active_requests: ObservableGauge<u64>,
     pub active_allocations: ObservableGauge<u64>,
+    pub active_function_runs: ObservableGauge<u64>,
     pub unallocated_function_runs: ObservableGauge<u64>,
 }
 
@@ -158,7 +159,7 @@ impl InMemoryStoreGauges {
                 }
             })
             .build();
-        let state_clone = in_memory_state;
+        let state_clone = in_memory_state.clone();
         let unallocated_function_runs = meter
             .u64_observable_gauge("indexify.unallocated_function_runs")
             .with_description("Number of unallocated function runs")
@@ -168,10 +169,21 @@ impl InMemoryStoreGauges {
                 }
             })
             .build();
+        let state_clone = in_memory_state.clone();
+        let active_function_runs = meter
+            .u64_observable_gauge("indexify.active_function_runs")
+            .with_description("Number of active function runs")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.function_runs.len() as u64, &[]);
+                }
+            })
+            .build();
         Self {
             total_executors,
             active_requests,
             active_allocations,
+            active_function_runs,
             unallocated_function_runs,
         }
     }
