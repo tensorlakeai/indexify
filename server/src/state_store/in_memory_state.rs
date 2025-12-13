@@ -36,10 +36,11 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::{Timer, in_memory::InMemoryStoreMetrics},
+    metrics::Timer,
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
+        in_memory_metrics::InMemoryStoreMetrics,
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
