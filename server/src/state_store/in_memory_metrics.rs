@@ -10,7 +10,6 @@ pub struct InMemoryStoreMetrics {
     pub function_run_pending_latency: Histogram<f64>,
     pub allocation_running_latency: Histogram<f64>,
     pub allocation_completion_latency: Histogram<f64>,
-    pub scheduler_update_push_allocation_to_executors: Histogram<f64>,
     pub scheduler_update_index_function_run_by_catalog: Histogram<f64>,
     pub scheduler_update_delete_requests: Histogram<f64>,
     pub scheduler_update_insert_function_executors: Histogram<f64>,
@@ -43,13 +42,6 @@ impl InMemoryStoreMetrics {
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend from creation to completion")
-            .build();
-
-        let scheduler_update_push_allocation_to_executors = meter
-            .f64_histogram("indexify.scheduler_update.push_allocation_to_executors")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend pushing an allocation to executors")
             .build();
 
         let scheduler_update_index_function_run_by_catalog = meter
@@ -105,7 +97,6 @@ impl InMemoryStoreMetrics {
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
-            scheduler_update_push_allocation_to_executors,
             scheduler_update_index_function_run_by_catalog,
             scheduler_update_delete_requests,
             scheduler_update_insert_function_executors,
@@ -122,6 +113,7 @@ pub struct InMemoryStoreGauges {
     pub total_executors: ObservableGauge<u64>,
     pub active_requests: ObservableGauge<u64>,
     pub active_allocations: ObservableGauge<u64>,
+    pub active_function_runs: ObservableGauge<u64>,
     pub unallocated_function_runs: ObservableGauge<u64>,
 }
 
@@ -158,7 +150,7 @@ impl InMemoryStoreGauges {
                 }
             })
             .build();
-        let state_clone = in_memory_state;
+        let state_clone = in_memory_state.clone();
         let unallocated_function_runs = meter
             .u64_observable_gauge("indexify.unallocated_function_runs")
             .with_description("Number of unallocated function runs")
@@ -168,10 +160,21 @@ impl InMemoryStoreGauges {
                 }
             })
             .build();
+        let state_clone = in_memory_state.clone();
+        let active_function_runs = meter
+            .u64_observable_gauge("indexify.active_function_runs")
+            .with_description("Number of active function runs")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.function_runs.len() as u64, &[]);
+                }
+            })
+            .build();
         Self {
             total_executors,
             active_requests,
             active_allocations,
+            active_function_runs,
             unallocated_function_runs,
         }
     }

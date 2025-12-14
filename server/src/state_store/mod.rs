@@ -330,7 +330,15 @@ impl IndexifyState {
                 state_machine::create_request(&txn, invoke_application_request).await?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
-                state_machine::handle_scheduler_update(&txn, request).await?;
+                let scheduler_result = state_machine::handle_scheduler_update(
+                    &txn,
+                    request,
+                    Some(&self.usage_event_id_seq),
+                )
+                .await?;
+                if scheduler_result.usage_recorded {
+                    should_notify_usage_reporter = true;
+                }
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
@@ -353,13 +361,10 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::UpsertExecutor(request) => {
+                // Create state changes for allocation outputs. The actual allocation
+                // updates are handled by the application processor to remove contention
+                // from the ingestion path.
                 for allocation_output in &request.allocation_outputs {
-                    let allocation_upsert_result = state_machine::upsert_allocation(
-                        &txn,
-                        &allocation_output.allocation,
-                        Some(&self.usage_event_id_seq),
-                    )
-                    .await?;
                     info!(
                         request_id = allocation_output.allocation.request_id.as_str(),
                         executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
@@ -367,27 +372,13 @@ impl IndexifyState {
                         fn = allocation_output.allocation.function.as_str(),
                         allocation_id = allocation_output.allocation.id.to_string(),
                         allocation_outcome = allocation_output.allocation.outcome.to_string(),
-                        "upserted allocation from executor",
+                        "creating allocation ingestion state change",
                     );
-                    if allocation_upsert_result.create_state_change {
-                        let changes = state_changes::task_outputs_ingested(
-                            &self.state_change_id_seq,
-                            allocation_output,
-                        )?;
-                        allocation_ingestion_events.extend(changes);
-                    } else {
-                        info!(
-                            request_id = allocation_output.allocation.request_id.as_str(),
-                            allocation_id = allocation_output.allocation.id.to_string(),
-                            executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
-                            fn = allocation_output.allocation.function.as_str(),
-                            app = allocation_output.allocation.application.as_str(),
-                            "skipping creation of allocation ingestion state change as one already exists",
-                        );
-                    }
-                    if allocation_upsert_result.usage_recorded {
-                        should_notify_usage_reporter = true;
-                    }
+                    let changes = state_changes::task_outputs_ingested(
+                        &self.state_change_id_seq,
+                        allocation_output,
+                    )?;
+                    allocation_ingestion_events.extend(changes);
                 }
 
                 if request.update_executor_state {
@@ -806,6 +797,7 @@ mod tests {
             "Stats",
             "ExecutorStateChanges",
             "ApplicationStateChanges",
+            "RequestStateChangeEvents",
         ];
 
         let columns_iter = columns
