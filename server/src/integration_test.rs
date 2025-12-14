@@ -1596,7 +1596,7 @@ mod tests {
         );
 
         // Verify the request can eventually complete with a new executor
-        let executor2 = test_srv
+        let _executor2 = test_srv
             .create_executor(mock_executor_metadata("executor_2".into()))
             .await?;
         test_srv.process_all_state_changes().await?;
