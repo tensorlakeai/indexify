@@ -301,7 +301,7 @@ impl FunctionExecutorManager {
                     .get(&FunctionRunKey::from(alloc.as_ref()))
                     .cloned()
                 else {
-                    update.cancel_allocation(&mut updated_alloc, );
+                    update.cancel_allocation(&mut updated_alloc);
                     continue;
                 };
                 let Some(mut ctx) = in_memory_state
@@ -521,8 +521,9 @@ impl FunctionExecutorManager {
                         );
                         continue;
                     };
+                    let mut function_run = *function_run;
                     FunctionRunRetryPolicy::handle_allocation_outcome(
-                        &mut function_run.clone(),
+                        &mut function_run,
                         &updated_alloc,
                         &application_version,
                     );
@@ -537,7 +538,7 @@ impl FunctionExecutorManager {
                         outcome = function_run.outcome.map(|o| o.to_string()),
                         "function run status after removing function executor because of FE termination",
                     );
-                    scheduler_update.add_function_run(*function_run.clone(), &mut request_ctx);
+                    scheduler_update.add_function_run(function_run, &mut request_ctx);
                 }
             }
             return Ok(scheduler_update);

@@ -9,10 +9,25 @@ use tracing::{error, info, trace, warn};
 
 use crate::{
     data_model::{
-        AllocationOutputIngestedEvent, ApplicationVersion, ComputeOp, FunctionArgs, FunctionCall,
-        FunctionCallEvent, FunctionCallId, FunctionRun, FunctionRunFailureReason,
-        FunctionRunOutcome, FunctionRunStatus, GraphUpdates, InputArgs, ReduceOperation,
-        RequestCtx, RequestError, RequestFailureReason, RequestOutcome, RunningFunctionRunStatus,
+        AllocationOutputIngestedEvent,
+        ApplicationVersion,
+        ComputeOp,
+        FunctionArgs,
+        FunctionCall,
+        FunctionCallEvent,
+        FunctionCallId,
+        FunctionRun,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
+        FunctionRunStatus,
+        GraphUpdates,
+        InputArgs,
+        ReduceOperation,
+        RequestCtx,
+        RequestError,
+        RequestFailureReason,
+        RequestOutcome,
+        RunningFunctionRunStatus,
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
@@ -178,8 +193,8 @@ impl FunctionRunCreator {
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
         // on FE termination and alloc output ingestion paths.
-        if function_run.status
-            != FunctionRunStatus::Running(RunningFunctionRunStatus {
+        if function_run.status !=
+            FunctionRunStatus::Running(RunningFunctionRunStatus {
                 allocation_id: allocation.id.clone(),
             })
         {

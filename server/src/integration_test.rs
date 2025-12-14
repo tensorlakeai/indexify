@@ -14,6 +14,7 @@ mod tests {
             ApplicationState,
             FunctionRunFailureReason,
             FunctionRunOutcome,
+            FunctionRunStatus,
             RequestFailureReason,
             RequestOutcome,
             test_objects::tests::{
@@ -1387,6 +1388,221 @@ mod tests {
                 "Events should be monotonically ordered by ID"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_executor_deregister_retries_function_run() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Set up a simple application and invoke it
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // Register an executor - this should allocate the function run
+        let executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify the function run is allocated
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Get the allocation details before deregistering
+        let desired_state = executor.desired_state().await;
+        assert_eq!(desired_state.allocations.len(), 1);
+        let allocation = desired_state.allocations.first().unwrap();
+        let allocation_key = allocation_key_from_proto(allocation);
+
+        // Get the function run status - should be Running
+        let request_ctx_before = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?
+            .unwrap();
+        let function_run_before = request_ctx_before.function_runs.values().next().unwrap();
+        assert!(
+            matches!(function_run_before.status, FunctionRunStatus::Running(_)),
+            "Expected Running status, got {:?}",
+            function_run_before.status
+        );
+
+        // Now deregister the executor while the allocation is running
+        // This simulates the executor going away (e.g., spot instance terminated)
+        executor.deregister().await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The allocation should be marked as terminal (failed)
+        let allocation_after = indexify_state
+            .reader()
+            .get_allocation(&allocation_key)
+            .await?
+            .unwrap();
+        assert!(
+            allocation_after.is_terminal(),
+            "Allocation should be terminal after executor deregistration"
+        );
+        assert!(
+            matches!(
+                allocation_after.outcome,
+                FunctionRunOutcome::Failure(FunctionRunFailureReason::ExecutorRemoved)
+            ),
+            "Expected ExecutorRemoved failure, got {:?}",
+            allocation_after.outcome
+        );
+
+        // BUG: The function run should be Pending (ready for retry), but it's stuck in
+        // Running
+        let request_ctx_after = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?
+            .unwrap();
+        let function_run_after = request_ctx_after.function_runs.values().next().unwrap();
+
+        // This is what we WANT (correct behavior) - function run should be retried
+        assert!(
+            matches!(function_run_after.status, FunctionRunStatus::Pending),
+            "BUG: Function run should be Pending for retry after executor deregistration, \
+             but got {:?}. This means the function run is stuck and the request will never complete.",
+            function_run_after.status
+        );
+
+        // Verify the request can eventually complete with a new executor
+        let executor2 = test_srv
+            .create_executor(mock_executor_metadata("executor_2".into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The pending function run should be reallocated to the new executor
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Complete the function run
+        let desired_state = executor2.desired_state().await;
+        assert_eq!(
+            desired_state.allocations.len(),
+            1,
+            "New executor should have the retried allocation"
+        );
+        let new_allocation = desired_state.allocations.first().unwrap();
+        executor2
+            .finalize_allocation(
+                new_allocation,
+                FinalizeFunctionRunArgs::new(
+                    allocation_key_from_proto(new_allocation),
+                    Some(mock_updates()),
+                    None,
+                )
+                .function_run_outcome(FunctionRunOutcome::Success),
+            )
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The request should now be progressing
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_server_restart_executor_cleanup_retries_function_run() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Set up a simple application and invoke it
+        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_srv.process_all_state_changes().await?;
+
+        // Register an executor - this should allocate the function run
+        let executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify the function run is allocated
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Get the allocation details
+        let desired_state = executor.desired_state().await;
+        assert_eq!(desired_state.allocations.len(), 1);
+        let allocation = desired_state.allocations.first().unwrap();
+        let allocation_key = allocation_key_from_proto(allocation);
+
+        // Get the function run status - should be Running
+        let request_ctx_before = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?
+            .unwrap();
+        let function_run_before = request_ctx_before.function_runs.values().next().unwrap();
+        assert!(
+            matches!(function_run_before.status, FunctionRunStatus::Running(_)),
+            "Expected Running status, got {:?}",
+            function_run_before.status
+        );
+
+        // SIMULATE SERVER RESTART:
+        // Clear executor state but keep allocations (as if loaded from DB)
+        // NOTE: We must write to the original in_memory_state, not a clone!
+        {
+            indexify_state
+                .in_memory_state
+                .write()
+                .await
+                .simulate_server_restart_clear_executor_state();
+        }
+
+        // Now deregister the executor - this will take the FALLBACK path
+        // because executor_server_metadata is None (cleared above)
+        executor.deregister().await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The allocation should be marked as terminal (failed)
+        let allocation_after = indexify_state
+            .reader()
+            .get_allocation(&allocation_key)
+            .await?
+            .unwrap();
+        assert!(
+            allocation_after.is_terminal(),
+            "Allocation should be terminal after executor deregistration"
+        );
+        assert!(
+            matches!(
+                allocation_after.outcome,
+                FunctionRunOutcome::Failure(FunctionRunFailureReason::ExecutorRemoved)
+            ),
+            "Expected ExecutorRemoved failure, got {:?}",
+            allocation_after.outcome
+        );
+
+        // CRITICAL: The function run should be Pending (ready for retry)
+        // Before the fix, this was stuck in Running due to &mut function_run.clone()
+        // bug
+        let request_ctx_after = indexify_state
+            .reader()
+            .request_ctx(TEST_NAMESPACE, "graph_A", &request_id)
+            .await?
+            .unwrap();
+        let function_run_after = request_ctx_after.function_runs.values().next().unwrap();
+
+        assert!(
+            matches!(function_run_after.status, FunctionRunStatus::Pending),
+            "Function run should be Pending for retry after server restart + executor cleanup, \
+             but got {:?}. This is the bug that was fixed.",
+            function_run_after.status
+        );
+
+        // Verify the request can eventually complete with a new executor
+        let executor2 = test_srv
+            .create_executor(mock_executor_metadata("executor_2".into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The pending function run should be reallocated to the new executor
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
     }

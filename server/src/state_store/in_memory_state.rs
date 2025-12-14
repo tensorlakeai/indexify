@@ -1473,6 +1473,20 @@ impl InMemoryState {
 
         result
     }
+
+    /// Simulates a server restart by clearing executor-related in-memory state
+    /// while preserving allocations. This creates the scenario where:
+    /// - allocations_by_executor has allocations (loaded from DB)
+    /// - executors and executor_states are empty (executors haven't
+    ///   re-registered)
+    #[cfg(test)]
+    pub fn simulate_server_restart_clear_executor_state(&mut self) {
+        self.executors.clear();
+        self.executor_states.clear();
+        self.function_executors_by_fn_uri.clear();
+        // Note: allocations_by_executor is intentionally NOT cleared
+        // as allocations are persisted and loaded from DB on restart
+    }
 }
 
 #[cfg(test)]
