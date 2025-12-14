@@ -20,7 +20,6 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
-    cloud_events::CloudEventsExporter,
     config::ExecutorCatalogEntry,
     data_model::{ExecutorId, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
@@ -32,7 +31,6 @@ use crate::{
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
-        request_events::RequestStartedEvent,
         serializer::{JsonEncode, JsonEncoder},
     },
 };
@@ -107,19 +105,21 @@ pub struct IndexifyState {
 
     pub state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
+    pub request_event_id_seq: Arc<AtomicU64>,
 
     pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
+    pub request_events_tx: watch::Sender<()>,
+    pub request_events_rx: watch::Receiver<()>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // keep handle to in_memory_state metrics to avoid dropping it
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
-    pub cloud_events_exporter: Option<CloudEventsExporter>,
     // Observable gauge for tracking total executors - must be kept alive for callback to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
 }
@@ -151,6 +151,7 @@ where
 struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
+    should_notify_request_events: bool,
     new_state_changes: Vec<StateChange>,
 }
 
@@ -159,7 +160,6 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
-        cloud_events_exporter: Option<CloudEventsExporter>,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -187,6 +187,7 @@ impl IndexifyState {
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+        let (request_events_tx, request_events_rx) = tokio::sync::watch::channel(());
 
         let indexes = Arc::new(RwLock::new(
             InMemoryState::new(
@@ -204,6 +205,7 @@ impl IndexifyState {
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
+            request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             executor_states: RwLock::new(HashMap::new()),
             function_run_event_tx: task_event_tx,
             metrics: state_store_metrics,
@@ -212,8 +214,9 @@ impl IndexifyState {
             in_memory_state: indexes,
             usage_events_tx,
             usage_events_rx,
+            request_events_tx,
+            request_events_rx,
             executor_watches: ExecutorWatches::new(),
-            cloud_events_exporter,
             _in_memory_store_gauges: in_memory_store_gauges,
         });
 
@@ -225,6 +228,11 @@ impl IndexifyState {
         info!(
             usage_event_id = s.usage_event_id_seq.load(atomic::Ordering::Relaxed),
             "initialized state store with last usage id",
+        );
+
+        info!(
+            request_event_id = s.request_event_id_seq.load(atomic::Ordering::Relaxed),
+            "initialized state store with last request event id",
         );
 
         info!(db_version = sm_meta.db_version, "db version discovered");
@@ -300,9 +308,14 @@ impl IndexifyState {
             {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
+
+            if write_result.should_notify_request_events &&
+                let Err(err) = self.request_events_tx.send(())
+            {
+                error!("failed to notify of request state change event, ignoring: {err:?}",);
+            }
         }
 
-        self.handle_request_state_changes(&request, timer_kv).await;
         Ok(())
     }
 
@@ -330,7 +343,15 @@ impl IndexifyState {
                 state_machine::create_request(&txn, invoke_application_request).await?;
             }
             RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
-                state_machine::handle_scheduler_update(&txn, request).await?;
+                let scheduler_result = state_machine::handle_scheduler_update(
+                    &txn,
+                    request,
+                    Some(&self.usage_event_id_seq),
+                )
+                .await?;
+                if scheduler_result.usage_recorded {
+                    should_notify_usage_reporter = true;
+                }
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
@@ -353,13 +374,10 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::UpsertExecutor(request) => {
+                // Create state changes for allocation outputs. The actual allocation
+                // updates are handled by the application processor to remove contention
+                // from the ingestion path.
                 for allocation_output in &request.allocation_outputs {
-                    let allocation_upsert_result = state_machine::upsert_allocation(
-                        &txn,
-                        &allocation_output.allocation,
-                        Some(&self.usage_event_id_seq),
-                    )
-                    .await?;
                     info!(
                         request_id = allocation_output.allocation.request_id.as_str(),
                         executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
@@ -367,27 +385,13 @@ impl IndexifyState {
                         fn = allocation_output.allocation.function.as_str(),
                         allocation_id = allocation_output.allocation.id.to_string(),
                         allocation_outcome = allocation_output.allocation.outcome.to_string(),
-                        "upserted allocation from executor",
+                        "creating allocation ingestion state change",
                     );
-                    if allocation_upsert_result.create_state_change {
-                        let changes = state_changes::task_outputs_ingested(
-                            &self.state_change_id_seq,
-                            allocation_output,
-                        )?;
-                        allocation_ingestion_events.extend(changes);
-                    } else {
-                        info!(
-                            request_id = allocation_output.allocation.request_id.as_str(),
-                            allocation_id = allocation_output.allocation.id.to_string(),
-                            executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
-                            fn = allocation_output.allocation.function.as_str(),
-                            app = allocation_output.allocation.application.as_str(),
-                            "skipping creation of allocation ingestion state change as one already exists",
-                        );
-                    }
-                    if allocation_upsert_result.usage_recorded {
-                        should_notify_usage_reporter = true;
-                    }
+                    let changes = state_changes::task_outputs_ingested(
+                        &self.state_change_id_seq,
+                        allocation_output,
+                    )?;
+                    allocation_ingestion_events.extend(changes);
                 }
 
                 if request.update_executor_state {
@@ -431,13 +435,27 @@ impl IndexifyState {
             state_machine::save_state_changes(&txn, &new_state_changes).await?;
         }
 
+        // Persist request state change events in the same transaction
+        let request_state_changes = request_events::build_request_state_change_events(request);
+        let should_notify_request_events = !request_state_changes.is_empty();
+        if should_notify_request_events {
+            state_machine::persist_request_state_change_events(
+                &txn,
+                request_state_changes,
+                &self.request_event_id_seq,
+            )
+            .await?;
+        }
+
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
+        let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);
         write_sm_meta(
             &txn,
             &StateMachineMetadata {
                 last_change_idx: current_state_id,
                 last_usage_idx: current_usage_sequence_id,
+                last_request_event_idx: current_request_event_id,
                 db_version: self.db_version,
             },
         )
@@ -448,121 +466,8 @@ impl IndexifyState {
             current_state_id,
             new_state_changes,
             should_notify_usage_reporter,
+            should_notify_request_events,
         })
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn handle_request_state_changes(
-        &self,
-        update_request: &StateMachineUpdateRequest,
-        timer_kv: &[KeyValue],
-    ) {
-        let _timer =
-            Timer::start_with_labels(&self.metrics.state_write_request_state_change, timer_kv);
-        if !self.events_receiver_waiting() {
-            return;
-        }
-
-        let state_changes = match &update_request.payload {
-            RequestPayload::InvokeApplication(request) => {
-                vec![RequestStateChangeEvent::RequestStarted(
-                    RequestStartedEvent {
-                        namespace: request.ctx.namespace.clone(),
-                        application_name: request.ctx.application_name.clone(),
-                        application_version: request.ctx.application_version.clone(),
-                        request_id: request.ctx.request_id.clone(),
-                    },
-                )]
-            }
-            RequestPayload::UpsertExecutor(request) => request
-                .allocation_outputs
-                .iter()
-                .map(|allocation_output| {
-                    RequestStateChangeEvent::from_finished_function_run(allocation_output.clone())
-                })
-                .collect::<Vec<_>>(),
-            RequestPayload::SchedulerUpdate((sched_update, _)) => {
-                let mut changes = sched_update
-                    .new_allocations
-                    .iter()
-                    .map(|allocation| {
-                        RequestStateChangeEvent::FunctionRunAssigned(
-                            request_events::FunctionRunAssigned {
-                                namespace: allocation.namespace.clone(),
-                                application_name: allocation.application.clone(),
-                                application_version: allocation.application_version.clone(),
-                                request_id: allocation.request_id.clone(),
-                                function_name: allocation.function.clone(),
-                                function_run_id: allocation.function_call_id.to_string(),
-                                executor_id: allocation.target.executor_id.get().to_string(),
-                                allocation_id: allocation.id.to_string(),
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
-
-                for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
-                    for function_call_id in function_call_ids {
-                        let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
-                        let function_run =
-                            ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
-                        if let Some(function_run) = function_run {
-                            changes.push(RequestStateChangeEvent::FunctionRunCreated(
-                                request_events::FunctionRunCreated {
-                                    namespace: function_run.namespace.clone(),
-                                    application_name: function_run.application.clone(),
-                                    application_version: function_run.version.clone(),
-                                    request_id: function_run.request_id.clone(),
-                                    function_name: function_run.name.clone(),
-                                    function_run_id: function_run.id.to_string(),
-                                },
-                            ));
-                        }
-                    }
-                }
-
-                for request_ctx in sched_update.updated_request_states.values() {
-                    if let Some(outcome) = &request_ctx.outcome {
-                        changes.push(RequestStateChangeEvent::finished(
-                            &request_ctx.namespace,
-                            &request_ctx.application_name,
-                            &request_ctx.application_version,
-                            &request_ctx.request_id,
-                            outcome.clone(),
-                        ));
-                    }
-                }
-
-                changes
-            }
-            _ => vec![],
-        };
-
-        self.emit_request_state_change_updates(state_changes).await
-    }
-
-    async fn emit_request_state_change_updates(&self, changes: Vec<RequestStateChangeEvent>) {
-        debug!(
-            changes = changes.len(),
-            "Emitting request state change updates"
-        );
-        for change in changes {
-            if let Some(cloud_events_exporter) = &self.cloud_events_exporter {
-                cloud_events_exporter
-                    .send_request_state_change_event(&change)
-                    .await
-            }
-
-            if self.function_run_event_tx.receiver_count() > 0 &&
-                let Err(error) = self.function_run_event_tx.send(change)
-            {
-                error!(?error, "Failed to send request state change update");
-            }
-        }
-    }
-
-    fn events_receiver_waiting(&self) -> bool {
-        self.function_run_event_tx.receiver_count() > 0 || self.cloud_events_exporter.is_some()
     }
 
     pub fn reader(&self) -> scanner::StateReader {
@@ -571,12 +476,6 @@ impl IndexifyState {
 
     pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
         self.function_run_event_tx.subscribe()
-    }
-
-    pub async fn shutdown(&self) {
-        if let Some(exporter) = &self.cloud_events_exporter {
-            exporter.wait_for_completion().await;
-        }
     }
 }
 
@@ -594,6 +493,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
             db_version: 0,
             last_change_idx: 0,
             last_usage_idx: 0,
+            last_request_event_idx: 0,
         }),
     }
 }
@@ -806,6 +706,7 @@ mod tests {
             "Stats",
             "ExecutorStateChanges",
             "ApplicationStateChanges",
+            "RequestStateChangeEvents",
         ];
 
         let columns_iter = columns

@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     data_model::{
         Allocation,
+        AllocationId,
         Application,
         ApplicationState,
         ApplicationVersion,
@@ -36,7 +37,6 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::Timer,
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -243,10 +243,11 @@ pub struct InMemoryState {
         imbl::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
 
-    // ExecutorId -> (FE ID -> List of Allocations)
-    #[allow(clippy::vec_box)]
-    pub allocations_by_executor:
-        imbl::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
+    // ExecutorId -> (FE ID -> Map of AllocationId -> Allocation)
+    pub allocations_by_executor: imbl::HashMap<
+        ExecutorId,
+        HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
+    >,
 
     // TaskKey -> Task
     pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
@@ -310,7 +311,7 @@ impl InMemoryState {
         // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
+            HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
         > = imbl::HashMap::new();
         {
             let (allocations, _) = reader
@@ -330,7 +331,7 @@ impl InMemoryState {
                     .or_default()
                     .entry(allocation.target.function_executor_id.clone())
                     .or_default()
-                    .push(Box::new(allocation));
+                    .insert(allocation.id.clone(), Box::new(allocation));
             }
         }
 
@@ -533,19 +534,14 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
-                {
-                    let _timer = Timer::start_with_labels(
-                        &self.metrics.scheduler_update_push_allocation_to_executors,
-                        &[],
-                    );
-                    for allocation in &req.updated_allocations {
-                        self.allocations_by_executor
-                            .entry(allocation.target.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.target.function_executor_id.clone())
-                            .or_default()
-                            .push(Box::new(allocation.clone()));
-                    }
+                // Note: Allocations are removed from allocations_by_executor in two places:
+                // 1. UpsertExecutor handler - when allocation output is ingested
+                // 2. remove_function_executors handling below - when FE is terminated
+                // So we don't need to remove updated_allocations here.
+
+                // Track executors with updated allocations for notification
+                for allocation in &req.updated_allocations {
+                    changed_executors.insert(allocation.target.executor_id.clone());
                 }
 
                 {
@@ -659,7 +655,7 @@ impl InMemoryState {
                                 .or_default()
                                 .entry(allocation.target.function_executor_id.clone())
                                 .or_default()
-                                .push(Box::new(allocation.clone()));
+                                .insert(allocation.id.clone(), Box::new(allocation.clone()));
 
                             // Record metrics
                             self.metrics.function_run_pending_latency.record(
@@ -783,19 +779,16 @@ impl InMemoryState {
                             .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
-                                // TODO: This can be optimized by keeping a new index of task_id to
-                                // FE,       we should measure the
-                                // overhead.
-                                fe_allocations.iter_mut().for_each(|(_, allocations)| {
-                                    if let Some(index) = allocations
-                                        .iter()
-                                        .position(|a| a.id == allocation_output.allocation.id)
+                                if let Some(allocations) = fe_allocations.get_mut(
+                                    &allocation_output.allocation.target.function_executor_id,
+                                ) {
+                                    if let Some(existing_allocation) =
+                                        allocations.remove(&allocation_output.allocation.id)
                                     {
-                                        let allocation = &allocations[index];
                                         // Record metrics
                                         self.metrics.allocation_running_latency.record(
                                             get_elapsed_time(
-                                                allocation.created_at,
+                                                existing_allocation.created_at,
                                                 TimeUnit::Milliseconds,
                                             ),
                                             &[KeyValue::new(
@@ -803,11 +796,8 @@ impl InMemoryState {
                                                 allocation_output.allocation.outcome.to_string(),
                                             )],
                                         );
-
-                                        // Remove the allocation
-                                        allocations.remove(index);
                                     }
-                                });
+                                }
 
                                 // Remove the function if no allocations left
                                 fe_allocations.retain(|_, f| !f.is_empty());
@@ -995,7 +985,7 @@ impl InMemoryState {
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
             for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
-                allocations.retain(|allocation| {
+                allocations.retain(|_, allocation| {
                     !function_runs
                         .iter()
                         .any(|function_run| function_run.id == allocation.function_call_id)
@@ -1300,10 +1290,13 @@ impl InMemoryState {
                 .allocations_by_executor
                 .get(executor_id)
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
-                .unwrap_or(&Vec::new())
-                .iter()
-                .map(|allocation| *allocation.clone())
-                .collect::<Vec<_>>();
+                .map(|allocations| {
+                    allocations
+                        .values()
+                        .map(|allocation| allocation.as_ref().clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
 
@@ -1479,6 +1472,20 @@ impl InMemoryState {
         }
 
         result
+    }
+
+    /// Simulates a server restart by clearing executor-related in-memory state
+    /// while preserving allocations. This creates the scenario where:
+    /// - allocations_by_executor has allocations (loaded from DB)
+    /// - executors and executor_states are empty (executors haven't
+    ///   re-registered)
+    #[cfg(test)]
+    pub fn simulate_server_restart_clear_executor_state(&mut self) {
+        self.executors.clear();
+        self.executor_states.clear();
+        self.function_executors_by_fn_uri.clear();
+        // Note: allocations_by_executor is intentionally NOT cleared
+        // as allocations are persisted and loaded from DB on restart
     }
 }
 

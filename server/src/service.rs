@@ -21,7 +21,11 @@ use crate::{
     executors::ExecutorManager,
     metrics::{self, init_provider},
     middleware::InstanceRequestSpan,
-    processor::{application_processor::ApplicationProcessor, usage_processor::UsageProcessor},
+    processor::{
+        application_processor::ApplicationProcessor,
+        request_state_change_processor::RequestStateChangeProcessor,
+        usage_processor::UsageProcessor,
+    },
     queue::Queue,
     routes::routes_state::RouteState,
     routes_internal::configure_internal_routes,
@@ -38,7 +42,6 @@ fn otel_axum_filter(path: &str) -> bool {
     path.starts_with("/healthz") || path.starts_with("/docs") || path.starts_with("/ui")
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
     pub config: Arc<ServerConfig>,
@@ -49,6 +52,7 @@ pub struct Service {
     pub executor_manager: Arc<ExecutorManager>,
     pub application_processor: Arc<ApplicationProcessor>,
     pub usage_processor: Arc<UsageProcessor>,
+    pub request_state_change_processor: Arc<RequestStateChangeProcessor>,
 }
 
 impl Service {
@@ -70,18 +74,10 @@ impl Service {
             info!("No configured executor label sets; allowing all executors");
         }
 
-        let cloud_events_exporter = if let Some(config) = &config.cloud_events {
-            info!(?config, "Initializing CloudEvents exporter");
-            Some(CloudEventsExporter::new(config).await?)
-        } else {
-            None
-        };
-
         let indexify_state = IndexifyState::new(
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
-            cloud_events_exporter,
         )
         .await?;
 
@@ -118,6 +114,9 @@ impl Service {
         let usage_processor =
             Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
+        let request_state_change_processor =
+            Arc::new(RequestStateChangeProcessor::new(indexify_state.clone()));
+
         Ok(Self {
             config,
             shutdown_tx,
@@ -127,6 +126,7 @@ impl Service {
             executor_manager,
             application_processor,
             usage_processor,
+            request_state_change_processor,
         })
     }
 
@@ -172,6 +172,39 @@ impl Service {
 
             let _ = {
                 usage_processor.start(shutdown_rx).await;
+                ().instrument(span.clone())
+            };
+        });
+
+        let request_state_change_processor = self.request_state_change_processor.clone();
+        let cloud_events_config = self.config.cloud_events.clone();
+        let shutdown_rx = self.shutdown_rx.clone();
+        let env = self.config.env.clone();
+        let instance_id = self.config.instance_id();
+        tokio::spawn(async move {
+            let span = info_span!(
+                "Initializing Request State Change Processor",
+                env,
+                "indexify-instance" = instance_id
+            );
+
+            let cloud_events_exporter = if let Some(config) = &cloud_events_config {
+                info!(?config, "Initializing CloudEvents exporter");
+                match CloudEventsExporter::new(config).await {
+                    Ok(exporter) => Some(exporter),
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to create CloudEvents exporter");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let _ = {
+                request_state_change_processor
+                    .start(cloud_events_exporter, shutdown_rx)
+                    .await;
                 ().instrument(span.clone())
             };
         });
@@ -225,13 +258,20 @@ impl Service {
                     )
                     .build_v1()
                     .unwrap();
+                // 4GB max message size for large execution plans
+                const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+
                 Server::builder()
                     .layer(instance_trace)
-                    .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
-                        indexify_state,
-                        executor_manager,
-                        blog_storage_registry,
-                    )))
+                    .add_service(
+                        ExecutorApiServer::new(ExecutorAPIService::new(
+                            indexify_state,
+                            executor_manager,
+                            blog_storage_registry,
+                        ))
+                        .max_decoding_message_size(MAX_MESSAGE_SIZE)
+                        .max_encoding_message_size(MAX_MESSAGE_SIZE),
+                    )
                     .add_service(reflection_service)
                     .serve_with_shutdown(addr_grpc, async move {
                         shutdown_rx.changed().await.ok();
@@ -263,17 +303,11 @@ impl Service {
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
-        let result = axum_server::bind(addr)
+        axum_server::bind(addr)
             .handle(handle)
             .serve(router.into_make_service())
             .await
-            .map_err(Into::into);
-
-        // Handle graceful shutdown for the state store
-        // before terminating the process.
-        self.indexify_state.shutdown().await;
-
-        result
+            .map_err(Into::into)
     }
 }
 

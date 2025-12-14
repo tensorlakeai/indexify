@@ -18,7 +18,6 @@ mod tests {
                 mock_updates,
             },
         },
-        service::Service,
         state_store::test_state_store,
         testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
@@ -28,7 +27,7 @@ mod tests {
     #[tokio::test]
     async fn test_dev_mode_executor_behavior() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create a task first (will be unallocated)
         test_state_store::with_simple_application(&indexify_state).await;
@@ -70,7 +69,7 @@ mod tests {
     #[tokio::test]
     async fn test_allowlist_executor_behavior() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create a task first (will be unallocated)
         test_state_store::with_simple_application(&indexify_state).await;
@@ -122,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn test_multi_executor_allocation() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create a task
         test_state_store::with_simple_application(&indexify_state).await;
@@ -170,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn test_function_executor_add_remove() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create a task
         test_state_store::with_simple_application(&indexify_state).await;
@@ -254,7 +253,7 @@ mod tests {
         assert!(task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the app
         let request_id =
@@ -469,7 +468,7 @@ mod tests {
         assert!(!task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
-        let Service { indexify_state, .. } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
 
         // invoke the graph
         test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;

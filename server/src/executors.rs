@@ -602,7 +602,7 @@ impl ExecutorManager {
                                 .get(&fe_meta.function_executor.id)
                                 .map(|allocations| {
                                     allocations
-                                        .iter()
+                                        .values()
                                         .map(|allocation| allocation.as_ref().clone().into())
                                         .collect::<Vec<_>>()
                                 })
@@ -696,7 +696,6 @@ mod tests {
     use super::*;
     use crate::{
         data_model::{ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder},
-        service::Service,
         state_store::requests::UpsertExecutorRequest,
         testing,
     };
@@ -729,11 +728,8 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_lapsed_executor() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
-        let Service {
-            indexify_state,
-            executor_manager,
-            ..
-        } = test_srv.service.clone();
+        let indexify_state = test_srv.service.indexify_state.clone();
+        let executor_manager = test_srv.service.executor_manager.clone();
 
         let executor1 = ExecutorMetadataBuilder::default()
             .id(ExecutorId::new("test-executor-1".to_string()))

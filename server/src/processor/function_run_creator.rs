@@ -129,7 +129,8 @@ impl FunctionRunCreator {
             namespace = alloc_finished_event.namespace,
             application = alloc_finished_event.application,
             request_id = alloc_finished_event.request_id,
-            function = alloc_finished_event.function,
+            fn = alloc_finished_event.function,
+            allocation_id = alloc_finished_event.allocation.id.to_string(),
             "handling allocation ingestion",
         );
         let Some(mut request_ctx) = in_memory_state
@@ -169,20 +170,25 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        // If allocation_key is not None, then the output is coming from an allocation,
-        // not from cache.
-        let Some(allocation) = self
+        let allocation = alloc_finished_event.allocation.clone();
+
+        if let Some(existing_allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&alloc_finished_event.allocation_key)
+            .get_allocation(&allocation.key())
             .await?
-        else {
-            error!(
-                allocation_key = alloc_finished_event.allocation_key,
-                "allocation not found, stopping scheduling of child function runs",
-            );
-            return Ok(SchedulerUpdateRequest::default());
-        };
+        {
+            if existing_allocation.is_terminal() {
+                warn!(
+                    allocation_id = %allocation.id,
+                    request_id = %allocation.request_id,
+                    namespace = %allocation.namespace,
+                    app = %allocation.application,
+                    "allocation already terminal, skipping duplicate finished event"
+                );
+                return Ok(SchedulerUpdateRequest::default());
+            }
+        }
 
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
@@ -196,6 +202,9 @@ impl FunctionRunCreator {
         }
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
+        scheduler_update
+            .updated_allocations
+            .push(allocation.clone());
         function_run.output = alloc_finished_event.data_payload.clone();
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
             function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
@@ -250,7 +259,6 @@ impl FunctionRunCreator {
                 function_run.request_error = Some(request_error_payload.clone());
             }
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
-            let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
             // Mark the other function runs which are still running as cancelled

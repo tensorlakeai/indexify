@@ -30,7 +30,6 @@ impl TestStateStore {
             temp_dir.path().join("state"),
             RocksDBConfig::default(),
             crate::state_store::ExecutorCatalog::default(),
-            None,
         )
         .await?;
         Ok(TestStateStore { indexify_state })

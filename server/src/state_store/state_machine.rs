@@ -10,7 +10,14 @@ use anyhow::{Result, anyhow};
 use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
-use super::serializer::{JsonEncode, JsonEncoder};
+use super::{
+    request_events::{
+        PersistedRequestStateChangeEvent,
+        RequestStateChangeEvent,
+        RequestStateChangeEventId,
+    },
+    serializer::{JsonEncode, JsonEncoder},
+};
 use crate::{
     data_model::{
         Allocation,
@@ -37,7 +44,7 @@ use crate::{
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
-#[derive(AsRefStr, strum::Display, strum::EnumIter)]
+#[derive(AsRefStr, strum::Display, strum::EnumIter, PartialEq, Eq)]
 pub enum IndexifyObjectsColumns {
     StateMachineMetadata, //  StateMachineMetadata
     Namespaces,           //  Namespaces
@@ -63,6 +70,9 @@ pub enum IndexifyObjectsColumns {
 
     // State changes for applications -> Request updates
     ApplicationStateChanges,
+
+    // CF to hold the events we need to send out for observability
+    RequestStateChangeEvents,
 }
 
 pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
@@ -147,10 +157,22 @@ pub(crate) async fn upsert_allocation(
         return Ok(allocation_upsert_result);
     };
     let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
-    // idempotency check guaranteeing that we emit a finalizing state change only
-    // once.
+
+    // Idempotency check: skip if allocation is already terminal
     if existing_allocation.is_terminal() {
         warn!("allocation already terminal, skipping setting outputs");
+        return Ok(allocation_upsert_result);
+    }
+
+    // Version-based optimistic locking: only update if incoming version >= existing
+    // This prevents stale updates from overwriting newer ones in race conditions
+    // (e.g., FE termination vs executor-reported outcome)
+    if allocation.vector_clock() < existing_allocation.vector_clock() {
+        warn!(
+            incoming_clock = allocation.vector_clock().value(),
+            existing_clock = existing_allocation.vector_clock().value(),
+            "allocation has stale vector clock, skipping update"
+        );
         return Ok(allocation_upsert_result);
     }
 
@@ -449,10 +471,19 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
     Ok(())
 }
 
+pub struct SchedulerUpdateResult {
+    pub usage_recorded: bool,
+}
+
 pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
-) -> Result<()> {
+    usage_event_id_seq: Option<&AtomicU64>,
+) -> Result<SchedulerUpdateResult> {
+    let mut result = SchedulerUpdateResult {
+        usage_recorded: false,
+    };
+
     for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
@@ -495,10 +526,13 @@ pub(crate) async fn handle_scheduler_update(
         .await?;
     }
     for alloc in &request.updated_allocations {
-        upsert_allocation(txn, alloc, None).await?;
+        let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq).await?;
+        if upsert_result.usage_recorded {
+            result.usage_recorded = true;
+        }
     }
 
-    Ok(())
+    Ok(result)
 }
 
 pub(crate) async fn save_state_changes(
@@ -555,6 +589,53 @@ pub(crate) async fn remove_allocation_usage_events(
         let key = &usage.key();
         txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)
             .await?;
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn remove_request_state_change_events(
+    txn: &Transaction,
+    events: &[PersistedRequestStateChangeEvent],
+) -> Result<()> {
+    for event in events {
+        trace!(
+            event_id = %event.id,
+            namespace = %event.event.namespace(),
+            application = %event.event.application_name(),
+            request_id = %event.event.request_id(),
+            "removing request state change event"
+        );
+        let key = event.key();
+        txn.delete(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            &key,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Persist request state change events to RocksDB
+pub(crate) async fn persist_request_state_change_events(
+    txn: &Transaction,
+    events: Vec<RequestStateChangeEvent>,
+    request_event_id_seq: &AtomicU64,
+) -> Result<()> {
+    for event in events {
+        let event_id =
+            RequestStateChangeEventId::new(request_event_id_seq.fetch_add(1, Ordering::Relaxed));
+        let persisted_event = PersistedRequestStateChangeEvent::new(event_id, event);
+        let key = persisted_event.key();
+
+        let serialized = JsonEncoder::encode(&persisted_event)?;
+        txn.put(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            &key,
+            &serialized,
+        )
+        .await?;
     }
 
     Ok(())

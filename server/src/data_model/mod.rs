@@ -30,6 +30,8 @@ pub struct StateMachineMetadata {
     pub last_change_idx: u64,
     #[serde(default)]
     pub last_usage_idx: u64,
+    #[serde(default)]
+    pub last_request_event_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -169,6 +171,10 @@ impl Allocation {
             self.outcome,
             FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
         )
+    }
+
+    pub fn vector_clock(&self) -> &VectorClock {
+        &self.vector_clock
     }
 }
 
@@ -1780,8 +1786,8 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
+    pub allocation: Allocation,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
