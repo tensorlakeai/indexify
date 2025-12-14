@@ -169,25 +169,20 @@ impl FunctionRunCreator {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        let allocation = alloc_finished_event.allocation.clone();
-
-        if let Some(existing_allocation) = self
+        // If allocation_key is not None, then the output is coming from an allocation,
+        // not from cache.
+        let Some(allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&allocation.key())
+            .get_allocation(&alloc_finished_event.allocation_key)
             .await?
-        {
-            if existing_allocation.is_terminal() {
-                warn!(
-                    allocation_id = %allocation.id,
-                    request_id = %allocation.request_id,
-                    namespace = %allocation.namespace,
-                    app = %allocation.application,
-                    "allocation already terminal, skipping duplicate finished event"
-                );
-                return Ok(SchedulerUpdateRequest::default());
-            }
-        }
+        else {
+            error!(
+                allocation_key = alloc_finished_event.allocation_key,
+                "allocation not found, stopping scheduling of child function runs",
+            );
+            return Ok(SchedulerUpdateRequest::default());
+        };
 
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
@@ -201,9 +196,6 @@ impl FunctionRunCreator {
         }
 
         let mut scheduler_update = SchedulerUpdateRequest::default();
-        scheduler_update
-            .updated_allocations
-            .push(allocation.clone());
         function_run.output = alloc_finished_event.data_payload.clone();
         if let Some(graph_updates) = &alloc_finished_event.graph_updates {
             function_run.child_function_call = Some(graph_updates.output_function_call_id.clone());
@@ -258,6 +250,7 @@ impl FunctionRunCreator {
                 function_run.request_error = Some(request_error_payload.clone());
             }
             request_ctx.outcome = Some(RequestOutcome::Failure(failure_reason.into()));
+            let mut scheduler_update = SchedulerUpdateRequest::default();
             scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
             // Mark the other function runs which are still running as cancelled

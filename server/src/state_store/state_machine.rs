@@ -63,9 +63,6 @@ pub enum IndexifyObjectsColumns {
 
     // State changes for applications -> Request updates
     ApplicationStateChanges,
-
-    // CF to hold the events we need to send out for observability
-    RequestStateChangeEvents,
 }
 
 pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
@@ -150,22 +147,10 @@ pub(crate) async fn upsert_allocation(
         return Ok(allocation_upsert_result);
     };
     let existing_allocation = JsonEncoder::decode::<Allocation>(&existing_allocation)?;
-
-    // Idempotency check: skip if allocation is already terminal
+    // idempotency check guaranteeing that we emit a finalizing state change only
+    // once.
     if existing_allocation.is_terminal() {
         warn!("allocation already terminal, skipping setting outputs");
-        return Ok(allocation_upsert_result);
-    }
-
-    // Version-based optimistic locking: only update if incoming version >= existing
-    // This prevents stale updates from overwriting newer ones in race conditions
-    // (e.g., FE termination vs executor-reported outcome)
-    if allocation.vector_clock() < existing_allocation.vector_clock() {
-        warn!(
-            incoming_clock = allocation.vector_clock().value(),
-            existing_clock = existing_allocation.vector_clock().value(),
-            "allocation has stale vector clock, skipping update"
-        );
         return Ok(allocation_upsert_result);
     }
 
@@ -464,19 +449,10 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
     Ok(())
 }
 
-pub struct SchedulerUpdateResult {
-    pub usage_recorded: bool,
-}
-
 pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
-    usage_event_id_seq: Option<&AtomicU64>,
-) -> Result<SchedulerUpdateResult> {
-    let mut result = SchedulerUpdateResult {
-        usage_recorded: false,
-    };
-
+) -> Result<()> {
     for alloc in &request.new_allocations {
         debug!(
             namespace = alloc.namespace,
@@ -519,13 +495,10 @@ pub(crate) async fn handle_scheduler_update(
         .await?;
     }
     for alloc in &request.updated_allocations {
-        let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq).await?;
-        if upsert_result.usage_recorded {
-            result.usage_recorded = true;
-        }
+        upsert_allocation(txn, alloc, None).await?;
     }
 
-    Ok(result)
+    Ok(())
 }
 
 pub(crate) async fn save_state_changes(
