@@ -609,7 +609,7 @@ pub(crate) async fn remove_request_state_change_events(
         let key = event.key();
         txn.delete(
             IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            key.as_bytes(),
+            &key,
         )
         .await?;
     }
@@ -632,7 +632,7 @@ pub(crate) async fn persist_request_state_change_events(
         let serialized = JsonEncoder::encode(&persisted_event)?;
         txn.put(
             IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            key.as_bytes(),
+            &key,
             &serialized,
         )
         .await?;

@@ -129,7 +129,7 @@ impl RequestStateChangeProcessor {
                 );
 
                 if failed_submission_cursor.is_none() {
-                    failed_submission_cursor = Some(event.key().into_bytes());
+                    failed_submission_cursor = Some(event.key());
                 }
 
                 break;

@@ -45,9 +45,9 @@ impl PersistedRequestStateChangeEvent {
     }
 
     /// Generate a key for storing in RocksDB
-    /// Uses a zero-padded sequence number for proper lexicographic ordering
-    pub fn key(&self) -> String {
-        format!("{:020}", self.id.value())
+    /// Uses big endian bytes for proper lexicographic ordering
+    pub fn key(&self) -> Vec<u8> {
+        self.id.value().to_be_bytes().to_vec()
     }
 }
 
