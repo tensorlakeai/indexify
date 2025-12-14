@@ -80,7 +80,7 @@ impl FunctionExecutorManager {
     }
 
     /// Creates a new function executor for the given function run
-    #[tracing::instrument(skip_all, target = "scheduler", fields(namespace = %fn_run.namespace, request_id = %fn_run.request_id, fn_call_id = %fn_run.id, app = %fn_run.application, fn_name = %fn_run.name, app_version = %fn_run.version))]
+    #[tracing::instrument(skip_all, target = "scheduler", fields(namespace = %fn_run.namespace, request_id = %fn_run.request_id, fn_call_id = %fn_run.id, app = %fn_run.application, fn = %fn_run.name, app_version = %fn_run.version))]
     fn create_function_executor(
         &self,
         in_memory_state: &mut InMemoryState,
@@ -301,7 +301,7 @@ impl FunctionExecutorManager {
                     .get(&FunctionRunKey::from(alloc.as_ref()))
                     .cloned()
                 else {
-                    update.cancel_allocation(&mut updated_alloc);
+                    update.cancel_allocation(&mut updated_alloc, );
                     continue;
                 };
                 let Some(mut ctx) = in_memory_state
@@ -366,8 +366,11 @@ impl FunctionExecutorManager {
                         app = updated_alloc.application.clone(),
                         fn = updated_alloc.function.clone(),
                         fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
-                        outcome = updated_alloc.outcome.to_string(),
-                        blame_alloc_id = blame_alloc_ids.contains(&updated_alloc.id.to_string()),
+                        allocation_outcome = updated_alloc.outcome.to_string(),
+                        fn_run_status = function_run.status.to_string(),
+                        fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
+                        blame_allocation_id = blame_alloc_ids.contains(&updated_alloc.id.to_string()),
+                        termination_reason = termination_reason.to_string(),
                         "function executor terminated, updating allocation outcome",
                     );
                     update.updated_allocations.push(updated_alloc);
@@ -385,7 +388,9 @@ impl FunctionExecutorManager {
                         app = updated_alloc.application.clone(),
                         fn = updated_alloc.function.clone(),
                         fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
-                        outcome = updated_alloc.outcome.to_string(),
+                        allocation_outcome = updated_alloc.outcome.to_string(),
+                        fn_run_status = function_run.status.to_string(),
+                        fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
                         "function executor is being removed, cancelling allocation",
                     );
                     update.updated_allocations.push(updated_alloc);
@@ -396,8 +401,8 @@ impl FunctionExecutorManager {
                     namespace = function_run.namespace.clone(),
                     app = function_run.application.clone(),
                     fn = function_run.name.clone(),
-                    status = function_run.status.to_string(),
-                    outcome = function_run.outcome.map(|o| o.to_string()),
+                    fn_run_status = function_run.status.to_string(),
+                    fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
                     "updating function run to request context because function executor is being removed",
                 );
 
@@ -460,10 +465,11 @@ impl FunctionExecutorManager {
             for allocs_by_fe in allocations.values() {
                 for alloc in allocs_by_fe.values() {
                     info!(
-                        alloc_id = alloc.id.to_string(),
+                        allocation_id = alloc.id.to_string(),
                         request_id = alloc.request_id.clone(),
                         namespace = alloc.namespace.clone(),
                         app = alloc.application.clone(),
+                        fn = alloc.function.clone(),
                         fn_call_id = alloc.function_call_id.to_string(),
                         "marking allocation as failed due to deregistered executor",
                     );
@@ -477,6 +483,10 @@ impl FunctionExecutorManager {
                     else {
                         warn!(
                             fn_call_id = alloc.id.to_string(),
+                            fn = alloc.function.clone(),
+                            request_id = alloc.request_id.clone(),
+                            namespace = alloc.namespace.clone(),
+                            app = alloc.application.clone(),
                             "function run not found while removing allocations for deregistered executor",
                         );
                         continue;
@@ -489,6 +499,10 @@ impl FunctionExecutorManager {
                     else {
                         warn!(
                             fn_call_id = alloc.id.to_string(),
+                            fn = alloc.function.clone(),
+                            request_id = alloc.request_id.clone(),
+                            namespace = alloc.namespace.clone(),
+                            app = alloc.application.clone(),
                             "request context not found while removing allocations for deregistered executor",
                         );
                         continue;
@@ -499,6 +513,10 @@ impl FunctionExecutorManager {
                     else {
                         warn!(
                             fn_call_id = alloc.id.to_string(),
+                            fn = alloc.function.clone(),
+                            request_id = alloc.request_id.clone(),
+                            namespace = alloc.namespace.clone(),
+                            app = alloc.application.clone(),
                             "application version not found while removing allocations for deregistered executor",
                         );
                         continue;
@@ -509,6 +527,16 @@ impl FunctionExecutorManager {
                         &application_version,
                     );
                     scheduler_update.updated_allocations.push(updated_alloc);
+                    info!(
+                        allocation_id = alloc.id.to_string(),
+                        request_id = function_run.request_id.clone(),
+                        namespace = function_run.namespace.clone(),
+                        app = function_run.application.clone(),
+                        fn = function_run.name.clone(),
+                        status = function_run.status.to_string(),
+                        outcome = function_run.outcome.map(|o| o.to_string()),
+                        "function run status after removing function executor because of FE termination",
+                    );
                     scheduler_update.add_function_run(*function_run.clone(), &mut request_ctx);
                 }
             }
