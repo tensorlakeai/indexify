@@ -146,7 +146,11 @@ impl InMemoryStoreGauges {
             .with_description("Number of active allocations")
             .with_callback(move |observer| {
                 if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.allocations_by_executor.len() as u64, &[]);
+                    let total_allocations = state
+                        .allocations_by_executor
+                        .iter()
+                        .fold(0, |acc, (_, allocations)| acc + allocations.len());
+                    observer.observe(total_allocations as u64, &[]);
                 }
             })
             .build();
