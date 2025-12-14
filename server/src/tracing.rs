@@ -1,7 +1,10 @@
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig, WithTonicConfig};
-use opentelemetry_sdk::{Resource, trace::TracerProviderBuilder};
+use opentelemetry_sdk::{
+    Resource,
+    trace::{BatchConfigBuilder, BatchSpanProcessor, TracerProviderBuilder},
+};
 use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
 use tracing::Metadata;
 use tracing_subscriber::{
@@ -69,7 +72,13 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
                         otlp = otlp.with_endpoint(endpoint);
                     }
                     let exporter = otlp.build()?;
-                    tracer_provider = tracer_provider.with_batch_exporter(exporter)
+                    // Use smaller batch size to avoid exceeding receiver's 4MB message limit
+                    let batch_config = BatchConfigBuilder::default()
+                        .with_max_export_batch_size(128) // Default is 512
+                        .build();
+                    let batch_processor =
+                        BatchSpanProcessor::builder(exporter).with_batch_config(batch_config);
+                    tracer_provider = tracer_provider.with_span_processor(batch_processor.build())
                 }
                 TracingExporter::Stdout => {
                     tracer_provider =
