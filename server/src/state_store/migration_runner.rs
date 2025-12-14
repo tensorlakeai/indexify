@@ -43,6 +43,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
                 db_version: latest_version,
                 last_change_idx: 0,
                 last_usage_idx: 0,
+                last_request_event_idx: 0,
             });
         }
         Err(e) => return Err(anyhow::anyhow!("Error opening database: {e:?}")),
@@ -129,6 +130,7 @@ pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
             db_version: 0,
             last_change_idx: 0,
             last_usage_idx: 0,
+            last_request_event_idx: 0,
         }),
     }
 }
@@ -227,6 +229,7 @@ mod tests {
             db_version: 0,
             last_change_idx: 0,
             last_usage_idx: 0,
+            last_request_event_idx: 0,
         };
 
         let mut ctx = MigrationContext::new(db, txn);

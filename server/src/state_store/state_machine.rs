@@ -10,7 +10,14 @@ use anyhow::{Result, anyhow};
 use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
-use super::serializer::{JsonEncode, JsonEncoder};
+use super::{
+    request_events::{
+        PersistedRequestStateChangeEvent,
+        RequestStateChangeEvent,
+        RequestStateChangeEventId,
+    },
+    serializer::{JsonEncode, JsonEncoder},
+};
 use crate::{
     data_model::{
         Allocation,
@@ -37,7 +44,7 @@ use crate::{
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
-#[derive(AsRefStr, strum::Display, strum::EnumIter)]
+#[derive(AsRefStr, strum::Display, strum::EnumIter, PartialEq, Eq)]
 pub enum IndexifyObjectsColumns {
     StateMachineMetadata, //  StateMachineMetadata
     Namespaces,           //  Namespaces
@@ -582,6 +589,53 @@ pub(crate) async fn remove_allocation_usage_events(
         let key = &usage.key();
         txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)
             .await?;
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn remove_request_state_change_events(
+    txn: &Transaction,
+    events: &[PersistedRequestStateChangeEvent],
+) -> Result<()> {
+    for event in events {
+        trace!(
+            event_id = %event.id,
+            namespace = %event.event.namespace(),
+            application = %event.event.application_name(),
+            request_id = %event.event.request_id(),
+            "removing request state change event"
+        );
+        let key = event.key();
+        txn.delete(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            key.as_bytes(),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Persist request state change events to RocksDB
+pub(crate) async fn persist_request_state_change_events(
+    txn: &Transaction,
+    events: Vec<RequestStateChangeEvent>,
+    request_event_id_seq: &AtomicU64,
+) -> Result<()> {
+    for event in events {
+        let event_id =
+            RequestStateChangeEventId::new(request_event_id_seq.fetch_add(1, Ordering::Relaxed));
+        let persisted_event = PersistedRequestStateChangeEvent::new(event_id, event);
+        let key = persisted_event.key();
+
+        let serialized = JsonEncoder::encode(&persisted_event)?;
+        txn.put(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            key.as_bytes(),
+            &serialized,
+        )
+        .await?;
     }
 
     Ok(())

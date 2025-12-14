@@ -129,7 +129,8 @@ impl FunctionRunCreator {
             namespace = alloc_finished_event.namespace,
             application = alloc_finished_event.application,
             request_id = alloc_finished_event.request_id,
-            function = alloc_finished_event.function,
+            fn = alloc_finished_event.function,
+            allocation_id = alloc_finished_event.allocation.id.to_string(),
             "handling allocation ingestion",
         );
         let Some(mut request_ctx) = in_memory_state
