@@ -288,17 +288,17 @@ impl FunctionExecutorManager {
                 "Removing function executor from executor",
             );
 
-            let allocs: Vec<_> = in_memory_state
+            let allocs = in_memory_state
                 .allocations_by_executor
                 .get(&executor_server_metadata.executor_id)
-                .and_then(|allocs_by_fe| allocs_by_fe.get(&fe.id))
-                .map(|allocs| allocs.values().cloned().collect())
+                .and_then(|allocs_be_fe| allocs_be_fe.get(&fe.id))
+                .cloned()
                 .unwrap_or_default();
             for alloc in allocs {
-                let mut updated_alloc = alloc.as_ref().clone();
+                let mut updated_alloc = *alloc.clone();
                 let Some(mut function_run) = in_memory_state
                     .function_runs
-                    .get(&FunctionRunKey::from(alloc.as_ref()))
+                    .get(&FunctionRunKey::from(&alloc))
                     .cloned()
                 else {
                     update.cancel_allocation(&mut updated_alloc);
@@ -318,7 +318,7 @@ impl FunctionExecutorManager {
                 // paths.
                 if function_run.status !=
                     FunctionRunStatus::Running(RunningFunctionRunStatus {
-                        allocation_id: updated_alloc.id.clone(),
+                        allocation_id: alloc.id.clone(),
                     })
                 {
                     update.cancel_allocation(&mut updated_alloc);
@@ -341,7 +341,7 @@ impl FunctionExecutorManager {
                     // otherwise we assume the FE terminated so the allocations couldn't run.
                     // The assumption here is that bad user code or input can fail FE's but not the
                     // executor.
-                    if blame_alloc_ids.contains(&updated_alloc.id.to_string()) ||
+                    if blame_alloc_ids.contains(&alloc.id.to_string()) ||
                         termination_reason == &FunctionExecutorTerminationReason::ExecutorRemoved
                     {
                         updated_alloc.outcome =
@@ -367,7 +367,7 @@ impl FunctionExecutorManager {
                         fn = updated_alloc.function.clone(),
                         fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
                         outcome = updated_alloc.outcome.to_string(),
-                        blame_alloc_id = blame_alloc_ids.contains(&updated_alloc.id.to_string()),
+                        blame_alloc_id = blame_alloc_ids.contains(&alloc.id.to_string()),
                         "function executor terminated, updating allocation outcome",
                     );
                     update.updated_allocations.push(updated_alloc);
@@ -458,7 +458,7 @@ impl FunctionExecutorManager {
                 .unwrap_or_default();
 
             for allocs_by_fe in allocations.values() {
-                for alloc in allocs_by_fe.values() {
+                for alloc in allocs_by_fe {
                     info!(
                         alloc_id = alloc.id.to_string(),
                         request_id = alloc.request_id.clone(),
@@ -467,12 +467,12 @@ impl FunctionExecutorManager {
                         fn_call_id = alloc.function_call_id.to_string(),
                         "marking allocation as failed due to deregistered executor",
                     );
-                    let mut updated_alloc = alloc.as_ref().clone();
+                    let mut updated_alloc = *alloc.clone();
                     updated_alloc.outcome =
                         FunctionRunOutcome::Failure(FunctionRunFailureReason::ExecutorRemoved);
                     let Some(function_run) = in_memory_state
                         .function_runs
-                        .get(&FunctionRunKey::from(alloc.as_ref()))
+                        .get(&FunctionRunKey::from(alloc))
                         .cloned()
                     else {
                         warn!(

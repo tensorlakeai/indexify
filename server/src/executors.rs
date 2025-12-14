@@ -602,7 +602,7 @@ impl ExecutorManager {
                                 .get(&fe_meta.function_executor.id)
                                 .map(|allocations| {
                                     allocations
-                                        .values()
+                                        .iter()
                                         .map(|allocation| allocation.as_ref().clone().into())
                                         .collect::<Vec<_>>()
                                 })

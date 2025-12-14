@@ -4,7 +4,6 @@ use super::migration_trait::Migration;
 use crate::state_store::migrations::{
     v1_fake_migration::V1FakeMigration,
     v9_separate_executor_and_app_state_changes::V9SeparateExecutorAndAppStateChanges,
-    v10_allocation_output_event_format::V10AllocationOutputEventFormat,
 };
 // Import all migration implementations
 
@@ -25,7 +24,6 @@ impl MigrationRegistry {
         // Add new migrations here
         registry.register(Box::new(V1FakeMigration {}));
         registry.register(Box::new(V9SeparateExecutorAndAppStateChanges));
-        registry.register(Box::new(V10AllocationOutputEventFormat));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

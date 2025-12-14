@@ -16,5 +16,4 @@ mod v1_fake_migration;
 //mod v7_reset_allocated_tasks;
 //mod v8_rebuild_invocation_ctx_secondary_index;
 // Add new migrations mod here
-mod v10_allocation_output_event_format;
 mod v9_separate_executor_and_app_state_changes;
