@@ -749,7 +749,7 @@ class FunctionExecutorController:
             logger=logger,
         )
         # Reconciler will call .remove_allocation() once Server signals that it processed this update.
-        self._state_reporter.add_completed_allocation_result(
+        self._state_reporter.add_allocation_result(
             _to_server_alloc_result(alloc_info, logger)
         )
         self._state_reporter.schedule_state_report()

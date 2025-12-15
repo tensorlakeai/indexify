@@ -119,7 +119,7 @@ class ExecutorStateReporter:
             0  # Server expects initial value to be 0 until it is set by Server.
         )
         # Alloc ID -> AllocationResult
-        self._pending_allocation_results: List[AllocationResult] = []
+        self._allocation_results: Dict[str, AllocationResult] = {}
         # FE ID -> FunctionExecutorState
         self._function_executor_states: Dict[str, FunctionExecutorState] = {}
         # Watch content based key -> _FunctionCallWatchInfo
@@ -151,8 +151,22 @@ class ExecutorStateReporter:
 
         self._function_executor_states.pop(function_executor_id)
 
-    def add_completed_allocation_result(self, alloc_result: AllocationResult) -> None:
-        self._pending_allocation_results.append(alloc_result)
+    def add_allocation_result(self, alloc_result: AllocationResult) -> None:
+        self._allocation_results[alloc_result.allocation_id] = alloc_result
+
+    def allocation_result_ids(self) -> List[str]:
+        """Returns the list of allocation IDs that have unreported allocation results."""
+        return list(self._allocation_results.keys())
+
+    def remove_allocation_result(self, alloc_id: str) -> None:
+        if alloc_id not in self._allocation_results:
+            self._logger.warning(
+                "attempted to remove non-existing allocation result",
+                allocation_id=alloc_id,
+            )
+            return
+
+        self._allocation_results.pop(alloc_id)
 
     def add_function_call_watcher(self, watch: FunctionCallWatch) -> None:
         content_derived_key: str = _function_call_watch_key(watch)
@@ -233,7 +247,7 @@ class ExecutorStateReporter:
                 await ExecutorAPIStub(channel).report_executor_state(
                     ReportExecutorStateRequest(
                         executor_state=self._current_executor_state(),
-                        executor_update=self._remove_pending_update(),
+                        executor_update=self._not_reported_updates(),
                     ),
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
@@ -258,15 +272,15 @@ class ExecutorStateReporter:
                 report_state_request: ReportExecutorStateRequest = (
                     ReportExecutorStateRequest(
                         executor_state=self._current_executor_state(),
-                        executor_update=self._remove_pending_update(),
+                        executor_update=self._not_reported_updates(),
                     )
                 )
 
                 try:
                     await self._report_state(stub, report_state_request)
+                    self._delete_reported_updates(report_state_request.executor_update)
                     periodic_reporting_interval_sec = _MIN_REPORTING_INTERVAL_SEC
                 except Exception as e:
-                    self._add_to_pending_update(report_state_request.executor_update)
                     periodic_reporting_interval_sec = min(
                         periodic_reporting_interval_sec * _REPORTING_BACKOFF_MULTIPLIER,
                         _MAX_REPORTING_INTERVAL_SEC,
@@ -359,20 +373,20 @@ class ExecutorStateReporter:
         state.server_clock = self._last_server_clock
         return state
 
-    def _remove_pending_update(self) -> ExecutorUpdate:
-        """Removes all pending executor updates and returns them."""
-        # No races here cause we don't await.
-        alloc_results: List[AllocationResult] = self._pending_allocation_results
-        self._pending_allocation_results = []
+    def _not_reported_updates(self) -> ExecutorUpdate:
+        alloc_results: List[AllocationResult] = list(self._allocation_results.values())
 
         return ExecutorUpdate(
             executor_id=self._executor_id,
             allocation_results=alloc_results,
         )
 
-    def _add_to_pending_update(self, update: ExecutorUpdate) -> None:
+    def _delete_reported_updates(self, update: ExecutorUpdate) -> None:
         for alloc_result in update.allocation_results:
-            self.add_completed_allocation_result(alloc_result)
+            # Check if the allocation result is removed already by Server from desired state
+            # after we reported it.
+            if alloc_result.allocation_id in self._allocation_results:
+                self.remove_allocation_result(alloc_result.allocation_id)
 
 
 def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
