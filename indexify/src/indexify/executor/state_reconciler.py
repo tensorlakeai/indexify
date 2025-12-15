@@ -479,13 +479,16 @@ class ExecutorStateReconciler:
 
     def _reconcile_allocations(self, allocations: Iterable[Allocation]):
         valid_allocations: List[Allocation] = self._valid_allocations(allocations)
-        for allocation in valid_allocations:
+        valid_allocations_for_existing_fes: List[Allocation] = (
+            self._allocations_for_existing_function_executors(valid_allocations)
+        )
+        for allocation in valid_allocations_for_existing_fes:
             self._reconcile_allocation(allocation)
 
         # Cancel allocs that are no longer in the desired state.
         # FE ID => [Allocation ID]
         desired_alloc_ids_per_fe: Dict[str, List[str]] = {}
-        for allocation in valid_allocations:
+        for allocation in valid_allocations_for_existing_fes:
             if allocation.function_executor_id not in desired_alloc_ids_per_fe:
                 desired_alloc_ids_per_fe[allocation.function_executor_id] = []
             desired_alloc_ids_per_fe[allocation.function_executor_id].append(
@@ -506,6 +509,14 @@ class ExecutorStateReconciler:
             for alloc_id in alloc_ids_to_remove:
                 fe_controller.remove_allocation(alloc_id)
 
+        # Delete allocation results for allocations that are no longer in the desired state.
+        desired_alloc_ids: Set[str] = set(
+            map(lambda alloc: alloc.allocation_id, valid_allocations)
+        )
+        for alloc_id in self._state_reporter.allocation_result_ids():
+            if alloc_id not in desired_alloc_ids:
+                self._state_reporter.remove_allocation_result(alloc_id)
+
     def _reconcile_allocation(self, allocation: Allocation):
         """Reconciles a single Allocation with the desired state.
 
@@ -520,7 +531,7 @@ class ExecutorStateReconciler:
 
         function_executor_controller.add_allocation(allocation)
 
-    def _valid_allocations(self, allocations: Iterable[Allocation]):
+    def _valid_allocations(self, allocations: Iterable[Allocation]) -> List[Allocation]:
         valid_allocations: List[Allocation] = []
         for allocation in allocations:
             allocation: Allocation
@@ -535,6 +546,18 @@ class ExecutorStateReconciler:
                     exc_info=e,
                 )
                 continue
+
+            valid_allocations.append(allocation)
+
+        return valid_allocations
+
+    def _allocations_for_existing_function_executors(
+        self, allocations: Iterable[Allocation]
+    ) -> List[Allocation]:
+        valid_allocations: List[Allocation] = []
+        for allocation in allocations:
+            allocation: Allocation
+            logger = allocation_logger(allocation, self._logger)
 
             if (
                 allocation.function_executor_id
