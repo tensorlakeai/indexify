@@ -117,10 +117,7 @@ class ExecutorStateReconciler:
         # Content derived FunctionCallWatch key -> _FunctionCallWatchInfo
         self._function_call_watchers: Dict[str, _FunctionCallWatchInfo] = {}
 
-        self._last_desired_state_lock = asyncio.Lock()
-        self._last_desired_state_change_notifier: asyncio.Condition = asyncio.Condition(
-            lock=self._last_desired_state_lock
-        )
+        self._reconcile_last_desired_state: asyncio.Condition = asyncio.Condition()
         self._last_desired_state: DesiredExecutorState | None = None
 
     def get_desired_state(self) -> DesiredExecutorState | None:
@@ -320,9 +317,9 @@ class ExecutorStateReconciler:
             self._last_server_clock = new_state.clock
             # Always read the latest desired state value from the stream so
             # we're never acting on a stale desired state.
-            async with self._last_desired_state_lock:
+            async with self._reconcile_last_desired_state:
                 self._last_desired_state = new_state
-                self._last_desired_state_change_notifier.notify_all()
+                self._reconcile_last_desired_state.notify_all()
 
     async def _reconciliation_loop(self):
         """Continuously reconciles the desired state with the current state.
@@ -330,11 +327,8 @@ class ExecutorStateReconciler:
         Never raises any exceptions. Get cancelled via aio task cancellation."""
         last_reconciled_state: DesiredExecutorState | None = None
         while True:
-            async with self._last_desired_state_lock:
-                # Comparing object identities (references) is enough here to not reconcile
-                # the same state twice.
-                while self._last_desired_state is last_reconciled_state:
-                    await self._last_desired_state_change_notifier.wait()
+            async with self._reconcile_last_desired_state:
+                await self._reconcile_last_desired_state.wait()
                 last_reconciled_state = self._last_desired_state
 
             with metric_state_reconciliation_latency.time():
