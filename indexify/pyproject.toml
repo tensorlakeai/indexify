@@ -25,11 +25,11 @@ httpx = { version = "0.27.2", extras = ["http2"] }
 pydantic = "^2.12.5"
 prometheus-client = "^0.23.1"
 psutil = "^7.1.3"
-boto3 = "^1.42.5"
+boto3 = "^1.42.9"
 structlog = "25.5.0"
 # Adds function-executor binary, utils lib, sdk used in indexify-cli commands.
 # We need to specify the tensorlake version exactly because pip install doesn't respect poetry.lock files.
-tensorlake = "0.2.90"
+tensorlake = "0.2.91"
 # Uncomment the next line to use local tensorlake package (only for development!)
 # tensorlake = { path = "../tensorlake", develop = true }
 # grpcio is provided by tensorlake
@@ -41,10 +41,10 @@ docker = "^7.1.0"
 
 # Packages pinned to mitigate vulnerabilities, not a direct dependcy of tensorlake
 requests = "^2.32.5"
-urllib3 = "^2.6.1"
+urllib3 = "^2.6.2"
 
 [tool.poetry.group.dev.dependencies]
-black = "25.11.0"
+black = "25.12.0"
 isort = "^7.0.0"
 parameterized = "^0.9.0"
 
