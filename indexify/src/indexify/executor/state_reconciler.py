@@ -381,7 +381,6 @@ class ExecutorStateReconciler:
         seen_fe_ids: Set[str] = set(map(lambda fe: fe.id, valid_fe_descriptions))
         fe_ids_to_remove = set(self._function_executor_controllers.keys()) - seen_fe_ids
         for fe_id in fe_ids_to_remove:
-            # Server forgot this FE, so its safe to forget about it now too.
             self._remove_function_executor_controller(fe_id)
 
     def _valid_function_executor_descriptions(
@@ -474,6 +473,9 @@ class ExecutorStateReconciler:
         await fe_controller.shutdown()
         self._function_executor_controllers.pop(function_executor_id, None)
         self._shutting_down_fe_ids.discard(function_executor_id)
+        # Re-create the FE if Server re-added it to desired state while we were shutting it down.
+        async with self._reconcile_last_desired_state:
+            self._reconcile_last_desired_state.notify_all()
 
     def _reconcile_allocations(self, allocations: Iterable[Allocation]):
         valid_allocations: List[Allocation] = self._valid_allocations(allocations)
