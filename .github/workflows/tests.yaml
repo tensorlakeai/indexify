@@ -98,7 +98,7 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: indexify-server
       - name: Start Background Indexify Server
@@ -200,7 +200,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download indexify-server
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: indexify-server
       - name: Start Background Indexify Server
