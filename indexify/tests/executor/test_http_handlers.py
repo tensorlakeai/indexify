@@ -214,6 +214,10 @@ class TestMetrics(unittest.TestCase):
             "state_report_rpc_errors_total",
             "state_report_rpc_latency_seconds_count",
             "state_report_rpc_latency_seconds_sum",
+            "state_report_message_size_mb_count",
+            "state_report_message_size_mb_sum",
+            "state_report_messages_over_size_limit_total",
+            "state_report_message_fragmentations_total",
             # Executor state reconciliation
             "state_reconciliations_total",
             "state_reconciliation_errors_total",

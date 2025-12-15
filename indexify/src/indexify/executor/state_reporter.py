@@ -31,7 +31,11 @@ from .function_allowlist import FunctionURI
 from .function_executor_controller.loggers import allocation_result_logger
 from .host_resources.host_resources import HostResources, HostResourcesProvider
 from .host_resources.nvidia_gpu import NVIDIA_GPU_MODEL
+from .limits import MAX_FUNCTION_CALL_SIZE_MB
 from .metrics.state_reporter import (
+    metric_state_report_message_fragmentations,
+    metric_state_report_message_size_mb,
+    metric_state_report_messages_over_size_limit,
     metric_state_report_rpc_errors,
     metric_state_report_rpc_latency,
     metric_state_report_rpcs,
@@ -54,6 +58,27 @@ _REPORT_RPC_TIMEOUT_SEC: float = 5.0
 _REPORT_BATCH_DELAY_MS: int = int(
     os.getenv("INDEXIFY_STATE_REPORT_BATCH_DELAY_MS", "0")
 )
+# Max state report size must be less than max configured Server
+# grpc message size (currently 4 GB) minus sufficient headroom to encoding
+# and any other overheads.
+#
+# The max configured grpc message size must be sufficient to send at least
+# one allocation result of maximum sizes to ensure progress of the system.
+# It also shouldn't be too large to avoid high memory usage on Server side.
+#
+# We choose 10 MB. This limits memory use on Server side to process state reports
+# to reasonable values and prevents excessive fragmentation of state reports
+# on Executor side while still allowing to send at least one max sized allocation
+# result in a single state report which is 1 MB.
+_STATE_REPORT_MAX_MESSAGE_SIZE_MB: float = 10.0
+
+# Add 1 MB for arbitrary message overheads.
+if MAX_FUNCTION_CALL_SIZE_MB + 1 > _STATE_REPORT_MAX_MESSAGE_SIZE_MB:
+    raise RuntimeError(
+        f"MAX_FUNCTION_CALL_SIZE_MB ({MAX_FUNCTION_CALL_SIZE_MB} MB) "
+        f"cannot be larger than _STATE_REPORT_MAX_MESSAGE_SIZE_MB "
+        f"({_STATE_REPORT_MAX_MESSAGE_SIZE_MB} MB)"
+    )
 
 
 @dataclass
@@ -245,10 +270,7 @@ class ExecutorStateReporter:
         try:
             async with self._channel_manager.create_standalone_channel() as channel:
                 await ExecutorAPIStub(channel).report_executor_state(
-                    ReportExecutorStateRequest(
-                        executor_state=self._current_executor_state(),
-                        executor_update=self._not_reported_updates(),
-                    ),
+                    self._collect_report_state_request(),
                     timeout=_REPORT_RPC_TIMEOUT_SEC,
                 )
         except Exception as e:
@@ -270,12 +292,8 @@ class ExecutorStateReporter:
                 # Clear the event because we're reporting the current state now, no need to report the same again.
                 self._state_report_scheduled_event.clear()
                 report_state_request: ReportExecutorStateRequest = (
-                    ReportExecutorStateRequest(
-                        executor_state=self._current_executor_state(),
-                        executor_update=self._not_reported_updates(),
-                    )
+                    self._collect_report_state_request()
                 )
-
                 try:
                     await self._report_state(stub, report_state_request)
                     self._delete_reported_updates(report_state_request.executor_update)
@@ -337,7 +355,7 @@ class ExecutorStateReporter:
 
         Raises exception on error.
         """
-        _log_reported_executor_update(request.executor_update, self._logger)
+        _log_reported_state(request, self._logger)
         self._last_state_report_request = request
 
         with (
@@ -351,7 +369,50 @@ class ExecutorStateReporter:
             is_healthy=True, status_message="grpc server channel is healthy"
         )
 
-    def _current_executor_state(self) -> ExecutorState:
+    def _collect_report_state_request(self) -> ReportExecutorStateRequest:
+        request: ReportExecutorStateRequest = ReportExecutorStateRequest(
+            executor_state=self._collect_reported_state(),
+            executor_update=ExecutorUpdate(
+                executor_id=self._executor_id,
+                allocation_results=[],
+            ),
+        )
+
+        alloc_results: List[AllocationResult] = list(self._allocation_results.values())
+        # Always report at least one allocation result to make progress.
+        if len(alloc_results) > 0:
+            request.executor_update.allocation_results.append(alloc_results.pop())
+
+        request_size: int = request.ByteSize()
+        if request_size >= _STATE_REPORT_MAX_MESSAGE_SIZE_MB * 1024 * 1024:
+            self._logger.error(
+                "state report message size is over the max limit, this might overload server",
+                max_message_size_bytes=_STATE_REPORT_MAX_MESSAGE_SIZE_MB * 1024 * 1024,
+                message_size_bytes=request_size,
+            )
+            metric_state_report_messages_over_size_limit.inc()
+
+        while len(alloc_results) != 0:
+            alloc_result: AllocationResult = alloc_results.pop()
+            request_size += alloc_result.ByteSize()
+            if request_size < _STATE_REPORT_MAX_MESSAGE_SIZE_MB * 1024 * 1024:
+                request.executor_update.allocation_results.append(alloc_result)
+            else:
+                self._logger.warning(
+                    "state report message size limit reached, fragmenting state report message",
+                    max_message_size_bytes=_STATE_REPORT_MAX_MESSAGE_SIZE_MB
+                    * 1024
+                    * 1024,
+                    message_size_bytes=request_size,
+                    remaining_allocation_results=len(alloc_results) + 1,
+                )
+                metric_state_report_message_fragmentations.inc()
+                self.schedule_state_report()
+                break
+
+        return request
+
+    def _collect_reported_state(self) -> ExecutorState:
         """Returns the current executor state."""
         state = ExecutorState(
             executor_id=self._executor_id,
@@ -373,14 +434,6 @@ class ExecutorStateReporter:
         state.server_clock = self._last_server_clock
         return state
 
-    def _not_reported_updates(self) -> ExecutorUpdate:
-        alloc_results: List[AllocationResult] = list(self._allocation_results.values())
-
-        return ExecutorUpdate(
-            executor_id=self._executor_id,
-            allocation_results=alloc_results,
-        )
-
     def _delete_reported_updates(self, update: ExecutorUpdate) -> None:
         for alloc_result in update.allocation_results:
             # Check if the allocation result is removed already by Server from desired state
@@ -389,12 +442,16 @@ class ExecutorStateReporter:
                 self.remove_allocation_result(alloc_result.allocation_id)
 
 
-def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
+def _log_reported_state(state: ReportExecutorStateRequest, logger: Any) -> None:
     """Logs the reported executor update.
 
     Doesn't raise any exceptions."""
     try:
-        for alloc_result in update.allocation_results:
+        metric_state_report_message_size_mb.observe(
+            state.ByteSize() / (1024.0 * 1024.0)
+        )
+
+        for alloc_result in state.executor_update.allocation_results:
             allocation_result_logger(alloc_result, logger).info(
                 "reporting allocation outcome",
                 outcome_code=AllocationOutcomeCode.Name(alloc_result.outcome_code),
@@ -403,6 +460,7 @@ def _log_reported_executor_update(update: ExecutorUpdate, logger: Any) -> None:
                     if alloc_result.HasField("failure_reason")
                     else "None"
                 ),
+                message_size_bytes=alloc_result.ByteSize(),
             )
     except Exception as e:
         logger.error(
