@@ -1,6 +1,6 @@
 mod saga;
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -11,8 +11,7 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use derive_builder::Builder;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, executor::block_on};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
@@ -24,19 +23,15 @@ use crate::{
         self,
         Application,
         ApplicationState,
+        DataPayload,
         FunctionCallId,
         InputArgs,
         RequestCtxBuilder,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
-    routes::invoke::saga::InvokeApplicationSagaBuilder,
-    state_store::{
-        WriteError,
-        request_events::RequestStateChangeEvent,
-        requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
-        state_machine::CreateRequestError,
-    },
+    routes::invoke::saga::{InvokeApplicationSaga, InvokeApplicationSagaBuilder},
+    state_store::{EnsureIdempotencyError, request_events::RequestStateChangeEvent},
     utils::get_epoch_time_in_ms,
 };
 
@@ -175,19 +170,18 @@ pub async fn invoke_application_with_object_v1(
 
     let request_id = resolve_request_id(&headers, &application)?;
 
-    let blob_storage = state.blob_storage.get_blob_store(&application.namespace);
-
-    let saga = InvokeApplicationSagaBuilder::default()
-        .blob_storage(blob_storage)
-        .request_id(request_id.clone())
-        .build()
-        .map_err(|err| IndexifyAPIError::internal_error(anyhow!("failed to build saga: {err}")))?;
-
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json");
 
+    let encoding = headers
+        .get("Content-Type")
+        .and_then(|value| value.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("application/octet-stream".to_string());
+
+    // Validate request
     let response_type = if accept_header.contains("application/json") {
         ResponseType::Json
     } else if accept_header.contains("text/event-stream") {
@@ -198,40 +192,10 @@ pub async fn invoke_application_with_object_v1(
         ));
     };
 
-    let encoding = headers
-        .get("Content-Type")
-        .and_then(|value| value.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("application/octet-stream".to_string());
-
-    let payload_stream = body
-        .into_data_stream()
-        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-    let put_result = saga
-        .store_body(Box::pin(payload_stream))
-        .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    let data_payload = data_model::DataPayload {
-        id: nanoid::nanoid!(),
-        metadata_size: 0,
-        path: put_result.url,
-        size: put_result.size_bytes,
-        sha256_hash: put_result.sha256_hash,
-        offset: 0, // Whole BLOB was written, so offset is 0
-        encoding,
-    };
-
-    state
-        .metrics
-        .request_input_bytes
-        .add(data_payload.size, &[]);
-    state.metrics.requests.add(1, &[]);
-
+    // Validate application
     if let ApplicationState::Disabled { reason } = &application.state {
-        return Result::Err(IndexifyAPIError::conflict(reason));
+        return Err(IndexifyAPIError::conflict(reason));
     }
-
-    let function_call_id = FunctionCallId(request_id.clone());
 
     let entrypoint_fn_name = &application.entrypoint.function_name;
     let Some(entrypoint_fn) = application.functions.get(entrypoint_fn_name) else {
@@ -239,6 +203,37 @@ pub async fn invoke_application_with_object_v1(
             "application entrypoint function {entrypoint_fn_name} is not in the application function list",
         )));
     };
+
+    let blob_storage = state.blob_storage.get_blob_store(&application.namespace);
+
+    let saga = InvokeApplicationSagaBuilder::default()
+        .blob_storage(blob_storage)
+        .state(state.indexify_state.clone())
+        .request_id(request_id.clone())
+        .build()
+        .map_err(|err| IndexifyAPIError::internal_error(anyhow!("failed to build saga: {err}")))?;
+
+    // Stage 1: Ensure idempotency
+    saga.ensure_idempotent(&application)
+        .await
+        .map_err(|error| match error {
+            EnsureIdempotencyError::AlreadyExists => IndexifyAPIError::conflict(
+                "duplicate invoke application request detected for the given idempotency key",
+            ),
+            EnsureIdempotencyError::Error(e) => IndexifyAPIError::internal_error(anyhow!(e)),
+        })?;
+
+    // Stage 2: Store request payload
+    let data_payload = store_request_payload(&saga, body, encoding).await?;
+
+    state
+        .metrics
+        .request_input_bytes
+        .add(data_payload.size, &[]);
+    state.metrics.requests.add(1, &[]);
+
+    // Stage 3: Create function call and function run
+    let function_call_id = FunctionCallId(request_id.clone());
 
     let fn_call = entrypoint_fn.create_function_call(
         function_call_id,
@@ -281,26 +276,14 @@ pub async fn invoke_application_with_object_v1(
         .function_calls(fn_calls)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
-    let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
-        namespace: namespace.clone(),
-        application_name: application.name.clone(),
-        ctx: request_ctx.clone(),
-    });
 
-    state
-        .indexify_state
-        .write(StateMachineUpdateRequest { payload })
+    saga.write_fn_call(request_ctx)
         .await
-        .map_err(|e| match e {
-            WriteError::CreateRequest(CreateRequestError::Conflict) => {
-                IndexifyAPIError::conflict(&format!("request id already exists: {request_id}"))
-            }
-            e => IndexifyAPIError::internal_error(anyhow!("failed to write: {e}")),
-        })?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     match response_type {
         ResponseType::Json => {
-            saga.commit();
+            saga.commit().await;
             Ok(Json(RequestIdV1 {
                 id: request_id.clone(),
                 request_id: request_id.clone(),
@@ -308,19 +291,41 @@ pub async fn invoke_application_with_object_v1(
             .into_response())
         }
         ResponseType::Sse => {
-            return_sse_response(
-                // cloning the state is cheap because all its fields are inside arcs
-                state.clone(),
-                namespace,
-                application.name,
-                request_id,
-            )
-            .await
-            .inspect(|e| {
-                saga.commit();
-            })
+            return_sse_response(state.clone(), namespace, application.name, request_id)
+                .await
+                .inspect(|_| {
+                    block_on(async {
+                        saga.commit().await;
+                    })
+                })
         }
     }
+}
+
+async fn store_request_payload(
+    saga: &InvokeApplicationSaga,
+    body: Body,
+    encoding: String,
+) -> Result<DataPayload, IndexifyAPIError> {
+    let payload_stream = body
+        .into_data_stream()
+        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+
+    let put_result = saga
+        .store_body(Box::pin(payload_stream))
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+
+    let data_payload = data_model::DataPayload {
+        id: nanoid::nanoid!(),
+        metadata_size: 0,
+        path: put_result.url,
+        size: put_result.size_bytes,
+        sha256_hash: put_result.sha256_hash,
+        offset: 0, // Whole BLOB was written, so offset is 0
+        encoding,
+    };
+    Ok(data_payload)
 }
 
 /// Stream progress of a request until it is completed
@@ -381,6 +386,8 @@ fn resolve_request_id(
             "X-Request-Idempotency-Key header exceeds maximum length of 255 characters",
         ));
     }
+
+    info!("Generating request ID using idempotency key: {}", key);
 
     let request_id_value = format!("{}:{}:{}", application.namespace, application.name, key);
 

@@ -52,6 +52,7 @@ pub enum IndexifyObjectsColumns {
     ApplicationVersions, //  Ns_ApplicationName_Version -> ApplicationVersion
     RequestCtx,           //  Ns_CG_RequestId -> RequestCtx
     RequestCtxSecondaryIndex, // NS_CG_RequestId_CreatedAt -> empty
+    RequestIdempotency,   //  NS:AppName:RequestId
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -93,9 +94,6 @@ pub enum CreateRequestError {
 
     #[error(transparent)]
     DriverError(#[from] state_store::driver::Error),
-
-    #[error("This request has already been submitted")]
-    Conflict,
 }
 
 #[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application_name, request_id = req.ctx.request_id))]
@@ -104,19 +102,6 @@ pub async fn create_request(
     req: &InvokeApplicationRequest,
 ) -> Result<(), CreateRequestError> {
     let ctx_key = req.ctx.key();
-
-    let has_old_ctx = txn
-        .get(
-            IndexifyObjectsColumns::RequestCtx.as_ref(),
-            ctx_key.as_bytes(),
-        )
-        .await
-        .map_err(|err| anyhow::anyhow!("failed to get old request ctx: {err}"))?
-        .is_some();
-
-    if has_old_ctx {
-        return Err(CreateRequestError::Conflict);
-    }
 
     let application_key = Application::key_from(&req.namespace, &req.application_name);
     let cg = txn

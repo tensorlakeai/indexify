@@ -3,86 +3,133 @@
 // transaction. It is not designed to be general for all sagas, but specifically
 // for invoking an application.
 
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::Bytes;
 use derive_builder::Builder;
 use futures::executor::block_on;
-use tracing::{error, info};
+use tokio::sync::RwLock;
+use tracing::{error, info, warn};
 
-use crate::blob_store::{BlobStorage, PutResult};
+use crate::{
+    blob_store::{BlobStorage, PutResult},
+    data_model::{Application, RequestCtx},
+    state_store::{
+        EnsureIdempotencyError,
+        IndexifyState,
+        requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+    },
+};
 
-enum InvokeApplicationSagaCompensationStep {
-    Idempotency,
+enum CompensationAction {
+    Idempotency {
+        namespace: String,
+        application_name: String,
+    },
     StoreBody,
-    WriteInvokeApplication,
+    WriteFnCall,
 }
 
 #[derive(Builder)]
 pub struct InvokeApplicationSaga {
     #[builder(default)]
-    compensation_steps: Rc<RefCell<Vec<InvokeApplicationSagaCompensationStep>>>,
+    compensation_actions: Arc<RwLock<Vec<CompensationAction>>>,
     blob_storage: Arc<BlobStorage>,
+    state: Arc<IndexifyState>,
     request_id: String,
 }
 
 impl InvokeApplicationSaga {
-    async fn run_compensations(&self) {
-        let compensation_steps = self.compensation_steps.take();
+    async fn compensate(&self) {
+        let mut actions = self.compensation_actions.write().await;
         info!(
-            "Running {} compensation(s) for request {}",
-            compensation_steps.len(),
+            "Running {} compensation action(s) for request {}",
+            actions.len(),
             self.request_id
         );
-        for step in compensation_steps.into_iter().rev() {
-            match step {
-                InvokeApplicationSagaCompensationStep::Idempotency => {
-                    self.rollback_idempotency().await
+        for action in actions.iter().rev() {
+            match action {
+                CompensationAction::Idempotency {
+                    namespace,
+                    application_name,
+                } => {
+                    self.rollback_idempotency(&namespace, &application_name)
+                        .await
                 }
-                InvokeApplicationSagaCompensationStep::StoreBody => {
-                    self.rollback_store_body().await
-                }
-                InvokeApplicationSagaCompensationStep::WriteInvokeApplication => {
-                    self.rollback_write_invoke_application().await
-                }
+                CompensationAction::StoreBody => self.rollback_store_body().await,
+                CompensationAction::WriteFnCall => self.rollback_write_fn_call().await,
             }
         }
+
+        actions.clear();
     }
 
-    pub fn commit(self) {
+    pub async fn commit(self) {
         info!("Committing saga for {}", self.request_id);
-        self.compensation_steps.borrow_mut().clear();
+        let mut actions = self.compensation_actions.write().await;
+        actions.clear();
     }
 
-    pub async fn check_idempotency(&self) -> Result<(), anyhow::Error> {
-        let result = self.check_idempotency_internal().await;
+    pub async fn ensure_idempotent(
+        &self,
+        application: &Application,
+    ) -> Result<(), EnsureIdempotencyError> {
+        let namespace = application.namespace.clone();
+        let application_name = application.name.clone();
+
+        let result = self
+            .ensure_idempotent_internal(&namespace, &application_name)
+            .await;
 
         if result.is_err() {
-            self.run_compensations().await;
+            self.compensate().await;
         } else {
-            self.compensation_steps
-                .borrow_mut()
-                .push(InvokeApplicationSagaCompensationStep::Idempotency);
+            let mut actions = self.compensation_actions.write().await;
+            actions.push(CompensationAction::Idempotency {
+                namespace,
+                application_name,
+            });
         }
 
         result
     }
 
-    async fn check_idempotency_internal(&self) -> Result<(), anyhow::Error> {
-        // Simulate idempotency check logic
-        if true {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Idempotency check failed for request {}",
-                self.request_id
-            ))
-        }
+    async fn ensure_idempotent_internal(
+        &self,
+        namespace: &str,
+        application_name: &str,
+    ) -> Result<(), EnsureIdempotencyError> {
+        info!(
+            "Ensuring idempotency for invoke application request {} for application {namespace}/{application_name}",
+            self.request_id
+        );
+
+        self.state
+            .ensure_invoke_request_idempotency(namespace, application_name, &self.request_id)
+            .await
+            .inspect_err(|error| match error {
+                EnsureIdempotencyError::Error(error) => {
+                    error!("failed to ensure idempotency: {:?}", error)
+                }
+                EnsureIdempotencyError::AlreadyExists => info!(
+                    "duplicate invoke application request detected for request id {}",
+                    self.request_id
+                ),
+            })
     }
 
-    async fn rollback_idempotency(&self) {
-        println!("Rollback idempotency for request {}", self.request_id);
+    async fn rollback_idempotency(&self, namespace: &str, application_name: &str) {
+        let _ = self
+            .state
+            .delete_invoke_request_idempotency(namespace, application_name, &self.request_id)
+            .await
+            .inspect_err(|error| {
+                error!(
+                    "failed to rollback idempotency for request {}: {:?}",
+                    self.request_id, error
+                )
+            });
     }
 
     pub async fn store_body(
@@ -95,11 +142,10 @@ impl InvokeApplicationSaga {
             .inspect_err(|err| error!("failed to write to blob store: {:?}", err));
 
         if result.is_err() {
-            self.run_compensations().await;
+            self.compensate().await;
         } else {
-            self.compensation_steps
-                .borrow_mut()
-                .push(InvokeApplicationSagaCompensationStep::StoreBody);
+            let mut actions = self.compensation_actions.write().await;
+            actions.push(CompensationAction::StoreBody);
         }
 
         result
@@ -113,37 +159,46 @@ impl InvokeApplicationSaga {
     }
 
     async fn rollback_store_body(&self) {
-        println!("Rollback store payload for request {}", self.request_id);
+        let result = self.blob_storage.delete(&self.request_id).await;
+        match result {
+            Ok(_) => info!(
+                "Successfully rolled back stored body for {}",
+                self.request_id
+            ),
+            Err(error) => error!(
+                ?error,
+                "Failed to rollback stored body for {}", self.request_id
+            ),
+        }
     }
 
-    pub async fn write_invoke_application(&self) -> Result<(), anyhow::Error> {
-        let result = self.write_invoke_application_internal().await;
+    pub async fn write_fn_call(&self, request_ctx: RequestCtx) -> Result<(), anyhow::Error> {
+        let result = self.write_fn_call_internal(request_ctx).await;
 
         if result.is_err() {
-            self.run_compensations().await;
+            self.compensate().await;
         } else {
-            self.compensation_steps
-                .borrow_mut()
-                .push(InvokeApplicationSagaCompensationStep::WriteInvokeApplication);
+            let mut actions = self.compensation_actions.write().await;
+            actions.push(CompensationAction::WriteFnCall);
         }
 
         result
     }
 
-    async fn write_invoke_application_internal(&self) -> Result<(), anyhow::Error> {
-        // Simulate writing invoke application logic
-        if true {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Write invoke application failed for request {}",
-                self.request_id
-            ))
-        }
+    async fn write_fn_call_internal(&self, request_ctx: RequestCtx) -> Result<(), anyhow::Error> {
+        let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
+            namespace: request_ctx.namespace.clone(),
+            application_name: request_ctx.application_name.clone(),
+            ctx: request_ctx.clone(),
+        });
+
+        self.state
+            .write(StateMachineUpdateRequest { payload })
+            .await
     }
 
-    async fn rollback_write_invoke_application(&self) {
-        // No specific rollback logic for write invoke application
+    async fn rollback_write_fn_call(&self) {
+        // No specific rollback logic as this is the terminal action
     }
 }
 
@@ -151,11 +206,16 @@ impl InvokeApplicationSaga {
 // https://doc.rust-lang.org/std/future/trait.AsyncDrop.html
 impl Drop for InvokeApplicationSaga {
     fn drop(&mut self) {
-        if !self.compensation_steps.borrow().is_empty() {
-            info!("Aborting saga for {}", self.request_id);
-            block_on(async {
-                self.run_compensations().await;
-            })
-        }
+        block_on(async {
+            let actions = self.compensation_actions.write().await;
+            if !actions.is_empty() {
+                warn!(
+                    "Aborting saga for invoke application request {}",
+                    self.request_id
+                );
+
+                self.compensate().await;
+            }
+        });
     }
 }

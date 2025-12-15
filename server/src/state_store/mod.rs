@@ -40,7 +40,10 @@ use crate::{
 pub mod executor_watches;
 use executor_watches::ExecutorWatches;
 
-use crate::state_store::{driver::TransactionOptionsBuilder, state_machine::CreateRequestError};
+use crate::{
+    data_model::RequestCtx,
+    state_store::driver::{TransactionOptions, TransactionOptionsBuilder},
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
@@ -101,6 +104,14 @@ impl Default for ExecutorState {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum EnsureIdempotencyError {
+    #[error("Request already exists")]
+    AlreadyExists,
+    #[error(transparent)]
+    Error(#[from] anyhow::Error),
+}
+
 pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
@@ -154,15 +165,6 @@ struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
     new_state_changes: Vec<StateChange>,
-}
-
-#[derive(Debug, Error)]
-pub enum WriteError {
-    #[error(transparent)]
-    Error(#[from] anyhow::Error),
-
-    #[error(transparent)]
-    CreateRequest(#[from] CreateRequestError),
 }
 
 impl IndexifyState {
@@ -254,7 +256,7 @@ impl IndexifyState {
             request_type = request.payload.to_string(),
         )
     )]
-    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<(), WriteError> {
+    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         debug!("writing state machine update request: {:#?}", request);
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
@@ -333,19 +335,11 @@ impl IndexifyState {
         &self,
         request: &StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
-    ) -> Result<PersistentWriteResult, WriteError> {
+    ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
 
-        let txn_opts = TransactionOptionsBuilder::default()
-            .use_snapshot(matches!(
-                request.payload,
-                RequestPayload::InvokeApplication(_)
-            ))
-            .build()
-            .map_err(anyhow::Error::from)?;
-
-        let txn = self.db.transaction(txn_opts);
+        let txn = self.db.transaction(TransactionOptions::default());
 
         let mut should_notify_usage_reporter = false;
         let mut allocation_ingestion_events = Vec::new();
@@ -476,9 +470,7 @@ impl IndexifyState {
             },
         )
         .await?;
-        txn.commit()
-            .await
-            .map_err(|err| WriteError::Error(err.into()))?;
+        txn.commit().await?;
 
         Ok(PersistentWriteResult {
             current_state_id,
@@ -607,6 +599,72 @@ impl IndexifyState {
 
     pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
         self.function_run_event_tx.subscribe()
+    }
+
+    pub async fn ensure_invoke_request_idempotency(
+        &self,
+        namespace: &str,
+        application_name: &str,
+        request_id: &str,
+    ) -> Result<(), EnsureIdempotencyError> {
+        let txn_opts = TransactionOptionsBuilder::default()
+            .use_snapshot(true)
+            .build()
+            .map_err(anyhow::Error::from)?;
+
+        let txn = self.db.transaction(txn_opts);
+
+        let prefix = RequestCtx::key_prefix_for_application(namespace, application_name);
+        let key = format!("{prefix}:{request_id}");
+
+        let existing_request = txn
+            .get(
+                IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+                key.as_bytes(),
+            )
+            .await
+            .map_err(anyhow::Error::from)?;
+
+        if existing_request.is_some() {
+            return Err(EnsureIdempotencyError::AlreadyExists);
+        }
+
+        txn.put(
+            IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+            key.as_bytes(),
+            b"{}",
+        )
+        .await
+        .map_err(anyhow::Error::from)?;
+
+        txn.commit()
+            .await
+            .map_err(|_| EnsureIdempotencyError::AlreadyExists)?;
+
+        Ok(())
+    }
+
+    pub async fn delete_invoke_request_idempotency(
+        &self,
+        namespace: &str,
+        application_name: &str,
+        request_id: &str,
+    ) -> Result<()> {
+        let txn = self.db.transaction(TransactionOptions::default());
+
+        let prefix = RequestCtx::key_prefix_for_application(namespace, application_name);
+        let key = format!("{prefix}:{request_id}");
+
+        txn.delete(
+            IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+            key.as_bytes(),
+        )
+        .await
+        .map_err(anyhow::Error::from)?;
+
+        txn.commit().await.map_err(anyhow::Error::from)?;
+
+        Ok(())
     }
 
     pub async fn shutdown(&self) {
@@ -908,7 +966,7 @@ mod tests {
     async fn _write_to_test_state_store(
         indexify_state: &Arc<IndexifyState>,
         application: Application,
-    ) -> Result<(), WriteError> {
+    ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateApplication(Box::new(
