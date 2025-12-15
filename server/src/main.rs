@@ -10,7 +10,6 @@ mod config;
 mod data_model;
 mod executor_api;
 mod executors;
-mod gc_test;
 mod http_objects;
 mod http_objects_v1;
 mod indexify_ui;

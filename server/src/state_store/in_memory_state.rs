@@ -2,19 +2,17 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
+    time::Instant,
 };
 
 use anyhow::{Result, anyhow};
-use opentelemetry::{
-    KeyValue,
-    metrics::{Histogram, ObservableGauge},
-};
-use tokio::sync::RwLock;
+use opentelemetry::KeyValue;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
         Allocation,
+        AllocationId,
         Application,
         ApplicationState,
         ApplicationVersion,
@@ -39,10 +37,10 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    metrics::low_latency_boundaries,
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
+        in_memory_metrics::InMemoryStoreMetrics,
         requests::RequestPayload,
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
@@ -178,12 +176,6 @@ impl From<&FunctionRun> for FunctionRunKey {
     }
 }
 
-impl From<FunctionRun> for FunctionRunKey {
-    fn from(function_run: FunctionRun) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
 impl From<Box<FunctionRun>> for FunctionRunKey {
     fn from(function_run: Box<FunctionRun>) -> Self {
         FunctionRunKey(function_run.key())
@@ -230,261 +222,51 @@ pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
 
-    pub namespaces: im::HashMap<String, Box<Namespace>>,
+    pub namespaces: imbl::HashMap<String, Box<Namespace>>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub applications: im::HashMap<String, Box<Application>>,
+    pub applications: imbl::HashMap<String, Box<Application>>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub application_versions: im::OrdMap<String, Box<ApplicationVersion>>,
+    pub application_versions: imbl::OrdMap<String, Box<ApplicationVersion>>,
 
     // ExecutorId -> ExecutorMetadata
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
-    pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
+    pub executors: imbl::HashMap<ExecutorId, Box<ExecutorMetadata>>,
 
     // ExecutorId -> (FE ID -> List of Function Executors)
-    pub executor_states: im::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
 
-    pub function_executors_by_fn_uri: im::HashMap<
+    pub function_executors_by_fn_uri: imbl::HashMap<
         FunctionURI,
-        im::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+        imbl::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     >,
 
-    // ExecutorId -> (FE ID -> List of Allocations)
-    #[allow(clippy::vec_box)]
-    pub allocations_by_executor:
-        im::HashMap<ExecutorId, HashMap<FunctionExecutorId, Vec<Box<Allocation>>>>,
+    // ExecutorId -> (FE ID -> Map of AllocationId -> Allocation)
+    pub allocations_by_executor: imbl::HashMap<
+        ExecutorId,
+        HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
+    >,
 
     // TaskKey -> Task
-    pub unallocated_function_runs: im::OrdSet<FunctionRunKey>,
+    pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
 
     // Function Run Key -> Function Run
-    pub function_runs: im::OrdMap<FunctionRunKey, Box<FunctionRun>>,
+    pub function_runs: imbl::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
     // Request Context
-    pub request_ctx: im::OrdMap<RequestCtxKey, Box<RequestCtx>>,
+    pub request_ctx: imbl::OrdMap<RequestCtxKey, Box<RequestCtx>>,
 
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
 
     // Index: Executor Catalog Entry Name -> Set of Function Run Keys
     // Maps executor catalog entry names to function runs that match those catalog entry labels
-    pub function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>>,
+    pub function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>>,
 
     // Histogram metrics for task latency measurements for direct recording
-    function_run_pending_latency: Histogram<f64>,
-    allocation_running_latency: Histogram<f64>,
-    allocation_completion_latency: Histogram<f64>,
-}
-
-/// InMemoryMetrics manages observable metrics for the InMemoryState
-#[allow(dead_code)]
-pub struct InMemoryMetrics {
-    pub unallocated_function_runs: ObservableGauge<u64>,
-    pub active_function_runs_gauge: ObservableGauge<u64>,
-    pub active_request_gauge: ObservableGauge<u64>,
-    pub active_allocations_gauge: ObservableGauge<u64>,
-    pub max_request_age_gauge: ObservableGauge<f64>,
-    pub max_function_run_age_gauge: ObservableGauge<f64>,
-}
-
-impl InMemoryMetrics {
-    pub fn new(state: Arc<RwLock<InMemoryState>>) -> Self {
-        let meter = opentelemetry::global::meter("state_store");
-
-        // Create observable gauges with callbacks that clone needed data
-        let unallocated_function_runs_gauge = {
-            let state_clone = state.clone();
-            meter
-                .u64_observable_gauge("indexify.unallocated_function_runs")
-                .with_description(
-                    "Number of unallocated function runs, reported from in_memory_state",
-                )
-                .with_callback(move |observer| {
-                    // Use a block scope to ensure the lock is dropped automatically
-                    {
-                        if let Ok(state) = state_clone.try_read() {
-                            let function_run_count = state.unallocated_function_runs.len() as u64;
-                            // Lock is automatically dropped at the end of this block
-                            observer.observe(function_run_count, &[]);
-                        } else {
-                            debug!(
-                                "Failed to acquire read lock for unallocated_function_runs metric"
-                            );
-                        }
-                    }
-                })
-                .build()
-        };
-
-        let active_function_runs_gauge = {
-            let state_clone = state.clone();
-            meter
-                .u64_observable_gauge("indexify.active_function_runs")
-                .with_description("Number of active function runs, reported from in_memory_state")
-                .with_callback(move |observer| {
-                    if let Ok(state) = state_clone.try_read() {
-                        let function_run_count = state
-                            .function_runs
-                            .iter()
-                            // Filter out terminal function runs since they stick around until their
-                            // request is completed.
-                            .filter(|(_k, function_run)| function_run.outcome.is_some())
-                            .count() as u64;
-                        // Lock is automatically dropped at the end of this block
-                        observer.observe(function_run_count, &[]);
-                    } else {
-                        debug!("Failed to acquire read lock for active_function_runs metric");
-                    }
-                })
-                .build()
-        };
-
-        let active_requests_gauge = {
-            let state_clone = state.clone();
-            meter
-                .u64_observable_gauge("indexify.active_requests_gauge")
-                .with_description("Number of active requests, reported from in_memory_state")
-                .with_callback(move |observer| {
-                    if let Ok(state) = state_clone.try_read() {
-                        let requests_count = state.request_ctx.len() as u64;
-                        // Lock is automatically dropped at the end of this block
-                        observer.observe(requests_count, &[]);
-                    } else {
-                        debug!("Failed to acquire read lock for active_requests metric");
-                    }
-                })
-                .build()
-        };
-
-        let active_allocations_gauge = {
-            let state_clone = state.clone();
-            meter
-                .u64_observable_gauge("indexify.active_allocations_gauge")
-                .with_description("Number of active allocations, reported from in_memory_state")
-                .with_callback(move |observer| {
-                    // Clone data within a minimal scope to auto-drop the lock immediately
-                    let allocations_by_executor = {
-                        if let Ok(state) = state_clone.try_read() {
-                            Some(state.allocations_by_executor.clone())
-                        } else {
-                            debug!("Failed to acquire read lock for active_allocations metric");
-                            None
-                        }
-                    };
-
-                    if let Some(allocations_by_executor) = allocations_by_executor {
-                        // Process the cloned data outside the lock scope
-                        for (executor_id, fn_map) in allocations_by_executor.iter() {
-                            for (_, allocations) in fn_map.iter() {
-                                observer.observe(
-                                    allocations.len() as u64,
-                                    &[KeyValue::new("executor_id", executor_id.to_string())],
-                                );
-                            }
-                        }
-                    }
-                })
-                .build()
-        };
-
-        // Add max request age metric
-        let max_request_age_gauge = {
-            let state_clone = state.clone();
-            meter
-                .f64_observable_gauge("indexify.max_request_age")
-                .with_unit("s")
-                .with_description("Maximum age of any non-completed request in seconds")
-                .with_callback(move |observer| {
-                    // Clone data within a minimal scope to auto-drop the lock immediately
-                    let request_ctx = {
-                        if let Ok(state) = state_clone.try_read() {
-                            Some(state.request_ctx.clone())
-                        } else {
-                            debug!("Failed to acquire read lock for request_ctx metric");
-                            None
-                        }
-                    };
-
-                    let max_age = match request_ctx {
-                        Some(request_ctx) => {
-                            // Find the oldest non-completed request
-                            request_ctx
-                                .values()
-                                .filter(|inv| inv.outcome.is_none())
-                                .map(|inv| {
-                                    get_elapsed_time(inv.created_at.into(), TimeUnit::Milliseconds)
-                                })
-                                .max_by(|a, b| {
-                                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                                .unwrap_or(0.0) // Default to 0 if no
-                            // non-completed request
-                        }
-                        None => 0.0,
-                    };
-
-                    // Always report the max age (which may be 0)
-                    observer.observe(max_age, &[]);
-                })
-                .build()
-        };
-
-        // Add max task age metric
-        let max_function_run_age_gauge = {
-            let state_clone = state.clone();
-            meter
-                .f64_observable_gauge("indexify.max_function_run_age")
-                .with_unit("s")
-                .with_description("Maximum age of any non-terminal function run in seconds")
-                .with_callback(move |observer| {
-                    // Clone data within a minimal scope to auto-drop the lock immediately
-                    let tasks = {
-                        if let Ok(state) = state_clone.try_read() {
-                            Some(state.function_runs.clone())
-                        } else {
-                            debug!("Failed to acquire read lock for function_runs metric");
-                            None
-                        }
-                    };
-
-                    let max_age = match tasks {
-                        Some(tasks) => {
-                            // Find the oldest non-terminal task
-                            tasks
-                                .values()
-                                .filter(|function_run| function_run.outcome.is_some())
-                                .map(|function_run| {
-                                    get_elapsed_time(
-                                        function_run.creation_time_ns,
-                                        TimeUnit::Nanoseconds,
-                                    )
-                                })
-                                .max_by(|a, b| {
-                                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                                .unwrap_or(0.0) // Default to 0 if no
-                            // non-terminal tasks
-                        }
-                        None => 0.0,
-                    };
-
-                    // Always report the max age (which may be 0)
-                    observer.observe(max_age, &[]);
-                })
-                .build()
-        };
-
-        Self {
-            unallocated_function_runs: unallocated_function_runs_gauge,
-            active_function_runs_gauge,
-            active_request_gauge: active_requests_gauge,
-            active_allocations_gauge,
-            max_request_age_gauge,
-            max_function_run_age_gauge,
-        }
-    }
+    metrics: InMemoryStoreMetrics,
 }
 
 impl InMemoryState {
@@ -497,33 +279,12 @@ impl InMemoryState {
             "initializing in-memory state from state store at clock {}",
             clock
         );
-        let meter = opentelemetry::global::meter("state_store");
 
-        // Create histogram metrics for task latency measurements
-        let function_run_pending_latency = meter
-            .f64_histogram("indexify.function_run_pending_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time function runs spend from creation to running")
-            .build();
-
-        let allocation_running_latency = meter
-            .f64_histogram("indexify.allocation_running_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time function runs spend from running to completion")
-            .build();
-
-        let allocation_completion_latency = meter
-            .f64_histogram("indexify.allocation_completion_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from creation to completion")
-            .build();
+        let metrics = InMemoryStoreMetrics::new();
 
         // Creating Namespaces
-        let mut namespaces = im::HashMap::new();
-        let mut applications = im::HashMap::new();
+        let mut namespaces = imbl::HashMap::new();
+        let mut applications = imbl::HashMap::new();
         {
             let all_ns = reader.get_all_namespaces().await?;
             for ns in &all_ns {
@@ -538,7 +299,7 @@ impl InMemoryState {
             }
         }
 
-        let mut application_versions = im::OrdMap::new();
+        let mut application_versions = imbl::OrdMap::new();
         {
             let all_cg_versions: Vec<(String, ApplicationVersion)> = reader
                 .get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)
@@ -548,10 +309,10 @@ impl InMemoryState {
             }
         }
         // Creating Allocated Tasks By Function by Executor
-        let mut allocations_by_executor: im::HashMap<
+        let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, Vec<Box<Allocation>>>,
-        > = im::HashMap::new();
+            HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
+        > = imbl::HashMap::new();
         {
             let (allocations, _) = reader
                 .get_rows_from_cf_with_limits::<Allocation>(
@@ -570,11 +331,11 @@ impl InMemoryState {
                     .or_default()
                     .entry(allocation.target.function_executor_id.clone())
                     .or_default()
-                    .push(Box::new(allocation));
+                    .insert(allocation.id.clone(), Box::new(allocation));
             }
         }
 
-        let mut request_ctx = im::OrdMap::new();
+        let mut request_ctx = imbl::OrdMap::new();
         {
             let all_app_request_ctx: Vec<(String, RequestCtx)> = reader
                 .get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)
@@ -588,40 +349,37 @@ impl InMemoryState {
             }
         }
 
-        let mut function_runs = im::OrdMap::new();
-        let mut unallocated_function_runs = im::OrdSet::new();
+        let mut function_runs = imbl::OrdMap::new();
+        let mut unallocated_function_runs = imbl::OrdSet::new();
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
                 if function_run.status == FunctionRunStatus::Pending {
-                    unallocated_function_runs.insert(function_run.clone().into());
+                    unallocated_function_runs.insert(function_run.into());
                 }
-                function_runs.insert(function_run.clone().into(), Box::new(function_run.clone()));
+                function_runs.insert(function_run.into(), Box::new(function_run.clone()));
             }
         }
 
         // Build the index of function runs by catalog entry
-        let function_runs_by_catalog_entry: im::HashMap<String, im::OrdSet<FunctionRunKey>> =
-            im::HashMap::new();
+        let function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>> =
+            imbl::HashMap::new();
 
         let mut in_memory_state = Self {
             clock,
             namespaces,
             applications,
             application_versions,
-            executors: im::HashMap::new(),
+            executors: imbl::HashMap::new(),
             function_runs,
             unallocated_function_runs,
             request_ctx,
             allocations_by_executor,
             // function executors by executor are not known at startup
-            executor_states: im::HashMap::new(),
-            function_executors_by_fn_uri: im::HashMap::new(),
+            executor_states: imbl::HashMap::new(),
+            function_executors_by_fn_uri: imbl::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
-            // metrics
-            function_run_pending_latency,
-            allocation_running_latency,
-            allocation_completion_latency,
+            metrics,
         };
 
         // Populate the catalog index for all existing function runs
@@ -656,9 +414,8 @@ impl InMemoryState {
                     .insert(req.ctx.key().into(), Box::new(req.ctx.clone()));
                 for function_run in req.ctx.function_runs.values() {
                     self.function_runs
-                        .insert(function_run.clone().into(), Box::new(function_run.clone()));
-                    self.unallocated_function_runs
-                        .insert(function_run.clone().into());
+                        .insert(function_run.into(), Box::new(function_run.clone()));
+                    self.unallocated_function_runs.insert(function_run.into());
                     // Index the function run by catalog entry
                     self.index_function_run_by_catalog(function_run);
                 }
@@ -721,8 +478,9 @@ impl InMemoryState {
                                     ctx.function_runs
                                         .insert(function_run.id.clone(), function_run.clone());
                                 }
-                                self.function_runs
-                                    .entry(function_run.clone().into())
+                                let _ = self
+                                    .function_runs
+                                    .entry(FunctionRunKey(function_run.key()))
                                     .and_modify(|existing_function_run| {
                                         *existing_function_run = Box::new(function_run.clone());
                                     });
@@ -776,166 +534,227 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
+                // Note: Allocations are removed from allocations_by_executor in two places:
+                // 1. UpsertExecutor handler - when allocation output is ingested
+                // 2. remove_function_executors handling below - when FE is terminated
+                // So we don't need to remove updated_allocations here.
+
+                // Track executors with updated allocations for notification
                 for allocation in &req.updated_allocations {
-                    self.allocations_by_executor
-                        .entry(allocation.target.executor_id.clone())
-                        .or_default()
-                        .entry(allocation.target.function_executor_id.clone())
-                        .or_default()
-                        .push(Box::new(allocation.clone()));
+                    changed_executors.insert(allocation.target.executor_id.clone());
                 }
-                for (ctx_key, function_call_ids) in &req.updated_function_runs {
-                    for function_call_id in function_call_ids {
-                        let Some(ctx) = req.updated_request_states.get(ctx_key).cloned() else {
-                            error!(
-                                ctx_key = ctx_key.clone(),
-                                "request ctx not found for updated function runs"
+
+                {
+                    let start_time = Instant::now();
+                    for (ctx_key, function_call_ids) in &req.updated_function_runs {
+                        for function_call_id in function_call_ids {
+                            let Some(ctx) = req.updated_request_states.get(ctx_key) else {
+                                error!(
+                                    ctx_key = ctx_key,
+                                    "request ctx not found for updated function runs"
+                                );
+                                continue;
+                            };
+                            let Some(function_run) = ctx.function_runs.get(function_call_id) else {
+                                error!(
+                                    ctx_key = ctx_key,
+                                    fn_call_id = %function_call_id,
+                                    "function run not found for updated function runs"
+                                );
+                                continue;
+                            };
+                            if function_run.status == FunctionRunStatus::Pending {
+                                self.unallocated_function_runs.insert(function_run.into());
+                            } else {
+                                self.unallocated_function_runs.remove(&function_run.into());
+                            }
+                            self.function_runs
+                                .insert(function_run.into(), Box::new(function_run.clone()));
+                            // Index the function run by catalog entry
+                            self.index_function_run_by_catalog(function_run);
+                        }
+                    }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_index_function_run_by_catalog
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
+                }
+
+                {
+                    let start_time = Instant::now();
+                    for (key, request_ctx) in &req.updated_request_states {
+                        // Remove function runs for request ctx if completed
+                        if request_ctx.outcome.is_some() {
+                            self.delete_request(
+                                &request_ctx.namespace,
+                                &request_ctx.application_name,
+                                &request_ctx.request_id,
                             );
-                            continue;
-                        };
-                        let Some(function_run) = ctx.function_runs.get(function_call_id).cloned()
+                        } else {
+                            self.request_ctx
+                                .insert(key.into(), Box::new(request_ctx.clone()));
+                        }
+                    }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_delete_requests
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
+                }
+
+                {
+                    let start_time = Instant::now();
+                    for fe_meta in req.new_function_executors.clone() {
+                        let Some(executor_state) =
+                            self.executor_states.get_mut(&fe_meta.executor_id)
                         else {
                             error!(
-                                ctx_key = ctx_key.clone(),
-                                fn_call_id = function_call_id.clone().to_string(),
-                                "function run not found for updated function runs"
+                                executor_id = fe_meta.executor_id.get(),
+                                "executor not found for new function executor"
                             );
                             continue;
                         };
-                        if function_run.status == FunctionRunStatus::Pending {
-                            self.unallocated_function_runs
-                                .insert(function_run.clone().into());
-                        } else {
-                            self.unallocated_function_runs
-                                .remove(&function_run.clone().into());
-                        }
-                        self.function_runs
-                            .insert(function_run.clone().into(), Box::new(function_run.clone()));
-                        // Index the function run by catalog entry
-                        self.index_function_run_by_catalog(&function_run);
-                    }
-                }
-                for (key, request_ctx) in &req.updated_request_states {
-                    // Remove function runs for request ctx if completed
-                    if request_ctx.outcome.is_some() {
-                        self.delete_request(
-                            &request_ctx.namespace,
-                            &request_ctx.application_name,
-                            &request_ctx.request_id,
-                        );
-                    } else {
-                        self.request_ctx
-                            .insert(key.clone().into(), Box::new(request_ctx.clone()));
-                    }
-                }
-
-                for fe_meta in req.new_function_executors.clone() {
-                    let Some(executor_state) = self.executor_states.get_mut(&fe_meta.executor_id)
-                    else {
-                        error!(
-                            executor_id = fe_meta.executor_id.get(),
-                            "executor not found for new function executor"
-                        );
-                        continue;
-                    };
-                    executor_state.function_executors.insert(
-                        fe_meta.function_executor.id.clone(),
-                        Box::new(fe_meta.clone()),
-                    );
-
-                    executor_state.resource_claims.insert(
-                        fe_meta.function_executor.id.clone(),
-                        fe_meta.function_executor.resources.clone(),
-                    );
-
-                    let fn_uri = FunctionURI::from(fe_meta.clone());
-                    self.function_executors_by_fn_uri
-                        .entry(fn_uri)
-                        .or_default()
-                        .insert(
+                        executor_state.function_executors.insert(
                             fe_meta.function_executor.id.clone(),
                             Box::new(fe_meta.clone()),
                         );
 
-                    // Executor has a new function executor
-                    changed_executors.insert(fe_meta.executor_id.clone());
-                }
-
-                for allocation in &req.new_allocations {
-                    if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                        self.unallocated_function_runs
-                            .remove(&function_run.clone().into());
-
-                        self.allocations_by_executor
-                            .entry(allocation.target.executor_id.clone())
-                            .or_default()
-                            .entry(allocation.target.function_executor_id.clone())
-                            .or_default()
-                            .push(Box::new(allocation.clone()));
-
-                        // Record metrics
-                        self.function_run_pending_latency.record(
-                            get_elapsed_time(function_run.creation_time_ns, TimeUnit::Nanoseconds),
-                            &[],
+                        executor_state.resource_claims.insert(
+                            fe_meta.function_executor.id.clone(),
+                            fe_meta.function_executor.resources.clone(),
                         );
 
-                        // Executor has a new allocation
-                        changed_executors.insert(allocation.target.executor_id.clone());
-                    } else {
-                        error!(
-                            namespace = &allocation.namespace,
-                            app = &allocation.application,
-                            "fn" = &allocation.function,
-                            executor_id = allocation.target.executor_id.get(),
-                            allocation_id = %allocation.id,
-                            request_id = &allocation.request_id,
-                            fn_call_id = allocation.function_call_id.to_string(),
-                            "function run not found for new allocation"
-                        );
+                        let fn_uri = FunctionURI::from(&fe_meta);
+                        self.function_executors_by_fn_uri
+                            .entry(fn_uri)
+                            .or_default()
+                            .insert(
+                                fe_meta.function_executor.id.clone(),
+                                Box::new(fe_meta.clone()),
+                            );
+
+                        // Executor has a new function executor
+                        changed_executors.insert(fe_meta.executor_id.clone());
                     }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_insert_function_executors
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
 
-                for (executor_id, function_executors) in &req.remove_function_executors {
-                    if let Some(fe_allocations) = self.allocations_by_executor.get_mut(executor_id)
-                    {
-                        fe_allocations
-                            .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
-                    }
+                {
+                    let start_time = Instant::now();
+                    for allocation in &req.new_allocations {
+                        if let Some(function_run) = self.function_runs.get(&allocation.into()) {
+                            self.unallocated_function_runs.remove(&function_run.into());
 
-                    for function_executor_id in function_executors {
-                        let fe =
-                            self.executor_states
-                                .get_mut(executor_id)
-                                .and_then(|executor_state| {
+                            self.allocations_by_executor
+                                .entry(allocation.target.executor_id.clone())
+                                .or_default()
+                                .entry(allocation.target.function_executor_id.clone())
+                                .or_default()
+                                .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                            // Record metrics
+                            self.metrics.function_run_pending_latency.record(
+                                get_elapsed_time(
+                                    function_run.creation_time_ns,
+                                    TimeUnit::Nanoseconds,
+                                ),
+                                &[],
+                            );
+
+                            // Executor has a new allocation
+                            changed_executors.insert(allocation.target.executor_id.clone());
+                        } else {
+                            error!(
+                                namespace = &allocation.namespace,
+                                app = &allocation.application,
+                                "fn" = &allocation.function,
+                                executor_id = allocation.target.executor_id.get(),
+                                allocation_id = %allocation.id,
+                                request_id = &allocation.request_id,
+                                fn_call_id = allocation.function_call_id.to_string(),
+                                "function run not found for new allocation"
+                            );
+                        }
+                    }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_insert_new_allocations
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
+                }
+
+                {
+                    let start_time = Instant::now();
+                    for (executor_id, function_executors) in &req.remove_function_executors {
+                        if let Some(fe_allocations) =
+                            self.allocations_by_executor.get_mut(executor_id)
+                        {
+                            fe_allocations
+                                .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
+                        }
+
+                        for function_executor_id in function_executors {
+                            let fe = self.executor_states.get_mut(executor_id).and_then(
+                                |executor_state| {
                                     executor_state.resource_claims.remove(function_executor_id);
                                     executor_state
                                         .function_executors
                                         .remove(function_executor_id)
-                                });
+                                },
+                            );
 
-                        if let Some(fe) = fe {
-                            let fn_uri = FunctionURI::from(fe.clone());
-                            self.function_executors_by_fn_uri
-                                .get_mut(&fn_uri)
-                                .and_then(|fe_map| fe_map.remove(&fe.function_executor.id));
+                            if let Some(fe) = fe {
+                                let fn_uri = FunctionURI::from(&fe);
+                                self.function_executors_by_fn_uri
+                                    .get_mut(&fn_uri)
+                                    .and_then(|fe_map| fe_map.remove(&fe.function_executor.id));
+                            }
+                            changed_executors.insert(executor_id.clone());
                         }
+
+                        // record the time instead of using a timer because we cannot
+                        // borrow the metric as immutable and borrow self as mutable inside the
+                        // loop.
+                        self.metrics
+                            .scheduler_update_remove_function_executors
+                            .record(start_time.elapsed().as_secs_f64(), &[]);
+                    }
+                }
+
+                {
+                    let start_time = Instant::now();
+                    for executor_id in &req.remove_executors {
+                        self.executors.remove(executor_id);
+                        self.allocations_by_executor.remove(executor_id);
+                        self.executor_states.remove(executor_id);
+
+                        // Executor is removed
                         changed_executors.insert(executor_id.clone());
                     }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_remove_executors
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
 
-                for executor_id in &req.remove_executors {
-                    self.executors.remove(executor_id);
-                    self.allocations_by_executor.remove(executor_id);
-                    self.executor_states.remove(executor_id);
-
-                    // Executor is removed
-                    changed_executors.insert(executor_id.clone());
-                }
-
-                for (executor_id, free_resources) in &req.updated_executor_resources {
-                    if let Some(executor) = self.executor_states.get_mut(executor_id) {
-                        executor.free_resources = free_resources.clone();
+                {
+                    let start_time = Instant::now();
+                    for (executor_id, free_resources) in &req.updated_executor_resources {
+                        if let Some(executor) = self.executor_states.get_mut(executor_id) {
+                            executor.free_resources = free_resources.clone();
+                        }
                     }
+                    // record the time instead of using a timer because we cannot
+                    // borrow the metric as immutable and borrow self as mutable inside the loop.
+                    self.metrics
+                        .scheduler_update_free_executor_resources
+                        .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
@@ -956,22 +775,20 @@ impl InMemoryState {
                 for allocation_output in &req.allocation_outputs {
                     // Remove the allocation
                     {
-                        self.allocations_by_executor
+                        let _ = self
+                            .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
-                                // TODO: This can be optimized by keeping a new index of task_id to
-                                // FE,       we should measure the
-                                // overhead.
-                                fe_allocations.iter_mut().for_each(|(_, allocations)| {
-                                    if let Some(index) = allocations
-                                        .iter()
-                                        .position(|a| a.id == allocation_output.allocation.id)
+                                if let Some(allocations) = fe_allocations.get_mut(
+                                    &allocation_output.allocation.target.function_executor_id,
+                                ) {
+                                    if let Some(existing_allocation) =
+                                        allocations.remove(&allocation_output.allocation.id)
                                     {
-                                        let allocation = &allocations[index];
                                         // Record metrics
-                                        self.allocation_running_latency.record(
+                                        self.metrics.allocation_running_latency.record(
                                             get_elapsed_time(
-                                                allocation.created_at,
+                                                existing_allocation.created_at,
                                                 TimeUnit::Milliseconds,
                                             ),
                                             &[KeyValue::new(
@@ -979,11 +796,8 @@ impl InMemoryState {
                                                 allocation_output.allocation.outcome.to_string(),
                                             )],
                                         );
-
-                                        // Remove the allocation
-                                        allocations.remove(index);
                                     }
-                                });
+                                }
 
                                 // Remove the function if no allocations left
                                 fe_allocations.retain(|_, f| !f.is_empty());
@@ -994,7 +808,7 @@ impl InMemoryState {
                     }
 
                     // Record metrics
-                    self.allocation_completion_latency.record(
+                    self.metrics.allocation_completion_latency.record(
                         get_elapsed_time(
                             allocation_output.allocation.created_at,
                             TimeUnit::Milliseconds,
@@ -1163,16 +977,15 @@ impl InMemoryState {
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         for function_run in function_runs.iter() {
-            self.function_runs.remove(&function_run.clone().into());
-            self.unallocated_function_runs
-                .remove(&function_run.clone().into());
+            self.function_runs.remove(&function_run.into());
+            self.unallocated_function_runs.remove(&function_run.into());
             // Remove from catalog entry index
             self.unindex_function_run_from_catalog(function_run);
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
             for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
-                allocations.retain(|allocation| {
+                allocations.retain(|_, allocation| {
                     !function_runs
                         .iter()
                         .any(|function_run| function_run.id == allocation.function_call_id)
@@ -1477,10 +1290,13 @@ impl InMemoryState {
                 .allocations_by_executor
                 .get(executor_id)
                 .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
-                .unwrap_or(&Vec::new())
-                .iter()
-                .map(|allocation| *allocation.clone())
-                .collect::<Vec<_>>();
+                .map(|allocations| {
+                    allocations
+                        .values()
+                        .map(|allocation| allocation.as_ref().clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
         }
 
@@ -1505,10 +1321,7 @@ impl InMemoryState {
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
-            // metrics
-            function_run_pending_latency: self.function_run_pending_latency.clone(),
-            allocation_running_latency: self.allocation_running_latency.clone(),
-            allocation_completion_latency: self.allocation_completion_latency.clone(),
+            metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
         }))
@@ -1616,39 +1429,13 @@ impl InMemoryState {
 
         // Remove from all catalog entries
         for catalog_entry in &self.executor_catalog.entries {
-            self.function_runs_by_catalog_entry
+            let _ = self
+                .function_runs_by_catalog_entry
                 .entry(catalog_entry.name.clone())
                 .and_modify(|run_keys| {
                     run_keys.remove(&function_run_key);
                 });
         }
-    }
-
-    /// Get all function runs that match a specific catalog entry by executor ID
-    #[allow(dead_code)]
-    pub fn unallocated_function_runs_for_executor_catalog(
-        &self,
-        executor_id: &ExecutorId,
-    ) -> Vec<FunctionRun> {
-        let Some(executor) = self.executors.get(executor_id) else {
-            return Vec::new();
-        };
-        let Some(catalog_entry_name) = executor.catalog_name.as_ref().map(|name| name.to_string())
-        else {
-            return self.unallocated_function_runs();
-        };
-
-        let Some(run_keys) = self.function_runs_by_catalog_entry.get(&catalog_entry_name) else {
-            return Vec::new();
-        };
-
-        let mut results = Vec::new();
-        for run_key in run_keys.iter() {
-            if let Some(function_run) = self.function_runs.get(run_key) {
-                results.push(*function_run.clone());
-            }
-        }
-        results
     }
 
     /// Get all function runs that match a specific catalog entry by name
@@ -1686,6 +1473,20 @@ impl InMemoryState {
 
         result
     }
+
+    /// Simulates a server restart by clearing executor-related in-memory state
+    /// while preserving allocations. This creates the scenario where:
+    /// - allocations_by_executor has allocations (loaded from DB)
+    /// - executors and executor_states are empty (executors haven't
+    ///   re-registered)
+    #[cfg(test)]
+    pub fn simulate_server_restart_clear_executor_state(&mut self) {
+        self.executors.clear();
+        self.executor_states.clear();
+        self.function_executors_by_fn_uri.clear();
+        // Note: allocations_by_executor is intentionally NOT cleared
+        // as allocations are persisted and loaded from DB on restart
+    }
 }
 
 #[cfg(test)]
@@ -1709,24 +1510,21 @@ mod test_helpers {
 
     impl Default for InMemoryState {
         fn default() -> Self {
-            use opentelemetry::global;
             Self {
                 clock: 0,
-                namespaces: im::HashMap::new(),
-                applications: im::HashMap::new(),
-                application_versions: im::OrdMap::new(),
-                executors: im::HashMap::new(),
-                executor_states: im::HashMap::new(),
-                function_executors_by_fn_uri: im::HashMap::new(),
-                allocations_by_executor: im::HashMap::new(),
-                request_ctx: im::OrdMap::new(),
+                namespaces: imbl::HashMap::new(),
+                applications: imbl::HashMap::new(),
+                application_versions: imbl::OrdMap::new(),
+                executors: imbl::HashMap::new(),
+                executor_states: imbl::HashMap::new(),
+                function_executors_by_fn_uri: imbl::HashMap::new(),
+                allocations_by_executor: imbl::HashMap::new(),
+                request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
-                function_runs_by_catalog_entry: im::HashMap::new(),
-                function_run_pending_latency: global::meter("test").f64_histogram("test").build(),
-                allocation_running_latency: global::meter("test").f64_histogram("test").build(),
-                allocation_completion_latency: global::meter("test").f64_histogram("test").build(),
-                function_runs: im::OrdMap::new(),
-                unallocated_function_runs: im::OrdSet::new(),
+                function_runs_by_catalog_entry: imbl::HashMap::new(),
+                metrics: InMemoryStoreMetrics::new(),
+                function_runs: imbl::OrdMap::new(),
+                unallocated_function_runs: imbl::OrdSet::new(),
             }
         }
     }
@@ -1852,7 +1650,7 @@ mod tests {
         );
         state
             .function_runs
-            .insert(terminal_run.clone().into(), Box::new(terminal_run));
+            .insert(FunctionRunKey::from(&terminal_run), Box::new(terminal_run));
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 3: Add a terminal function run (Failure) - should return false
@@ -1865,9 +1663,10 @@ mod tests {
                 FunctionRunFailureReason::FunctionError,
             )),
         );
-        state
-            .function_runs
-            .insert(terminal_run2.clone().into(), Box::new(terminal_run2));
+        state.function_runs.insert(
+            FunctionRunKey::from(&terminal_run2),
+            Box::new(terminal_run2),
+        );
         assert!(!state.has_pending_tasks(&fe_metadata));
 
         // Test case 4: Add a non-terminal function run (None outcome) - should return
@@ -1881,7 +1680,7 @@ mod tests {
         );
         state
             .function_runs
-            .insert(pending_run.clone().into(), Box::new(pending_run));
+            .insert(FunctionRunKey::from(&pending_run), Box::new(pending_run));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 5: Add tasks for different namespace/graph - should not affect
@@ -1893,9 +1692,10 @@ mod tests {
             "test-function",
             None,
         );
-        state
-            .function_runs
-            .insert(different_run.clone().into(), Box::new(different_run));
+        state.function_runs.insert(
+            FunctionRunKey::from(&different_run),
+            Box::new(different_run),
+        );
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 6: Add tasks for same namespace/graph but different function -
@@ -1907,9 +1707,10 @@ mod tests {
             "different-function",
             None,
         );
-        state
-            .function_runs
-            .insert(different_fn_run.clone().into(), Box::new(different_fn_run));
+        state.function_runs.insert(
+            FunctionRunKey::from(&different_fn_run),
+            Box::new(different_fn_run),
+        );
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 7: Add multiple pending tasks - should still return true
@@ -1922,7 +1723,7 @@ mod tests {
         );
         state
             .function_runs
-            .insert(pending_run2.clone().into(), Box::new(pending_run2));
+            .insert(FunctionRunKey::from(&pending_run2), Box::new(pending_run2));
         assert!(state.has_pending_tasks(&fe_metadata));
 
         // Test case 8: Change all pending tasks to terminal - should return false
@@ -2239,7 +2040,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut application_versions = im::OrdMap::new();
+        let mut application_versions = imbl::OrdMap::new();
         application_versions.insert(app_version.key(), Box::new(app_version));
 
         // Create function runs
@@ -2248,10 +2049,19 @@ mod tests {
         let fn_run_gpu =
             create_test_function_run("test-ns", "test-app", "req-3", "gpu_task", "1.0");
 
-        let mut function_runs = im::OrdMap::new();
-        function_runs.insert(fn_run_light.clone().into(), Box::new(fn_run_light.clone()));
-        function_runs.insert(fn_run_heavy.clone().into(), Box::new(fn_run_heavy.clone()));
-        function_runs.insert(fn_run_gpu.clone().into(), Box::new(fn_run_gpu.clone()));
+        let mut function_runs = imbl::OrdMap::new();
+        function_runs.insert(
+            FunctionRunKey(fn_run_light.key()),
+            Box::new(fn_run_light.clone()),
+        );
+        function_runs.insert(
+            FunctionRunKey(fn_run_heavy.key()),
+            Box::new(fn_run_heavy.clone()),
+        );
+        function_runs.insert(
+            FunctionRunKey(fn_run_gpu.key()),
+            Box::new(fn_run_gpu.clone()),
+        );
 
         let mut state = in_memory_state_bootstrap! {
             clock: 1,

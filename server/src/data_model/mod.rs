@@ -30,6 +30,8 @@ pub struct StateMachineMetadata {
     pub last_change_idx: u64,
     #[serde(default)]
     pub last_usage_idx: u64,
+    #[serde(default)]
+    pub last_request_event_idx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -169,6 +171,10 @@ impl Allocation {
             self.outcome,
             FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
         )
+    }
+
+    pub fn vector_clock(&self) -> &VectorClock {
+        &self.vector_clock
     }
 }
 
@@ -1174,8 +1180,8 @@ pub struct FunctionURI {
     pub version: String,
 }
 
-impl From<FunctionExecutorServerMetadata> for FunctionURI {
-    fn from(fe_meta: FunctionExecutorServerMetadata) -> Self {
+impl From<&FunctionExecutorServerMetadata> for FunctionURI {
+    fn from(fe_meta: &FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_executor.namespace.clone(),
             application: fe_meta.function_executor.application_name.clone(),
@@ -1185,9 +1191,14 @@ impl From<FunctionExecutorServerMetadata> for FunctionURI {
     }
 }
 
-impl From<Box<FunctionExecutorServerMetadata>> for FunctionURI {
-    fn from(fe_meta: Box<FunctionExecutorServerMetadata>) -> Self {
-        FunctionURI::from(*fe_meta)
+impl From<&Box<FunctionExecutorServerMetadata>> for FunctionURI {
+    fn from(fe_meta: &Box<FunctionExecutorServerMetadata>) -> Self {
+        FunctionURI {
+            namespace: fe_meta.function_executor.namespace.clone(),
+            application: fe_meta.function_executor.application_name.clone(),
+            function: fe_meta.function_executor.function_name.clone(),
+            version: fe_meta.function_executor.version.clone(),
+        }
     }
 }
 
@@ -1775,8 +1786,8 @@ pub struct AllocationOutputIngestedEvent {
     pub function_call_id: FunctionCallId,
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
-    pub allocation_key: String,
     pub request_exception: Option<DataPayload>,
+    pub allocation: Allocation,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

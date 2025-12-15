@@ -5,14 +5,16 @@ use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
 
-use super::state_machine::IndexifyObjectsColumns;
+use super::{
+    request_events::PersistedRequestStateChangeEvent,
+    state_machine::IndexifyObjectsColumns,
+};
 use crate::{
     data_model::{
         Allocation,
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
-        GcUrl,
         Namespace,
         RequestCtx,
         StateChange,
@@ -138,22 +140,6 @@ impl StateReader {
         Ok(Some(result))
     }
 
-    pub async fn get_gc_urls(&self, limit: Option<usize>) -> Result<(Vec<GcUrl>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "get_gc_urls")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let limit = limit.unwrap_or(usize::MAX);
-        let (urls, cursor) = self
-            .get_rows_from_cf_with_limits::<GcUrl>(
-                &[],
-                None,
-                IndexifyObjectsColumns::GcUrls,
-                Some(limit),
-            )
-            .await?;
-        Ok((urls, cursor))
-    }
-
     pub async fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -264,6 +250,35 @@ impl StateReader {
                 &[],
                 cursor,
                 IndexifyObjectsColumns::AllocationUsage,
+                Some(MAX_FETCH_LIMIT),
+            )
+            .await?;
+
+        Ok((events, cursor))
+    }
+
+    /// Get request state change events from the database with pagination
+    /// support.
+    ///
+    /// `cursor`: Optional cursor to start fetching from (exclusive).
+    ///
+    /// Returns a tuple containing:
+    /// - A vector of `PersistedRequestStateChangeEvent` records.
+    /// - An optional cursor for the next page (if more records are available).
+    pub async fn request_state_change_events(
+        &self,
+        cursor: Option<&Vec<u8>>,
+    ) -> Result<(Vec<PersistedRequestStateChangeEvent>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "request_state_change_events")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let cursor = cursor.map(|c| c.as_slice());
+
+        let (events, cursor) = self
+            .get_rows_from_cf_with_limits::<PersistedRequestStateChangeEvent>(
+                &[],
+                cursor,
+                IndexifyObjectsColumns::RequestStateChangeEvents,
                 Some(MAX_FETCH_LIMIT),
             )
             .await?;

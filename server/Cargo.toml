@@ -21,7 +21,7 @@ async-stream = "0.3.6"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-inline-default = "1.0.0"
 serde_json = "1.0.145"
-serde-saphyr = "0.0.10"
+serde-saphyr = "0.0.11"
 anyhow = "1.0.100"
 clap = { version = "4.5.50", features = ["derive"] }
 tracing = "0.1.43"
@@ -45,7 +45,7 @@ url = "2.5.6"
 opentelemetry = { version = "0.31.0", features = ["metrics", "trace"] }
 opentelemetry-proto = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic"] }
+opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic", "gzip-tonic"] }
 axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
 base64 = "0.22.1"
 tonic = "0.14.2"
@@ -57,7 +57,6 @@ priority-queue = "2.6.0"
 rust-embed = { version = "8.8.0", features = ["mime-guess"] }
 pin-project-lite = "0.2.16"
 pin-project = "1.1.10"
-im = { version = "15.1.0" }
 async-trait = "0.1.89"
 rocksdb = { version = "0.24.0" }
 strum = { version = "0.27.2", features = ["derive"] }
@@ -73,6 +72,7 @@ opentelemetry-stdout = { version = "0.31.0", default-features = false, features 
 console-subscriber = { version = "0.5.0", optional = true }
 tonic-types = "0.14.2"
 tokio-util = { version = "0.7.17", features = ["rt"] }
+imbl = "6.1.0"
 
 
 [dev-dependencies]

@@ -152,8 +152,8 @@ pub fn task_outputs_ingested(
                         graph_updates: graph_updates.request_updates.clone(),
                         output_function_call_id: graph_updates.output_function_call_id.clone(),
                     }),
-                allocation_key: request.allocation.key(),
                 request_exception: request.request_exception.clone(),
+                allocation: request.allocation.clone(),
             },
         )))
         .created_at(get_epoch_time_in_ms())

@@ -5,11 +5,7 @@ use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
-use tokio::{
-    self,
-    signal,
-    sync::{Mutex, watch},
-};
+use tokio::{self, signal, sync::watch};
 use tonic::transport::Server;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -27,7 +23,7 @@ use crate::{
     middleware::InstanceRequestSpan,
     processor::{
         application_processor::ApplicationProcessor,
-        gc::Gc,
+        request_state_change_processor::RequestStateChangeProcessor,
         usage_processor::UsageProcessor,
     },
     queue::Queue,
@@ -46,7 +42,6 @@ fn otel_axum_filter(path: &str) -> bool {
     path.starts_with("/healthz") || path.starts_with("/docs") || path.starts_with("/ui")
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
     pub config: Arc<ServerConfig>,
@@ -55,9 +50,9 @@ pub struct Service {
     pub blob_storage_registry: Arc<BlobStorageRegistry>,
     pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
-    pub gc_executor: Arc<Mutex<Gc>>,
     pub application_processor: Arc<ApplicationProcessor>,
     pub usage_processor: Arc<UsageProcessor>,
+    pub request_state_change_processor: Arc<RequestStateChangeProcessor>,
 }
 
 impl Service {
@@ -79,18 +74,10 @@ impl Service {
             info!("No configured executor label sets; allowing all executors");
         }
 
-        let cloud_events_exporter = if let Some(config) = &config.cloud_events {
-            info!(?config, "Initializing CloudEvents exporter");
-            Some(CloudEventsExporter::new(config).await?)
-        } else {
-            None
-        };
-
         let indexify_state = IndexifyState::new(
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
-            cloud_events_exporter,
         )
         .await?;
 
@@ -113,12 +100,6 @@ impl Service {
         let executor_manager =
             ExecutorManager::new(indexify_state.clone(), blob_storage_registry.clone()).await;
 
-        let gc_executor = Arc::new(Mutex::new(Gc::new(
-            indexify_state.clone(),
-            blob_storage_registry.clone(),
-            shutdown_rx.clone(),
-        )));
-
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
@@ -133,6 +114,9 @@ impl Service {
         let usage_processor =
             Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
+        let request_state_change_processor =
+            Arc::new(RequestStateChangeProcessor::new(indexify_state.clone()));
+
         Ok(Self {
             config,
             shutdown_tx,
@@ -140,15 +124,15 @@ impl Service {
             blob_storage_registry,
             indexify_state,
             executor_manager,
-            gc_executor,
             application_processor,
             usage_processor,
+            request_state_change_processor,
         })
     }
 
     pub async fn start(&mut self) -> Result<()> {
         let span = info_span!(
-            "Initializing Service",
+            "service",
             env = self.config.env,
             "indexify-instance" = self.config.instance_id()
         );
@@ -163,7 +147,7 @@ impl Service {
         let instance_id = self.config.instance_id();
         tokio::task::spawn_blocking(move || {
             let span = info_span!(
-                "initializing application processor",
+                "application processor",
                 env,
                 "indexify-instance" = instance_id
             );
@@ -192,6 +176,39 @@ impl Service {
             };
         });
 
+        let request_state_change_processor = self.request_state_change_processor.clone();
+        let cloud_events_config = self.config.cloud_events.clone();
+        let shutdown_rx = self.shutdown_rx.clone();
+        let env = self.config.env.clone();
+        let instance_id = self.config.instance_id();
+        tokio::spawn(async move {
+            let span = info_span!(
+                "Initializing Request State Change Processor",
+                env,
+                "indexify-instance" = instance_id
+            );
+
+            let cloud_events_exporter = if let Some(config) = &cloud_events_config {
+                info!(?config, "Initializing CloudEvents exporter");
+                match CloudEventsExporter::new(config).await {
+                    Ok(exporter) => Some(exporter),
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to create CloudEvents exporter");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let _ = {
+                request_state_change_processor
+                    .start(cloud_events_exporter, shutdown_rx)
+                    .await;
+                ().instrument(span.clone())
+            };
+        });
+
         // Spawn monitoring task with shutdown receiver
         let monitor = self.executor_manager.clone();
         let shutdown_rx = self.shutdown_rx.clone();
@@ -210,14 +227,6 @@ impl Service {
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
         };
-        let gc_executor = self.gc_executor.clone();
-        tokio::spawn(
-            async move {
-                let gc_executor_guard = gc_executor.lock().await;
-                gc_executor_guard.start().await;
-            }
-            .instrument(span.clone()),
-        );
 
         let handle = Handle::new();
         let handle_sh = handle.clone();
@@ -249,13 +258,20 @@ impl Service {
                     )
                     .build_v1()
                     .unwrap();
+                // 4GB max message size for large execution plans
+                const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+
                 Server::builder()
                     .layer(instance_trace)
-                    .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
-                        indexify_state,
-                        executor_manager,
-                        blog_storage_registry,
-                    )))
+                    .add_service(
+                        ExecutorApiServer::new(ExecutorAPIService::new(
+                            indexify_state,
+                            executor_manager,
+                            blog_storage_registry,
+                        ))
+                        .max_decoding_message_size(MAX_MESSAGE_SIZE)
+                        .max_encoding_message_size(MAX_MESSAGE_SIZE),
+                    )
                     .add_service(reflection_service)
                     .serve_with_shutdown(addr_grpc, async move {
                         shutdown_rx.changed().await.ok();
@@ -287,17 +303,11 @@ impl Service {
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());
-        let result = axum_server::bind(addr)
+        axum_server::bind(addr)
             .handle(handle)
             .serve(router.into_make_service())
             .await
-            .map_err(Into::into);
-
-        // Handle graceful shutdown for the state store
-        // before terminating the process.
-        self.indexify_state.shutdown().await;
-
-        result
+            .map_err(Into::into)
     }
 }
 

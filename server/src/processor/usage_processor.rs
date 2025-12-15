@@ -192,7 +192,7 @@ impl UsageProcessor {
         notify: &Arc<Notify>,
     ) -> Result<()> {
         let timer_kvs = &[KeyValue::new("op", "process_allocation_usage_events")];
-        Timer::start_with_labels(&self.processing_latency, timer_kvs);
+        let _timer = Timer::start_with_labels(&self.processing_latency, timer_kvs);
 
         let (events, new_cursor) = self
             .indexify_state

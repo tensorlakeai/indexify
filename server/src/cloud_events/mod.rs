@@ -14,10 +14,7 @@ use opentelemetry_proto::tonic::{
     resource::v1::Resource,
 };
 use serde_json::Value as JsonValue;
-use tokio::sync::mpsc::Sender;
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tonic::transport::Channel;
-use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::{config::CloudEventsConfig, state_store::request_events::RequestStateChangeEvent};
@@ -25,11 +22,10 @@ use crate::{config::CloudEventsConfig, state_store::request_events::RequestState
 mod retry;
 use retry::*;
 
-#[derive(Clone)]
+/// CloudEventsExporter sends request state change events to an OTLP endpoint.
 pub struct CloudEventsExporter {
-    task_tracker: TaskTracker,
-    cancellation_token: CancellationToken,
-    tx: Sender<RequestStateChangeEvent>,
+    client: LogsServiceClient<Channel>,
+    retry_policy: RetryPolicy,
 }
 
 impl CloudEventsExporter {
@@ -42,75 +38,6 @@ impl CloudEventsExporter {
             .await
             .context("building OTLP channel")?;
 
-        let task_tracker = TaskTracker::new();
-        let cancellation_token = CancellationToken::new();
-        let tx = Self::start_collector(
-            task_tracker.clone(),
-            cancellation_token.clone(),
-            channel.clone(),
-        )
-        .await;
-
-        Ok(CloudEventsExporter {
-            task_tracker,
-            cancellation_token,
-            tx,
-        })
-    }
-
-    pub async fn send_request_state_change_event(&self, update: &RequestStateChangeEvent) {
-        if let Err(error) = self.tx.send(update.clone()).await {
-            error!(
-                ?error,
-                "Failed to send request completed event, the Request completed event channel is closed."
-            );
-        }
-    }
-
-    async fn start_collector(
-        tracker: TaskTracker,
-        cancel: CancellationToken,
-        channel: Channel,
-    ) -> Sender<RequestStateChangeEvent> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<RequestStateChangeEvent>(100);
-        let mut exporter = CloudEventsExporterClient::new(channel.clone());
-
-        tracker.spawn(async move {
-            loop {
-                tokio::select! {
-                    biased;
-                    ev = rx.recv() => match ev {
-                        Some(update) => {
-                            debug!(?update, "Sending request state change event to Cloud Events Exporter");
-                            let res = exporter.emit_request_state_update(update).await;
-                            if let Err(err) = res {
-                                error!(?err, "Failed to emit request completed event");
-                            }
-                        }
-                        None => { break }
-                    },
-                    _ = cancel.cancelled() => break,
-                }
-            }
-        });
-
-        tx
-    }
-
-    pub async fn wait_for_completion(&self) {
-        self.task_tracker.close();
-        self.cancellation_token.cancel();
-        self.task_tracker.wait().await;
-    }
-}
-
-pub struct CloudEventsExporterClient {
-    client: LogsServiceClient<Channel>,
-    retry_policy: RetryPolicy,
-}
-
-impl CloudEventsExporterClient {
-    fn new(channel: Channel) -> Self {
         let retry_policy = RetryPolicy {
             max_retries: 3,
             initial_delay_ms: 100,
@@ -121,17 +48,18 @@ impl CloudEventsExporterClient {
         let client = LogsServiceClient::new(channel)
             .send_compressed(tonic::codec::CompressionEncoding::Zstd);
 
-        Self {
+        Ok(Self {
             client,
             retry_policy,
-        }
+        })
     }
 
-    pub async fn emit_request_state_update(
+    /// Send a request state change event to the OTLP endpoint.
+    pub async fn send_request_state_change_event(
         &mut self,
-        update: RequestStateChangeEvent,
+        update: &RequestStateChangeEvent,
     ) -> Result<(), anyhow::Error> {
-        let request = create_export_request(&update)?;
+        let request = create_export_request(update)?;
         export_with_retry(&mut self.client, &self.retry_policy, &request).await
     }
 }
