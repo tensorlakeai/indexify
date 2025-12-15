@@ -13,6 +13,18 @@ from .metrics.channel_manager import (
 
 _RETRY_INTERVAL_SEC = 5
 
+# Both Executor and Server use max (4 GB) grpc message sizes to avoid hard failures
+# while sending messages because hard failures can result in Executor or even whole cluster
+# stalling.
+#
+# We instead limit message sizes at application level to avoid high memory usage on
+# Server side and DoSing it by sending very large amounts of work to it.
+_MAX_GRPC_MESSAGE_LENGTH = -1
+_GRPC_CHANNEL_OPTIONS = [
+    ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_LENGTH),
+    ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_LENGTH),
+]
+
 
 class ChannelManager:
     def __init__(
@@ -120,11 +132,14 @@ class ChannelManager:
         ):
             metric_grpc_server_channel_creations.inc()
             if self._channel_credentials is None:
-                return grpc.aio.insecure_channel(target=self._server_address)
+                return grpc.aio.insecure_channel(
+                    target=self._server_address, options=_GRPC_CHANNEL_OPTIONS
+                )
             else:
                 return grpc.aio.secure_channel(
                     target=self._server_address,
                     credentials=self._channel_credentials,
+                    options=_GRPC_CHANNEL_OPTIONS,
                 )
 
     async def _create_shared_channel(self) -> None:

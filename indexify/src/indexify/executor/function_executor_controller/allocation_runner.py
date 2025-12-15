@@ -94,6 +94,10 @@ from indexify.executor.function_executor.health_checker import HealthCheckResult
 from indexify.executor.function_executor.server.function_executor_server import (
     FunctionExecutorServerStatus,
 )
+from indexify.executor.limits import (
+    MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT,
+    MAX_FUNCTION_CALL_SIZE_MB,
+)
 from indexify.proto.executor_api_pb2 import (
     AllocationFailureReason,
 )
@@ -649,6 +653,28 @@ class AllocationRunner:
             )
 
             if allocation_result.HasField("updates"):
+                if (
+                    allocation_result.updates.ByteSize()
+                    > MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024
+                ):
+                    self._logger.info(
+                        "failing allocation because its FE execution plan updates bytes size exceeds maximum",
+                        message_size_bytes=allocation_result.updates.ByteSize(),
+                        max_message_size_bytes=MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024,
+                    )
+                    raise _AllocationFailedDueToUserError()
+
+                if (
+                    len(allocation_result.updates.updates)
+                    > MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT
+                ):
+                    self._logger.info(
+                        "failing allocation because its FE execution plan updates items count exceeds maximum",
+                        items_count=len(allocation_result.updates.updates),
+                        max_items_count=MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT,
+                    )
+                    raise _AllocationFailedDueToUserError()
+
                 # Validate FE updates by converting them to Server Updates. This is inefficient but works.
                 try:
                     to_server_execution_plan_updates(
@@ -659,7 +685,6 @@ class AllocationRunner:
                         "failing allocation because its FE execution plan updates are invalid",
                         exc_info=e,
                     )
-                    # As this is FE error it's okay to mark it as unhealthy.
                     raise _AllocationFailedDueToUserError()
 
         return _RunAllocationOnFunctionExecutorResult(
@@ -793,6 +818,7 @@ class AllocationRunner:
         if fe_function_call.HasField("args_blob"):
             blob_info = self._pending_output_blobs.get(fe_function_call.args_blob.id)
             if blob_info is None:
+                # TODO: Report failure to FE.
                 # Either args blob upload is already completed or FE sent an invalid blob ID.
                 self._logger.info(
                     "skipping function call creation because args blob is not found on Executor side",
@@ -805,6 +831,7 @@ class AllocationRunner:
             if blob_info is not None:
                 await self._complete_blob_upload(blob_info, fe_function_call.args_blob)
         except Exception as e:
+            # TODO: Report failure to FE.
             self._logger.error(
                 "failed to complete args blob upload for function call creation",
                 child_fn_call_id=fe_function_call.updates.root_function_call_id,
@@ -827,11 +854,38 @@ class AllocationRunner:
                 )
             )
         except ValueError as e:
+            # TODO: Report failure to FE.
             self._logger.info(
                 "skipping child function call creation due to invalid execution plan updates",
                 exc_info=e,
                 child_fn_call_id=fe_function_call.updates.root_function_call_id,
             )
+            return
+
+        if (
+            server_function_call_request.ByteSize()
+            > MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024
+        ):
+            self._logger.info(
+                "skipping child function call creation because its bytes size exceeds maximum",
+                child_fn_call_id=fe_function_call.updates.root_function_call_id,
+                message_size_bytes=server_function_call_request.ByteSize(),
+                max_message_size_bytes=MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024,
+            )
+            # TODO: Report failure to FE.
+            return
+
+        if (
+            len(server_function_call_request.updates.updates)
+            > MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT
+        ):
+            self._logger.info(
+                "skipping child function call creation because its execution plan update items count exceeds maximum",
+                child_fn_call_id=fe_function_call.updates.root_function_call_id,
+                items_count=len(server_function_call_request.updates.updates),
+                max_items_count=MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT,
+            )
+            # TODO: Report failure to FE.
             return
 
         # Do Retries because network partitions from Executor to Server might be taking place.
