@@ -615,7 +615,7 @@ impl IndexifyState {
         let txn = self.db.transaction(txn_opts);
 
         let prefix = RequestCtx::key_prefix_for_application(namespace, application_name);
-        let key = format!("{prefix}:{request_id}");
+        let key = format!("{prefix}{request_id}");
 
         let existing_request = txn
             .get(
@@ -653,7 +653,7 @@ impl IndexifyState {
         let txn = self.db.transaction(TransactionOptions::default());
 
         let prefix = RequestCtx::key_prefix_for_application(namespace, application_name);
-        let key = format!("{prefix}:{request_id}");
+        let key = format!("{prefix}{request_id}");
 
         txn.delete(
             IndexifyObjectsColumns::RequestIdempotency.as_ref(),

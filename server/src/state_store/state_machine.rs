@@ -52,7 +52,7 @@ pub enum IndexifyObjectsColumns {
     ApplicationVersions, //  Ns_ApplicationName_Version -> ApplicationVersion
     RequestCtx,           //  Ns_CG_RequestId -> RequestCtx
     RequestCtxSecondaryIndex, // NS_CG_RequestId_CreatedAt -> empty
-    RequestIdempotency,   //  NS:AppName:RequestId
+    RequestIdempotency,   //  NS|AppName|RequestId
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
@@ -434,6 +434,13 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
     .await?;
 
     let request_prefix = RequestCtx::key_prefix_for_application(namespace, name).into_bytes();
+
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::RequestIdempotency.as_ref(),
+        &request_prefix,
+    )
+    .await?;
 
     for iter in txn
         .iter(IndexifyObjectsColumns::RequestCtx.as_ref(), request_prefix)
