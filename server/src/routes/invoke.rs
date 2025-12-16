@@ -130,7 +130,7 @@ struct RequestIdV1 {
 /// Make a request to application
 #[utoipa::path(
     post,
-    path = "/v1/namespaces/{namespace}/applications/{application_name}",
+    path = "/v1/namespaces/{namespace}/applications/{application}",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
