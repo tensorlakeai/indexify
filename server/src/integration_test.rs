@@ -1622,14 +1622,13 @@ mod tests {
 
         // First request with a specific request_id should succeed
         let request_id = "my-unique-request-id-123";
-        let result =
-            invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        let result = invoke_application_with_request_id(&indexify_state, &app, request_id).await;
         assert!(result.is_ok(), "First request should succeed");
         assert_eq!(result.unwrap(), request_id);
 
-        // Second request with the same request_id should fail with RequestAlreadyExistsError
-        let result =
-            invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        // Second request with the same request_id should fail with
+        // RequestAlreadyExistsError
+        let result = invoke_application_with_request_id(&indexify_state, &app, request_id).await;
         assert!(result.is_err(), "Duplicate request should fail");
 
         let err = result.unwrap_err();
