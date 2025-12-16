@@ -151,8 +151,7 @@ pub async fn invoke_application_with_object_v1(
         Some(id) => {
             if id.len() > MAX_REQUEST_ID_LENGTH {
                 return Err(IndexifyAPIError::bad_request(&format!(
-                    "request_id exceeds maximum length of {} characters",
-                    MAX_REQUEST_ID_LENGTH
+                    "request_id exceeds maximum length of {MAX_REQUEST_ID_LENGTH} characters"
                 )));
             }
             if id.is_empty() {
