@@ -13,7 +13,6 @@ use futures::{Stream, StreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
@@ -173,7 +172,7 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    let payload_key = Uuid::new_v4().to_string();
+    let payload_key = format!("{application_name}/{request_id}/input");
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
@@ -187,7 +186,7 @@ pub async fn invoke_application_with_object_v1(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
     let data_payload = data_model::DataPayload {
-        id: nanoid::nanoid!(),
+        id: request_id.clone(), // Use request_id for idempotency
         metadata_size: 0,
         path: put_result.url,
         size: put_result.size_bytes,
