@@ -1606,4 +1606,48 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_idempotent_request_creation() -> Result<()> {
+        use crate::state_store::{
+            state_machine::RequestAlreadyExistsError,
+            test_state_store::invoke_application_with_request_id,
+        };
+
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        let app =
+            test_state_store::create_or_update_application(&indexify_state, "test_app", 0).await;
+
+        // First request with a specific request_id should succeed
+        let request_id = "my-unique-request-id-123";
+        let result =
+            invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        assert!(result.is_ok(), "First request should succeed");
+        assert_eq!(result.unwrap(), request_id);
+
+        // Second request with the same request_id should fail with RequestAlreadyExistsError
+        let result =
+            invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        assert!(result.is_err(), "Duplicate request should fail");
+
+        let err = result.unwrap_err();
+        assert!(
+            err.downcast_ref::<RequestAlreadyExistsError>().is_some(),
+            "Error should be RequestAlreadyExistsError, got: {}",
+            err
+        );
+
+        // Request with a different request_id should succeed
+        let different_request_id = "another-unique-id-456";
+        let result =
+            invoke_application_with_request_id(&indexify_state, &app, different_request_id).await;
+        assert!(
+            result.is_ok(),
+            "Request with different ID should succeed: {:?}",
+            result.err()
+        );
+        Ok(())
+    }
 }
