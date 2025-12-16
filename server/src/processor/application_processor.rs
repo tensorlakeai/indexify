@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::{sync::Arc, time::Instant, vec};
 
 use anyhow::Result;
 use opentelemetry::{
@@ -37,6 +37,7 @@ pub struct ApplicationProcessor {
     pub state_transition_latency: Histogram<f64>,
     pub handle_state_change_latency: Histogram<f64>,
     pub allocate_function_runs_latency: Histogram<f64>,
+    pub spatial_index_query_latency: Histogram<f64>,
     pub queue_size: u32,
 }
 
@@ -84,6 +85,13 @@ impl ApplicationProcessor {
             .with_description("Latency of function runs allocation in seconds")
             .build();
 
+        let spatial_index_query_latency = meter
+            .f64_histogram("indexify.spatial_index_query_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of spatial index queries in seconds")
+            .build();
+
         Self {
             indexify_state,
             write_sm_update_latency,
@@ -92,6 +100,7 @@ impl ApplicationProcessor {
             state_transition_latency,
             handle_state_change_latency,
             allocate_function_runs_latency,
+            spatial_index_query_latency,
             queue_size,
         }
     }
@@ -345,7 +354,9 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
+                // Only allocate newly created child runs, not all pending runs
+                // Existing pending runs will be allocated when executors have capacity
+                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
                     unallocated_function_runs,
@@ -361,10 +372,26 @@ impl ApplicationProcessor {
             ChangeType::ExecutorUpserted(ev) => {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
+
+                // Use spatial index for O(log N + K) lookup instead of O(N)
+                // The index is populated when state is cloned and maintained incrementally
+                const BATCH_SIZE: usize = 100;
+                let query_start = Instant::now();
+                let placeable_runs =
+                    indexes_guard.find_placeable_runs_for_executor(&ev.executor_id, BATCH_SIZE);
+                self.spatial_index_query_latency
+                    .record(query_start.elapsed().as_secs_f64(), &[]);
+
+                debug!(
+                    executor_id = ev.executor_id.get(),
+                    placeable_count = placeable_runs.len(),
+                    query_latency_us = query_start.elapsed().as_micros(),
+                    "found placeable runs using spatial index"
+                );
+
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
-                    unallocated_function_runs,
+                    placeable_runs,
                     &self.allocate_function_runs_latency,
                 )?);
 

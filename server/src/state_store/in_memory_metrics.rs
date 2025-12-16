@@ -115,6 +115,8 @@ pub struct InMemoryStoreGauges {
     pub active_allocations: ObservableGauge<u64>,
     pub active_function_runs: ObservableGauge<u64>,
     pub unallocated_function_runs: ObservableGauge<u64>,
+    pub spatial_index_pending_runs: ObservableGauge<u64>,
+    pub spatial_index_executors: ObservableGauge<u64>,
 }
 
 impl InMemoryStoreGauges {
@@ -170,12 +172,34 @@ impl InMemoryStoreGauges {
                 }
             })
             .build();
+        let state_clone = in_memory_state.clone();
+        let spatial_index_pending_runs = meter
+            .u64_observable_gauge("indexify.spatial_index.pending_runs")
+            .with_description("Number of pending runs in the spatial placement index")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.resource_placement_index.pending_count() as u64, &[]);
+                }
+            })
+            .build();
+        let state_clone = in_memory_state.clone();
+        let spatial_index_executors = meter
+            .u64_observable_gauge("indexify.spatial_index.executors")
+            .with_description("Number of executors tracked in the spatial placement index")
+            .with_callback(move |observer| {
+                if let Ok(state) = state_clone.try_read() {
+                    observer.observe(state.resource_placement_index.executor_count() as u64, &[]);
+                }
+            })
+            .build();
         Self {
             total_executors,
             active_requests,
             active_allocations,
             active_function_runs,
             unallocated_function_runs,
+            spatial_index_pending_runs,
+            spatial_index_executors,
         }
     }
 }
