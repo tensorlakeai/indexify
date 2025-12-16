@@ -31,6 +31,7 @@ use crate::{
 
 pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
+    pub write_sm_update_latency: Histogram<f64>,
     pub state_change_latency: Histogram<f64>,
     pub state_changes_total: Counter<u64>,
     pub state_transition_latency: Histogram<f64>,
@@ -42,6 +43,13 @@ pub struct ApplicationProcessor {
 impl ApplicationProcessor {
     pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
+
+        let write_sm_update_latency = meter
+            .f64_histogram("indexify.application_processor.write_sm_update_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of writing state machine update in seconds")
+            .build();
 
         let state_change_latency = meter
             .f64_histogram("indexify.application_processor.state_change_latency")
@@ -78,6 +86,7 @@ impl ApplicationProcessor {
 
         Self {
             indexify_state,
+            write_sm_update_latency,
             state_change_latency,
             state_changes_total,
             state_transition_latency,
@@ -169,7 +178,7 @@ impl ApplicationProcessor {
     ) -> Result<()> {
         debug!("Waking up to process state changes; cached_state_changes={cached_state_changes:?}");
         let metrics_kvs = &[KeyValue::new("op", "get")];
-        let _timer_guard = Timer::start_with_labels(&self.state_change_latency, metrics_kvs);
+        let _timer_guard = Timer::start_with_labels(&self.write_sm_update_latency, metrics_kvs);
 
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
@@ -219,6 +228,7 @@ impl ApplicationProcessor {
                 "global"
             },
         )];
+        let _timer_guard = Timer::start_with_labels(&self.state_change_latency, state_change_metrics_kvs);
         self.state_changes_total.add(1, state_change_metrics_kvs);
         let sm_update = self.handle_state_change(&state_change).await;
 
