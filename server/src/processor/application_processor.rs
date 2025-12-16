@@ -225,10 +225,8 @@ impl ApplicationProcessor {
                 "global"
             },
         )];
-        let _timer_guard = Timer::start_with_labels(
-            &self.state_change_latency,
-            state_change_metrics_kvs,
-        );
+        let _timer_guard =
+            Timer::start_with_labels(&self.state_change_latency, state_change_metrics_kvs);
         self.state_changes_total.add(1, state_change_metrics_kvs);
         let sm_update = self.handle_state_change(&state_change).await;
 
