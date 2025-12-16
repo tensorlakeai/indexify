@@ -127,7 +127,7 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
             get(get_application).with_state(route_state.clone()),
         )
         .route(
-            "/applications/{application}",
+            "/applications/{application_name}",
             post(invoke_application_with_object_v1).with_state(route_state.clone()),
         )
         .route(

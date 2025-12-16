@@ -23,9 +23,13 @@ use crate::{
     state_store::{
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+        state_machine::RequestAlreadyExistsError,
     },
     utils::get_epoch_time_in_ms,
 };
+
+/// We allow at max the length of a UUID4 with hyphens.
+const MAX_REQUEST_ID_LENGTH: usize = 36;
 
 // New shared function for creating SSE streams
 #[tracing::instrument(skip(rx, state))]
@@ -126,7 +130,7 @@ struct RequestIdV1 {
 /// Make a request to application
 #[utoipa::path(
     post,
-    path = "/v1/namespaces/{namespace}/applications/{application}",
+    path = "/v1/namespaces/{namespace}/applications/{application_name}",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
@@ -136,13 +140,29 @@ struct RequestIdV1 {
     ),
 )]
 pub async fn invoke_application_with_object_v1(
-    Path((namespace, application)): Path<(String, String)>,
+    Path((namespace, application_name)): Path<(String, String)>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.requests, &[]);
-    let request_id = nanoid::nanoid!();
+
+    let request_id = match headers.get("X-Request-ID").and_then(|v| v.to_str().ok()) {
+        Some(id) => {
+            if id.len() > MAX_REQUEST_ID_LENGTH {
+                return Err(IndexifyAPIError::bad_request(&format!(
+                    "request_id exceeds maximum length of {} characters",
+                    MAX_REQUEST_ID_LENGTH
+                )));
+            }
+            if id.is_empty() {
+                return Err(IndexifyAPIError::bad_request("request_id cannot be empty"));
+            }
+            id.to_string()
+        }
+        None => nanoid::nanoid!(),
+    };
+
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
@@ -186,7 +206,7 @@ pub async fn invoke_application_with_object_v1(
     let application = state
         .indexify_state
         .reader()
-        .get_application(&namespace, &application)
+        .get_application(&namespace, &application_name)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
         .ok_or(IndexifyAPIError::not_found("application not found"))?;
@@ -250,12 +270,18 @@ pub async fn invoke_application_with_object_v1(
         application_name: application.name.clone(),
         ctx: request_ctx.clone(),
     });
-
     state
         .indexify_state
         .write(StateMachineUpdateRequest { payload })
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+        .map_err(|e| {
+            if e.downcast_ref::<RequestAlreadyExistsError>().is_some() {
+                return IndexifyAPIError::conflict(&format!(
+                    "request with id:{request_id} already exists for application:{application_name}",
+                ));
+            }
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
+        })?;
 
     if accept_header.contains("application/json") {
         return Ok(Json(RequestIdV1 {

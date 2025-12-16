@@ -8,7 +8,18 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use strum::AsRefStr;
+use thiserror::Error;
 use tracing::{debug, info, trace, warn};
+
+#[derive(Debug, Error)]
+#[error(
+    "request with id '{request_id}' already exists for namespace '{namespace}', application '{application}'"
+)]
+pub struct RequestAlreadyExistsError {
+    pub namespace: String,
+    pub application: String,
+    pub request_id: String,
+}
 
 use super::{
     request_events::{
@@ -110,9 +121,30 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
+
+    // We are using get_for_update with exclusive=True so
+    // rocksdb will return an error if the transaction tries to write
+    // a duplicate request id
+    let request_key = req.ctx.key();
+    let existing_request = txn
+        .get(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            request_key.as_bytes(),
+        )
+        .await?;
+
+    if existing_request.is_some() {
+        return Err(RequestAlreadyExistsError {
+            namespace: req.namespace.clone(),
+            application: req.application_name.clone(),
+            request_id: req.ctx.request_id.clone(),
+        }
+        .into());
+    }
+
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
-        req.ctx.key().as_bytes(),
+        request_key.as_bytes(),
         &JsonEncoder::encode(&req.ctx)?,
     )
     .await?;
