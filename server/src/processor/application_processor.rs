@@ -218,9 +218,6 @@ impl ApplicationProcessor {
         // 4. Process the next state change from the queue
         let state_change = cached_state_changes.pop().unwrap();
         let state_change_metrics_kvs = &[KeyValue::new(
-            "change_type",
-            state_change.change_type.to_string(),
-        ), KeyValue::new(
             "type",
             if state_change.namespace.is_some() {
                 "ns"
