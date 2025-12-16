@@ -8,9 +8,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use bytes::Bytes;
 use derive_builder::Builder;
-use futures::executor::block_on;
-use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tokio::{runtime::Handle, sync::RwLock, task::block_in_place};
+use tracing::{error, info};
 
 use crate::{
     blob_store::{BlobStorage, PutResult},
@@ -22,6 +21,7 @@ use crate::{
     },
 };
 
+#[derive(Clone)]
 enum CompensationAction {
     Idempotency {
         namespace: String,
@@ -43,6 +43,9 @@ pub struct InvokeApplicationSaga {
 impl InvokeApplicationSaga {
     async fn compensate(&self) {
         let mut actions = self.compensation_actions.write().await;
+        if actions.is_empty() {
+            return;
+        }
         info!(
             "Running {} compensation action(s) for request {}",
             actions.len(),
@@ -53,15 +56,11 @@ impl InvokeApplicationSaga {
                 CompensationAction::Idempotency {
                     namespace,
                     application_name,
-                } => {
-                    self.rollback_idempotency(&namespace, &application_name)
-                        .await
-                }
+                } => self.rollback_idempotency(namespace, application_name).await,
                 CompensationAction::StoreBody => self.rollback_store_body().await,
                 CompensationAction::WriteFnCall => self.rollback_write_fn_call().await,
             }
         }
-
         actions.clear();
     }
 
@@ -206,16 +205,6 @@ impl InvokeApplicationSaga {
 // https://doc.rust-lang.org/std/future/trait.AsyncDrop.html
 impl Drop for InvokeApplicationSaga {
     fn drop(&mut self) {
-        block_on(async {
-            let actions = self.compensation_actions.write().await;
-            if !actions.is_empty() {
-                warn!(
-                    "Aborting saga for invoke application request {}",
-                    self.request_id
-                );
-
-                self.compensate().await;
-            }
-        });
+        block_in_place(|| Handle::current().block_on(self.compensate()));
     }
 }

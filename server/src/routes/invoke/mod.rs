@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt, executor::block_on};
+use futures::{Stream, StreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
@@ -291,13 +291,10 @@ pub async fn invoke_application_with_object_v1(
             .into_response())
         }
         ResponseType::Sse => {
-            return_sse_response(state.clone(), namespace, application.name, request_id)
-                .await
-                .inspect(|_| {
-                    block_on(async {
-                        saga.commit().await;
-                    })
-                })
+            let response =
+                return_sse_response(state.clone(), namespace, application.name, request_id).await?;
+            saga.commit().await;
+            Ok(response)
         }
     }
 }
