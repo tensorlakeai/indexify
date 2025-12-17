@@ -22,10 +22,11 @@ struct NoisyModulesFilter;
 impl<S> Filter<S> for NoisyModulesFilter {
     fn enabled(&self, metadata: &Metadata<'_>, _: &layer::Context<'_, S>) -> bool {
         let target = metadata.target();
-        // Filter out noisy internal spans from third-party crates that we don't need to export to our tracing backend.
-        !target.starts_with("slatedb::")
-            && !target.starts_with("h2::")
-            && !target.starts_with("tokio::")
+        // Filter out noisy internal spans from third-party crates that we don't need to
+        // export to our tracing backend.
+        !target.starts_with("slatedb::") &&
+            !target.starts_with("h2::") &&
+            !target.starts_with("tokio::")
     }
 }
 
