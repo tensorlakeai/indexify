@@ -9,19 +9,23 @@ use opentelemetry_stdout::SpanExporter as StdoutSpanExporter;
 use tracing::Metadata;
 use tracing_subscriber::{
     Layer,
+    filter::FilterExt,
     layer::{self, Filter, SubscriberExt},
 };
 
 use crate::config::{ServerConfig, TracingExporter};
 
-/// SlateDB internal task threads are very noisy and are mixed with our own
-/// traces. This filter disables their instrumentation, which we don't use at
-/// the moment.
-struct SlateDBFilter;
+/// Filter out noisy internal spans from third-party crates that we don't need
+/// to export to our tracing backend.
+struct NoisyModulesFilter;
 
-impl<S> Filter<S> for SlateDBFilter {
+impl<S> Filter<S> for NoisyModulesFilter {
     fn enabled(&self, metadata: &Metadata<'_>, _: &layer::Context<'_, S>) -> bool {
-        !metadata.target().starts_with("slatedb::")
+        let target = metadata.target();
+        // Filter out noisy internal spans from third-party crates that we don't need to export to our tracing backend.
+        !target.starts_with("slatedb::")
+            && !target.starts_with("h2::")
+            && !target.starts_with("tokio::")
     }
 }
 
@@ -91,7 +95,7 @@ pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
             let tracer = sdk_tracer.tracer("indexify-server");
             let span_layer = tracing_opentelemetry::layer()
                 .with_tracer(tracer)
-                .with_filter(SlateDBFilter);
+                .with_filter(NoisyModulesFilter.and(get_env_filter()));
 
             let base = base.with(span_layer);
             #[cfg(feature = "console-subscriber")]
