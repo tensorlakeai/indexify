@@ -1,7 +1,10 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use opentelemetry::{KeyValue, metrics::Histogram};
+use opentelemetry::{
+    KeyValue,
+    metrics::{Counter, Histogram},
+};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -28,8 +31,10 @@ use crate::{
 
 pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
+    pub write_sm_update_latency: Histogram<f64>,
+    pub state_change_latency: Histogram<f64>,
+    pub state_changes_total: Counter<u64>,
     pub state_transition_latency: Histogram<f64>,
-    pub processor_processing_latency: Histogram<f64>,
     pub handle_state_change_latency: Histogram<f64>,
     pub allocate_function_runs_latency: Histogram<f64>,
     pub queue_size: u32,
@@ -39,29 +44,41 @@ impl ApplicationProcessor {
     pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
-        let processor_processing_latency = meter
-            .f64_histogram("indexify.processor_processing_latency")
+        let write_sm_update_latency = meter
+            .f64_histogram("indexify.application_processor.write_sm_update_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
-            .with_description("processor task processing latency in seconds")
+            .with_description("Latency of writing state machine update in seconds")
+            .build();
+
+        let state_change_latency = meter
+            .f64_histogram("indexify.application_processor.state_change_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of state change processing in seconds")
+            .build();
+
+        let state_changes_total = meter
+            .u64_counter("indexify.application_processor.state_changes_total")
+            .with_description("Total number of state changes processed")
             .build();
 
         let state_transition_latency = meter
-            .f64_histogram("indexify.state_transition_latency")
+            .f64_histogram("indexify.application_processor.state_transition_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
-            .with_description("Latency of state transitions before processing in seconds")
+            .with_description("Latency of state transition since state change creation in seconds")
             .build();
 
         let handle_state_change_latency = meter
-            .f64_histogram("indexify.handle_state_change_latency")
+            .f64_histogram("indexify.application_processor.handle_state_change_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Latency of state change handling in seconds")
             .build();
 
         let allocate_function_runs_latency = meter
-            .f64_histogram("indexify.allocate_function_runs_latency")
+            .f64_histogram("indexify.application_processor.allocate_function_runs_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Latency of function runs allocation in seconds")
@@ -69,8 +86,10 @@ impl ApplicationProcessor {
 
         Self {
             indexify_state,
+            write_sm_update_latency,
+            state_change_latency,
+            state_changes_total,
             state_transition_latency,
-            processor_processing_latency,
             handle_state_change_latency,
             allocate_function_runs_latency,
             queue_size,
@@ -158,8 +177,8 @@ impl ApplicationProcessor {
         notify: &Arc<Notify>,
     ) -> Result<()> {
         debug!("Waking up to process state changes; cached_state_changes={cached_state_changes:?}");
-        let timer_kvs = &[KeyValue::new("op", "get")];
-        let _timer_guard = Timer::start_with_labels(&self.processor_processing_latency, timer_kvs);
+        let metrics_kvs = &[KeyValue::new("op", "get")];
+        let _timer_guard = Timer::start_with_labels(&self.write_sm_update_latency, metrics_kvs);
 
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
@@ -198,6 +217,17 @@ impl ApplicationProcessor {
 
         // 4. Process the next state change from the queue
         let state_change = cached_state_changes.pop().unwrap();
+        let state_change_metrics_kvs = &[KeyValue::new(
+            "type",
+            if state_change.namespace.is_some() {
+                "ns"
+            } else {
+                "global"
+            },
+        )];
+        let _timer_guard =
+            Timer::start_with_labels(&self.state_change_latency, state_change_metrics_kvs);
+        self.state_changes_total.add(1, state_change_metrics_kvs);
         let sm_update = self.handle_state_change(&state_change).await;
 
         // 5. Write the state change to the state store
@@ -248,17 +278,10 @@ impl ApplicationProcessor {
                 .await?;
         }
 
-        // Record the state transition latency
+        // Record the state transition duration
         self.state_transition_latency.record(
             get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
-            &[KeyValue::new(
-                "type",
-                if state_change.namespace.is_some() {
-                    "ns"
-                } else {
-                    "global"
-                },
-            )],
+            state_change_metrics_kvs,
         );
         Ok(())
     }
