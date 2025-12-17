@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, StateChange},
+    data_model::{Application, ApplicationState, ChangeType, FunctionURI, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
@@ -354,14 +354,39 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
-                // Only allocate newly created child runs, not all pending runs
-                // Existing pending runs will be allocated when executors have capacity
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+
+                // 1. Allocate newly created child runs (they need ANY executor)
+                let new_child_runs = scheduler_update.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
-                    unallocated_function_runs,
+                    new_child_runs,
                     &self.allocate_function_runs_latency,
                 )?);
+
+                // 2. Check for pending runs of the SAME function - they can use the FE that just freed capacity
+                // This is O(1) lookup instead of scanning all pending runs
+                let fn_uri = FunctionURI {
+                    namespace: req.namespace.clone(),
+                    application: req.application.clone(),
+                    function: req.function.clone(),
+                    version: req.allocation.application_version.clone(),
+                };
+                let pending_for_function =
+                    indexes_guard.find_pending_runs_for_function(&fn_uri, 100);
+
+                if !pending_for_function.is_empty() {
+                    debug!(
+                        fn_uri = %fn_uri,
+                        pending_count = pending_for_function.len(),
+                        "found pending runs for function after allocation completed"
+                    );
+                    scheduler_update.extend(task_allocator.allocate_function_runs(
+                        &mut indexes_guard,
+                        pending_for_function,
+                        &self.allocate_function_runs_latency,
+                    )?);
+                }
+
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
                         Box::new(scheduler_update),
@@ -373,8 +398,11 @@ impl ApplicationProcessor {
                 let mut scheduler_update =
                     fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
 
+                // Update spatial index with the new executor capacity BEFORE querying
+                // reconcile_executor_state may have freed resources (vacuum/FE removal)
+                indexes_guard.update_executor_capacity_in_index(&ev.executor_id);
+
                 // Use spatial index for O(log N + K) lookup instead of O(N)
-                // The index is populated when state is cloned and maintained incrementally
                 const BATCH_SIZE: usize = 100;
                 let query_start = Instant::now();
                 let placeable_runs =

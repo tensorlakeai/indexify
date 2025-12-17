@@ -967,11 +967,6 @@ pub struct RequestCtx {
     #[builder(default)]
     pub function_runs: HashMap<FunctionCallId, FunctionRun>,
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
-
-    #[builder(default)]
-    pub child_function_calls: HashMap<String, RequestCtx>, /* Child Request ID ->
-                                                            * Child
-                                                            * RequestCtx */
 }
 
 impl RequestCtxBuilder {

@@ -316,7 +316,6 @@ impl ResourcePlacementIndex {
     }
 
     /// Get pending runs for a specific function. O(1) lookup + O(K) iteration.
-    #[cfg(test)]
     pub fn get_runs_for_function(&self, fn_uri: &FunctionURI) -> Vec<FunctionRunKey> {
         self.pending_by_fn_uri
             .get(fn_uri)

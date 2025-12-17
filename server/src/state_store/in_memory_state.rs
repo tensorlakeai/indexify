@@ -1098,6 +1098,21 @@ impl InMemoryState {
             .collect()
     }
 
+    /// Find pending runs for a specific function. O(1) lookup + O(K) iteration.
+    /// Used to check if there's work for an FE after an allocation completes.
+    pub fn find_pending_runs_for_function(
+        &self,
+        fn_uri: &FunctionURI,
+        limit: usize,
+    ) -> Vec<FunctionRun> {
+        self.resource_placement_index
+            .get_runs_for_function(fn_uri)
+            .into_iter()
+            .take(limit)
+            .filter_map(|run_key| self.function_runs.get(&run_key).map(|fr| *fr.clone()))
+            .collect()
+    }
+
     /// Add a pending function run to the spatial placement index.
     pub fn add_pending_run_to_index(&mut self, function_run: &FunctionRun) {
         let Some(app_version) = self.get_existing_application_version(function_run) else {
