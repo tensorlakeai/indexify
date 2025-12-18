@@ -45,12 +45,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Install protobuf, musl tools, and FoundationDB
+      - name: Install protobuf and musl tools
         run: sudo apt update && sudo apt install -y protobuf-compiler musl-tools
-      - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
-        with:
-          version: '7.4.5'
       - uses: actions/checkout@v6
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -91,10 +87,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
-        with:
-          version: '7.4.5'
       - uses: actions/checkout@v6
         with:
           submodules: true

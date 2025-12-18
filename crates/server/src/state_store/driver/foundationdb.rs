@@ -15,7 +15,7 @@ use foundationdb::{
 use futures::lock::Mutex;
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},
@@ -65,10 +65,12 @@ pub(crate) struct FoundationDBDriver {
 
 impl FoundationDBDriver {
     /// Open a new connection with a FoundationDB database.
+    #[tracing::instrument(skip(metrics))]
     pub(crate) fn open(
         options: Options,
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<FoundationDBDriver, Error> {
+        debug!("Opening FoundationDB connection");
         // Initialize the FoundationDB Client API
         static NETWORK: LazyLock<Arc<foundationdb::api::NetworkAutoStop>> =
             LazyLock::new(|| Arc::new(unsafe { foundationdb::boot() }));

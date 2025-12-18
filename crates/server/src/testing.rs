@@ -1,8 +1,8 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tempfile::TempDir;
-use tracing::subscriber;
+use tracing::{info, subscriber};
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 use crate::{
@@ -30,7 +30,7 @@ use crate::{
     executors,
     service::Service,
     state_store::{
-        driver::{ConnectionOptions, rocksdb::Options},
+        driver::{ConnectionOptions, foundationdb, rocksdb::Options},
         requests::{
             DeregisterExecutorRequest,
             FunctionCallRequest,
@@ -43,11 +43,16 @@ use crate::{
 };
 
 pub fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
-    match std::env::var("INDEXIFY_TESTING_CONFIG_PATH").ok() {
-        Some(path) => {
-            ServerConfig::from_path(&path).with_context(|| format!("Unable to find {path}"))
+    match std::env::var("INDEXIFY_TESTING_DRIVER_FDB_CLUSTER").ok() {
+        Some(path) if !path.is_empty() => {
+            let mut options = foundationdb::Options::default();
+            options.cluster_file = Some(path);
+            Ok(ServerConfig {
+                driver_config: ConnectionOptions::FoundationDB(options),
+                ..Default::default()
+            })
         }
-        None => {
+        _ => {
             let mut options = Options::default();
             options.path = temp_path.join("state_store");
             options.config.create_if_missing = true;
@@ -91,6 +96,7 @@ impl TestService {
         };
         config.executor_catalog = executor_catalog;
 
+        info!(?config, "Server configuration for tests");
         let srv = Service::new(config).await?;
 
         Ok(Self {
