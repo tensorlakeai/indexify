@@ -172,10 +172,11 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    let payload_key = format!("{application_name}/{request_id}/input");
+    let payload_key = data_model::DataPayload::key_from(&application_name, &request_id);
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+
     let put_result = state
         .blob_storage
         .get_blob_store(&namespace)
@@ -185,6 +186,7 @@ pub async fn invoke_application_with_object_v1(
             error!("failed to write to blob store: {:?}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
+
     let data_payload = data_model::DataPayload {
         id: request_id.clone(), // Use request_id for idempotency
         metadata_size: 0,
