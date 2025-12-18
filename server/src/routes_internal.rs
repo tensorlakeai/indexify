@@ -338,7 +338,9 @@ async fn list_unallocated_function_runs(
         .filter_map(|unallocated_function_run_id| {
             state.function_runs.get(unallocated_function_run_id)
         })
-        .map(|t| http_objects_v1::FunctionRun::from_data_model_function_run(*t.clone(), vec![], vec![]))
+        .map(|t| {
+            http_objects_v1::FunctionRun::from_data_model_function_run(*t.clone(), vec![], vec![])
+        })
         .collect();
 
     Ok(Json(UnallocatedFunctionRuns {
