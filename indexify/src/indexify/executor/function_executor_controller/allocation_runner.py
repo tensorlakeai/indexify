@@ -14,6 +14,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationFunctionCall as FEAllocationFunctionCall,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationFunctionCallCreationResult as FEAllocationFunctionCallCreationResult,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationFunctionCallResult as FEAllocationFunctionCallResult,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
@@ -572,7 +575,7 @@ class AllocationRunner:
                 await self._reconcile_output_blobs(
                     fe_stub, response.output_blob_requests
                 )
-                await self._reconcile_function_calls(response.function_calls)
+                await self._reconcile_function_calls(fe_stub, response.function_calls)
                 await self._reconcile_function_call_watchers(
                     fe_stub, response.function_call_watchers
                 )
@@ -779,13 +782,14 @@ class AllocationRunner:
 
     async def _reconcile_function_calls(
         self,
+        fe_stub: FunctionExecutorStub,
         function_calls: list[FEAllocationFunctionCall],
     ) -> None:
         for function_call in function_calls:
             if not _validate_fe_function_call(function_call):
                 self._logger.warning(
                     "skipping invalid FE function call",
-                    function_call=str(function_call),
+                    child_fn_call_id=function_call.updates.root_function_call_id,
                 )
                 continue
 
@@ -793,97 +797,110 @@ class AllocationRunner:
                 function_call.updates.root_function_call_id
                 not in self._started_function_call_ids
             ):
-                # TODO: Add "create function call" result message to FE protocol.
-                await self._create_function_call(function_call)
+                try:
+                    await self._create_function_call(function_call)
+                    await self._send_function_call_creation_result_to_fe(
+                        fe_stub=fe_stub,
+                        allocation_id=self._alloc_info.allocation.allocation_id,
+                        result=FEAllocationFunctionCallCreationResult(
+                            function_call_id=function_call.updates.root_function_call_id,
+                            status=Status(
+                                code=grpc.StatusCode.OK.value[0],
+                            ),
+                        ),
+                    )
+                except Exception as e:
+                    self._logger.error(
+                        "failed to create function call",
+                        child_fn_call_id=function_call.updates.root_function_call_id,
+                        exc_info=e,
+                    )
+                    await self._send_function_call_creation_result_to_fe(
+                        fe_stub=fe_stub,
+                        allocation_id=self._alloc_info.allocation.allocation_id,
+                        result=FEAllocationFunctionCallCreationResult(
+                            function_call_id=function_call.updates.root_function_call_id,
+                            status=Status(
+                                code=grpc.StatusCode.INTERNAL.value[0],
+                                message="Failed to create function call.",
+                            ),
+                        ),
+                    )
 
         # Don't delete function calls because _started_function_call_ids is append only.
+
+    async def _send_function_call_creation_result_to_fe(
+        self,
+        fe_stub: FunctionExecutorStub,
+        allocation_id: str,
+        result: FEAllocationFunctionCallCreationResult,
+    ) -> None:
+        """Sends function call creation result to FE.
+
+        Doesn't raise any exceptions.
+        """
+        try:
+            await fe_stub.send_allocation_update(
+                FEAllocationUpdate(
+                    allocation_id=allocation_id,
+                    function_call_creation_result=result,
+                ),
+                timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
+            )
+        except grpc.aio.AioRpcError as e:
+            # Ignore this error code because older FE versions don't wait for this update. They
+            # fail with FAILED_PRECONDITION when they already finished running the alloc.
+            # TODO: Remove this workaround once all FE versions wait for this update.
+            if e.code() != grpc.StatusCode.FAILED_PRECONDITION:
+                raise
 
     async def _create_function_call(
         self, fe_function_call: FEAllocationFunctionCall
     ) -> None:
         """Creates a function call in the server.
 
-        If the creation fails then doesn't do anything."""
-        # It's important to not do anything in this function if user creates a function
-        # call watcher then they'll get error because function call wasn't created.
-        #
-        # TODO: Add a message to FE updates which allows to report function call creation failure back to FE.
-        # The FE can raise exception in function call creation call stack so user code can see the exception.
-
+        Raises exception if the creation fails.
+        """
         blob_info: _BLOBInfo | None = None
         if fe_function_call.HasField("args_blob"):
             blob_info = self._pending_output_blobs.get(fe_function_call.args_blob.id)
             if blob_info is None:
-                # TODO: Report failure to FE.
-                # Either args blob upload is already completed or FE sent an invalid blob ID.
-                self._logger.info(
-                    "skipping function call creation because args blob is not found on Executor side",
-                    child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                    args_blob_id=fe_function_call.args_blob.id,
+                raise ValueError(
+                    f"Args blob with id {fe_function_call.args_blob.id} is not found on Executor side"
                 )
-                return
 
-        try:
-            if blob_info is not None:
-                await self._complete_blob_upload(blob_info, fe_function_call.args_blob)
-        except Exception as e:
-            # TODO: Report failure to FE.
-            self._logger.error(
-                "failed to complete args blob upload for function call creation",
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                args_blob_id=fe_function_call.args_blob.id,
-                exc_info=e,
-            )
-            return
+        if blob_info is not None:
+            await self._complete_blob_upload(blob_info, fe_function_call.args_blob)
 
-        try:
-            server_function_call_request: ServerFunctionCallRequest = (
-                ServerFunctionCallRequest(
-                    namespace=self._alloc_info.allocation.function.namespace,
-                    application=self._alloc_info.allocation.function.application_name,
-                    request_id=self._alloc_info.allocation.request_id,
-                    source_function_call_id=self._alloc_info.allocation.function_call_id,
-                    updates=to_server_execution_plan_updates(
-                        fe_execution_plan_updates=fe_function_call.updates,
-                        args_blob_uri=None if blob_info is None else blob_info.uri,
-                    ),
-                )
+        server_function_call_request: ServerFunctionCallRequest = (
+            ServerFunctionCallRequest(
+                namespace=self._alloc_info.allocation.function.namespace,
+                application=self._alloc_info.allocation.function.application_name,
+                request_id=self._alloc_info.allocation.request_id,
+                source_function_call_id=self._alloc_info.allocation.function_call_id,
+                updates=to_server_execution_plan_updates(
+                    fe_execution_plan_updates=fe_function_call.updates,
+                    args_blob_uri=None if blob_info is None else blob_info.uri,
+                ),
             )
-        except ValueError as e:
-            # TODO: Report failure to FE.
-            self._logger.info(
-                "skipping child function call creation due to invalid execution plan updates",
-                exc_info=e,
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-            )
-            return
+        )
 
         request_size_mb: float = server_function_call_request.ByteSize() / (
             1024.0 * 1024.0
         )
         metric_function_call_message_size_mb.observe(request_size_mb)
         if request_size_mb > MAX_FUNCTION_CALL_SIZE_MB:
-            self._logger.info(
-                "failing child function call creation because its message size exceeds maximum",
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                message_size_mb=request_size_mb,
-                max_message_size_mb=MAX_FUNCTION_CALL_SIZE_MB,
+            raise ValueError(
+                f"Function call message size {request_size_mb} MB exceeds maximum of {MAX_FUNCTION_CALL_SIZE_MB} MB"
             )
-            # TODO: Report failure to FE.
-            return
 
         if (
             len(server_function_call_request.updates.updates)
             > MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT
         ):
-            self._logger.info(
-                "skipping child function call creation because its execution plan update items count exceeds maximum",
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                items_count=len(server_function_call_request.updates.updates),
-                max_items_count=MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT,
+            raise ValueError(
+                f"Function call execution plan update items count {len(server_function_call_request.updates.updates)} exceeds maximum of {MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT}"
             )
-            # TODO: Report failure to FE.
-            return
 
         @exponential_backoff(
             max_retries=SERVER_RPC_MAX_RETRIES,
@@ -905,17 +922,7 @@ class AllocationRunner:
                 timeout=SERVER_RPC_TIMEOUT_SEC,
             )
 
-        try:
-            await _call_function_rpc()
-        except grpc.aio.AioRpcError as e:
-            # Do nothing, TODO: report failure to FE.
-            self._logger.error(
-                "Server call_function RPC failed after retries, giving up",
-                child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                exc_info=e,
-            )
-            return
-
+        await _call_function_rpc()
         self._started_function_call_ids.add(
             fe_function_call.updates.root_function_call_id
         )
