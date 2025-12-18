@@ -205,10 +205,10 @@ impl RequestStateChangeProcessor {
         cloud_events_exporter: &mut Option<CloudEventsExporter>,
     ) -> Result<()> {
         // Send to cloud events exporter if configured
-        if let Some(exporter) = cloud_events_exporter {
-            if let Err(err) = exporter.send_request_state_change_event(&event.event).await {
-                error!(?err, "Failed to send request state change event to OTLP");
-            }
+        if let Some(exporter) = cloud_events_exporter &&
+            let Err(err) = exporter.send_request_state_change_event(&event.event).await
+        {
+            error!(?err, "Failed to send request state change event to OTLP");
         }
 
         let _ = self
