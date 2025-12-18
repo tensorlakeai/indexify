@@ -204,6 +204,8 @@ class TestMetrics(unittest.TestCase):
             "allocation_run_errors_total",
             "allocation_run_latency_seconds_count",
             "allocation_run_latency_seconds_sum",
+            "function_call_message_size_mb_count",
+            "function_call_message_size_mb_sum",
             # gRPC channel creation
             "grpc_server_channel_creations_total",
             "grpc_server_channel_creation_retries_total",
