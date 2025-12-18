@@ -23,44 +23,29 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationOutcomeCode as FEAllocationOutcomeCode,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationOutputBLOB as FEAllocationOutputBLOB,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationOutputBLOBRequest as FEAllocationOutputBLOBRequest,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationProgress as FEAllocationProgress,
 )
-
-try:
-    # New SDK version with request state operations in data plane.
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationOutputBLOB as FEAllocationOutputBLOB,
-    )
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationRequestStateCommitWriteOperationResult as FEAllocationRequestStateCommitWriteOperationResult,
-    )
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationRequestStateOperation as FEAllocationRequestStateOperation,
-    )
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationRequestStateOperationResult as FEAllocationRequestStateOperationResult,
-    )
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationRequestStatePrepareReadOperationResult as FEAllocationRequestStatePrepareReadOperationResult,
-    )
-    from tensorlake.function_executor.proto.function_executor_pb2 import (
-        AllocationRequestStatePrepareWriteOperationResult as FEAllocationRequestStatePrepareWriteOperationResult,
-    )
-    from tensorlake.function_executor.proto.status_pb2 import Status
-except ImportError:
-    # Old SDK version that doesn't have data plane request state operations,
-    # AllocationOutputBLOB and Status. Request state operations won't work until SDK is upgraded.
-    FEAllocationOutputBLOB = None
-    FEAllocationRequestStateCommitWriteOperationResult = None
-    FEAllocationRequestStateOperation = None
-    FEAllocationRequestStateOperationResult = None
-    FEAllocationRequestStatePrepareReadOperationResult = None
-    FEAllocationRequestStatePrepareWriteOperationResult = None
-    Status = None
-
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationRequestStateCommitWriteOperationResult as FEAllocationRequestStateCommitWriteOperationResult,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationRequestStateOperation as FEAllocationRequestStateOperation,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationRequestStateOperationResult as FEAllocationRequestStateOperationResult,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationRequestStatePrepareReadOperationResult as FEAllocationRequestStatePrepareReadOperationResult,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationRequestStatePrepareWriteOperationResult as FEAllocationRequestStatePrepareWriteOperationResult,
+)
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationResult as FEAllocationResult,
 )
@@ -88,6 +73,8 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 from tensorlake.function_executor.proto.message_validator import (
     MessageValidator,
 )
+from tensorlake.function_executor.proto.status_pb2 import Status
+from tensorlake.utils.retries import exponential_backoff
 
 from indexify.executor.function_executor.function_executor import FunctionExecutor
 from indexify.executor.function_executor.health_checker import HealthCheckResult
@@ -97,6 +84,10 @@ from indexify.executor.function_executor.server.function_executor_server import 
 from indexify.executor.limits import (
     MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT,
     MAX_FUNCTION_CALL_SIZE_MB,
+    SERVER_RPC_MAX_BACKOFF_SEC,
+    SERVER_RPC_MAX_RETRIES,
+    SERVER_RPC_MIN_BACKOFF_SEC,
+    SERVER_RPC_TIMEOUT_SEC,
 )
 from indexify.proto.executor_api_pb2 import (
     AllocationFailureReason,
@@ -143,12 +134,6 @@ from .metrics.allocation_runner import (
 _CREATE_ALLOCATION_TIMEOUT_SECS = 5
 _SEND_ALLOCATION_UPDATE_TIMEOUT_SECS = 5
 _DELETE_ALLOCATION_TIMEOUT_SECS = 5
-
-
-# Server RPC settings
-_SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS = 5
-_SERVER_CALL_FUNCTION_RPC_BACKOFF_SECS = 2
-_SERVER_CALL_FUNCTION_RPC_MAX_RETRIES = 3
 
 
 class _AllocationTimeoutError(Exception):
@@ -590,11 +575,9 @@ class AllocationRunner:
                 await self._reconcile_function_call_watchers(
                     fe_stub, response.function_call_watchers
                 )
-                if FEAllocationRequestStateOperation is not None:
-                    # New SDK version.
-                    await self._reconcile_request_state_operations(
-                        fe_stub, response.request_state_operations
-                    )
+                await self._reconcile_request_state_operations(
+                    fe_stub, response.request_state_operations
+                )
 
                 # Check the result last to make sure we reconciled the last state.
                 if response.HasField("result"):
@@ -715,19 +698,14 @@ class AllocationRunner:
                 update: FEAllocationUpdate = FEAllocationUpdate(
                     allocation_id=self._alloc_info.allocation.allocation_id,
                 )
-                if FEAllocationOutputBLOB is None:
-                    # Old SDK version.
-                    update.output_blob.CopyFrom(output_blob)
-                else:
-                    # New SDK version.
-                    update.output_blob_deprecated.CopyFrom(output_blob)
-                    # TODO: Enable once FE is upgraded.
-                    # update.output_blob.CopyFrom(FEAllocationOutputBLOB(
-                    #     status=Status(
-                    #         code=grpc.StatusCode.OK.value[0],
-                    #     ),
-                    #     blob=output_blob,
-                    # ))
+                update.output_blob.CopyFrom(
+                    FEAllocationOutputBLOB(
+                        status=Status(
+                            code=grpc.StatusCode.OK.value[0],
+                        ),
+                        blob=output_blob,
+                    )
+                )
                 await fe_stub.send_allocation_update(
                     update,
                     timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
@@ -888,28 +866,36 @@ class AllocationRunner:
             # TODO: Report failure to FE.
             return
 
-        # Do Retries because network partitions from Executor to Server might be taking place.
-        runs_left: int = _SERVER_CALL_FUNCTION_RPC_MAX_RETRIES + 1
-        while True:
-            try:
-                ExecutorAPIStub(
-                    await self._channel_manager.get_shared_channel()
-                ).call_function(
-                    server_function_call_request,
-                    timeout=_SERVER_CALL_FUNCTION_RPC_TIMEOUT_SECS,
-                )
-                break
-            except grpc.aio.AioRpcError as e:
-                runs_left -= 1
-                if runs_left == 0:
-                    return  # Do nothing, TODO: report failure to FE.
-                else:
-                    self._logger.error(
-                        f"call_function RPC failed, retrying in {_SERVER_CALL_FUNCTION_RPC_BACKOFF_SECS} seconds",
-                        runs_left=runs_left,
-                        exc_info=e,
-                    )
-                    await asyncio.sleep(_SERVER_CALL_FUNCTION_RPC_BACKOFF_SECS)
+        @exponential_backoff(
+            max_retries=SERVER_RPC_MAX_RETRIES,
+            initial_delay_seconds=SERVER_RPC_MIN_BACKOFF_SEC,
+            max_delay_seconds=SERVER_RPC_MAX_BACKOFF_SEC,
+            retryable_exceptions=(grpc.aio.AioRpcError,),
+            jitter_range=(0.5, 1.5),
+            on_retry=lambda exc, delay_sec, attempt: self._logger.error(
+                f"call_function RPC failed, retrying in {delay_sec} seconds",
+                attempt=attempt,
+                exc_info=exc,
+            ),
+        )
+        async def _call_function_rpc() -> None:
+            ExecutorAPIStub(
+                await self._channel_manager.get_shared_channel()
+            ).call_function(
+                server_function_call_request,
+                timeout=SERVER_RPC_TIMEOUT_SEC,
+            )
+
+        try:
+            await _call_function_rpc()
+        except grpc.aio.AioRpcError as e:
+            # Do nothing, TODO: report failure to FE.
+            self._logger.error(
+                "Server call_function RPC failed after retries, giving up",
+                child_fn_call_id=fe_function_call.updates.root_function_call_id,
+                exc_info=e,
+            )
+            return
 
         self._started_function_call_ids.add(
             fe_function_call.updates.root_function_call_id

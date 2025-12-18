@@ -42,6 +42,7 @@ from .metrics.state_reporter import (
 )
 from .monitoring.health_checker.health_checker import HealthChecker
 
+# Retry algorithm for state report RPCs is custom due to complexity of state reporting logic.
 _MIN_REPORTING_INTERVAL_SEC: float = 5.0
 _MAX_REPORTING_INTERVAL_SEC: float = 300.0  # 5 minutes
 # The first retry is under 30 sec Executor reporting deadline so Server might not unregister the Executor
