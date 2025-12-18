@@ -1,9 +1,9 @@
 use std::{collections::HashSet, path::Path, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use nanoid::nanoid;
 use tempfile::TempDir;
-use tracing::subscriber;
+use tracing::{info, subscriber};
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
     processor::request_state_change_processor::RequestStateChangeProcessor,
     service::Service,
     state_store::{
-        driver::{ConnectionOptions, rocksdb::Options},
+        driver::{ConnectionOptions, foundationdb, rocksdb::Options},
         executor_watches::ExecutorWatch,
         requests::{
             AllocationOutput,
@@ -44,11 +44,16 @@ use crate::{
 };
 
 pub fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
-    match std::env::var("INDEXIFY_TESTING_CONFIG_PATH").ok() {
-        Some(path) => {
-            ServerConfig::from_path(&path).with_context(|| format!("Unable to find {path}"))
+    match std::env::var("INDEXIFY_TESTING_DRIVER_FDB_CLUSTER").ok() {
+        Some(path) if !path.is_empty() => {
+            let mut options = foundationdb::Options::default();
+            options.cluster_file = Some(path);
+            Ok(ServerConfig {
+                driver_config: ConnectionOptions::FoundationDB(options),
+                ..Default::default()
+            })
         }
-        None => {
+        _ => {
             let mut options = Options::default();
             options.path = temp_path.join("state_store");
             options.config.create_if_missing = true;
@@ -63,9 +68,8 @@ pub fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
 
 pub struct TestService {
     pub service: Service,
-    // keeping a reference to the temp dir to ensure it is not deleted
-    #[allow(dead_code)]
-    temp_dir: TempDir,
+    // keeping references to ensure they are not deleted
+    _temp_dir: TempDir,
 }
 
 impl TestService {
@@ -93,11 +97,12 @@ impl TestService {
         };
         config.executor_catalog = executor_catalog;
 
+        info!(?config, "Server configuration for tests");
         let srv = Service::new(config).await?;
 
         Ok(Self {
             service: srv,
-            temp_dir,
+            _temp_dir: temp_dir,
         })
     }
 

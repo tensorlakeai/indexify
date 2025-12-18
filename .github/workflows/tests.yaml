@@ -48,10 +48,6 @@ jobs:
     steps:
       - name: Install protobuf and FoundationDB
         run: sudo apt update && sudo apt install -y protobuf-compiler
-      - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
-        with:
-          version: '7.4.5'
       - uses: actions/checkout@v6
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
@@ -97,10 +93,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v2.3.0
-        with:
-          version: '7.4.5'
       - uses: actions/checkout@v6
         with:
           submodules: true

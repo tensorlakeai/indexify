@@ -22,16 +22,8 @@
 
 set -eu
 
-FDB_CLUSTER_FILE="${FDB_CLUSTER_FILE:-fdb.cluster}"
+SCRIPT_DIR=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
 
-docker-compose up -d foundationdb
-
-# Attempt to connect. Configure the database if necessary.
-if ! fdbcli -C $FDB_CLUSTER_FILE --exec status --timeout 1 ; then
-    if ! fdbcli -C $FDB_CLUSTER_FILE --exec "configure new single memory ; status" --timeout 10 ; then
-        echo "Unable to configure new FDB cluster."
-        exit 1
-    fi
-fi
+docker-compose -f "$SCRIPT_DIR/compose.yaml" up -d foundationdb
 
 echo "Can now connect to docker-based FDB cluster using $FDB_CLUSTER_FILE."

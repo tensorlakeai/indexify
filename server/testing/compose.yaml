@@ -3,6 +3,8 @@ version: '3.8'
 services:
   foundationdb:
     image: foundationdb/foundationdb:7.4.5
+    # Use the entrypoint that configures a single memory cluster
+    entrypoint: /var/fdb/scripts/fdb_single.bash
     volumes:
       - fdb_data:/var/lib/foundationdb/data
     ports:

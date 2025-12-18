@@ -79,14 +79,9 @@ foundationdb = { version = "0.10.0", features = ["embedded-fdb-include", "fdb-7_
 [dev-dependencies]
 tempfile = "3.20.0"
 strum = { version = "0.27.1", features = ["derive"] }
-rocksdb = { version = "0.24.0" }
 tokio = { version = "1.45.1", features = ["full", "test-util"] }
 mock_instant = "0.6.0"
 criterion = { version = "0.8", features = ["html_reports"] }
-
-# [[bench]]
-# name = "state_store"
-# harness = false
 
 [build-dependencies]
 anyhow = "1.0.98"
