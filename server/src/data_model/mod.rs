@@ -763,6 +763,12 @@ impl DataPayloadBuilder {
     }
 }
 
+impl DataPayload {
+    pub fn request_key_prefix(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}/{application}/{request_id}")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {

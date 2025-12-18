@@ -16,7 +16,6 @@ env:
   CARGO_TERM_COLOR: always
   TENSORLAKE_API_URL: http://localhost:8900
 
-
 jobs:
   lint_server:
     name: Lint Indexify Server
@@ -36,12 +35,9 @@ jobs:
       - name: Install Just
         uses: extractions/setup-just@v3
       - name: Check formatting of indexify-server
-        run: |
-          cd server
-          make check
+        run: just check-rust
       - name: Check linting of indexify-server
-        run: |
-          just lint-rust
+        run: just lint-rust
 
   build_server:
     name: Build Indexify Server
@@ -57,14 +53,14 @@ jobs:
         with:
           cache-directories: |
             target
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Install Just
+        uses: extractions/setup-just@v3
       - name: Build indexify-server
-        run: |
-          cd server
-          cargo build
+        run: just build-rust
       - name: Test indexify-server
-        run: |
-          cd server
-          cargo test --workspace -- --test-threads 1
+        run: just test-rust
       - name: Upload indexify-server
         uses: actions/upload-artifact@v6
         with:

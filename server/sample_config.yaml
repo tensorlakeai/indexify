@@ -23,8 +23,8 @@ telemetry:
   # Used as a metric attribute "indexify.instance.id"
   instance_id: 'indexify-server-1'
 
-cloud_events:
-  endpoint: 'http://localhost:4317'
+# cloud_events:
+#   endpoint: 'http://localhost:4317'
 
 # Executor catalog configuration.
 #

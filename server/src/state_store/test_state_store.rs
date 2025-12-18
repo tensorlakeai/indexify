@@ -91,3 +91,22 @@ pub async fn invoke_application(
         .await?;
     Ok(request_id)
 }
+
+pub async fn invoke_application_with_request_id(
+    indexify_state: &IndexifyState,
+    app: &Application,
+    request_id: &str,
+) -> Result<String> {
+    let ctx = tests::mock_request_ctx_with_id(&app.namespace, app, request_id);
+    let request = InvokeApplicationRequest {
+        namespace: app.namespace.clone(),
+        application_name: app.name.clone(),
+        ctx,
+    };
+    indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::InvokeApplication(request),
+        })
+        .await?;
+    Ok(request_id.to_string())
+}
