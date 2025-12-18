@@ -385,6 +385,31 @@ impl ApplicationProcessor {
                         pending_for_function,
                         &self.allocate_function_runs_latency,
                     )?);
+                } else {
+                    // 3. No pending runs for same function - try runs from OTHER functions
+                    // that could fit on this executor. This enables proactive FE reuse:
+                    // vacuum idle FEs and create new ones for functions that need them.
+                    let executor_id = &req.allocation.target.executor_id;
+                    indexes_guard.update_executor_capacity_in_index(executor_id);
+
+                    let query_start = Instant::now();
+                    let placeable_runs =
+                        indexes_guard.find_placeable_runs_for_executor(executor_id, 50);
+                    self.spatial_index_query_latency
+                        .record(query_start.elapsed().as_secs_f64(), &[]);
+
+                    if !placeable_runs.is_empty() {
+                        debug!(
+                            executor_id = executor_id.get(),
+                            placeable_count = placeable_runs.len(),
+                            "found placeable runs from other functions after allocation completed"
+                        );
+                        scheduler_update.extend(task_allocator.allocate_function_runs(
+                            &mut indexes_guard,
+                            placeable_runs,
+                            &self.allocate_function_runs_latency,
+                        )?);
+                    }
                 }
 
                 StateMachineUpdateRequest {
