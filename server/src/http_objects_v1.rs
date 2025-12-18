@@ -209,7 +209,7 @@ pub struct FunctionRun {
     pub status: FunctionRunStatus,
     pub outcome: Option<FunctionRunOutcome>,
     pub failure_reason: Option<FunctionRunFailureReason>,
-    pub child_function_run_id: Option<String>,
+    pub child_function_run_ids: Vec<String>,
     pub application_version: String,
     pub allocations: Vec<Allocation>,
     pub created_at: u128,
@@ -219,6 +219,7 @@ impl FunctionRun {
     pub fn from_data_model_function_run(
         function_run: data_model::FunctionRun,
         allocations: Vec<Allocation>,
+        child_function_run_ids: Vec<String>,
     ) -> Self {
         let failure_reason = match &function_run.outcome {
             Some(data_model::FunctionRunOutcome::Failure(reason)) => Some((*reason).into()),
@@ -230,7 +231,7 @@ impl FunctionRun {
             application: function_run.application,
             namespace: function_run.namespace,
             outcome: function_run.outcome.map(|outcome| outcome.into()),
-            child_function_run_id: function_run.child_function_call.map(|id| id.to_string()),
+            child_function_run_ids,
             failure_reason,
             status: function_run.status.into(),
             application_version: function_run.version,
@@ -314,15 +315,31 @@ impl Request {
                 .or_default()
                 .push(allocation.into());
         }
+
+        let mut children_by_parent: HashMap<String, Vec<String>> = HashMap::new();
+        for function_call in ctx.function_calls.values() {
+            if let Some(parent_id) = &function_call.parent_function_call_id {
+                children_by_parent
+                    .entry(parent_id.to_string())
+                    .or_default()
+                    .push(function_call.function_call_id.to_string());
+            }
+        }
+
         let mut function_runs = vec![];
         for function_run in ctx.function_runs.values() {
             let allocations = allocs_by_function_call_id
                 .get(&function_run.id.to_string())
                 .cloned()
                 .unwrap_or_default();
+            let child_function_run_ids = children_by_parent
+                .get(&function_run.id.to_string())
+                .cloned()
+                .unwrap_or_default();
             function_runs.push(FunctionRun::from_data_model_function_run(
                 function_run.clone(),
                 allocations,
+                child_function_run_ids,
             ));
         }
         let failure_reason = match &ctx.outcome {
