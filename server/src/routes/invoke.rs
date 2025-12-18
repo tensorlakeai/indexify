@@ -20,9 +20,9 @@ use crate::{
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
+        driver,
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
-        state_machine::RequestAlreadyExistsError,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -273,12 +273,13 @@ pub async fn invoke_application_with_object_v1(
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if e.downcast_ref::<RequestAlreadyExistsError>().is_some() {
-                return IndexifyAPIError::conflict(&format!(
-                    "request with id:{request_id} already exists for application:{application_name}",
-                ));
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
+                driver_error.is_request_already_exists()
+            {
+                IndexifyAPIError::conflict(&driver_error.to_string())
+            } else {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
             }
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
 
     if accept_header.contains("application/json") {
