@@ -1,6 +1,9 @@
 env: local
-state_store_path: indexify_server_state
 listen_addr: 0.0.0.0:8900
+
+driver_config:
+  type: 'rocksdb'
+  path: indexify_server_state
 
 telemetry:
   enable_metrics: false

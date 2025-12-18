@@ -43,7 +43,7 @@ use crate::{
     },
 };
 
-fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
+pub fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
     match std::env::var("INDEXIFY_TESTING_CONFIG_PATH").ok() {
         Some(path) => {
             ServerConfig::from_path(&path).with_context(|| format!("Unable to find {path}"))
@@ -51,6 +51,7 @@ fn load_server_config(temp_path: &Path) -> Result<ServerConfig> {
         None => {
             let mut options = Options::default();
             options.path = temp_path.join("state_store");
+            options.config.create_if_missing = true;
 
             Ok(ServerConfig {
                 driver_config: ConnectionOptions::RocksDB(options),

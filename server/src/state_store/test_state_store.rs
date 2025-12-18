@@ -10,7 +10,6 @@ use crate::{
     state_store::{
         ExecutorCatalog,
         IndexifyState,
-        driver::{ConnectionOptions, rocksdb::Options},
         requests::{
             CreateOrUpdateApplicationRequest,
             InvokeApplicationRequest,
@@ -18,6 +17,7 @@ use crate::{
             StateMachineUpdateRequest,
         },
     },
+    testing::load_server_config,
 };
 
 pub struct TestStateStore {
@@ -27,15 +27,11 @@ pub struct TestStateStore {
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
-        let mut options = Options::default();
-        options.path = temp_dir.path().join("state");
-        options.config.create_if_missing = true;
+        let temp_path = temp_dir.path();
+        let config = load_server_config(&temp_path)?;
 
-        let indexify_state = IndexifyState::new(
-            ConnectionOptions::RocksDB(options),
-            ExecutorCatalog::default(),
-        )
-        .await?;
+        let indexify_state =
+            IndexifyState::new(config.driver_config, ExecutorCatalog::default()).await?;
         Ok(TestStateStore { indexify_state })
     }
 }

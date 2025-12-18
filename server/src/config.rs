@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    env,
     fmt::{Debug, Display},
     net::SocketAddr,
     path::Path,
@@ -99,18 +98,9 @@ impl Default for ServerConfig {
     }
 }
 
-fn default_state_store_path() -> String {
-    env::current_dir()
-        .expect("unable to get current directory")
-        .join("indexify_storage/state")
-        .to_str()
-        .expect("unable to get path as string")
-        .to_string()
-}
-
 impl ServerConfig {
-    pub fn from_path(path: &str) -> Result<ServerConfig> {
-        let config_str = std::fs::read_to_string(path)?;
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<ServerConfig> {
+        let config_str = std::fs::read_to_string(path.as_ref())?;
         Self::from_yaml_str(&config_str)
     }
 
@@ -232,7 +222,7 @@ pub struct CloudEventsConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::ServerConfig;
+    use crate::{config::ServerConfig, state_store::driver::ConnectionOptions};
 
     #[test]
     pub fn should_parse_sample_config() {
@@ -240,7 +230,10 @@ mod tests {
         let config = ServerConfig::from_yaml_str(config_yaml).expect("unable to parse from yaml");
 
         assert_eq!("local", config.env);
-
         assert_eq!(3, config.executor_catalog.len());
+        let ConnectionOptions::RocksDB(driver) = config.driver_config else {
+            panic!("Unexpected driver type");
+        };
+        assert_eq!("indexify_server_state", driver.path.to_string_lossy());
     }
 }

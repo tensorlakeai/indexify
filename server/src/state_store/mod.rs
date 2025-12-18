@@ -20,9 +20,8 @@ use crate::{
     data_model::{ExecutorId, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     state_store::{
-        in_memory_metrics::InMemoryStoreGauges,
         driver::Transaction,
-        request_events::RequestStartedEvent,
+        in_memory_metrics::InMemoryStoreGauges,
         serializer::{JsonEncode, JsonEncoder},
     },
 };

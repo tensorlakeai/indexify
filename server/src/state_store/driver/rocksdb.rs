@@ -239,6 +239,7 @@ impl<'de> Deserialize<'de> for Options {
         struct OptionsHelper {
             #[serde(default = "default_indexify_storage_path")]
             path: PathBuf,
+            #[serde(default)]
             config: RocksDBConfig,
         }
 
