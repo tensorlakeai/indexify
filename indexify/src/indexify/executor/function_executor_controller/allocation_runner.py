@@ -128,6 +128,7 @@ from .metrics.allocation_runner import (
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
     metric_allocation_runner_allocation_runs_in_progress,
+    metric_function_call_message_size_mb,
 )
 
 # FE RPC timeouts
@@ -857,15 +858,16 @@ class AllocationRunner:
             )
             return
 
-        if (
-            server_function_call_request.ByteSize()
-            > MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024
-        ):
+        request_size_mb: float = server_function_call_request.ByteSize() / (
+            1024.0 * 1024.0
+        )
+        metric_function_call_message_size_mb.observe(request_size_mb)
+        if request_size_mb > MAX_FUNCTION_CALL_SIZE_MB:
             self._logger.info(
-                "skipping child function call creation because its bytes size exceeds maximum",
+                "failing child function call creation because its message size exceeds maximum",
                 child_fn_call_id=fe_function_call.updates.root_function_call_id,
-                message_size_bytes=server_function_call_request.ByteSize(),
-                max_message_size_bytes=MAX_FUNCTION_CALL_SIZE_MB * 1024 * 1024,
+                message_size_mb=request_size_mb,
+                max_message_size_mb=MAX_FUNCTION_CALL_SIZE_MB,
             )
             # TODO: Report failure to FE.
             return
