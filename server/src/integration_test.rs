@@ -27,7 +27,7 @@ mod tests {
         },
         executors::EXECUTOR_TIMEOUT,
         state_store::{
-            driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
+            driver::{self, IterOptions, Reader, rocksdb::RocksDBDriver},
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -36,7 +36,7 @@ mod tests {
                 StateMachineUpdateRequest,
             },
             state_machine::IndexifyObjectsColumns,
-            test_state_store::{self, invoke_application},
+            test_state_store::{self, invoke_application, invoke_application_with_request_id},
         },
         testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
@@ -1609,11 +1609,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_idempotent_request_creation() -> Result<()> {
-        use crate::state_store::{
-            state_machine::RequestAlreadyExistsError,
-            test_state_store::invoke_application_with_request_id,
-        };
-
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
@@ -1632,10 +1627,11 @@ mod tests {
         assert!(result.is_err(), "Duplicate request should fail");
 
         let err = result.unwrap_err();
+        let driver_error = err.downcast_ref::<driver::Error>().unwrap();
         assert!(
-            err.downcast_ref::<RequestAlreadyExistsError>().is_some(),
-            "Error should be RequestAlreadyExistsError, got: {}",
-            err
+            driver_error.is_request_already_exists(),
+            "Error should be driver::Error::RequestAlreadyExists, got: {}",
+            driver_error
         );
 
         // Request with a different request_id should succeed
