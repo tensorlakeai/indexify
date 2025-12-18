@@ -1,4 +1,5 @@
 pub mod application_processor;
+pub mod fe_scaler;
 pub mod function_executor_manager;
 pub mod function_run_creator;
 pub mod function_run_processor;

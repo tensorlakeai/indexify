@@ -401,6 +401,32 @@ fn default_max_concurrency() -> u32 {
     1
 }
 
+fn default_min_fe_count() -> u32 {
+    0
+}
+
+fn default_max_fe_count() -> u32 {
+    2
+}
+
+/// FE autoscaling configuration per function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionScalingConfig {
+    #[serde(default = "default_min_fe_count")]
+    pub min_fe_count: u32,
+    #[serde(default = "default_max_fe_count")]
+    pub max_fe_count: u32,
+}
+
+impl Default for FunctionScalingConfig {
+    fn default() -> Self {
+        Self {
+            min_fe_count: default_min_fe_count(),
+            max_fe_count: default_max_fe_count(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Function {
     pub name: String,
@@ -427,6 +453,8 @@ pub struct Function {
     pub return_type: Option<serde_json::Value>,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+    #[serde(default)]
+    pub scaling_config: FunctionScalingConfig,
 }
 
 impl Function {

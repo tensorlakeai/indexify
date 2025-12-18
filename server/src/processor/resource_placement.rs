@@ -26,7 +26,10 @@ use rstar::{AABB, RTree, RTreeObject};
 use tracing::debug;
 
 use crate::{
-    data_model::{ExecutorId, FunctionResources, FunctionURI, HostResources, filter::LabelsFilter},
+    data_model::{
+        ExecutorId, FunctionExecutorId, FunctionResources, FunctionURI, HostResources,
+        filter::LabelsFilter,
+    },
     state_store::in_memory_state::FunctionRunKey,
 };
 
@@ -126,6 +129,29 @@ impl ExecutorCapacity {
     }
 }
 
+/// Tracked Function Executor for autoscaling
+#[derive(Clone, Debug)]
+pub struct TrackedFE {
+    pub fe_id: FunctionExecutorId,
+    pub fn_uri: FunctionURI,
+    pub executor_id: ExecutorId,
+    pub resources: FunctionResources,
+    pub allocation_count: u32,
+}
+
+impl TrackedFE {
+    pub fn is_idle(&self) -> bool {
+        self.allocation_count == 0
+    }
+}
+
+/// Key for FE grouping: (executor, function)
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExecutorFunctionKey {
+    pub executor_id: ExecutorId,
+    pub fn_uri: FunctionURI,
+}
+
 /// Resource Placement Index using R-Tree for O(log N + K) queries.
 ///
 /// This replaces the linear scan through `unallocated_function_runs` with
@@ -144,6 +170,11 @@ pub struct ResourcePlacementIndex {
 
     /// Executor capacity tracking
     executor_capacity: HashMap<ExecutorId, ExecutorCapacity>,
+
+    // === FE Tracking ===
+    fes_by_id: HashMap<FunctionExecutorId, TrackedFE>,
+    fes_by_executor_function: HashMap<ExecutorFunctionKey, HashSet<FunctionExecutorId>>,
+    idle_fes_by_executor: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
 }
 
 impl ResourcePlacementIndex {
@@ -337,6 +368,105 @@ impl ResourcePlacementIndex {
     /// Count of tracked executors. O(1)
     pub fn executor_count(&self) -> usize {
         self.executor_capacity.len()
+    }
+
+    // === FE Tracking ===
+
+    pub fn add_fe(&mut self, fe: TrackedFE) {
+        let key = ExecutorFunctionKey {
+            executor_id: fe.executor_id.clone(),
+            fn_uri: fe.fn_uri.clone(),
+        };
+        self.fes_by_executor_function
+            .entry(key)
+            .or_default()
+            .insert(fe.fe_id.clone());
+        if fe.is_idle() {
+            self.idle_fes_by_executor
+                .entry(fe.executor_id.clone())
+                .or_default()
+                .insert(fe.fe_id.clone());
+        }
+        self.fes_by_id.insert(fe.fe_id.clone(), fe);
+    }
+
+    pub fn remove_fe(&mut self, fe_id: &FunctionExecutorId) {
+        let Some(fe) = self.fes_by_id.remove(fe_id) else { return };
+        let key = ExecutorFunctionKey {
+            executor_id: fe.executor_id.clone(),
+            fn_uri: fe.fn_uri.clone(),
+        };
+        if let Some(fes) = self.fes_by_executor_function.get_mut(&key) {
+            fes.remove(fe_id);
+            if fes.is_empty() {
+                self.fes_by_executor_function.remove(&key);
+            }
+        }
+        if let Some(idle) = self.idle_fes_by_executor.get_mut(&fe.executor_id) {
+            idle.remove(fe_id);
+            if idle.is_empty() {
+                self.idle_fes_by_executor.remove(&fe.executor_id);
+            }
+        }
+    }
+
+    pub fn update_fe_allocation_count(&mut self, fe_id: &FunctionExecutorId, count: u32) {
+        let Some(fe) = self.fes_by_id.get_mut(fe_id) else { return };
+        let was_idle = fe.is_idle();
+        fe.allocation_count = count;
+        let is_idle = fe.is_idle();
+        if was_idle && !is_idle {
+            if let Some(idle) = self.idle_fes_by_executor.get_mut(&fe.executor_id) {
+                idle.remove(fe_id);
+            }
+        } else if !was_idle && is_idle {
+            self.idle_fes_by_executor
+                .entry(fe.executor_id.clone())
+                .or_default()
+                .insert(fe_id.clone());
+        }
+    }
+
+    pub fn fe_count_for_function(&self, executor_id: &ExecutorId, fn_uri: &FunctionURI) -> usize {
+        let key = ExecutorFunctionKey {
+            executor_id: executor_id.clone(),
+            fn_uri: fn_uri.clone(),
+        };
+        self.fes_by_executor_function.get(&key).map(|s| s.len()).unwrap_or(0)
+    }
+
+    pub fn pending_count_for_function(&self, fn_uri: &FunctionURI) -> usize {
+        self.pending_by_fn_uri.get(fn_uri).map(|s| s.len()).unwrap_or(0)
+    }
+
+    pub fn get_all_function_uris_with_pending(&self) -> Vec<FunctionURI> {
+        self.pending_by_fn_uri.keys().cloned().collect()
+    }
+
+    pub fn get_idle_fes(&self, executor_id: &ExecutorId) -> Vec<TrackedFE> {
+        self.idle_fes_by_executor
+            .get(executor_id)
+            .map(|ids| ids.iter().filter_map(|id| self.fes_by_id.get(id).cloned()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn get_idle_fes_for_function(&self, executor_id: &ExecutorId, fn_uri: &FunctionURI) -> Vec<TrackedFE> {
+        let key = ExecutorFunctionKey {
+            executor_id: executor_id.clone(),
+            fn_uri: fn_uri.clone(),
+        };
+        self.fes_by_executor_function
+            .get(&key)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.fes_by_id.get(id).filter(|fe| fe.is_idle()).cloned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn has_pending_runs_for_function(&self, fn_uri: &FunctionURI) -> bool {
+        self.pending_by_fn_uri.get(fn_uri).map(|s| !s.is_empty()).unwrap_or(false)
     }
 }
 

@@ -30,6 +30,7 @@ use crate::{
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionScalingConfig,
         FunctionURI,
         Namespace,
         NamespaceBuilder,
@@ -1496,6 +1497,14 @@ impl InMemoryState {
                 );
                 None
             })
+    }
+
+    /// Get scaling config for a function
+    pub fn get_scaling_config(&self, fn_uri: &FunctionURI) -> Option<FunctionScalingConfig> {
+        let key = ApplicationVersion::key_from(&fn_uri.namespace, &fn_uri.application, &fn_uri.version);
+        let app = self.application_versions.get(&key)?;
+        let func = app.functions.get(&fn_uri.function)?;
+        Some(func.scaling_config.clone())
     }
 
     /// Add a function run to the catalog entry index if it matches any catalog

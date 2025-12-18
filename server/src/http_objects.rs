@@ -366,6 +366,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            scaling_config: Default::default(),
         })
     }
 }
@@ -453,6 +454,7 @@ impl TryFrom<Function> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            scaling_config: Default::default(),
         })
     }
 }
