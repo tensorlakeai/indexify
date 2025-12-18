@@ -58,8 +58,8 @@ The command `just install-tools` will install additional tools required for deve
 
 1. Run the server with `just run-server`. This will compile the server locally and start it on port 8900.
 2. In a separated terminal:
-  - Create or enter a Python virtual environment. This can be done using `uv venv` and `source venv/bin/activate`.
-  - Install `poetry` if you haven't already. We use it to manage dependencies.
+  - Create or enter a Python virtual environment. This can be done using `uv venv` and `source .venv/bin/activate`.
+  - Install `poetry` if you haven't already. We use it to manage dependencies. This can be done with `uv pip install poetry`.
   - Install the executor dependencies if you've never ran the executor before with `just build-indexify`.
   - Start the local executor with `just run-executor`. 
 3. In a third terminal:
