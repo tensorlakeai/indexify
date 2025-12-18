@@ -692,20 +692,37 @@ class AllocationRunner:
             fe_output_blob_requests[output_blob_request.id] = output_blob_request
 
             if output_blob_request.id not in self._pending_output_blobs:
-                output_blob: FEBLOB = await self._create_output_blob(
-                    output_blob_request
-                )
                 update: FEAllocationUpdate = FEAllocationUpdate(
                     allocation_id=self._alloc_info.allocation.allocation_id,
                 )
-                update.output_blob.CopyFrom(
-                    FEAllocationOutputBLOB(
-                        status=Status(
-                            code=grpc.StatusCode.OK.value[0],
-                        ),
-                        blob=output_blob,
+                try:
+                    output_blob: FEBLOB = await self._create_output_blob(
+                        output_blob_request
                     )
-                )
+                    update.output_blob.CopyFrom(
+                        FEAllocationOutputBLOB(
+                            status=Status(
+                                code=grpc.StatusCode.OK.value[0],
+                            ),
+                            blob=output_blob,
+                        )
+                    )
+                except Exception as e:
+                    self._logger.error(
+                        "failed to create output BLOB for FE output BLOB request",
+                        blob_id=output_blob_request.id,
+                        exc_info=e,
+                    )
+                    update.output_blob.CopyFrom(
+                        FEAllocationOutputBLOB(
+                            status=Status(
+                                code=grpc.StatusCode.INTERNAL.value[0],
+                                message="Failed to create output BLOB.",
+                            ),
+                            blob=FEBLOB(id=output_blob_request.id),
+                        )
+                    )
+
                 await fe_stub.send_allocation_update(
                     update,
                     timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
@@ -718,6 +735,10 @@ class AllocationRunner:
     async def _create_output_blob(
         self, fe_output_blob_request: FEAllocationOutputBLOBRequest
     ) -> FEBLOB:
+        """Creates an output BLOB for the given FE output BLOB request.
+
+        Raises an Exception if creation fails.
+        """
         blob_uri: str = (
             f"{self._alloc_info.allocation.request_data_payload_uri_prefix}.{self._alloc_info.allocation.allocation_id}.{fe_output_blob_request.id}.output"
         )
@@ -759,7 +780,6 @@ class AllocationRunner:
         self,
         function_calls: list[FEAllocationFunctionCall],
     ) -> None:
-        fe_function_calls: Dict[str, FEAllocationFunctionCall] = {}
         for function_call in function_calls:
             if not _validate_fe_function_call(function_call):
                 self._logger.warning(
@@ -768,14 +788,11 @@ class AllocationRunner:
                 )
                 continue
 
-            fe_function_calls[function_call.updates.root_function_call_id] = (
-                function_call
-            )
-
             if (
                 function_call.updates.root_function_call_id
                 not in self._started_function_call_ids
             ):
+                # TODO: Add "create function call" result message to FE protocol.
                 await self._create_function_call(function_call)
 
         # Don't delete function calls because _started_function_call_ids is append only.
@@ -931,7 +948,7 @@ class AllocationRunner:
                 else:
                     # Send "Not found" to FE because function call doesn't exist.
                     self._logger.info(
-                        "reporting function call as failed to FE because it is not found",
+                        "reporting function call as failed to FE because it was not started on this Executor",
                         child_fn_call_id=function_call_watcher.function_call_id,
                     )
                     await fe_stub.send_allocation_update(
@@ -956,9 +973,10 @@ class AllocationRunner:
     async def _create_function_call_watcher(
         self, fe_function_call_watcher: FEAllocationFunctionCallWatcher
     ) -> None:
-        """Creates a function call watcher in the server.
+        """Adds a note to Executor state to create a function call watcher.
 
-        If the creation fails then doesn't do anything."""
+        Server creates the watcher asynchronously based on the note.
+        Doesn't raise any exceptions."""
         watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
             fe_watcher_id=fe_function_call_watcher.watcher_id,
             server_watch=ServerFunctionCallWatch(
@@ -1145,14 +1163,10 @@ class AllocationRunner:
         fe_stub: FunctionExecutorStub,
         request_state_operation: FEAllocationRequestStateOperation,
     ) -> None:
-        # Not found by default.
         alloc_update: FEAllocationUpdate = FEAllocationUpdate(
             allocation_id=self._alloc_info.allocation.allocation_id,
             request_state_operation_result=FEAllocationRequestStateOperationResult(
                 operation_id=request_state_operation.operation_id,
-                status=Status(
-                    code=grpc.StatusCode.NOT_FOUND.value[0],
-                ),
                 prepare_read=FEAllocationRequestStatePrepareReadOperationResult(),
             ),
         )
@@ -1176,7 +1190,18 @@ class AllocationRunner:
             alloc_update.request_state_operation_result.prepare_read.blob.CopyFrom(blob)
         except KeyError:
             # BLOB not found, this is expected if user din't call request state set first.
-            pass
+            alloc_update.request_state_operation_result.status.code = (
+                grpc.StatusCode.NOT_FOUND.value[0]
+            )
+        except Exception as e:
+            self._logger.error(
+                "failed to prepare request state read operation",
+                exc_info=e,
+                operation_id=request_state_operation.operation_id,
+            )
+            alloc_update.request_state_operation_result.status.code = (
+                grpc.StatusCode.INTERNAL.value[0]
+            )
 
         await fe_stub.send_allocation_update(
             alloc_update, timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS
