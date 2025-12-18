@@ -103,6 +103,14 @@ pub mod tests {
 
     pub fn mock_request_ctx(namespace: &str, application: &Application) -> RequestCtx {
         let request_id = nanoid!();
+        mock_request_ctx_with_id(namespace, application, &request_id)
+    }
+
+    pub fn mock_request_ctx_with_id(
+        namespace: &str,
+        application: &Application,
+        request_id: &str,
+    ) -> RequestCtx {
         let fn_call = mock_function_call();
         let input_args = vec![InputArgs {
             function_call_id: None,
@@ -111,11 +119,11 @@ pub mod tests {
         let fn_run = application
             .to_version()
             .unwrap()
-            .create_function_run(&fn_call, input_args, &request_id)
+            .create_function_run(&fn_call, input_args, request_id)
             .unwrap();
         RequestCtxBuilder::default()
             .namespace(namespace.to_string())
-            .request_id(request_id)
+            .request_id(request_id.to_string())
             .application_name(application.name.clone())
             .application_version(application.version.clone())
             .function_runs(HashMap::from([(fn_run.id.clone(), fn_run)]))

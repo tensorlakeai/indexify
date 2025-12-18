@@ -13,7 +13,6 @@ use futures::{Stream, StreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 use super::routes_state::RouteState;
 use crate::{
@@ -21,11 +20,15 @@ use crate::{
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
+        driver,
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
 };
+
+/// We allow at max the length of a UUID4 with hyphens.
+const MAX_REQUEST_ID_LENGTH: usize = 36;
 
 // New shared function for creating SSE streams
 #[tracing::instrument(skip(rx, state))]
@@ -136,13 +139,28 @@ struct RequestIdV1 {
     ),
 )]
 pub async fn invoke_application_with_object_v1(
-    Path((namespace, application)): Path<(String, String)>,
+    Path((namespace, application_name)): Path<(String, String)>,
     State(state): State<RouteState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.requests, &[]);
-    let request_id = nanoid::nanoid!();
+
+    let request_id = match headers.get("X-Request-ID").and_then(|v| v.to_str().ok()) {
+        Some(id) => {
+            if id.len() > MAX_REQUEST_ID_LENGTH {
+                return Err(IndexifyAPIError::bad_request(&format!(
+                    "request_id exceeds maximum length of {MAX_REQUEST_ID_LENGTH} characters"
+                )));
+            }
+            if id.is_empty() {
+                return Err(IndexifyAPIError::bad_request("request_id cannot be empty"));
+            }
+            id.to_string()
+        }
+        None => nanoid::nanoid!(),
+    };
+
     let accept_header = headers
         .get("Accept")
         .and_then(|value| value.to_str().ok())
@@ -154,10 +172,14 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    let payload_key = Uuid::new_v4().to_string();
+    let payload_key = format!(
+        "{}/input",
+        data_model::DataPayload::request_key_prefix(&namespace, &application_name, &request_id)
+    );
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+
     let put_result = state
         .blob_storage
         .get_blob_store(&namespace)
@@ -167,8 +189,9 @@ pub async fn invoke_application_with_object_v1(
             error!("failed to write to blob store: {:?}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
         })?;
+
     let data_payload = data_model::DataPayload {
-        id: nanoid::nanoid!(),
+        id: request_id.clone(), // Use request_id for idempotency
         metadata_size: 0,
         path: put_result.url,
         size: put_result.size_bytes,
@@ -186,7 +209,7 @@ pub async fn invoke_application_with_object_v1(
     let application = state
         .indexify_state
         .reader()
-        .get_application(&namespace, &application)
+        .get_application(&namespace, &application_name)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
         .ok_or(IndexifyAPIError::not_found("application not found"))?;
@@ -250,12 +273,19 @@ pub async fn invoke_application_with_object_v1(
         application_name: application.name.clone(),
         ctx: request_ctx.clone(),
     });
-
     state
         .indexify_state
         .write(StateMachineUpdateRequest { payload })
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
+        .map_err(|e| {
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
+                driver_error.is_request_already_exists()
+            {
+                IndexifyAPIError::conflict(&driver_error.to_string())
+            } else {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
+            }
+        })?;
 
     if accept_header.contains("application/json") {
         return Ok(Json(RequestIdV1 {

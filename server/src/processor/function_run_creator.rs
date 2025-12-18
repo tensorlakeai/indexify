@@ -176,18 +176,17 @@ impl FunctionRunCreator {
             .indexify_state
             .reader()
             .get_allocation(&allocation.key())
-            .await?
+            .await? &&
+            existing_allocation.is_terminal()
         {
-            if existing_allocation.is_terminal() {
-                warn!(
-                    allocation_id = %allocation.id,
-                    request_id = %allocation.request_id,
-                    namespace = %allocation.namespace,
-                    app = %allocation.application,
-                    "allocation already terminal, skipping duplicate finished event"
-                );
-                return Ok(SchedulerUpdateRequest::default());
-            }
+            warn!(
+                allocation_id = %allocation.id,
+                request_id = %allocation.request_id,
+                namespace = %allocation.namespace,
+                app = %allocation.application,
+                "allocation already terminal, skipping duplicate finished event"
+            );
+            return Ok(SchedulerUpdateRequest::default());
         }
 
         // Idempotency: we only act on this alloc's task if the task is currently

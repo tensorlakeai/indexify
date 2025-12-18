@@ -781,22 +781,20 @@ impl InMemoryState {
                             .and_modify(|fe_allocations| {
                                 if let Some(allocations) = fe_allocations.get_mut(
                                     &allocation_output.allocation.target.function_executor_id,
-                                ) {
-                                    if let Some(existing_allocation) =
-                                        allocations.remove(&allocation_output.allocation.id)
-                                    {
-                                        // Record metrics
-                                        self.metrics.allocation_running_latency.record(
-                                            get_elapsed_time(
-                                                existing_allocation.created_at,
-                                                TimeUnit::Milliseconds,
-                                            ),
-                                            &[KeyValue::new(
-                                                "outcome",
-                                                allocation_output.allocation.outcome.to_string(),
-                                            )],
-                                        );
-                                    }
+                                ) && let Some(existing_allocation) =
+                                    allocations.remove(&allocation_output.allocation.id)
+                                {
+                                    // Record metrics
+                                    self.metrics.allocation_running_latency.record(
+                                        get_elapsed_time(
+                                            existing_allocation.created_at,
+                                            TimeUnit::Milliseconds,
+                                        ),
+                                        &[KeyValue::new(
+                                            "outcome",
+                                            allocation_output.allocation.outcome.to_string(),
+                                        )],
+                                    );
                                 }
 
                                 // Remove the function if no allocations left

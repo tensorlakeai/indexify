@@ -38,6 +38,15 @@ pub enum Error {
     #[error("Failed to encode a new serialized record. error: {}", source)]
     JsonEncoderFailed { source: anyhow::Error },
 
+    #[error(
+        "A request with the same id already exists. namespace: {namespace}, application: {application}, request_id: {request_id}"
+    )]
+    RequestAlreadyExists {
+        namespace: String,
+        application: String,
+        request_id: String,
+    },
+
     #[error(transparent)]
     RocksDBFailure {
         #[from]
@@ -61,6 +70,12 @@ impl Error {
     #[allow(dead_code)]
     pub fn is_permanent(&self) -> bool {
         !self.is_retryable()
+    }
+
+    /// Identifies failed operations that are caused by a request ID already
+    /// existing.
+    pub fn is_request_already_exists(&self) -> bool {
+        matches!(&self, Self::RequestAlreadyExists { .. })
     }
 }
 

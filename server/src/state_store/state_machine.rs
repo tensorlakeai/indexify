@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use rocksdb::ErrorKind;
 use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
@@ -33,7 +34,7 @@ use crate::{
         StateChange,
     },
     state_store::{
-        driver::{Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{self, Transaction, Writer, rocksdb::RocksDBDriver},
         requests::{
             DeleteRequestRequest,
             InvokeApplicationRequest,
@@ -110,12 +111,55 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     if app.tombstoned {
         return Err(anyhow::anyhow!("Application is tomb-stoned"));
     }
+
+    // In the RocksDB driver, we are using get_for_update with exclusive=True when
+    // we retrieve values from the database. If the key has been read or written by
+    // another transaction, RocksDB can return a `Busy` error while the key is
+    // locked by that other transaction.
+    //
+    // The operations in this transaction handle the `Busy` error code gracefully by
+    // turning it into a `RequestAlreadyExistsError`. That will inform the
+    // client that the request already exists, returning a 409 Conflict.
+    let request_key = req.ctx.key();
+    let existing_request = txn
+        .get(
+            IndexifyObjectsColumns::RequestCtx.as_ref(),
+            request_key.as_bytes(),
+        )
+        .await
+        .map_err(|err| {
+            check_if_key_is_busy(
+                err,
+                &req.namespace,
+                &req.application_name,
+                &req.ctx.request_id,
+            )
+        })?;
+
+    if existing_request.is_some() {
+        return Err(driver::Error::RequestAlreadyExists {
+            namespace: req.namespace.clone(),
+            application: req.application_name.clone(),
+            request_id: req.ctx.request_id.clone(),
+        }
+        .into());
+    }
+
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
-        req.ctx.key().as_bytes(),
+        request_key.as_bytes(),
         &JsonEncoder::encode(&req.ctx)?,
     )
-    .await?;
+    .await
+    .map_err(|err| {
+        check_if_key_is_busy(
+            err,
+            &req.namespace,
+            &req.application_name,
+            &req.ctx.request_id,
+        )
+    })?;
+
     txn.put(
         IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
         &req.ctx.secondary_index_key(),
@@ -123,12 +167,32 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     )
     .await?;
 
-    info!(
-        "created request: namespace: {}, app: {}",
-        req.namespace, req.application_name
-    );
+    info!("new request created");
 
     Ok(())
+}
+
+fn check_if_key_is_busy(
+    err: driver::Error,
+    namespace: &str,
+    application: &str,
+    request_id: &str,
+) -> driver::Error {
+    match err {
+        driver::Error::RocksDBFailure { ref source } => match source {
+            driver::rocksdb::Error::GenericRocksDBFailure { source }
+                if source.kind() == ErrorKind::Busy =>
+            {
+                driver::Error::RequestAlreadyExists {
+                    namespace: namespace.to_string(),
+                    application: application.to_string(),
+                    request_id: request_id.to_string(),
+                }
+            }
+            _ => err,
+        },
+        other => other,
+    }
 }
 
 pub struct AllocationUpsertResult {

@@ -27,7 +27,7 @@ mod tests {
         },
         executors::EXECUTOR_TIMEOUT,
         state_store::{
-            driver::{IterOptions, Reader, rocksdb::RocksDBDriver},
+            driver::{self, IterOptions, Reader, rocksdb::RocksDBDriver},
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -36,7 +36,7 @@ mod tests {
                 StateMachineUpdateRequest,
             },
             state_machine::IndexifyObjectsColumns,
-            test_state_store::{self, invoke_application},
+            test_state_store::{self, invoke_application, invoke_application_with_request_id},
         },
         testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
     };
@@ -1604,6 +1604,45 @@ mod tests {
         // The pending function run should be reallocated to the new executor
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_idempotent_request_creation() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        let app =
+            test_state_store::create_or_update_application(&indexify_state, "test_app", 0).await;
+
+        // First request with a specific request_id should succeed
+        let request_id = "my-unique-request-id-123";
+        let result = invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        assert!(result.is_ok(), "First request should succeed");
+        assert_eq!(result.unwrap(), request_id);
+
+        // Second request with the same request_id should fail with
+        // RequestAlreadyExistsError
+        let result = invoke_application_with_request_id(&indexify_state, &app, request_id).await;
+        assert!(result.is_err(), "Duplicate request should fail");
+
+        let err = result.unwrap_err();
+        let driver_error = err.downcast_ref::<driver::Error>().unwrap();
+        assert!(
+            driver_error.is_request_already_exists(),
+            "Error should be driver::Error::RequestAlreadyExists, got: {}",
+            driver_error
+        );
+
+        // Request with a different request_id should succeed
+        let different_request_id = "another-unique-id-456";
+        let result =
+            invoke_application_with_request_id(&indexify_state, &app, different_request_id).await;
+        assert!(
+            result.is_ok(),
+            "Request with different ID should succeed: {:?}",
+            result.err()
+        );
         Ok(())
     }
 }
