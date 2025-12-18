@@ -2,10 +2,6 @@ import asyncio
 import time
 from typing import Any
 
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    AllocationResult as FEAllocationResult,
-)
-
 from indexify.executor.blob_store.blob_store import BLOBStore
 
 from .allocation_info import AllocationInfo
@@ -82,9 +78,6 @@ async def _finalize_alloc_output(
     input: AllocationInput = alloc_info.input
     output: AllocationOutput = alloc_info.output
 
-    if output.fe_result is not None:
-        _log_function_metrics(output.fe_result, logger)
-
     if output.fe_result is not None and output.fe_result.HasField(
         "request_error_output"
     ):
@@ -103,17 +96,3 @@ async def _finalize_alloc_output(
             upload_id=input.request_error_blob_upload_id,
             logger=logger,
         )
-
-
-# Temporary workaround is logging customer metrics until we store them somewhere
-# for future retrieval and processing.
-def _log_function_metrics(fe_result: FEAllocationResult, logger: Any):
-    if not fe_result.HasField("metrics"):
-        return
-
-    for counter_name, counter_value in fe_result.metrics.counters.items():
-        logger.info(
-            "function_metric", counter_name=counter_name, counter_value=counter_value
-        )
-    for timer_name, timer_value in fe_result.metrics.timers.items():
-        logger.info("function_metric", timer_name=timer_name, timer_value=timer_value)
