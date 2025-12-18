@@ -764,8 +764,8 @@ impl DataPayloadBuilder {
 }
 
 impl DataPayload {
-    pub fn key_from(application_name: &str, request_id: &str) -> String {
-        format!("{application_name}/{request_id}/input")
+    pub fn request_key_prefix(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}/{application}/{request_id}")
     }
 }
 

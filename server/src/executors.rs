@@ -525,11 +525,13 @@ impl ExecutorManager {
                     });
                 }
                 let request_data_payload_uri_prefix = format!(
-                    "{}/{}.{}.{}",
+                    "{}/{}",
                     blob_store_url,
-                    allocation.namespace,
-                    allocation.application,
-                    allocation.request_id,
+                    data_model::DataPayload::request_key_prefix(
+                        &allocation.namespace,
+                        &allocation.application,
+                        &allocation.request_id,
+                    ),
                 );
                 let allocation_pb = Allocation {
                     function: Some(FunctionRef {

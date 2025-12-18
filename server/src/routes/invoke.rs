@@ -172,7 +172,10 @@ pub async fn invoke_application_with_object_v1(
         .map(|s| s.to_string())
         .unwrap_or("application/octet-stream".to_string());
 
-    let payload_key = data_model::DataPayload::key_from(&application_name, &request_id);
+    let payload_key = format!(
+        "{}/input",
+        data_model::DataPayload::request_key_prefix(&namespace, &application_name, &request_id)
+    );
     let payload_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
