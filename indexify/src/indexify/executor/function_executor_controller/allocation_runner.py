@@ -180,6 +180,7 @@ class _FunctionCallWatcherInfo:
     # Queue where state reconciler puts the function call watcher results.
     # Queue max size is 1.
     result_queue: asyncio.Queue
+    result_sent_to_fe: asyncio.Event
 
 
 @dataclass
@@ -559,12 +560,22 @@ class AllocationRunner:
         dynamic_deadline_sec: float = time.monotonic() + function_timeout_sec
         try:
             while True:
-                response: FEAllocationState | grpc.aio.EOF = await asyncio.wait_for(
+                # allocation_state_read_task is automatically cancelled in finally block below
+                # when we cancel the watch_allocation_state_rpc_stream.
+                new_allocation_state_read_task: asyncio.Task = asyncio.create_task(
                     watch_allocation_state_rpc_stream.read(),
-                    timeout=dynamic_deadline_sec - time.monotonic(),
+                    name=f"allocation_state_read_wait:{self._alloc_info.allocation.allocation_id}",
                 )
 
-                if response == grpc.aio.EOF:
+                dynamic_deadline_sec, new_alloc_state = (
+                    await self._wait_new_allocation_state(
+                        new_allocation_state_read_task=new_allocation_state_read_task,
+                        dynamic_deadline_sec=dynamic_deadline_sec,
+                    )
+                )
+                new_alloc_state: FEAllocationState | None
+
+                if new_alloc_state is None:
                     # FE ended the stream without sending AllocationResult, FE is in undefined state.
                     allocation_result = FEAllocationResult(
                         outcome_code=FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
@@ -575,19 +586,16 @@ class AllocationRunner:
                 dynamic_deadline_sec, previous_progress = (
                     await self._reconcile_fe_allocation_state(
                         fe_stub=fe_stub,
-                        state=response,
+                        state=new_alloc_state,
                         current_dynamic_deadline_sec=dynamic_deadline_sec,
                         current_progress=previous_progress,
                     )
                 )
 
-                # Check the result last to make sure we reconciled the last state.
-                if response.HasField("result"):
-                    allocation_result = response.result
+                # Check for allocation result last to make sure we reconciled the last state.
+                if new_alloc_state.HasField("result"):
+                    allocation_result = new_alloc_state.result
                     break
-        except asyncio.TimeoutError as e:
-            # This is asyncio.wait_for(watch_allocation_state_rpc.read()) timeout.
-            raise _AllocationTimeoutError() from e
         except grpc.aio.AioRpcError as e:
             # This is regular FE gRPC call error (all Server gRPC calls errors are handled in-place).
             _raise_from_grpc_error(e)
@@ -678,6 +686,87 @@ class AllocationRunner:
             function_outputs_blob_uri=function_outputs_blob_uri,
         )
 
+    async def _wait_new_allocation_state(
+        self, new_allocation_state_read_task: asyncio.Task, dynamic_deadline_sec: float
+    ) -> tuple[float, FEAllocationState | None]:
+        """Waits for a new allocation state to arrive on allocation_state_read_task or for allocation timeout to occur.
+
+        Returns a tuple of (new dynamic deadline, new allocation state).
+        Raises _AllocationTimeoutError if allocation timed out.
+        Raises an Exception on internal errors.
+        """
+        while not new_allocation_state_read_task.done():
+            wait_tasks: list[asyncio.Task] = [new_allocation_state_read_task]
+
+            pending_function_call_watcher: _FunctionCallWatcherInfo | None = None
+            for watcher_info in self._pending_function_call_watchers.values():
+                if not watcher_info.result_sent_to_fe.is_set():
+                    pending_function_call_watcher = watcher_info
+                    break
+
+            allocation_timeout_task: asyncio.Task | None = None
+            function_call_watcher_done_task: asyncio.Task | None = None
+            if pending_function_call_watcher is None:
+                allocation_timeout_task = asyncio.create_task(
+                    asyncio.sleep(dynamic_deadline_sec - time.monotonic())
+                )
+                wait_tasks.append(allocation_timeout_task)
+            else:
+                # A pending function call watcher means that user code in FE is blocked on a
+                # synchronous function call or a Future result. The watcher function can use
+                # progress updates or might be slowed down due to i.e. Indexify cluster slowness.
+                # This is why we don't know when the watcher function would finish so we don't
+                # apply the dynamic timeout while a watcher is pending.
+                function_call_watcher_done_task = asyncio.create_task(
+                    pending_function_call_watcher.result_sent_to_fe.wait(),
+                    name=f"function_call_watcher_done_wait:{self._alloc_info.allocation.allocation_id}:{pending_function_call_watcher.fe_watcher_id}",
+                )
+                wait_tasks.append(function_call_watcher_done_task)
+                self._logger.info(
+                    "waiting for function call watcher, function timeout not applied",
+                    watcher_id=pending_function_call_watcher.fe_watcher_id,
+                    child_fn_call_id=pending_function_call_watcher.server_watch.function_call_id,
+                )
+
+            wait_start_sec: float = time.monotonic()
+            try:
+                done, _ = await asyncio.wait(
+                    wait_tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if (
+                    allocation_timeout_task is not None
+                    and allocation_timeout_task in done
+                ):
+                    raise _AllocationTimeoutError()
+            finally:
+                # Cancel all aio tasks to avoid resource leaks.
+                if allocation_timeout_task is not None:
+                    allocation_timeout_task.cancel()
+                    allocation_timeout_task = None
+                if function_call_watcher_done_task is not None:
+                    function_call_watcher_done_task.cancel()
+                    function_call_watcher_done_task = None
+
+            if pending_function_call_watcher is not None:
+                self._logger.info(
+                    "done waiting for function call watcher",
+                    watcher_id=pending_function_call_watcher.fe_watcher_id,
+                    child_fn_call_id=pending_function_call_watcher.server_watch.function_call_id,
+                    is_watcher_complete=pending_function_call_watcher.result_sent_to_fe.is_set(),
+                    duration_sec=time.monotonic() - wait_start_sec,
+                )
+
+                # Waiting for function call watcher completion is not counted against function timeout.
+                dynamic_deadline_sec += time.monotonic() - wait_start_sec
+
+        new_allocation_state: FEAllocationState | grpc.aio.EOF = (
+            new_allocation_state_read_task.result()
+        )
+        return dynamic_deadline_sec, (
+            None if new_allocation_state == grpc.aio.EOF else new_allocation_state
+        )
+
     async def _reconcile_fe_allocation_state(
         self,
         fe_stub: FunctionExecutorStub,
@@ -696,9 +785,6 @@ class AllocationRunner:
         #   blocks the user code i.e. (commiting a BLOB write operation with S3,
         #   creating Function Calls on Server side). These operations are calling
         #   external service with a retry policy which allows minutes of retries.
-        # * Blocking calls of other Tensorlake functions using watchers. These function
-        #   calls are subject to arbitrary delays in Indexify cluster and might also use
-        #   progress messages themself.
         function_timeout_sec: float = self._alloc_info.allocation_timeout_ms / 1000.0
 
         reconciliation_start_time_sec: float = time.monotonic()
@@ -1049,6 +1135,7 @@ class AllocationRunner:
             ),
             task=None,
             result_queue=asyncio.Queue(maxsize=1),
+            result_sent_to_fe=asyncio.Event(),
         )
         watcher_info.task = asyncio.create_task(
             self._function_call_watcher_worker(watcher_info),
@@ -1162,6 +1249,8 @@ class AllocationRunner:
                 exc_info=e,
                 watch=str(watcher_info.server_watch),
             )
+        finally:
+            watcher_info.result_sent_to_fe.set()
 
     async def _delete_function_call_watcher(
         self, watcher_info: _FunctionCallWatcherInfo
