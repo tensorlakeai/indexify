@@ -45,11 +45,10 @@ impl FEScaler {
 
         for (fn_uri, pending) in functions {
             // Skip functions not allowed on this executor
-            if let Some(exec) = &executor {
-                if !exec.is_function_uri_allowed(&fn_uri) {
+            if let Some(exec) = &executor
+                && !exec.is_function_uri_allowed(&fn_uri) {
                     continue;
                 }
-            }
 
             let Some(config) = state.get_scaling_config(&fn_uri) else {
                 continue;

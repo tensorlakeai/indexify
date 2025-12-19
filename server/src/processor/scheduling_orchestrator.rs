@@ -118,11 +118,10 @@ impl<'a> SchedulingOrchestrator<'a> {
 
         // Step 2: Update capacity index and apply scaling plan
         state.update_executor_capacity_in_index(executor_id);
-        if let Ok(plan) = FEScaler::compute_plan(state, executor_id) {
-            if let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
+        if let Ok(plan) = FEScaler::compute_plan(state, executor_id)
+            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
                 update.extend(scaling_update);
             }
-        }
 
         // Step 3: Find and allocate pending runs
         let query_start = Instant::now();
@@ -193,11 +192,10 @@ impl<'a> SchedulingOrchestrator<'a> {
         state.update_executor_capacity_in_index(executor_id);
 
         // Step 2: Apply scaling plan (vacuum idle FEs if needed)
-        if let Ok(plan) = FEScaler::compute_plan(state, executor_id) {
-            if let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
+        if let Ok(plan) = FEScaler::compute_plan(state, executor_id)
+            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
                 update.extend(scaling_update);
             }
-        }
 
         // Step 3: Find runs from other functions
         let query_start = Instant::now();
