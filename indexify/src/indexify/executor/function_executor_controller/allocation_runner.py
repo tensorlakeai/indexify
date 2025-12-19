@@ -11,6 +11,9 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     Allocation as FEAllocation,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    AllocationFailureReason as FEAllocationFailureReason,
+)
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     AllocationFunctionCall as FEAllocationFunctionCall,
 )
 from tensorlake.function_executor.proto.function_executor_pb2 import (
@@ -562,6 +565,11 @@ class AllocationRunner:
                 )
 
                 if response == grpc.aio.EOF:
+                    # FE ended the stream without sending AllocationResult, FE is in undefined state.
+                    allocation_result = FEAllocationResult(
+                        outcome_code=FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
+                        failure_reason=FEAllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR,
+                    )
                     break
 
                 dynamic_deadline_sec, previous_progress = (
@@ -577,9 +585,9 @@ class AllocationRunner:
                 if response.HasField("result"):
                     allocation_result = response.result
                     break
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as e:
             # This is asyncio.wait_for(watch_allocation_state_rpc.read()) timeout.
-            raise _AllocationTimeoutError()
+            raise _AllocationTimeoutError() from e
         except grpc.aio.AioRpcError as e:
             # This is regular FE gRPC call error (all Server gRPC calls errors are handled in-place).
             _raise_from_grpc_error(e)
