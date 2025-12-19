@@ -13,7 +13,6 @@ use tracing::debug;
 use crate::{
     data_model::{ExecutorId, FunctionURI},
     processor::{
-        fe_scaler::FEScaler,
         function_executor_manager::FunctionExecutorManager,
         function_run_processor::FunctionRunProcessor,
     },
@@ -109,7 +108,31 @@ impl<'a> SchedulingOrchestrator<'a> {
         let mut update = self
             .fe_manager
             .reconcile_executor_state(state, executor_id)?;
-        update.extend(self.scale_and_allocate(state, executor_id, 100)?);
+
+        // Ensure min FEs for functions in this executor's allowlist
+        // O(A) where A = allowlist size
+        update.extend(self.fe_manager.ensure_min_fes(state, executor_id)?);
+
+        // Update capacity and find placeable runs via spatial index
+        state.update_executor_capacity_in_index(executor_id);
+        let query_start = Instant::now();
+        let runs = state.find_placeable_runs_for_executor(executor_id, 100);
+        self.spatial_query_latency
+            .record(query_start.elapsed().as_secs_f64(), &[]);
+
+        if !runs.is_empty() {
+            debug!(
+                executor_id = executor_id.get(),
+                count = runs.len(),
+                "allocating runs on executor ready"
+            );
+            update.extend(self.task_allocator.allocate_function_runs(
+                state,
+                runs,
+                self.allocate_latency,
+            )?);
+        }
+
         Ok(update)
     }
 
@@ -141,29 +164,13 @@ impl<'a> SchedulingOrchestrator<'a> {
         state: &mut InMemoryState,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
-        self.scale_and_allocate(state, executor_id, 50)
-    }
-
-    /// Common helper: update capacity, apply scaling, find and allocate runs
-    fn scale_and_allocate(
-        &self,
-        state: &mut InMemoryState,
-        executor_id: &ExecutorId,
-        batch_size: usize,
-    ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Update capacity and apply scaling plan
+        // Update capacity index and find placeable runs
         state.update_executor_capacity_in_index(executor_id);
-        if let Ok(plan) = FEScaler::compute_plan(state, executor_id) &&
-            let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan)
-        {
-            update.extend(scaling_update);
-        }
 
-        // Find and allocate placeable runs
         let query_start = Instant::now();
-        let runs = state.find_placeable_runs_for_executor(executor_id, batch_size);
+        let runs = state.find_placeable_runs_for_executor(executor_id, 50);
         self.spatial_query_latency
             .record(query_start.elapsed().as_secs_f64(), &[]);
 
@@ -171,7 +178,7 @@ impl<'a> SchedulingOrchestrator<'a> {
             debug!(
                 executor_id = executor_id.get(),
                 count = runs.len(),
-                "allocating runs"
+                "allocating runs from other functions"
             );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
