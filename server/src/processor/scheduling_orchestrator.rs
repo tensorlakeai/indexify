@@ -122,7 +122,10 @@ impl<'a> SchedulingOrchestrator<'a> {
         let mut update = self.fe_manager.deregister_executor(state, executor_id)?;
         let retryable_runs = update.unallocated_function_runs();
         if !retryable_runs.is_empty() {
-            debug!(retry_count = retryable_runs.len(), "retrying runs after executor removal");
+            debug!(
+                retry_count = retryable_runs.len(),
+                "retrying runs after executor removal"
+            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 retryable_runs,
@@ -152,8 +155,8 @@ impl<'a> SchedulingOrchestrator<'a> {
 
         // Update capacity and apply scaling plan
         state.update_executor_capacity_in_index(executor_id);
-        if let Ok(plan) = FEScaler::compute_plan(state, executor_id)
-            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan)
+        if let Ok(plan) = FEScaler::compute_plan(state, executor_id) &&
+            let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan)
         {
             update.extend(scaling_update);
         }
@@ -165,7 +168,11 @@ impl<'a> SchedulingOrchestrator<'a> {
             .record(query_start.elapsed().as_secs_f64(), &[]);
 
         if !runs.is_empty() {
-            debug!(executor_id = executor_id.get(), count = runs.len(), "allocating runs");
+            debug!(
+                executor_id = executor_id.get(),
+                count = runs.len(),
+                "allocating runs"
+            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 runs,
