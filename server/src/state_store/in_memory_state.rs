@@ -38,7 +38,12 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    processor::resource_placement::{ExecutorCapacity, PendingRunPoint, ResourcePlacementIndex},
+    processor::resource_placement::{
+        ExecutorCapacity,
+        PendingRunPoint,
+        ResourcePlacementIndex,
+        TrackedFE,
+    },
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -653,12 +658,37 @@ impl InMemoryState {
 
                         let fn_uri = FunctionURI::from(&fe_meta);
                         self.function_executors_by_fn_uri
-                            .entry(fn_uri)
+                            .entry(fn_uri.clone())
                             .or_default()
                             .insert(
                                 fe_meta.function_executor.id.clone(),
                                 Box::new(fe_meta.clone()),
                             );
+
+                        // Track FE for autoscaling - skip terminated FEs
+                        if matches!(
+                            fe_meta.desired_state,
+                            FunctionExecutorState::Terminated { .. }
+                        ) {
+                            // Remove from tracking if previously tracked
+                            self.resource_placement_index
+                                .remove_fe(&fe_meta.function_executor.id);
+                        } else {
+                            // Initialize with actual allocation count
+                            let allocation_count = self
+                                .allocations_by_executor
+                                .get(&fe_meta.executor_id)
+                                .and_then(|fe_allocs| fe_allocs.get(&fe_meta.function_executor.id))
+                                .map(|allocs| allocs.len() as u32)
+                                .unwrap_or(0);
+                            let tracked_fe = TrackedFE {
+                                fe_id: fe_meta.function_executor.id.clone(),
+                                fn_uri,
+                                executor_id: fe_meta.executor_id.clone(),
+                                allocation_count,
+                            };
+                            self.resource_placement_index.add_fe(tracked_fe);
+                        }
 
                         // Executor has a new function executor
                         changed_executors.insert(fe_meta.executor_id.clone());
@@ -685,6 +715,20 @@ impl InMemoryState {
                                 .entry(allocation.target.function_executor_id.clone())
                                 .or_default()
                                 .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                            // Update FE allocation count for autoscaling
+                            let new_count = self
+                                .allocations_by_executor
+                                .get(&allocation.target.executor_id)
+                                .and_then(|fe_allocs| {
+                                    fe_allocs.get(&allocation.target.function_executor_id)
+                                })
+                                .map(|allocs| allocs.len() as u32)
+                                .unwrap_or(0);
+                            self.resource_placement_index.update_fe_allocation_count(
+                                &allocation.target.function_executor_id,
+                                new_count,
+                            );
 
                             // Record metrics
                             self.metrics.function_run_pending_latency.record(
@@ -728,6 +772,10 @@ impl InMemoryState {
                         }
 
                         for function_executor_id in function_executors {
+                            // Remove FE from autoscaling tracker
+                            self.resource_placement_index
+                                .remove_fe(function_executor_id);
+
                             let fe = self.executor_states.get_mut(executor_id).and_then(
                                 |executor_state| {
                                     executor_state.resource_claims.remove(function_executor_id);
@@ -808,16 +856,20 @@ impl InMemoryState {
                 self.update_executor_capacity_in_index(&req.executor.id);
 
                 for allocation_output in &req.allocation_outputs {
+                    let fe_id = allocation_output
+                        .allocation
+                        .target
+                        .function_executor_id
+                        .clone();
                     // Remove the allocation
                     {
                         let _ = self
                             .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
-                                if let Some(allocations) = fe_allocations.get_mut(
-                                    &allocation_output.allocation.target.function_executor_id,
-                                ) && let Some(existing_allocation) =
-                                    allocations.remove(&allocation_output.allocation.id)
+                                if let Some(allocations) = fe_allocations.get_mut(&fe_id) &&
+                                    let Some(existing_allocation) =
+                                        allocations.remove(&allocation_output.allocation.id)
                                 {
                                     // Record metrics
                                     self.metrics.allocation_running_latency.record(
@@ -835,6 +887,16 @@ impl InMemoryState {
                                 // Remove the function if no allocations left
                                 fe_allocations.retain(|_, f| !f.is_empty());
                             });
+
+                        // Update FE allocation count for autoscaling
+                        let new_count = self
+                            .allocations_by_executor
+                            .get(&allocation_output.executor_id)
+                            .and_then(|fe_allocs| fe_allocs.get(&fe_id))
+                            .map(|allocs| allocs.len() as u32)
+                            .unwrap_or(0);
+                        self.resource_placement_index
+                            .update_fe_allocation_count(&fe_id, new_count);
 
                         // Executor's allocation is removed
                         changed_executors.insert(allocation_output.executor_id.clone());
@@ -1180,6 +1242,35 @@ impl InMemoryState {
             self.update_executor_capacity_in_index(&executor_id);
         }
 
+        // Finally, populate FE tracking for autoscaling
+        for (executor_id, executor_state) in &self.executor_states {
+            for (fe_id, fe_meta) in &executor_state.function_executors {
+                // Skip FEs that are already terminated
+                if matches!(
+                    fe_meta.desired_state,
+                    crate::data_model::FunctionExecutorState::Terminated { .. }
+                ) {
+                    continue;
+                }
+
+                let fn_uri = FunctionURI::from(fe_meta.as_ref());
+                let allocation_count = self
+                    .allocations_by_executor
+                    .get(executor_id)
+                    .and_then(|fe_allocs| fe_allocs.get(fe_id))
+                    .map(|allocs| allocs.len() as u32)
+                    .unwrap_or(0);
+
+                let tracked_fe = TrackedFE {
+                    fe_id: fe_id.clone(),
+                    fn_uri,
+                    executor_id: executor_id.clone(),
+                    allocation_count,
+                };
+                self.resource_placement_index.add_fe(tracked_fe);
+            }
+        }
+
         debug!(
             pending_count = self.resource_placement_index.pending_count(),
             executor_count = self.resource_placement_index.executor_count(),
@@ -1501,7 +1592,8 @@ impl InMemoryState {
 
     /// Get scaling config for a function
     pub fn get_scaling_config(&self, fn_uri: &FunctionURI) -> Option<FunctionScalingConfig> {
-        let key = ApplicationVersion::key_from(&fn_uri.namespace, &fn_uri.application, &fn_uri.version);
+        let key =
+            ApplicationVersion::key_from(&fn_uri.namespace, &fn_uri.application, &fn_uri.version);
         let app = self.application_versions.get(&key)?;
         let func = app.functions.get(&fn_uri.function)?;
         Some(func.scaling_config.clone())

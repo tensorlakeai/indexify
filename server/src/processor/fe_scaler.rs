@@ -1,4 +1,5 @@
-//! FE Autoscaler - computes scaling decisions based on pending runs and FE limits
+//! FE Autoscaler - computes scaling decisions based on pending runs and FE
+//! limits
 
 use std::collections::HashMap;
 
@@ -15,7 +16,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct FunctionScalingDecision {
     pub fn_uri: FunctionURI,
-    pub executor_id: ExecutorId,
     pub fes_to_create: u32,
     pub fes_to_vacuum: Vec<TrackedFE>,
 }
@@ -31,27 +31,35 @@ pub struct FEScalingPlan {
 pub struct FEScaler;
 
 impl FEScaler {
-    pub fn compute_plan(
-        state: &InMemoryState,
-        executor_id: &ExecutorId,
-    ) -> Result<FEScalingPlan> {
+    pub fn compute_plan(state: &InMemoryState, executor_id: &ExecutorId) -> Result<FEScalingPlan> {
         let mut plan = FEScalingPlan {
             executor_id: executor_id.clone(),
             ..Default::default()
         };
 
+        // Get executor to check allowlist
+        let executor = state.executors.get(executor_id);
+
         let index = &state.resource_placement_index;
         let functions = Self::get_functions_with_pending(index);
 
         for (fn_uri, pending) in functions {
-            let Some(config) = state.get_scaling_config(&fn_uri) else { continue };
+            // Skip functions not allowed on this executor
+            if let Some(exec) = &executor {
+                if !exec.is_function_uri_allowed(&fn_uri) {
+                    continue;
+                }
+            }
+
+            let Some(config) = state.get_scaling_config(&fn_uri) else {
+                continue;
+            };
             let current = index.fe_count_for_function(executor_id, &fn_uri) as u32;
             let desired = pending.min(config.max_fe_count).max(config.min_fe_count);
 
             if desired > current {
                 plan.function_decisions.push(FunctionScalingDecision {
                     fn_uri,
-                    executor_id: executor_id.clone(),
                     fes_to_create: desired - current,
                     fes_to_vacuum: vec![],
                 });
@@ -60,7 +68,6 @@ impl FEScaler {
                 let idle = index.get_idle_fes_for_function(executor_id, &fn_uri);
                 plan.function_decisions.push(FunctionScalingDecision {
                     fn_uri,
-                    executor_id: executor_id.clone(),
                     fes_to_create: 0,
                     fes_to_vacuum: idle.into_iter().take(excess as usize).collect(),
                 });
@@ -68,7 +75,11 @@ impl FEScaler {
         }
 
         // Find idle FEs from other functions for resource reclamation
-        let to_create: u32 = plan.function_decisions.iter().map(|d| d.fes_to_create).sum();
+        let to_create: u32 = plan
+            .function_decisions
+            .iter()
+            .map(|d| d.fes_to_create)
+            .sum();
         if to_create > 0 {
             let vacuuming: std::collections::HashSet<_> = plan
                 .function_decisions
@@ -99,7 +110,11 @@ impl FEScaler {
             .into_iter()
             .filter_map(|uri| {
                 let count = index.pending_count_for_function(&uri);
-                if count > 0 { Some((uri, count as u32)) } else { None }
+                if count > 0 {
+                    Some((uri, count as u32))
+                } else {
+                    None
+                }
             })
             .collect()
     }

@@ -27,7 +27,11 @@ use tracing::debug;
 
 use crate::{
     data_model::{
-        ExecutorId, FunctionExecutorId, FunctionResources, FunctionURI, HostResources,
+        ExecutorId,
+        FunctionExecutorId,
+        FunctionResources,
+        FunctionURI,
+        HostResources,
         filter::LabelsFilter,
     },
     state_store::in_memory_state::FunctionRunKey,
@@ -135,7 +139,6 @@ pub struct TrackedFE {
     pub fe_id: FunctionExecutorId,
     pub fn_uri: FunctionURI,
     pub executor_id: ExecutorId,
-    pub resources: FunctionResources,
     pub allocation_count: u32,
 }
 
@@ -252,13 +255,30 @@ impl ResourcePlacementIndex {
         self.executor_capacity.insert(executor_id, capacity);
     }
 
-    /// Remove executor from the index. O(1)
+    /// Remove executor from the index, including all its FEs. O(F) where F =
+    /// FEs on executor
     pub fn remove_executor(&mut self, executor_id: &ExecutorId) {
         debug!(
             executor_id = executor_id.get(),
             "removing executor from placement index"
         );
         self.executor_capacity.remove(executor_id);
+
+        // Remove all FEs for this executor from tracking
+        // Collect FE IDs to remove (can't modify while iterating)
+        let fe_ids_to_remove: Vec<_> = self
+            .fes_by_id
+            .iter()
+            .filter(|(_, fe)| &fe.executor_id == executor_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for fe_id in fe_ids_to_remove {
+            self.remove_fe(&fe_id);
+        }
+
+        // Also clean up the idle tracking for this executor
+        self.idle_fes_by_executor.remove(executor_id);
     }
 
     /// Find pending runs that fit within an executor's free resources.
@@ -391,7 +411,9 @@ impl ResourcePlacementIndex {
     }
 
     pub fn remove_fe(&mut self, fe_id: &FunctionExecutorId) {
-        let Some(fe) = self.fes_by_id.remove(fe_id) else { return };
+        let Some(fe) = self.fes_by_id.remove(fe_id) else {
+            return;
+        };
         let key = ExecutorFunctionKey {
             executor_id: fe.executor_id.clone(),
             fn_uri: fe.fn_uri.clone(),
@@ -411,7 +433,9 @@ impl ResourcePlacementIndex {
     }
 
     pub fn update_fe_allocation_count(&mut self, fe_id: &FunctionExecutorId, count: u32) {
-        let Some(fe) = self.fes_by_id.get_mut(fe_id) else { return };
+        let Some(fe) = self.fes_by_id.get_mut(fe_id) else {
+            return;
+        };
         let was_idle = fe.is_idle();
         fe.allocation_count = count;
         let is_idle = fe.is_idle();
@@ -432,11 +456,17 @@ impl ResourcePlacementIndex {
             executor_id: executor_id.clone(),
             fn_uri: fn_uri.clone(),
         };
-        self.fes_by_executor_function.get(&key).map(|s| s.len()).unwrap_or(0)
+        self.fes_by_executor_function
+            .get(&key)
+            .map(|s| s.len())
+            .unwrap_or(0)
     }
 
     pub fn pending_count_for_function(&self, fn_uri: &FunctionURI) -> usize {
-        self.pending_by_fn_uri.get(fn_uri).map(|s| s.len()).unwrap_or(0)
+        self.pending_by_fn_uri
+            .get(fn_uri)
+            .map(|s| s.len())
+            .unwrap_or(0)
     }
 
     pub fn get_all_function_uris_with_pending(&self) -> Vec<FunctionURI> {
@@ -446,11 +476,19 @@ impl ResourcePlacementIndex {
     pub fn get_idle_fes(&self, executor_id: &ExecutorId) -> Vec<TrackedFE> {
         self.idle_fes_by_executor
             .get(executor_id)
-            .map(|ids| ids.iter().filter_map(|id| self.fes_by_id.get(id).cloned()).collect())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.fes_by_id.get(id).cloned())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
-    pub fn get_idle_fes_for_function(&self, executor_id: &ExecutorId, fn_uri: &FunctionURI) -> Vec<TrackedFE> {
+    pub fn get_idle_fes_for_function(
+        &self,
+        executor_id: &ExecutorId,
+        fn_uri: &FunctionURI,
+    ) -> Vec<TrackedFE> {
         let key = ExecutorFunctionKey {
             executor_id: executor_id.clone(),
             fn_uri: fn_uri.clone(),
@@ -466,7 +504,10 @@ impl ResourcePlacementIndex {
     }
 
     pub fn has_pending_runs_for_function(&self, fn_uri: &FunctionURI) -> bool {
-        self.pending_by_fn_uri.get(fn_uri).map(|s| !s.is_empty()).unwrap_or(false)
+        self.pending_by_fn_uri
+            .get(fn_uri)
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
     }
 }
 

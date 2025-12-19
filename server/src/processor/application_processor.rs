@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant, vec};
+use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use opentelemetry::{
@@ -14,7 +14,7 @@ use crate::{
     processor::{
         function_executor_manager,
         function_run_creator,
-        function_run_processor::FunctionRunProcessor,
+        scheduling_orchestrator::SchedulingOrchestrator,
     },
     state_store::{
         IndexifyState,
@@ -306,192 +306,111 @@ impl ApplicationProcessor {
             state_change.change_type.to_string(),
         )];
         let _timer_guard = Timer::start_with_labels(&self.handle_state_change_latency, kvs);
+
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
-        let mut indexes_guard = indexes.write().await;
-        let clock = indexes_guard.clock;
+        let mut state = indexes.write().await;
+        let clock = state.clock;
+
         let task_creator =
             function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
-        let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
+        let orchestrator = SchedulingOrchestrator::new(
+            &fe_manager,
+            &self.allocate_function_runs_latency,
+            &self.spatial_index_query_latency,
+            clock,
+        );
 
-        let req = match &state_change.change_type {
+        let scheduler_update = match &state_change.change_type {
+            // New function call - create runs and allocate
             ChangeType::CreateFunctionCall(req) => {
-                let mut scheduler_update = task_creator
-                    .handle_blocking_function_call(&mut indexes_guard, req)
+                let mut update = task_creator
+                    .handle_blocking_function_call(&mut state, req)
                     .await?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
+                let new_runs = update.unallocated_function_runs();
+                update.extend(orchestrator.task_allocator().allocate_function_runs(
+                    &mut state,
+                    new_runs,
                     &self.allocate_function_runs_latency,
                 )?);
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                update
             }
-            ChangeType::InvokeApplication(ev) => {
-                let scheduler_update = task_allocator.allocate_request(
-                    &mut indexes_guard,
-                    &ev.namespace,
-                    &ev.application,
-                    &ev.request_id,
-                    &self.allocate_function_runs_latency,
-                )?;
 
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
-            }
+            // Application invoked - allocate pending runs
+            ChangeType::InvokeApplication(ev) => orchestrator.task_allocator().allocate_request(
+                &mut state,
+                &ev.namespace,
+                &ev.application,
+                &ev.request_id,
+                &self.allocate_function_runs_latency,
+            )?,
+
+            // Allocation completed - handle output and reuse capacity
             ChangeType::AllocationOutputsIngested(req) => {
-                let mut scheduler_update = task_creator
-                    .handle_allocation_ingestion(&mut indexes_guard, req)
+                // 1. Process the completed allocation (create child tasks or mark complete)
+                let update = task_creator
+                    .handle_allocation_ingestion(&mut state, req)
                     .await?;
 
-                // 1. Allocate newly created child runs (they need ANY executor)
-                let new_child_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    new_child_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
-
-                // 2. Check for pending runs of the SAME function - they can use the FE that just freed capacity
-                // This is O(1) lookup instead of scanning all pending runs
+                // 2. Handle freed capacity: allocate children, then same-function, then others
                 let fn_uri = FunctionURI {
                     namespace: req.namespace.clone(),
                     application: req.application.clone(),
                     function: req.function.clone(),
                     version: req.allocation.application_version.clone(),
                 };
-                let pending_for_function =
-                    indexes_guard.find_pending_runs_for_function(&fn_uri, 100);
-
-                if !pending_for_function.is_empty() {
-                    debug!(
-                        fn_uri = %fn_uri,
-                        pending_count = pending_for_function.len(),
-                        "found pending runs for function after allocation completed"
-                    );
-                    scheduler_update.extend(task_allocator.allocate_function_runs(
-                        &mut indexes_guard,
-                        pending_for_function,
-                        &self.allocate_function_runs_latency,
-                    )?);
-                } else {
-                    // 3. No pending runs for same function - try runs from OTHER functions
-                    // that could fit on this executor. This enables proactive FE reuse:
-                    // vacuum idle FEs and create new ones for functions that need them.
-                    let executor_id = &req.allocation.target.executor_id;
-                    indexes_guard.update_executor_capacity_in_index(executor_id);
-
-                    let query_start = Instant::now();
-                    let placeable_runs =
-                        indexes_guard.find_placeable_runs_for_executor(executor_id, 50);
-                    self.spatial_index_query_latency
-                        .record(query_start.elapsed().as_secs_f64(), &[]);
-
-                    if !placeable_runs.is_empty() {
-                        debug!(
-                            executor_id = executor_id.get(),
-                            placeable_count = placeable_runs.len(),
-                            "found placeable runs from other functions after allocation completed"
-                        );
-                        scheduler_update.extend(task_allocator.allocate_function_runs(
-                            &mut indexes_guard,
-                            placeable_runs,
-                            &self.allocate_function_runs_latency,
-                        )?);
-                    }
-                }
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                orchestrator.handle_freed_capacity(
+                    &mut state,
+                    &req.allocation.target.executor_id,
+                    &fn_uri,
+                    update,
+                )?
             }
+
+            // Executor ready - reconcile state, scale FEs, allocate work
             ChangeType::ExecutorUpserted(ev) => {
-                let mut scheduler_update =
-                    fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
-
-                // Update spatial index with the new executor capacity BEFORE querying
-                // reconcile_executor_state may have freed resources (vacuum/FE removal)
-                indexes_guard.update_executor_capacity_in_index(&ev.executor_id);
-
-                // Use spatial index for O(log N + K) lookup instead of O(N)
-                const BATCH_SIZE: usize = 100;
-                let query_start = Instant::now();
-                let placeable_runs =
-                    indexes_guard.find_placeable_runs_for_executor(&ev.executor_id, BATCH_SIZE);
-                self.spatial_index_query_latency
-                    .record(query_start.elapsed().as_secs_f64(), &[]);
-
-                debug!(
-                    executor_id = ev.executor_id.get(),
-                    placeable_count = placeable_runs.len(),
-                    query_latency_us = query_start.elapsed().as_micros(),
-                    "found placeable runs using spatial index"
-                );
-
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    placeable_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                orchestrator.handle_executor_ready(&mut state, &ev.executor_id)?
             }
+
+            // Executor removed - reschedule its work
             ChangeType::TombStoneExecutor(ev) => {
-                let mut scheduler_update =
-                    fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
+                orchestrator.handle_executor_removed(&mut state, &ev.executor_id)?
+            }
 
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
+            // Application deleted
+            ChangeType::TombstoneApplication(request) => {
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::DeleteApplicationRequest((
+                        DeleteApplicationRequest {
+                            namespace: request.namespace.clone(),
+                            name: request.application.clone(),
+                        },
                         vec![state_change.clone()],
                     )),
-                }
+                });
             }
-            ChangeType::TombstoneApplication(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteApplicationRequest((
-                    DeleteApplicationRequest {
-                        namespace: request.namespace.clone(),
-                        name: request.application.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
-            ChangeType::TombstoneRequest(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteRequestRequest((
-                    DeleteRequestRequest {
-                        namespace: request.namespace.clone(),
-                        application: request.application.clone(),
-                        request_id: request.request_id.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
+
+            // Request deleted
+            ChangeType::TombstoneRequest(request) => {
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::DeleteRequestRequest((
+                        DeleteRequestRequest {
+                            namespace: request.namespace.clone(),
+                            application: request.application.clone(),
+                            request_id: request.request_id.clone(),
+                        },
+                        vec![state_change.clone()],
+                    )),
+                });
+            }
         };
-        Ok(req)
+
+        Ok(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate((
+                Box::new(scheduler_update),
+                vec![state_change.clone()],
+            )),
+        })
     }
 }
