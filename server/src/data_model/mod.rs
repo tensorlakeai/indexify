@@ -406,7 +406,7 @@ fn default_min_fe_count() -> u32 {
 }
 
 fn default_max_fe_count() -> u32 {
-    2
+    100
 }
 
 /// FE autoscaling configuration per function
@@ -1618,21 +1618,6 @@ impl FunctionAllowlist {
                 .as_ref()
                 .is_none_or(|version| version == &function_run.version)
     }
-
-    pub fn matches_function_uri(&self, fn_uri: &FunctionURI) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|ns| ns == &fn_uri.namespace) &&
-            self.application
-                .as_ref()
-                .is_none_or(|app| app == &fn_uri.application) &&
-            self.function
-                .as_ref()
-                .is_none_or(|fn_name| fn_name == &fn_uri.function) &&
-            self.version
-                .as_ref()
-                .is_none_or(|version| version == &fn_uri.version)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
@@ -1792,16 +1777,6 @@ impl ExecutorMetadata {
             function_allowlist
                 .iter()
                 .any(|allowlist| allowlist.matches_function(function_run))
-        } else {
-            true
-        }
-    }
-
-    pub fn is_function_uri_allowed(&self, fn_uri: &FunctionURI) -> bool {
-        if let Some(function_allowlist) = &self.function_allowlist {
-            function_allowlist
-                .iter()
-                .any(|allowlist| allowlist.matches_function_uri(fn_uri))
         } else {
             true
         }

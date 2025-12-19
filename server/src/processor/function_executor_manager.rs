@@ -21,7 +21,7 @@ use crate::{
         FunctionURI,
         RunningFunctionRunStatus,
     },
-    processor::{fe_scaler::FEScalingPlan, retry_policy::FunctionRunRetryPolicy},
+    processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
         in_memory_state::{FunctionRunKey, InMemoryState},
         requests::{RequestPayload, SchedulerUpdateRequest},
@@ -727,197 +727,116 @@ impl FunctionExecutorManager {
         Ok(update)
     }
 
-    /// Creates a function executor for a given function URI on a specific
-    /// executor (proactive path) Returns scheduler update with the new FE,
-    /// or empty if creation failed
-    #[tracing::instrument(skip_all, target = "scheduler", fields(
-        executor_id = executor_id.get(),
-        namespace = fn_uri.namespace,
-        app = fn_uri.application,
-        fn_name = fn_uri.function
-    ))]
-    fn create_function_executor_for_uri(
+    /// Ensure minimum FEs exist for functions this executor can run.
+    /// Only checks functions in the executor's allowlist (if any).
+    /// O(A) where A = allowlist size (typically small).
+    pub fn ensure_min_fes(
         &self,
         in_memory_state: &mut InMemoryState,
         executor_id: &ExecutorId,
-        fn_uri: &FunctionURI,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Get executor metadata to check allowlist
-        let Some(executor) = in_memory_state.executors.get(executor_id) else {
-            debug!("executor metadata not found for FE creation");
+        let Some(executor) = in_memory_state.executors.get(executor_id).cloned() else {
             return Ok(update);
         };
 
-        // Check if function is allowed on this executor
-        if !executor.is_function_uri_allowed(fn_uri) {
-            debug!("function not in executor allowlist, skipping FE creation");
-            return Ok(update);
-        }
-
-        // Get executor state
-        let Some(executor_state) = in_memory_state.executor_states.get(executor_id).cloned() else {
-            debug!("executor state not found for FE creation");
+        // Only process if executor has an allowlist - otherwise reactive path handles
+        // it
+        let Some(allowlist) = &executor.function_allowlist else {
             return Ok(update);
         };
 
-        // Use shared builder
-        let mut free_resources = executor_state.free_resources.clone();
-        let Some((fe_meta, updated_resources)) = Self::build_function_executor(
-            in_memory_state,
-            executor_id,
-            fn_uri,
-            &mut free_resources,
-        )?
-        else {
-            return Ok(update);
-        };
+        // For each allowlist entry, check if we need to create min FEs
+        for entry in allowlist {
+            // Build FunctionURI from allowlist entry (if fully specified)
+            let (Some(ns), Some(app), Some(func), Some(ver)) = (
+                entry.namespace.as_ref(),
+                entry.application.as_ref(),
+                entry.function.as_ref(),
+                entry.version.as_ref(),
+            ) else {
+                // Skip wildcard entries - can't determine specific function
+                continue;
+            };
 
-        info!(
-            executor_id = executor_id.get(),
-            fn_executor_id = fe_meta.function_executor.id.get(),
-            "scaling plan: created function executor"
-        );
+            let fn_uri = FunctionURI {
+                namespace: ns.clone(),
+                application: app.clone(),
+                function: func.clone(),
+                version: ver.clone(),
+            };
 
-        update
-            .updated_executor_resources
-            .insert(executor_id.clone(), updated_resources);
-        update.new_function_executors.push(fe_meta);
+            // Get scaling config for this function
+            let Some(config) = in_memory_state.get_scaling_config(&fn_uri) else {
+                continue;
+            };
 
-        Ok(update)
-    }
-
-    /// Applies a scaling plan by creating/vacuuming FEs as needed
-    /// Returns scheduler update with FE changes
-    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = plan.executor_id.get()))]
-    pub fn apply_scaling_plan(
-        &self,
-        in_memory_state: &mut InMemoryState,
-        plan: &FEScalingPlan,
-    ) -> Result<SchedulerUpdateRequest> {
-        let mut update = SchedulerUpdateRequest::default();
-
-        // === Phase 1: Vacuum FEs to free resources ===
-        let mut fes_to_vacuum = Vec::new();
-
-        // Add FEs from function-specific decisions (excess FEs above max)
-        for decision in &plan.function_decisions {
-            for fe in &decision.fes_to_vacuum {
-                fes_to_vacuum.push(fe.fe_id.clone());
-            }
-        }
-
-        // Add idle FEs that can be reclaimed for resource pressure
-        for fe in &plan.idle_fes_for_resources {
-            fes_to_vacuum.push(fe.fe_id.clone());
-        }
-
-        if !fes_to_vacuum.is_empty() {
-            debug!(
-                executor_id = plan.executor_id.get(),
-                fes_to_vacuum_count = fes_to_vacuum.len(),
-                "applying scaling plan - vacuuming FEs"
-            );
-
-            // Mark each FE for termination
-            for fe_id in &fes_to_vacuum {
-                let Some(executor_state) = in_memory_state.executor_states.get(&plan.executor_id)
-                else {
-                    continue;
-                };
-
-                let Some(fe_meta) = executor_state.function_executors.get(fe_id) else {
-                    continue;
-                };
-
-                // Skip if already marked for termination
-                if matches!(
-                    fe_meta.desired_state,
-                    FunctionExecutorState::Terminated { .. }
-                ) {
-                    continue;
-                }
-
-                // Mark for termination
-                let mut update_fe = fe_meta.as_ref().clone();
-                update_fe.desired_state = FunctionExecutorState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: Vec::new(),
-                };
-                update.new_function_executors.push(update_fe);
-
-                info!(
-                    app = fe_meta.function_executor.application_name,
-                    fn_name = fe_meta.function_executor.function_name,
-                    namespace = fe_meta.function_executor.namespace,
-                    fn_executor_id = fe_meta.function_executor.id.get(),
-                    executor_id = plan.executor_id.get(),
-                    "scaling plan: marked function executor for termination",
-                );
-            }
-
-            // Apply vacuum changes to free resources before creating new FEs
-            if !update.new_function_executors.is_empty() {
-                in_memory_state.update_state(
-                    self.clock,
-                    &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
-                    "function_executor_manager_scaling_vacuum",
-                )?;
-            }
-        }
-
-        // === Phase 2: Create FEs that are needed ===
-        for decision in &plan.function_decisions {
-            if decision.fes_to_create == 0 {
+            // Skip if no minimum required
+            if config.min_fe_count == 0 {
                 continue;
             }
 
+            // Check global FE count
+            let global_count = in_memory_state
+                .resource_placement_index
+                .total_fe_count_for_function(&fn_uri) as u32;
+
+            if global_count >= config.min_fe_count {
+                continue;
+            }
+
+            // Need to create FEs - try to create on this executor
+            let needed = config.min_fe_count - global_count;
             debug!(
-                executor_id = plan.executor_id.get(),
-                fn_uri = %decision.fn_uri,
-                fes_to_create = decision.fes_to_create,
-                "applying scaling plan - creating FEs"
+                executor_id = executor_id.get(),
+                fn_uri = %fn_uri,
+                global_count,
+                min_fe_count = config.min_fe_count,
+                needed,
+                "creating min FEs for function"
             );
 
-            for _ in 0..decision.fes_to_create {
-                match self.create_function_executor_for_uri(
+            for _ in 0..needed {
+                // Get executor state for resources
+                let Some(executor_state) =
+                    in_memory_state.executor_states.get(executor_id).cloned()
+                else {
+                    break;
+                };
+
+                let mut free_resources = executor_state.free_resources.clone();
+                let Some((fe_meta, updated_resources)) = Self::build_function_executor(
                     in_memory_state,
-                    &plan.executor_id,
-                    &decision.fn_uri,
-                ) {
-                    Ok(create_update) => {
-                        if !create_update.new_function_executors.is_empty() {
-                            // Apply each FE creation immediately to update resource tracking
-                            in_memory_state.update_state(
-                                self.clock,
-                                &RequestPayload::SchedulerUpdate((
-                                    Box::new(create_update.clone()),
-                                    vec![],
-                                )),
-                                "function_executor_manager_scaling_create",
-                            )?;
-                            update.extend(create_update);
-                        } else {
-                            // No resources available, stop trying to create more for this function
-                            debug!(
-                                executor_id = plan.executor_id.get(),
-                                fn_uri = %decision.fn_uri,
-                                "stopping FE creation - no resources available"
-                            );
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            executor_id = plan.executor_id.get(),
-                            fn_uri = %decision.fn_uri,
-                            error = %e,
-                            "failed to create FE from scaling plan"
-                        );
-                        break;
-                    }
-                }
+                    executor_id,
+                    &fn_uri,
+                    &mut free_resources,
+                )?
+                else {
+                    // No resources available
+                    break;
+                };
+
+                info!(
+                    executor_id = executor_id.get(),
+                    fn_executor_id = fe_meta.function_executor.id.get(),
+                    fn_uri = %fn_uri,
+                    "created min FE for function"
+                );
+
+                // Apply immediately so resource tracking updates
+                let mut fe_update = SchedulerUpdateRequest::default();
+                fe_update
+                    .updated_executor_resources
+                    .insert(executor_id.clone(), updated_resources);
+                fe_update.new_function_executors.push(fe_meta);
+
+                in_memory_state.update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate((Box::new(fe_update.clone()), vec![])),
+                    "function_executor_manager_min_fe",
+                )?;
+                update.extend(fe_update);
             }
         }
 

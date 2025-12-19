@@ -177,6 +177,8 @@ pub struct ResourcePlacementIndex {
     // === FE Tracking ===
     fes_by_id: HashMap<FunctionExecutorId, TrackedFE>,
     fes_by_executor_function: HashMap<ExecutorFunctionKey, HashSet<FunctionExecutorId>>,
+    /// Global FE count by function (for min_fe_count enforcement)
+    fes_by_fn_uri: HashMap<FunctionURI, HashSet<FunctionExecutorId>>,
     idle_fes_by_executor: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
 }
 
@@ -401,6 +403,11 @@ impl ResourcePlacementIndex {
             .entry(key)
             .or_default()
             .insert(fe.fe_id.clone());
+        // Track globally by function URI (for min_fe_count)
+        self.fes_by_fn_uri
+            .entry(fe.fn_uri.clone())
+            .or_default()
+            .insert(fe.fe_id.clone());
         if fe.is_idle() {
             self.idle_fes_by_executor
                 .entry(fe.executor_id.clone())
@@ -422,6 +429,13 @@ impl ResourcePlacementIndex {
             fes.remove(fe_id);
             if fes.is_empty() {
                 self.fes_by_executor_function.remove(&key);
+            }
+        }
+        // Clean up global function URI index
+        if let Some(fes) = self.fes_by_fn_uri.get_mut(&fe.fn_uri) {
+            fes.remove(fe_id);
+            if fes.is_empty() {
+                self.fes_by_fn_uri.remove(&fe.fn_uri);
             }
         }
         if let Some(idle) = self.idle_fes_by_executor.get_mut(&fe.executor_id) {
@@ -462,52 +476,10 @@ impl ResourcePlacementIndex {
             .unwrap_or(0)
     }
 
-    pub fn pending_count_for_function(&self, fn_uri: &FunctionURI) -> usize {
-        self.pending_by_fn_uri
-            .get(fn_uri)
-            .map(|s| s.len())
-            .unwrap_or(0)
-    }
-
-    pub fn get_all_function_uris_with_pending(&self) -> Vec<FunctionURI> {
-        self.pending_by_fn_uri.keys().cloned().collect()
-    }
-
-    pub fn get_idle_fes(&self, executor_id: &ExecutorId) -> Vec<TrackedFE> {
-        self.idle_fes_by_executor
-            .get(executor_id)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.fes_by_id.get(id).cloned())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn get_idle_fes_for_function(
-        &self,
-        executor_id: &ExecutorId,
-        fn_uri: &FunctionURI,
-    ) -> Vec<TrackedFE> {
-        let key = ExecutorFunctionKey {
-            executor_id: executor_id.clone(),
-            fn_uri: fn_uri.clone(),
-        };
-        self.fes_by_executor_function
-            .get(&key)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.fes_by_id.get(id).filter(|fe| fe.is_idle()).cloned())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn has_pending_runs_for_function(&self, fn_uri: &FunctionURI) -> bool {
-        self.pending_by_fn_uri
-            .get(fn_uri)
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
+    /// Total FE count for a function across ALL executors (for min_fe_count
+    /// enforcement)
+    pub fn total_fe_count_for_function(&self, fn_uri: &FunctionURI) -> usize {
+        self.fes_by_fn_uri.get(fn_uri).map(|s| s.len()).unwrap_or(0)
     }
 }
 
