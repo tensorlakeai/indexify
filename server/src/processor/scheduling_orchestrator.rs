@@ -101,117 +101,74 @@ impl<'a> SchedulingOrchestrator<'a> {
     }
 
     /// Handle executor becoming ready (new registration or heartbeat)
-    ///
-    /// Flow:
-    /// 1. Reconcile FE state with executor's reported state
-    /// 2. Scale up/down FEs based on pending work
-    /// 3. Find and allocate pending runs that fit this executor
     pub fn handle_executor_ready(
         &self,
         state: &mut InMemoryState,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
-        // Step 1: Reconcile FE state
         let mut update = self
             .fe_manager
             .reconcile_executor_state(state, executor_id)?;
-
-        // Step 2: Update capacity index and apply scaling plan
-        state.update_executor_capacity_in_index(executor_id);
-        if let Ok(plan) = FEScaler::compute_plan(state, executor_id)
-            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
-                update.extend(scaling_update);
-            }
-
-        // Step 3: Find and allocate pending runs
-        let query_start = Instant::now();
-        let placeable_runs = state.find_placeable_runs_for_executor(executor_id, 100);
-        self.spatial_query_latency
-            .record(query_start.elapsed().as_secs_f64(), &[]);
-
-        debug!(
-            executor_id = executor_id.get(),
-            placeable_count = placeable_runs.len(),
-            "found placeable runs for executor"
-        );
-
-        update.extend(self.task_allocator.allocate_function_runs(
-            state,
-            placeable_runs,
-            self.allocate_latency,
-        )?);
-
+        update.extend(self.scale_and_allocate(state, executor_id, 100)?);
         Ok(update)
     }
 
     /// Handle executor removal - reschedule its work to other executors
-    ///
-    /// Flow:
-    /// 1. Deregister executor and mark its allocations as failed
-    /// 2. Retry failed allocations on other executors
     pub fn handle_executor_removed(
         &self,
         state: &mut InMemoryState,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
-        // Step 1: Deregister and collect retryable runs
         let mut update = self.fe_manager.deregister_executor(state, executor_id)?;
-
-        // Step 2: Retry on other executors
         let retryable_runs = update.unallocated_function_runs();
         if !retryable_runs.is_empty() {
-            debug!(
-                retry_count = retryable_runs.len(),
-                "retrying runs after executor removal"
-            );
+            debug!(retry_count = retryable_runs.len(), "retrying runs after executor removal");
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 retryable_runs,
                 self.allocate_latency,
             )?);
         }
-
         Ok(update)
     }
 
-    /// Try to reuse freed capacity for functions other than the one that just
-    /// completed
-    ///
-    /// Flow:
-    /// 1. Update executor capacity in index
-    /// 2. Compute scaling plan (may vacuum idle FEs to free resources)
-    /// 3. Find runs from other functions that fit
+    /// Try to reuse freed capacity for other functions
     fn try_reuse_capacity_for_other_functions(
         &self,
         state: &mut InMemoryState,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
+        self.scale_and_allocate(state, executor_id, 50)
+    }
+
+    /// Common helper: update capacity, apply scaling, find and allocate runs
+    fn scale_and_allocate(
+        &self,
+        state: &mut InMemoryState,
+        executor_id: &ExecutorId,
+        batch_size: usize,
+    ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Step 1: Update capacity index
+        // Update capacity and apply scaling plan
         state.update_executor_capacity_in_index(executor_id);
-
-        // Step 2: Apply scaling plan (vacuum idle FEs if needed)
         if let Ok(plan) = FEScaler::compute_plan(state, executor_id)
-            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan) {
-                update.extend(scaling_update);
-            }
+            && let Ok(scaling_update) = self.fe_manager.apply_scaling_plan(state, &plan)
+        {
+            update.extend(scaling_update);
+        }
 
-        // Step 3: Find runs from other functions
+        // Find and allocate placeable runs
         let query_start = Instant::now();
-        let placeable_runs = state.find_placeable_runs_for_executor(executor_id, 50);
+        let runs = state.find_placeable_runs_for_executor(executor_id, batch_size);
         self.spatial_query_latency
             .record(query_start.elapsed().as_secs_f64(), &[]);
 
-        if !placeable_runs.is_empty() {
-            debug!(
-                executor_id = executor_id.get(),
-                placeable_count = placeable_runs.len(),
-                "found runs from other functions"
-            );
+        if !runs.is_empty() {
+            debug!(executor_id = executor_id.get(), count = runs.len(), "allocating runs");
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
-                placeable_runs,
+                runs,
                 self.allocate_latency,
             )?);
         }
