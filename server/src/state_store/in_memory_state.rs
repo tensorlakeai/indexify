@@ -1337,6 +1337,14 @@ impl InMemoryState {
 
                 let has_pending_tasks = self.has_pending_tasks(fe_metadata);
 
+                // Check if FE has any running allocations
+                let has_running_allocations = self
+                    .allocations_by_executor
+                    .get(executor_id)
+                    .and_then(|fe_allocs| fe_allocs.get(&fe.id))
+                    .map(|allocs| !allocs.is_empty())
+                    .unwrap_or(false);
+
                 let mut can_be_removed = false;
                 if !has_pending_tasks {
                     let mut found_allowlist_match = false;
@@ -1357,6 +1365,15 @@ impl InMemoryState {
                             executor_id.get(),
                             fe.version,
                             latest_cg_version
+                        );
+                        can_be_removed = true;
+                    } else if !has_running_allocations {
+                        // Also remove idle FEs (in allowlist but no running allocations, no pending
+                        // tasks) to make room for other functions
+                        debug!(
+                            "Candidate for removal: idle function executor {} from executor {} (no running allocations, no pending tasks)",
+                            fe.id.get(),
+                            executor_id.get(),
                         );
                         can_be_removed = true;
                     }
@@ -1396,7 +1413,7 @@ impl InMemoryState {
         Ok(Vec::new())
     }
 
-    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+    pub fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
             fe_meta.function_executor.namespace, fe_meta.function_executor.application_name

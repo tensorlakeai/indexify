@@ -8,7 +8,6 @@ use std::time::Instant;
 
 use anyhow::Result;
 use opentelemetry::metrics::Histogram;
-use tracing::debug;
 
 use crate::{
     data_model::{ExecutorId, FunctionURI},
@@ -69,7 +68,6 @@ impl<'a> SchedulingOrchestrator<'a> {
         // Step 1: Allocate child runs created by the completed allocation
         let child_runs = update.unallocated_function_runs();
         if !child_runs.is_empty() {
-            debug!(child_count = child_runs.len(), "allocating child runs");
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 child_runs,
@@ -80,11 +78,6 @@ impl<'a> SchedulingOrchestrator<'a> {
         // Step 2: Check for pending runs of the SAME function - O(1) lookup
         let pending_same_fn = state.find_pending_runs_for_function(fn_uri, 100);
         if !pending_same_fn.is_empty() {
-            debug!(
-                fn_uri = %fn_uri,
-                pending_count = pending_same_fn.len(),
-                "allocating pending runs for same function"
-            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 pending_same_fn,
@@ -121,11 +114,6 @@ impl<'a> SchedulingOrchestrator<'a> {
             .record(query_start.elapsed().as_secs_f64(), &[]);
 
         if !runs.is_empty() {
-            debug!(
-                executor_id = executor_id.get(),
-                count = runs.len(),
-                "allocating runs on executor ready"
-            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 runs,
@@ -145,10 +133,6 @@ impl<'a> SchedulingOrchestrator<'a> {
         let mut update = self.fe_manager.deregister_executor(state, executor_id)?;
         let retryable_runs = update.unallocated_function_runs();
         if !retryable_runs.is_empty() {
-            debug!(
-                retry_count = retryable_runs.len(),
-                "retrying runs after executor removal"
-            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 retryable_runs,
@@ -170,16 +154,21 @@ impl<'a> SchedulingOrchestrator<'a> {
         state.update_executor_capacity_in_index(executor_id);
 
         let query_start = Instant::now();
-        let runs = state.find_placeable_runs_for_executor(executor_id, 50);
+        let mut runs = state.find_placeable_runs_for_executor(executor_id, 50);
         self.spatial_query_latency
             .record(query_start.elapsed().as_secs_f64(), &[]);
 
+        // If no runs fit current capacity but there ARE pending runs,
+        // vacuum idle FEs to free resources and retry
+        if runs.is_empty() && !state.unallocated_function_runs.is_empty() {
+            update.extend(self.fe_manager.vacuum_idle_fes(state, executor_id)?);
+
+            // Retry after vacuum
+            state.update_executor_capacity_in_index(executor_id);
+            runs = state.find_placeable_runs_for_executor(executor_id, 50);
+        }
+
         if !runs.is_empty() {
-            debug!(
-                executor_id = executor_id.get(),
-                count = runs.len(),
-                "allocating runs from other functions"
-            );
             update.extend(self.task_allocator.allocate_function_runs(
                 state,
                 runs,

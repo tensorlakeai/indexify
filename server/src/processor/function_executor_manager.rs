@@ -144,6 +144,78 @@ impl FunctionExecutorManager {
         Ok(update)
     }
 
+    /// Vacuum idle FEs on a specific executor to free resources for pending
+    /// runs
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = executor_id.get()))]
+    pub fn vacuum_idle_fes(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        executor_id: &ExecutorId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        let Some(executor_state) = in_memory_state.executor_states.get(executor_id) else {
+            return Ok(update);
+        };
+
+        // Find idle FEs (no running allocations, no pending tasks)
+        for (fe_id, fe_meta) in &executor_state.function_executors {
+            // Skip if already marked for termination
+            if matches!(
+                fe_meta.desired_state,
+                FunctionExecutorState::Terminated { .. }
+            ) {
+                continue;
+            }
+
+            // Check if FE has running allocations
+            let has_running_allocations = in_memory_state
+                .allocations_by_executor
+                .get(executor_id)
+                .and_then(|fe_allocs| fe_allocs.get(fe_id))
+                .map(|allocs| !allocs.is_empty())
+                .unwrap_or(false);
+
+            if has_running_allocations {
+                continue;
+            }
+
+            // Check if there are pending tasks for this FE's function
+            let has_pending_tasks = in_memory_state.has_pending_tasks(fe_meta);
+            if has_pending_tasks {
+                continue;
+            }
+
+            // This FE is idle - mark for termination
+            let mut update_fe = fe_meta.as_ref().clone();
+            update_fe.desired_state = FunctionExecutorState::Terminated {
+                reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                failed_alloc_ids: Vec::new(),
+            };
+            update.new_function_executors.push(update_fe);
+
+            info!(
+                app = fe_meta.function_executor.application_name,
+                fn_name = fe_meta.function_executor.function_name,
+                namespace = fe_meta.function_executor.namespace,
+                fn_executor_id = fe_meta.function_executor.id.get(),
+                executor_id = executor_id.get(),
+                "vacuuming idle FE to free resources"
+            );
+        }
+
+        // Apply the update to free resources
+        if !update.new_function_executors.is_empty() {
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
+                "vacuum_idle_fes",
+            )?;
+        }
+
+        Ok(update)
+    }
+
     /// Creates a new function executor for the given function run (reactive
     /// path)
     #[tracing::instrument(skip_all, target = "scheduler", fields(namespace = %fn_run.namespace, request_id = %fn_run.request_id, fn_call_id = %fn_run.id, app = %fn_run.application, fn = %fn_run.name, app_version = %fn_run.version))]
@@ -155,9 +227,18 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         if candidates.is_empty() {
-            debug!("no executors are available to create function executor");
+            info!(
+                fn_name = fn_run.name,
+                namespace = fn_run.namespace,
+                app = fn_run.application,
+                "no executors available, attempting vacuum to free resources"
+            );
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
             let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
+            info!(
+                vacuumed_fes = vacuum_update.new_function_executors.len(),
+                "vacuum completed"
+            );
             update.extend(vacuum_update);
             in_memory_state.update_state(
                 self.clock,
@@ -165,6 +246,10 @@ impl FunctionExecutorManager {
                 "function_executor_manager",
             )?;
             candidates = in_memory_state.candidate_executors(fn_run)?;
+            info!(
+                candidates_after_vacuum = candidates.len(),
+                "candidates available after vacuum"
+            );
         }
 
         // Filter candidates to respect max_fe_count per executor
