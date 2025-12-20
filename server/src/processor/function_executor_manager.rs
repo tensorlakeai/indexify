@@ -184,10 +184,7 @@ impl FunctionExecutorManager {
                                             .application
                                             .as_ref()
                                             .is_none_or(|app| app == &run.application) &&
-                                        allowed
-                                            .function
-                                            .as_ref()
-                                            .is_none_or(|f| f == &run.name)
+                                        allowed.function.as_ref().is_none_or(|f| f == &run.name)
                                 })
                             })
                     } else {
