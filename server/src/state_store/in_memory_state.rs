@@ -1282,11 +1282,19 @@ impl InMemoryState {
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
+        target_function_run: Option<&FunctionRun>,
     ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
                 continue;
+            }
+
+            // If we have a target function run, only vacuum executors that can serve it
+            if let Some(fn_run) = target_function_run {
+                if !executor.is_function_allowed(fn_run) {
+                    continue;
+                }
             }
 
             // Get function executors for this executor from our in-memory state

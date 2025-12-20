@@ -112,10 +112,11 @@ impl FunctionExecutorManager {
         &self,
         in_memory_state: &mut InMemoryState,
         fe_resource: &FunctionResources,
+        target_function_run: Option<&FunctionRun>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let function_executors_to_mark =
-            in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
+        let function_executors_to_mark = in_memory_state
+            .vacuum_function_executors_candidates(fe_resource, target_function_run)?;
 
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
@@ -157,6 +158,47 @@ impl FunctionExecutorManager {
         let Some(executor_state) = in_memory_state.executor_states.get(executor_id) else {
             return Ok(update);
         };
+
+        let Some(executor) = in_memory_state.executors.get(executor_id) else {
+            return Ok(update);
+        };
+
+        // Check if there are any pending runs this executor could serve
+        // (if it has an allowlist, only count runs for allowed functions)
+        let has_serviceable_pending_runs =
+            in_memory_state
+                .unallocated_function_runs
+                .iter()
+                .any(|run_key| {
+                    if let Some(run) = in_memory_state.function_runs.get(run_key) {
+                        executor
+                            .function_allowlist
+                            .as_ref()
+                            .map_or(true, |allowlist| {
+                                allowlist.iter().any(|allowed| {
+                                    allowed
+                                        .namespace
+                                        .as_ref()
+                                        .map_or(true, |ns| ns == &run.namespace) &&
+                                        allowed
+                                            .application
+                                            .as_ref()
+                                            .map_or(true, |app| app == &run.application) &&
+                                        allowed
+                                            .function
+                                            .as_ref()
+                                            .map_or(true, |f| f == &run.name)
+                                })
+                            })
+                    } else {
+                        false
+                    }
+                });
+
+        // Don't vacuum if there's nothing this executor can serve
+        if !has_serviceable_pending_runs {
+            return Ok(update);
+        }
 
         // Find idle FEs (no running allocations, no pending tasks)
         for (fe_id, fe_meta) in &executor_state.function_executors {
@@ -234,7 +276,7 @@ impl FunctionExecutorManager {
                 "no executors available, attempting vacuum to free resources"
             );
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
-            let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
+            let vacuum_update = self.vacuum(in_memory_state, &fe_resource, Some(fn_run))?;
             info!(
                 vacuumed_fes = vacuum_update.new_function_executors.len(),
                 "vacuum completed"
