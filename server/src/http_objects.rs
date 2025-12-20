@@ -199,6 +199,45 @@ impl Default for FunctionResources {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct FunctionScalingConfig {
+    #[serde(default)]
+    pub min_containers: u32,
+    #[serde(default = "default_max_containers")]
+    pub max_containers: u32,
+}
+
+fn default_max_containers() -> u32 {
+    2
+}
+
+impl Default for FunctionScalingConfig {
+    fn default() -> Self {
+        Self {
+            min_containers: 0,
+            max_containers: default_max_containers(),
+        }
+    }
+}
+
+impl From<FunctionScalingConfig> for data_model::FunctionScalingConfig {
+    fn from(value: FunctionScalingConfig) -> Self {
+        data_model::FunctionScalingConfig {
+            min_fe_count: value.min_containers,
+            max_fe_count: value.max_containers,
+        }
+    }
+}
+
+impl From<data_model::FunctionScalingConfig> for FunctionScalingConfig {
+    fn from(value: data_model::FunctionScalingConfig) -> Self {
+        FunctionScalingConfig {
+            min_containers: value.min_fe_count,
+            max_containers: value.max_fe_count,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct NodeRetryPolicy {
     pub max_retries: u32,
     pub initial_delay_sec: f64,
@@ -344,6 +383,8 @@ pub struct ApplicationFunction {
     pub return_type: Option<serde_json::Value>,
     pub placement_constraints: PlacementConstraints,
     pub max_concurrency: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaling_config: Option<FunctionScalingConfig>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -366,7 +407,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
-            scaling_config: Default::default(),
+            scaling_config: val.scaling_config.unwrap_or_default().into(),
         })
     }
 }
@@ -386,6 +427,7 @@ impl From<data_model::Function> for ApplicationFunction {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            scaling_config: Some(c.scaling_config.into()),
         }
     }
 }
@@ -432,6 +474,9 @@ pub struct Function {
     pub placement_constraints: PlacementConstraints,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+    /// Optional scaling config. If not specified, uses defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaling_config: Option<FunctionScalingConfig>,
 }
 
 impl TryFrom<Function> for data_model::Function {
@@ -454,7 +499,7 @@ impl TryFrom<Function> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
-            scaling_config: Default::default(),
+            scaling_config: val.scaling_config.unwrap_or_default().into(),
         })
     }
 }
@@ -477,6 +522,7 @@ impl From<data_model::Function> for Function {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            scaling_config: Some(c.scaling_config.into()),
         }
     }
 }

@@ -406,7 +406,7 @@ fn default_min_fe_count() -> u32 {
 }
 
 fn default_max_fe_count() -> u32 {
-    100
+    2
 }
 
 /// FE autoscaling configuration per function

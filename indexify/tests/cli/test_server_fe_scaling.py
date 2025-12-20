@@ -13,14 +13,14 @@ from testing import function_executor_id
 
 
 @application()
-@function()
+@function(max_containers=4)
 def test_function_1(sleep_secs: float) -> str:
     time.sleep(sleep_secs)
     return function_executor_id()
 
 
 @application()
-@function()
+@function(max_containers=1)
 def test_function_2(sleep_secs: float) -> str:
     time.sleep(sleep_secs)
     return function_executor_id()
