@@ -1291,11 +1291,10 @@ impl InMemoryState {
             }
 
             // If we have a target function run, only vacuum executors that can serve it
-            if let Some(fn_run) = target_function_run {
-                if !executor.is_function_allowed(fn_run) {
+            if let Some(fn_run) = target_function_run
+                && !executor.is_function_allowed(fn_run) {
                     continue;
                 }
-            }
 
             // Get function executors for this executor from our in-memory state
             let function_executors = self

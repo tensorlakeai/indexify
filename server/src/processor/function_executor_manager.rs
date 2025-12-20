@@ -174,20 +174,20 @@ impl FunctionExecutorManager {
                         executor
                             .function_allowlist
                             .as_ref()
-                            .map_or(true, |allowlist| {
+                            .is_none_or(|allowlist| {
                                 allowlist.iter().any(|allowed| {
                                     allowed
                                         .namespace
                                         .as_ref()
-                                        .map_or(true, |ns| ns == &run.namespace) &&
+                                        .is_none_or(|ns| ns == &run.namespace) &&
                                         allowed
                                             .application
                                             .as_ref()
-                                            .map_or(true, |app| app == &run.application) &&
+                                            .is_none_or(|app| app == &run.application) &&
                                         allowed
                                             .function
                                             .as_ref()
-                                            .map_or(true, |f| f == &run.name)
+                                            .is_none_or(|f| f == &run.name)
                                 })
                             })
                     } else {
