@@ -254,7 +254,9 @@ def _to_server_alloc_failure_reason(
         fe_alloc_failure_reason
         == FEAllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
     ):
-        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
+        # Internal FE error is treated as function error because we don't know what
+        # exactly happened on FE side, could be service abuse attempt by user code.
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR
     else:
         logger.warning(
             "unknown AllocationFailureReason received from Function Executor",
