@@ -200,32 +200,20 @@ impl Default for FunctionResources {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+/// HTTP API scaling config - fields are optional, defaults come from data_model
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Default)]
 pub struct FunctionScalingConfig {
-    #[serde(default)]
-    pub min_containers: u32,
-    #[serde(default = "default_max_containers")]
-    pub max_containers: u32,
+    pub min_containers: Option<u32>,
+    pub max_containers: Option<u32>,
 }
 
-fn default_max_containers() -> u32 {
-    2
-}
-
-impl Default for FunctionScalingConfig {
-    fn default() -> Self {
-        Self {
-            min_containers: 0,
-            max_containers: default_max_containers(),
-        }
-    }
-}
-
-impl From<FunctionScalingConfig> for data_model::FunctionScalingConfig {
-    fn from(value: FunctionScalingConfig) -> Self {
+impl FunctionScalingConfig {
+    /// Merge HTTP values with data model defaults
+    pub fn into_data_model(self) -> data_model::FunctionScalingConfig {
+        let defaults = data_model::FunctionScalingConfig::default();
         data_model::FunctionScalingConfig {
-            min_fe_count: value.min_containers,
-            max_fe_count: value.max_containers,
+            min_fe_count: self.min_containers.unwrap_or(defaults.min_fe_count),
+            max_fe_count: self.max_containers.unwrap_or(defaults.max_fe_count),
         }
     }
 }
@@ -233,8 +221,8 @@ impl From<FunctionScalingConfig> for data_model::FunctionScalingConfig {
 impl From<data_model::FunctionScalingConfig> for FunctionScalingConfig {
     fn from(value: data_model::FunctionScalingConfig) -> Self {
         FunctionScalingConfig {
-            min_containers: value.min_fe_count,
-            max_containers: value.max_fe_count,
+           min_containers: Some(value.min_fe_count),
+            max_containers: Some(value.max_fe_count),
         }
     }
 }
@@ -409,7 +397,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
-            scaling_config: val.scaling_config.unwrap_or_default().into(),
+            scaling_config: val.scaling_config.unwrap_or_default().into_data_model(),
         })
     }
 }
@@ -501,7 +489,7 @@ impl TryFrom<Function> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
-            scaling_config: val.scaling_config.unwrap_or_default().into(),
+            scaling_config: val.scaling_config.unwrap_or_default().into_data_model(),
         })
     }
 }

@@ -301,8 +301,7 @@ pub struct FunctionRunKey(pub String);
 
 impl FunctionRunKey {
     pub fn new(namespace: &str, app: &str, request_id: &str, fn_call_id: &str) -> Self {
-        FunctionRunKey(format!(
-            "{namespace}|{app}|{request_id}|{fn_call_id}"))
+        FunctionRunKey(format!("{namespace}|{app}|{request_id}|{fn_call_id}"))
     }
 }
 
@@ -459,7 +458,7 @@ fn default_min_fe_count() -> u32 {
 }
 
 fn default_max_fe_count() -> u32 {
-    2
+    100
 }
 
 /// FE autoscaling configuration per function
