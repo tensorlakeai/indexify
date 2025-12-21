@@ -166,32 +166,31 @@ impl FunctionExecutorManager {
 
         // Check if there are any pending runs this executor could serve
         // (if it has an allowlist, only count runs for allowed functions)
-        let has_serviceable_pending_runs =
-            in_memory_state
-                .unallocated_function_runs
-                .iter()
-                .any(|run_key| {
-                    if let Some(run) = in_memory_state.function_runs.get(run_key) {
-                        executor
-                            .function_allowlist
-                            .as_ref()
-                            .is_none_or(|allowlist| {
-                                allowlist.iter().any(|allowed| {
+        let has_serviceable_pending_runs = in_memory_state
+            .resource_placement_index
+            .pending_run_keys()
+            .any(|run_key| {
+                if let Some(run) = in_memory_state.function_runs.get(run_key) {
+                    executor
+                        .function_allowlist
+                        .as_ref()
+                        .is_none_or(|allowlist| {
+                            allowlist.iter().any(|allowed| {
+                                allowed
+                                    .namespace
+                                    .as_ref()
+                                    .is_none_or(|ns| ns == &run.namespace) &&
                                     allowed
-                                        .namespace
+                                        .application
                                         .as_ref()
-                                        .is_none_or(|ns| ns == &run.namespace) &&
-                                        allowed
-                                            .application
-                                            .as_ref()
-                                            .is_none_or(|app| app == &run.application) &&
-                                        allowed.function.as_ref().is_none_or(|f| f == &run.name)
-                                })
+                                        .is_none_or(|app| app == &run.application) &&
+                                    allowed.function.as_ref().is_none_or(|f| f == &run.name)
                             })
-                    } else {
-                        false
-                    }
-                });
+                        })
+                } else {
+                    false
+                }
+            });
 
         // Don't vacuum if there's nothing this executor can serve
         if !has_serviceable_pending_runs {

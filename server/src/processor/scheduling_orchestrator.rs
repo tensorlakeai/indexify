@@ -160,7 +160,7 @@ impl<'a> SchedulingOrchestrator<'a> {
 
         // If no runs fit current capacity but there ARE pending runs,
         // vacuum idle FEs to free resources and retry
-        if runs.is_empty() && !state.unallocated_function_runs.is_empty() {
+        if runs.is_empty() && state.resource_placement_index.has_pending_runs() {
             update.extend(self.fe_manager.vacuum_idle_fes(state, executor_id)?);
 
             // Retry after vacuum

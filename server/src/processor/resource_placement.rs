@@ -297,9 +297,16 @@ impl ResourcePlacementIndex {
         self.pending_by_key.contains_key(run_key)
     }
 
-    /// Total count of pending runs. O(1)
     pub fn pending_count(&self) -> usize {
         self.pending_by_key.len()
+    }
+
+    pub fn has_pending_runs(&self) -> bool {
+        !self.pending_by_key.is_empty()
+    }
+
+    pub fn pending_run_keys(&self) -> impl Iterator<Item = &FunctionRunKey> {
+        self.pending_by_key.keys()
     }
 
     pub fn executor_count(&self) -> usize {
@@ -388,8 +395,6 @@ impl ResourcePlacementIndex {
             .unwrap_or(0)
     }
 
-    /// Total FE count for a function across ALL executors (for min_fe_count
-    /// enforcement)
     pub fn total_fe_count_for_function(&self, fn_uri: &FunctionURI) -> usize {
         self.fes_by_fn_uri.get(fn_uri).map(|s| s.len()).unwrap_or(0)
     }

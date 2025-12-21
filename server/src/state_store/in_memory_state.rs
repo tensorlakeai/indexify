@@ -199,9 +199,6 @@ pub struct InMemoryState {
         HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
     >,
 
-    // TaskKey -> Task
-    pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
-
     // Function Run Key -> Function Run
     pub function_runs: imbl::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
@@ -305,12 +302,8 @@ impl InMemoryState {
         }
 
         let mut function_runs = imbl::OrdMap::new();
-        let mut unallocated_function_runs = imbl::OrdSet::new();
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
-                if function_run.status == FunctionRunStatus::Pending {
-                    unallocated_function_runs.insert(function_run.into());
-                }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
             }
         }
@@ -326,7 +319,6 @@ impl InMemoryState {
             application_versions,
             executors: imbl::HashMap::new(),
             function_runs,
-            unallocated_function_runs,
             request_ctx,
             allocations_by_executor,
             // function executors by executor are not known at startup
@@ -371,7 +363,6 @@ impl InMemoryState {
                 for function_run in req.ctx.function_runs.values() {
                     self.function_runs
                         .insert(function_run.into(), Box::new(function_run.clone()));
-                    self.unallocated_function_runs.insert(function_run.into());
                     // Index the function run by catalog entry
                     self.index_function_run_by_catalog(function_run);
                     // Add to spatial placement index
@@ -522,12 +513,8 @@ impl InMemoryState {
                                 continue;
                             };
                             if function_run.status == FunctionRunStatus::Pending {
-                                self.unallocated_function_runs.insert(function_run.into());
-                                // Add to spatial placement index
                                 self.add_pending_run_to_index(function_run);
                             } else {
-                                self.unallocated_function_runs.remove(&function_run.into());
-                                // Remove from spatial placement index
                                 self.resource_placement_index
                                     .remove_pending_run(&function_run.into());
                             }
@@ -636,8 +623,6 @@ impl InMemoryState {
                     let start_time = Instant::now();
                     for allocation in &req.new_allocations {
                         if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                            self.unallocated_function_runs.remove(&function_run.into());
-                            // Remove from spatial placement index
                             self.resource_placement_index
                                 .remove_pending_run(&function_run.into());
 
@@ -1005,7 +990,6 @@ impl InMemoryState {
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         for function_run in function_runs.iter() {
             self.function_runs.remove(&function_run.into());
-            self.unallocated_function_runs.remove(&function_run.into());
             // Remove from catalog entry index
             self.unindex_function_run_from_catalog(function_run);
             // Remove from spatial placement index
@@ -1157,12 +1141,15 @@ impl InMemoryState {
     /// Populate the spatial placement index from existing unallocated runs.
     /// Called during initialization or after state is cloned.
     pub fn populate_placement_index(&mut self) {
-        // First, add all unallocated function runs
-        let unallocated_keys: Vec<_> = self.unallocated_function_runs.iter().cloned().collect();
-        for run_key in unallocated_keys {
-            if let Some(function_run) = self.function_runs.get(&run_key).cloned() {
-                self.add_pending_run_to_index(&function_run);
-            }
+        // Add all pending function runs to the spatial index
+        let pending_runs: Vec<_> = self
+            .function_runs
+            .values()
+            .filter(|fr| fr.status == FunctionRunStatus::Pending)
+            .cloned()
+            .collect();
+        for function_run in pending_runs {
+            self.add_pending_run_to_index(&function_run);
         }
 
         // Then, update all executor capacities
@@ -1492,7 +1479,6 @@ impl InMemoryState {
             resource_placement_index: ResourcePlacementIndex::new(),
             metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
-            unallocated_function_runs: self.unallocated_function_runs.clone(),
         };
         // Populate the spatial index from existing unallocated runs and executors
         cloned.populate_placement_index();
@@ -1706,7 +1692,6 @@ mod test_helpers {
                 resource_placement_index: ResourcePlacementIndex::new(),
                 metrics: InMemoryStoreMetrics::new(),
                 function_runs: imbl::OrdMap::new(),
-                unallocated_function_runs: imbl::OrdSet::new(),
             }
         }
     }

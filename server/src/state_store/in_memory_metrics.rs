@@ -158,7 +158,7 @@ impl InMemoryStoreGauges {
             .with_description("Number of unallocated function runs")
             .with_callback(move |observer| {
                 if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.unallocated_function_runs.len() as u64, &[]);
+                    observer.observe(state.resource_placement_index.pending_count() as u64, &[]);
                 }
             })
             .build();

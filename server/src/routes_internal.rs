@@ -332,12 +332,9 @@ async fn list_unallocated_function_runs(
 ) -> Result<Json<UnallocatedFunctionRuns>, IndexifyAPIError> {
     let state = state.indexify_state.in_memory_state.read().await;
     let unallocated_function_runs: Vec<http_objects_v1::FunctionRun> = state
-        .unallocated_function_runs
-        .clone()
-        .iter()
-        .filter_map(|unallocated_function_run_id| {
-            state.function_runs.get(unallocated_function_run_id)
-        })
+        .resource_placement_index
+        .pending_run_keys()
+        .filter_map(|run_key| state.function_runs.get(run_key))
         .map(|t| {
             http_objects_v1::FunctionRun::from_data_model_function_run(*t.clone(), vec![], vec![])
         })
