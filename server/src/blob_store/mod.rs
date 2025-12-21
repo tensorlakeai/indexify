@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 use url::Url;
+use utoipa::ToSchema;
 
 use crate::metrics::{Timer, blob_storage};
 
@@ -54,7 +55,7 @@ fn default_blob_store_path() -> String {
     )
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,

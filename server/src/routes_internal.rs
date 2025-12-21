@@ -14,6 +14,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
+    blob_store::PutResult,
     http_objects::{
         Allocation,
         ApplicationVersion,
@@ -34,9 +35,9 @@ use crate::{
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
     },
-    http_objects_v1::{self, Application, ApplicationState},
+    http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState},
     indexify_ui::Assets as UiAssets,
-    routes::routes_state::RouteState,
+    routes::{common::validate_and_submit_application, routes_state::RouteState},
     state_store::requests::{
         CreateOrUpdateApplicationRequest,
         NamespaceRequest,
@@ -56,6 +57,7 @@ use crate::{
             list_unprocessed_state_changes,
             list_executor_catalog,
             get_application_by_version,
+            create_or_update_application_from_proxy,
             healthz_handler,
         ),
         components(
@@ -76,6 +78,8 @@ use crate::{
                 HealthzChecks,
                 HealthzResponse,
                 Application,
+                ApplicationMetadata,
+                PutResult,
             )
         ),
         tags(
@@ -123,6 +127,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/executor_catalog",
             get(list_executor_catalog).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/v1/namespaces/{namespace}/applications",
+            post(create_or_update_application_from_proxy).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/state",
@@ -568,4 +576,30 @@ pub async fn healthz_handler(
     }
 
     Ok(Json(response))
+}
+
+/// Create or update an application from frontend proxy metadata
+#[utoipa::path(
+    post,
+    path = "/internal/v1/namespaces/{namespace}/applications",
+    tag = "operations",
+    request_body = ApplicationMetadata,
+    responses(
+        (status = 200, description = "create or update an application"),
+        (status = 400, description = "bad request"),
+        (status = INTERNAL_SERVER_ERROR, description = "unable to create or update application")
+    ),
+)]
+pub async fn create_or_update_application_from_proxy(
+    Path(namespace): Path<String>,
+    State(state): State<RouteState>,
+    Json(payload): Json<ApplicationMetadata>,
+) -> Result<(), IndexifyAPIError> {
+    let application = payload.manifest.into_data_model(
+        &payload.put_result.url,
+        &payload.put_result.sha256_hash,
+        payload.put_result.size_bytes,
+    )?;
+
+    validate_and_submit_application(&state, namespace, application, payload.upgrade_requests).await
 }

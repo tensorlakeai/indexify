@@ -12,13 +12,8 @@ use crate::{
     blob_store::PutResult,
     http_objects::{IndexifyAPIError, ListParams},
     http_objects_v1,
-    routes::routes_state::RouteState,
-    state_store::requests::{
-        CreateOrUpdateApplicationRequest,
-        DeleteApplicationRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-    },
+    routes::{common::validate_and_submit_application, routes_state::RouteState},
+    state_store::requests::{DeleteApplicationRequest, RequestPayload, StateMachineUpdateRequest},
 };
 
 #[allow(dead_code)]
@@ -107,52 +102,13 @@ pub async fn create_or_update_application(
         put_result.size_bytes,
     )?;
 
-    let existing_application = state
-        .indexify_state
-        .reader()
-        .get_application(&namespace, &application.name)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    // Don't allow deploying disabled applications
-    if let Some(reason) = existing_application.and_then(|a| a.state.as_disabled()) {
-        return Err(IndexifyAPIError::bad_request(&format!(
-            "Application is not enabled: {reason}",
-        )));
-    }
-
-    let executor_catalog = state
-        .indexify_state
-        .in_memory_state
-        .read()
-        .await
-        .executor_catalog
-        .clone();
-    application
-        .can_be_scheduled(&executor_catalog)
-        .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-    let name = application.name.clone();
-
-    info!(
-        "creating application {}, upgrade existing function runs and requests: {}",
-        name,
-        upgrade_requests_to_current_version.unwrap_or(false)
-    );
-    let request =
-        RequestPayload::CreateOrUpdateApplication(Box::new(CreateOrUpdateApplicationRequest {
-            namespace,
-            application,
-            upgrade_requests_to_current_version: upgrade_requests_to_current_version
-                .unwrap_or(false),
-        }));
-    let result = state
-        .indexify_state
-        .write(StateMachineUpdateRequest { payload: request })
-        .await;
-    if let Err(err) = result {
-        return Err(IndexifyAPIError::internal_error(err));
-    }
-    Ok(())
+    validate_and_submit_application(
+        &state,
+        namespace,
+        application,
+        upgrade_requests_to_current_version.unwrap_or(false),
+    )
+    .await
 }
 
 /// Delete compute graph
