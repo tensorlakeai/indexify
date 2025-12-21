@@ -221,7 +221,7 @@ impl FunctionScalingConfig {
 impl From<data_model::FunctionScalingConfig> for FunctionScalingConfig {
     fn from(value: data_model::FunctionScalingConfig) -> Self {
         FunctionScalingConfig {
-           min_containers: Some(value.min_fe_count),
+            min_containers: Some(value.min_fe_count),
             max_containers: Some(value.max_fe_count),
         }
     }

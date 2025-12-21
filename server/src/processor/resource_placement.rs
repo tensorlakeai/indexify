@@ -258,7 +258,7 @@ impl ResourcePlacementIndex {
             .range(..upper_bound)
             .map(|(_, point)| point)
             .filter(|point| self.matches_constraints(point, executor))
-            .take(limit)  // Exit early once we have enough
+            .take(limit) // Exit early once we have enough
             .cloned()
             .collect();
 
