@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    fmt::Display,
     sync::Arc,
     time::Instant,
 };
@@ -28,6 +27,7 @@ use crate::{
         FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
+        FunctionRunKey,
         FunctionRunOutcome,
         FunctionRunStatus,
         FunctionScalingConfig,
@@ -38,12 +38,7 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
-    processor::resource_placement::{
-        ExecutorCapacity,
-        PendingRunPoint,
-        ResourcePlacementIndex,
-        TrackedFE,
-    },
+    processor::resource_placement::{PendingRunPoint, ResourcePlacementIndex, TrackedFE},
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -162,77 +157,14 @@ pub struct CandidateFunctionExecutors {
     pub num_pending_function_executors: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionRunKey(pub(crate) String);
-
-impl FunctionRunKey {
-    /// Create a FunctionRunKey from components (for testing)
-    #[cfg(test)]
-    pub fn new(namespace: &str, app: &str, request_id: &str, fn_call_id: &str) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            namespace, app, request_id, fn_call_id
-        ))
-    }
-}
-
 impl From<&ExecutorWatch> for FunctionRunKey {
     fn from(executor_watch: &ExecutorWatch) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            executor_watch.namespace,
-            executor_watch.application,
-            executor_watch.request_id,
-            executor_watch.function_call_id
-        ))
-    }
-}
-
-impl From<&FunctionRun> for FunctionRunKey {
-    fn from(function_run: &FunctionRun) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<Box<FunctionRun>> for FunctionRunKey {
-    fn from(function_run: Box<FunctionRun>) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<&Box<FunctionRun>> for FunctionRunKey {
-    fn from(function_run: &Box<FunctionRun>) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<&Allocation> for FunctionRunKey {
-    fn from(allocation: &Allocation) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            allocation.namespace,
-            allocation.application,
-            allocation.request_id,
-            allocation.function_call_id
-        ))
-    }
-}
-
-impl From<&Box<Allocation>> for FunctionRunKey {
-    fn from(allocation: &Box<Allocation>) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            allocation.namespace,
-            allocation.application,
-            allocation.request_id,
-            allocation.function_call_id
-        ))
-    }
-}
-
-impl Display for FunctionRunKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        FunctionRunKey::new(
+            &executor_watch.namespace,
+            &executor_watch.application,
+            &executor_watch.request_id,
+            &executor_watch.function_call_id,
+        )
     }
 }
 
@@ -1157,7 +1089,7 @@ impl InMemoryState {
 
         placeable
             .into_iter()
-            .filter_map(|point| self.function_runs.get(&point.run_key).map(|fr| *fr.clone()))
+            .filter_map(|point| self.function_runs.get(&point.key).map(|fr| *fr.clone()))
             .collect()
     }
 
@@ -1206,7 +1138,6 @@ impl InMemoryState {
         self.resource_placement_index.add_pending_run(point);
     }
 
-    /// Update executor capacity in the spatial placement index.
     pub fn update_executor_capacity_in_index(&mut self, executor_id: &ExecutorId) {
         let Some(executor_state) = self.executor_states.get(executor_id) else {
             return;
@@ -1216,13 +1147,11 @@ impl InMemoryState {
             return;
         };
 
-        let capacity = ExecutorCapacity::new(
+        self.resource_placement_index.update_executor(
+            executor_id.clone(),
             executor_state.free_resources.clone(),
             executor.labels.clone(),
         );
-
-        self.resource_placement_index
-            .update_executor_capacity(executor_id.clone(), capacity);
     }
 
     /// Populate the spatial placement index from existing unallocated runs.
@@ -1802,11 +1731,11 @@ mod tests {
             FunctionRun,
             FunctionRunBuilder,
             FunctionRunFailureReason,
+            FunctionRunKey,
             FunctionRunOutcome,
             FunctionRunStatus,
         },
         in_memory_state_bootstrap,
-        state_store::in_memory_state::FunctionRunKey,
     };
 
     #[test]
@@ -2229,7 +2158,7 @@ mod tests {
             cpu_ms_per_sec: 1000, // 1 core
             memory_mb: 2048,      // 2 GB
             ephemeral_disk_mb: 5000,
-            gpu_configs: vec![],
+            gpu: None,
         };
 
         let mut function_heavy = Function::default();
@@ -2250,7 +2179,7 @@ mod tests {
             cpu_ms_per_sec: 10000, // 10 cores - only fits on large
             memory_mb: 32768,      // 32 GB
             ephemeral_disk_mb: 100000,
-            gpu_configs: vec![],
+            gpu: None,
         };
 
         let mut function_gpu = Function::default();
@@ -2264,10 +2193,10 @@ mod tests {
             cpu_ms_per_sec: 2000,
             memory_mb: 8192,
             ephemeral_disk_mb: 10000,
-            gpu_configs: vec![GPUResources {
+            gpu: Some(GPUResources {
                 count: 1,
                 model: "nvidia-a100".to_string(),
-            }],
+            }),
         };
 
         let mut functions = HashMap::new();

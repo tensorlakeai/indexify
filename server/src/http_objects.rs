@@ -162,14 +162,15 @@ impl From<FunctionResources> for data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
-            gpu_configs: value
+            // Use only the first GPU config if provided
+            gpu: value
                 .gpu_configs
                 .into_iter()
+                .next()
                 .map(|gpu| data_model::GPUResources {
                     count: gpu.count,
                     model: gpu.model,
-                })
-                .collect(),
+                }),
         }
     }
 }
@@ -180,8 +181,9 @@ impl From<data_model::FunctionResources> for FunctionResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
+            // Convert single GPU back to list for API compatibility
             gpu_configs: value
-                .gpu_configs
+                .gpu
                 .into_iter()
                 .map(|gpu| GPUResources {
                     count: gpu.count,

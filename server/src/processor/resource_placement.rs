@@ -1,70 +1,37 @@
-//! Resource Placement Index using R-Tree for efficient spatial queries.
-//!
-//! This module provides O(log N + K) lookups to find pending function runs
-//! that fit within an executor's available resources, replacing the previous
-//! O(N) linear scan approach.
-//!
-//! ## Key Concepts
-//!
-//! - **Pending runs** are indexed as points in 4D resource space (cpu, memory,
-//!   disk, gpu)
-//! - **Executor capacity** is a region in that space: [0, free_resources]
-//! - **Finding fits** = range query: find all points within the region
-//!
-//! ## Complexity
-//!
-//! | Operation | Complexity |
-//! |-----------|------------|
-//! | Add pending run | O(log N) |
-//! | Remove pending run | O(log N) |
-//! | Find runs for executor | O(log N + K) where K = matching runs |
-//! | Update executor capacity | O(1) |
-
 use std::collections::{HashMap, HashSet};
 
 use rstar::{AABB, RTree, RTreeObject};
 use tracing::debug;
 
-use crate::{
-    data_model::{
-        ExecutorId,
-        FunctionExecutorId,
-        FunctionResources,
-        FunctionURI,
-        HostResources,
-        filter::LabelsFilter,
-    },
-    state_store::in_memory_state::FunctionRunKey,
+use crate::data_model::{
+    ExecutorId,
+    FunctionExecutorId,
+    FunctionResources,
+    FunctionRunKey,
+    FunctionURI,
+    GPUResources,
+    HostResources,
+    filter::LabelsFilter,
 };
 
-/// A pending function run represented as a point in 4D resource space.
-///
-/// The R-Tree indexes these points, allowing efficient range queries
-/// to find all runs that fit within given resource constraints.
 #[derive(Clone, Debug)]
 pub struct PendingRunPoint {
-    /// Unique identifier for the function run
-    pub run_key: FunctionRunKey,
+    pub key: FunctionRunKey,
 
-    /// Function URI for creating allocations
     pub fn_uri: FunctionURI,
 
-    /// Resource requirements - these form the 4D coordinates
     pub cpu_ms: u32,
     pub memory_bytes: u64,
     pub disk_bytes: u64,
-    pub gpu_count: u32,
 
-    /// Non-spatial constraints (filtered after spatial query)
-    pub gpu_model: Option<String>,
+    pub gpu: Option<GPUResources>,
+
     pub placement_constraints: LabelsFilter,
 
-    /// Creation time for FIFO ordering
     pub created_at_ns: u64,
 }
 
 impl PendingRunPoint {
-    /// Create a new pending run point from function run data
     pub fn new(
         run_key: FunctionRunKey,
         fn_uri: FunctionURI,
@@ -72,30 +39,26 @@ impl PendingRunPoint {
         placement_constraints: LabelsFilter,
         created_at_ns: u64,
     ) -> Self {
-        // Get GPU info from first config if available
-        let (gpu_count, gpu_model) = resources
-            .gpu_configs
-            .first()
-            .map(|g| (g.count, Some(g.model.clone())))
-            .unwrap_or((0, None));
-
         Self {
-            run_key,
+            key: run_key,
             fn_uri,
             cpu_ms: resources.cpu_ms_per_sec,
             memory_bytes: resources.memory_mb * 1024 * 1024,
             disk_bytes: resources.ephemeral_disk_mb * 1024 * 1024,
-            gpu_count,
-            gpu_model,
+            gpu: resources.gpu.clone(),
             placement_constraints,
             created_at_ns,
         }
+    }
+
+    fn gpu_count(&self) -> u32 {
+        self.gpu.as_ref().map(|g| g.count).unwrap_or(0)
     }
 }
 
 impl PartialEq for PendingRunPoint {
     fn eq(&self, other: &Self) -> bool {
-        self.run_key == other.run_key
+        self.key == other.key
     }
 }
 
@@ -108,29 +71,17 @@ impl RTreeObject for PendingRunPoint {
             self.cpu_ms as i64,
             self.memory_bytes as i64,
             self.disk_bytes as i64,
-            self.gpu_count as i64,
+            self.gpu_count() as i64,
         ];
         AABB::from_point(point)
     }
 }
 
-/// Executor capacity information for matching against pending runs
+/// Tracked executor state for resource matching
 #[derive(Clone, Debug)]
-pub struct ExecutorCapacity {
-    /// Free resources available on this executor
-    pub free_resources: HostResources,
-
-    /// All labels on this executor (including region if present)
-    pub labels: HashMap<String, String>,
-}
-
-impl ExecutorCapacity {
-    pub fn new(free_resources: HostResources, labels: HashMap<String, String>) -> Self {
-        Self {
-            free_resources,
-            labels,
-        }
-    }
+struct TrackedExecutor {
+    free_resources: HostResources,
+    labels: HashMap<String, String>,
 }
 
 /// Tracked Function Executor for autoscaling
@@ -155,29 +106,18 @@ pub struct ExecutorFunctionKey {
     pub fn_uri: FunctionURI,
 }
 
-/// Resource Placement Index using R-Tree for O(log N + K) queries.
-///
-/// This replaces the linear scan through `unallocated_function_runs` with
-/// an efficient spatial index that can quickly find runs matching executor
-/// capacity.
 #[derive(Debug, Default)]
 pub struct ResourcePlacementIndex {
-    /// R-Tree indexing pending runs by resource requirements
     pending_tree: RTree<PendingRunPoint>,
 
-    /// Reverse lookup for O(1) removal by run_key
     pending_by_key: HashMap<FunctionRunKey, PendingRunPoint>,
 
-    /// Secondary index: runs by function URI (for function-specific queries)
     pending_by_fn_uri: HashMap<FunctionURI, HashSet<FunctionRunKey>>,
 
-    /// Executor capacity tracking
-    executor_capacity: HashMap<ExecutorId, ExecutorCapacity>,
+    executors: HashMap<ExecutorId, TrackedExecutor>,
 
-    // === FE Tracking ===
     fes_by_id: HashMap<FunctionExecutorId, TrackedFE>,
     fes_by_executor_function: HashMap<ExecutorFunctionKey, HashSet<FunctionExecutorId>>,
-    /// Global FE count by function (for min_fe_count enforcement)
     fes_by_fn_uri: HashMap<FunctionURI, HashSet<FunctionExecutorId>>,
     idle_fes_by_executor: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
 }
@@ -187,19 +127,17 @@ impl ResourcePlacementIndex {
         Self::default()
     }
 
-    /// Add a pending function run to the index. O(log N)
     pub fn add_pending_run(&mut self, point: PendingRunPoint) {
-        // Skip if already present
-        if self.pending_by_key.contains_key(&point.run_key) {
+        if self.pending_by_key.contains_key(&point.key) {
             debug!(
-                run_key = %point.run_key,
+                run_key = %point.key,
                 "run already in placement index, skipping"
             );
             return;
         }
 
         debug!(
-            run_key = %point.run_key,
+            run_key = %point.key,
             cpu_ms = point.cpu_ms,
             memory_bytes = point.memory_bytes,
             "adding pending run to placement index"
@@ -209,17 +147,15 @@ impl ResourcePlacementIndex {
         self.pending_by_fn_uri
             .entry(point.fn_uri.clone())
             .or_default()
-            .insert(point.run_key.clone());
+            .insert(point.key.clone());
 
         // Add to reverse lookup
-        self.pending_by_key
-            .insert(point.run_key.clone(), point.clone());
+        self.pending_by_key.insert(point.key.clone(), point.clone());
 
         // Add to R-Tree
         self.pending_tree.insert(point);
     }
 
-    /// Remove a pending function run from the index. O(log N)
     pub fn remove_pending_run(&mut self, run_key: &FunctionRunKey) -> Option<PendingRunPoint> {
         let point = self.pending_by_key.remove(run_key)?;
 
@@ -228,7 +164,6 @@ impl ResourcePlacementIndex {
             "removing pending run from placement index"
         );
 
-        // Remove from secondary index
         if let Some(keys) = self.pending_by_fn_uri.get_mut(&point.fn_uri) {
             keys.remove(run_key);
             if keys.is_empty() {
@@ -236,35 +171,38 @@ impl ResourcePlacementIndex {
             }
         }
 
-        // Remove from R-Tree
         self.pending_tree.remove(&point);
 
         Some(point)
     }
 
-    /// Update executor capacity. O(1)
-    pub fn update_executor_capacity(
+    pub fn update_executor(
         &mut self,
         executor_id: ExecutorId,
-        capacity: ExecutorCapacity,
+        free_resources: HostResources,
+        labels: HashMap<String, String>,
     ) {
         debug!(
             executor_id = executor_id.get(),
-            free_cpu = capacity.free_resources.cpu_ms_per_sec,
-            free_memory = capacity.free_resources.memory_bytes,
+            free_cpu = free_resources.cpu_ms_per_sec,
+            free_memory = free_resources.memory_bytes,
             "updating executor capacity in placement index"
         );
-        self.executor_capacity.insert(executor_id, capacity);
+        self.executors.insert(
+            executor_id,
+            TrackedExecutor {
+                free_resources,
+                labels,
+            },
+        );
     }
 
-    /// Remove executor from the index, including all its FEs. O(F) where F =
-    /// FEs on executor
     pub fn remove_executor(&mut self, executor_id: &ExecutorId) {
         debug!(
             executor_id = executor_id.get(),
             "removing executor from placement index"
         );
-        self.executor_capacity.remove(executor_id);
+        self.executors.remove(executor_id);
 
         // Remove all FEs for this executor from tracking
         // Collect FE IDs to remove (can't modify while iterating)
@@ -283,34 +221,16 @@ impl ResourcePlacementIndex {
         self.idle_fes_by_executor.remove(executor_id);
     }
 
-    /// Find pending runs that fit within an executor's free resources.
-    ///
-    /// This is the key method - O(log N + K) instead of O(N).
-    ///
-    /// Returns runs sorted by creation time (FIFO) up to the limit.
     pub fn find_runs_for_executor(
         &self,
         executor_id: &ExecutorId,
         limit: usize,
     ) -> Vec<PendingRunPoint> {
-        let Some(capacity) = self.executor_capacity.get(executor_id) else {
+        let Some(executor) = self.executors.get(executor_id) else {
             return vec![];
         };
 
-        self.find_runs_for_capacity(capacity, limit)
-    }
-
-    /// Find pending runs that fit within given capacity.
-    ///
-    /// Useful when you have capacity but haven't stored it yet.
-    pub fn find_runs_for_capacity(
-        &self,
-        capacity: &ExecutorCapacity,
-        limit: usize,
-    ) -> Vec<PendingRunPoint> {
-        let free = &capacity.free_resources;
-
-        // Build the query box: [0,0,0,0] to [free_cpu, free_mem, free_disk, free_gpu]
+        let free = &executor.free_resources;
         let max_gpu = free.gpu.as_ref().map(|g| g.count as i64).unwrap_or(0);
         let query_box = AABB::from_corners(
             [0, 0, 0, 0],
@@ -331,37 +251,32 @@ impl ResourcePlacementIndex {
             "querying R-Tree for matching runs"
         );
 
-        // R-Tree range query - O(log N + K)
         let mut results: Vec<_> = self
             .pending_tree
             .locate_in_envelope(&query_box)
-            .filter(|point| self.matches_constraints(point, capacity))
+            .filter(|point| self.matches_constraints(point, executor))
             .cloned()
             .collect();
 
         debug!(matches_found = results.len(), "R-Tree query completed");
 
-        // Sort by creation time (FIFO - oldest first)
         results.sort_by_key(|p| p.created_at_ns);
-
-        // Return up to limit
         results.truncate(limit);
         results
     }
 
-    /// Check non-spatial constraints (labels, GPU model, region)
-    fn matches_constraints(&self, point: &PendingRunPoint, capacity: &ExecutorCapacity) -> bool {
-        // Check placement constraints against executor labels
-        if !point.placement_constraints.matches(&capacity.labels) {
+    fn matches_constraints(&self, point: &PendingRunPoint, executor: &TrackedExecutor) -> bool {
+        if !point.placement_constraints.matches(&executor.labels) {
             return false;
         }
 
-        // Check GPU model if required
-        if let Some(required_model) = &point.gpu_model {
-            match &capacity.free_resources.gpu {
-                Some(gpu) if &gpu.model != required_model => return false,
-                None => return false,
-                _ => {}
+        if let Some(required_gpu) = &point.gpu {
+            let Some(executor_gpu) = &executor.free_resources.gpu else {
+                return false;
+            };
+
+            if required_gpu.model != executor_gpu.model || required_gpu.count > executor_gpu.count {
+                return false;
             }
         }
 
@@ -387,12 +302,9 @@ impl ResourcePlacementIndex {
         self.pending_by_key.len()
     }
 
-    /// Count of tracked executors. O(1)
     pub fn executor_count(&self) -> usize {
-        self.executor_capacity.len()
+        self.executors.len()
     }
-
-    // === FE Tracking ===
 
     pub fn add_fe(&mut self, fe: TrackedFE) {
         let key = ExecutorFunctionKey {
@@ -508,39 +420,37 @@ mod tests {
         gpu_count: u32,
     ) -> PendingRunPoint {
         PendingRunPoint {
-            run_key: make_run_key(id),
+            key: make_run_key(id),
             fn_uri: make_fn_uri("func1"),
             cpu_ms,
             memory_bytes: memory_mb * 1024 * 1024,
             disk_bytes: disk_mb * 1024 * 1024,
-            gpu_count,
-            gpu_model: None,
+            gpu: if gpu_count > 0 {
+                Some(GPUResources {
+                    count: gpu_count,
+                    model: "A100".to_string(),
+                })
+            } else {
+                None
+            },
             placement_constraints: LabelsFilter::default(),
             created_at_ns: 0,
         }
     }
 
-    fn make_capacity(
-        cpu_ms: u32,
-        memory_mb: u64,
-        disk_mb: u64,
-        gpu_count: u32,
-    ) -> ExecutorCapacity {
-        ExecutorCapacity {
-            free_resources: HostResources {
-                cpu_ms_per_sec: cpu_ms,
-                memory_bytes: memory_mb * 1024 * 1024,
-                disk_bytes: disk_mb * 1024 * 1024,
-                gpu: if gpu_count > 0 {
-                    Some(crate::data_model::GPUResources {
-                        count: gpu_count,
-                        model: "A100".to_string(),
-                    })
-                } else {
-                    None
-                },
+    fn make_resources(cpu_ms: u32, memory_mb: u64, disk_mb: u64, gpu_count: u32) -> HostResources {
+        HostResources {
+            cpu_ms_per_sec: cpu_ms,
+            memory_bytes: memory_mb * 1024 * 1024,
+            disk_bytes: disk_mb * 1024 * 1024,
+            gpu: if gpu_count > 0 {
+                Some(crate::data_model::GPUResources {
+                    count: gpu_count,
+                    model: "A100".to_string(),
+                })
+            } else {
+                None
             },
-            labels: HashMap::new(),
         }
     }
 
@@ -572,15 +482,18 @@ mod tests {
 
         // Create executor with medium capacity
         let executor_id = ExecutorId::new("exec1".to_string());
-        let capacity = make_capacity(2000, 4096, 2048, 0);
-        index.update_executor_capacity(executor_id.clone(), capacity);
+        index.update_executor(
+            executor_id.clone(),
+            make_resources(2000, 4096, 2048, 0),
+            HashMap::new(),
+        );
 
         // Should find small, medium, large (all fit in 2000 CPU, 4GB mem, 2GB disk)
         let matches = index.find_runs_for_executor(&executor_id, 100);
         assert_eq!(matches.len(), 3);
 
         // "huge" should NOT match (needs 4000 CPU, 8GB mem)
-        let match_ids: Vec<_> = matches.iter().map(|p| p.run_key.to_string()).collect();
+        let match_ids: Vec<_> = matches.iter().map(|p| p.key.to_string()).collect();
         assert!(!match_ids.iter().any(|id| id.contains("huge")));
     }
 
@@ -596,8 +509,11 @@ mod tests {
         }
 
         let executor_id = ExecutorId::new("exec1".to_string());
-        let capacity = make_capacity(1000, 8192, 4096, 0);
-        index.update_executor_capacity(executor_id.clone(), capacity);
+        index.update_executor(
+            executor_id.clone(),
+            make_resources(1000, 8192, 4096, 0),
+            HashMap::new(),
+        );
 
         // Request only 10
         let matches = index.find_runs_for_executor(&executor_id, 10);
@@ -636,8 +552,7 @@ mod tests {
         let mut index = ResourcePlacementIndex::new();
 
         // Run that needs GPU
-        let mut gpu_run = make_point("gpu_call", 1000, 2048, 1024, 1);
-        gpu_run.gpu_model = Some("A100".to_string());
+        let gpu_run = make_point("gpu_call", 1000, 2048, 1024, 1);
         index.add_pending_run(gpu_run);
 
         // Run that doesn't need GPU
@@ -646,18 +561,24 @@ mod tests {
 
         // Executor without GPU
         let executor_no_gpu = ExecutorId::new("no_gpu".to_string());
-        let capacity_no_gpu = make_capacity(2000, 4096, 2048, 0);
-        index.update_executor_capacity(executor_no_gpu.clone(), capacity_no_gpu);
+        index.update_executor(
+            executor_no_gpu.clone(),
+            make_resources(2000, 4096, 2048, 0),
+            HashMap::new(),
+        );
 
         // Should only find CPU run
         let matches = index.find_runs_for_executor(&executor_no_gpu, 100);
         assert_eq!(matches.len(), 1);
-        assert!(matches[0].run_key.to_string().contains("cpu_call"));
+        assert!(matches[0].key.to_string().contains("cpu_call"));
 
         // Executor with GPU
         let executor_with_gpu = ExecutorId::new("with_gpu".to_string());
-        let capacity_with_gpu = make_capacity(2000, 4096, 2048, 1);
-        index.update_executor_capacity(executor_with_gpu.clone(), capacity_with_gpu);
+        index.update_executor(
+            executor_with_gpu.clone(),
+            make_resources(2000, 4096, 2048, 1),
+            HashMap::new(),
+        );
 
         // Should find both runs
         let matches = index.find_runs_for_executor(&executor_with_gpu, 100);

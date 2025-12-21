@@ -16,6 +16,7 @@ use crate::{
         FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
+        FunctionRunKey,
         FunctionRunOutcome,
         FunctionRunStatus,
         FunctionURI,
@@ -23,7 +24,7 @@ use crate::{
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
-        in_memory_state::{FunctionRunKey, InMemoryState},
+        in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };

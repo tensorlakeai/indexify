@@ -361,7 +361,7 @@ mod tests {
                 cpu_ms_per_sec: 3000, // needs 3 cores, catalog has 2
                 memory_mb: 512,
                 ephemeral_disk_mb: 512,
-                gpu_configs: vec![],
+                gpu: None,
             },
         );
 
@@ -371,7 +371,7 @@ mod tests {
                 cpu_ms_per_sec: 2000, // exactly 2 cores
                 memory_mb: 512,
                 ephemeral_disk_mb: 512,
-                gpu_configs: vec![],
+                gpu: None,
             },
         );
 
@@ -383,7 +383,7 @@ mod tests {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 3_000_000, // > 2,097,152 MB (2 TB) so should be unsatisfiable for 2 GB
                 ephemeral_disk_mb: 512,
-                gpu_configs: vec![],
+                gpu: None,
             },
         );
 
@@ -393,7 +393,7 @@ mod tests {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
                 ephemeral_disk_mb: 3_000_000, // > 2,097,152 MB (2 TB) so should be unsatisfiable for 2 GB
-                gpu_configs: vec![],
+                gpu: None,
             },
         );
 
@@ -403,10 +403,10 @@ mod tests {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
                 ephemeral_disk_mb: 512,
-                gpu_configs: vec![GPUResources {
+                gpu: Some(GPUResources {
                     count: 1,
                     model: GPU_MODEL_NVIDIA_H100_80GB.to_string(), // not in catalog
-                }],
+                }),
             },
         );
 
@@ -416,10 +416,10 @@ mod tests {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
                 ephemeral_disk_mb: 512,
-                gpu_configs: vec![GPUResources {
+                gpu: Some(GPUResources {
                     count: 1,
                     model: GPU_MODEL_NVIDIA_A10.to_string(), // in catalog
-                }],
+                }),
             },
         );
 
