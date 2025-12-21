@@ -252,21 +252,18 @@ impl ResourcePlacementIndex {
             key: FunctionRunKey::new("", "", "", ""),
         };
 
-        // Range query: get all runs with CPU <= capacity, then filter by other
-        // dimensions
-        let mut results: Vec<_> = self
+        // Range query: get runs with CPU <= capacity, filter, take limit, done
+        let results: Vec<_> = self
             .pending_by_cpu
             .range(..upper_bound)
             .map(|(_, point)| point)
             .filter(|point| self.matches_constraints(point, executor))
+            .take(limit)  // Exit early once we have enough
             .cloned()
             .collect();
 
         debug!(matches_found = results.len(), "index query completed");
 
-        // Already sorted by (cpu_ms, created_at_ns) due to OrdMap ordering
-        // Just need to truncate
-        results.truncate(limit);
         results
     }
 
