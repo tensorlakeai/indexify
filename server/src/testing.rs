@@ -197,19 +197,18 @@ impl TestService {
             "Pending tasks in mem store",
         );
 
-        let unallocated_function_runs = self
+        let pending_in_index = self
             .service
             .indexify_state
             .in_memory_state
             .read()
             .await
-            .unallocated_function_runs
-            .clone();
+            .resource_placement_index
+            .pending_count();
 
         assert_eq!(
-            unallocated_function_runs.len(),
-            pending_count,
-            "Unallocated function runs in mem store",
+            pending_in_index, pending_count,
+            "Unallocated function runs in spatial index",
         );
 
         Ok(pending_tasks)

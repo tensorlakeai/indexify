@@ -9,12 +9,12 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, StateChange},
+    data_model::{Application, ApplicationState, ChangeType, FunctionURI, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         function_executor_manager,
         function_run_creator,
-        function_run_processor::FunctionRunProcessor,
+        scheduling_orchestrator::SchedulingOrchestrator,
     },
     state_store::{
         IndexifyState,
@@ -37,6 +37,7 @@ pub struct ApplicationProcessor {
     pub state_transition_latency: Histogram<f64>,
     pub handle_state_change_latency: Histogram<f64>,
     pub allocate_function_runs_latency: Histogram<f64>,
+    pub spatial_index_query_latency: Histogram<f64>,
     pub queue_size: u32,
 }
 
@@ -84,6 +85,13 @@ impl ApplicationProcessor {
             .with_description("Latency of function runs allocation in seconds")
             .build();
 
+        let spatial_index_query_latency = meter
+            .f64_histogram("indexify.spatial_index_query_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of spatial index queries in seconds")
+            .build();
+
         Self {
             indexify_state,
             write_sm_update_latency,
@@ -92,6 +100,7 @@ impl ApplicationProcessor {
             state_transition_latency,
             handle_state_change_latency,
             allocate_function_runs_latency,
+            spatial_index_query_latency,
             queue_size,
         }
     }
@@ -297,121 +306,111 @@ impl ApplicationProcessor {
             state_change.change_type.to_string(),
         )];
         let _timer_guard = Timer::start_with_labels(&self.handle_state_change_latency, kvs);
+
         let indexes = self.indexify_state.in_memory_state.read().await.clone();
-        let mut indexes_guard = indexes.write().await;
-        let clock = indexes_guard.clock;
+        let mut state = indexes.write().await;
+        let clock = state.clock;
+
         let task_creator =
             function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
         let fe_manager =
             function_executor_manager::FunctionExecutorManager::new(clock, self.queue_size);
-        let task_allocator = FunctionRunProcessor::new(clock, &fe_manager);
+        let orchestrator = SchedulingOrchestrator::new(
+            &fe_manager,
+            &self.allocate_function_runs_latency,
+            &self.spatial_index_query_latency,
+            clock,
+        );
 
-        let req = match &state_change.change_type {
+        let scheduler_update = match &state_change.change_type {
+            // New function call - create runs and allocate
             ChangeType::CreateFunctionCall(req) => {
-                let mut scheduler_update = task_creator
-                    .handle_blocking_function_call(&mut indexes_guard, req)
+                let mut update = task_creator
+                    .handle_blocking_function_call(&mut state, req)
                     .await?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
+                let new_runs = update.unallocated_function_runs();
+                update.extend(orchestrator.task_allocator().allocate_function_runs(
+                    &mut state,
+                    new_runs,
                     &self.allocate_function_runs_latency,
                 )?);
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                update
             }
-            ChangeType::InvokeApplication(ev) => {
-                let scheduler_update = task_allocator.allocate_request(
-                    &mut indexes_guard,
-                    &ev.namespace,
-                    &ev.application,
-                    &ev.request_id,
-                    &self.allocate_function_runs_latency,
-                )?;
 
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
-            }
+            // Application invoked - allocate pending runs
+            ChangeType::InvokeApplication(ev) => orchestrator.task_allocator().allocate_request(
+                &mut state,
+                &ev.namespace,
+                &ev.application,
+                &ev.request_id,
+                &self.allocate_function_runs_latency,
+            )?,
+
+            // Allocation completed - handle output and reuse capacity
             ChangeType::AllocationOutputsIngested(req) => {
-                let mut scheduler_update = task_creator
-                    .handle_allocation_ingestion(&mut indexes_guard, req)
+                // 1. Process the completed allocation (create child tasks or mark complete)
+                let update = task_creator
+                    .handle_allocation_ingestion(&mut state, req)
                     .await?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+
+                // 2. Handle freed capacity: allocate children, then same-function, then others
+                let fn_uri = FunctionURI {
+                    namespace: req.namespace.clone(),
+                    application: req.application.clone(),
+                    function: req.function.clone(),
+                    version: req.allocation.application_version.clone(),
+                };
+                orchestrator.handle_freed_capacity(
+                    &mut state,
+                    &req.allocation.target.executor_id,
+                    &fn_uri,
+                    update,
+                )?
             }
+
+            // Executor ready - reconcile state, scale FEs, allocate work
             ChangeType::ExecutorUpserted(ev) => {
-                let mut scheduler_update =
-                    fe_manager.reconcile_executor_state(&mut indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
-
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
-                        vec![state_change.clone()],
-                    )),
-                }
+                orchestrator.handle_executor_ready(&mut state, &ev.executor_id)?
             }
+
+            // Executor removed - reschedule its work
             ChangeType::TombStoneExecutor(ev) => {
-                let mut scheduler_update =
-                    fe_manager.deregister_executor(&mut indexes_guard, &ev.executor_id)?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    &mut indexes_guard,
-                    unallocated_function_runs,
-                    &self.allocate_function_runs_latency,
-                )?);
+                orchestrator.handle_executor_removed(&mut state, &ev.executor_id)?
+            }
 
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate((
-                        Box::new(scheduler_update),
+            // Application deleted
+            ChangeType::TombstoneApplication(request) => {
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::DeleteApplicationRequest((
+                        DeleteApplicationRequest {
+                            namespace: request.namespace.clone(),
+                            name: request.application.clone(),
+                        },
                         vec![state_change.clone()],
                     )),
-                }
+                });
             }
-            ChangeType::TombstoneApplication(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteApplicationRequest((
-                    DeleteApplicationRequest {
-                        namespace: request.namespace.clone(),
-                        name: request.application.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
-            ChangeType::TombstoneRequest(request) => StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteRequestRequest((
-                    DeleteRequestRequest {
-                        namespace: request.namespace.clone(),
-                        application: request.application.clone(),
-                        request_id: request.request_id.clone(),
-                    },
-                    vec![state_change.clone()],
-                )),
-            },
+
+            // Request deleted
+            ChangeType::TombstoneRequest(request) => {
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::DeleteRequestRequest((
+                        DeleteRequestRequest {
+                            namespace: request.namespace.clone(),
+                            application: request.application.clone(),
+                            request_id: request.request_id.clone(),
+                        },
+                        vec![state_change.clone()],
+                    )),
+                });
+            }
         };
-        Ok(req)
+
+        Ok(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate((
+                Box::new(scheduler_update),
+                vec![state_change.clone()],
+            )),
+        })
     }
 }

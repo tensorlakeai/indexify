@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    fmt::Display,
     sync::Arc,
     time::Instant,
 };
@@ -28,8 +27,10 @@ use crate::{
         FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
+        FunctionRunKey,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionScalingConfig,
         FunctionURI,
         Namespace,
         NamespaceBuilder,
@@ -37,6 +38,7 @@ use crate::{
         RequestCtxKey,
     },
     executor_api::executor_api_pb::DataPayloadEncoding,
+    processor::resource_placement::{PendingRunPoint, ResourcePlacementIndex, TrackedFE},
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -155,66 +157,14 @@ pub struct CandidateFunctionExecutors {
     pub num_pending_function_executors: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionRunKey(String);
-
 impl From<&ExecutorWatch> for FunctionRunKey {
     fn from(executor_watch: &ExecutorWatch) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            executor_watch.namespace,
-            executor_watch.application,
-            executor_watch.request_id,
-            executor_watch.function_call_id
-        ))
-    }
-}
-
-impl From<&FunctionRun> for FunctionRunKey {
-    fn from(function_run: &FunctionRun) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<Box<FunctionRun>> for FunctionRunKey {
-    fn from(function_run: Box<FunctionRun>) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<&Box<FunctionRun>> for FunctionRunKey {
-    fn from(function_run: &Box<FunctionRun>) -> Self {
-        FunctionRunKey(function_run.key())
-    }
-}
-
-impl From<&Allocation> for FunctionRunKey {
-    fn from(allocation: &Allocation) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            allocation.namespace,
-            allocation.application,
-            allocation.request_id,
-            allocation.function_call_id
-        ))
-    }
-}
-
-impl From<&Box<Allocation>> for FunctionRunKey {
-    fn from(allocation: &Box<Allocation>) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            allocation.namespace,
-            allocation.application,
-            allocation.request_id,
-            allocation.function_call_id
-        ))
-    }
-}
-
-impl Display for FunctionRunKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        FunctionRunKey::new(
+            &executor_watch.namespace,
+            &executor_watch.application,
+            &executor_watch.request_id,
+            &executor_watch.function_call_id,
+        )
     }
 }
 
@@ -249,9 +199,6 @@ pub struct InMemoryState {
         HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
     >,
 
-    // TaskKey -> Task
-    pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
-
     // Function Run Key -> Function Run
     pub function_runs: imbl::OrdMap<FunctionRunKey, Box<FunctionRun>>,
 
@@ -264,6 +211,11 @@ pub struct InMemoryState {
     // Index: Executor Catalog Entry Name -> Set of Function Run Keys
     // Maps executor catalog entry names to function runs that match those catalog entry labels
     pub function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>>,
+
+    /// Spatial index for efficient resource-based matching of pending runs to
+    /// executors. Uses R-Tree for O(log N + K) queries instead of O(N)
+    /// linear scans.
+    pub resource_placement_index: ResourcePlacementIndex,
 
     // Histogram metrics for task latency measurements for direct recording
     metrics: InMemoryStoreMetrics,
@@ -350,12 +302,8 @@ impl InMemoryState {
         }
 
         let mut function_runs = imbl::OrdMap::new();
-        let mut unallocated_function_runs = imbl::OrdSet::new();
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
-                if function_run.status == FunctionRunStatus::Pending {
-                    unallocated_function_runs.insert(function_run.into());
-                }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
             }
         }
@@ -371,7 +319,6 @@ impl InMemoryState {
             application_versions,
             executors: imbl::HashMap::new(),
             function_runs,
-            unallocated_function_runs,
             request_ctx,
             allocations_by_executor,
             // function executors by executor are not known at startup
@@ -379,6 +326,7 @@ impl InMemoryState {
             function_executors_by_fn_uri: imbl::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
+            resource_placement_index: ResourcePlacementIndex::new(),
             metrics,
         };
 
@@ -388,6 +336,9 @@ impl InMemoryState {
         for function_run in function_runs_to_index {
             in_memory_state.index_function_run_by_catalog(&function_run);
         }
+
+        // Populate the resource placement index for pending runs
+        in_memory_state.populate_placement_index();
 
         info!(
             "completed in-memory state initialization from state store at clock {}",
@@ -415,9 +366,10 @@ impl InMemoryState {
                 for function_run in req.ctx.function_runs.values() {
                     self.function_runs
                         .insert(function_run.into(), Box::new(function_run.clone()));
-                    self.unallocated_function_runs.insert(function_run.into());
                     // Index the function run by catalog entry
                     self.index_function_run_by_catalog(function_run);
+                    // Add to spatial placement index
+                    self.add_pending_run_to_index(function_run);
                 }
             }
             RequestPayload::CreateNameSpace(req) => {
@@ -564,9 +516,10 @@ impl InMemoryState {
                                 continue;
                             };
                             if function_run.status == FunctionRunStatus::Pending {
-                                self.unallocated_function_runs.insert(function_run.into());
+                                self.add_pending_run_to_index(function_run);
                             } else {
-                                self.unallocated_function_runs.remove(&function_run.into());
+                                self.resource_placement_index
+                                    .remove_pending_run(&function_run.into());
                             }
                             self.function_runs
                                 .insert(function_run.into(), Box::new(function_run.clone()));
@@ -627,12 +580,37 @@ impl InMemoryState {
 
                         let fn_uri = FunctionURI::from(&fe_meta);
                         self.function_executors_by_fn_uri
-                            .entry(fn_uri)
+                            .entry(fn_uri.clone())
                             .or_default()
                             .insert(
                                 fe_meta.function_executor.id.clone(),
                                 Box::new(fe_meta.clone()),
                             );
+
+                        // Track FE for autoscaling - skip terminated FEs
+                        if matches!(
+                            fe_meta.desired_state,
+                            FunctionExecutorState::Terminated { .. }
+                        ) {
+                            // Remove from tracking if previously tracked
+                            self.resource_placement_index
+                                .remove_fe(&fe_meta.function_executor.id);
+                        } else {
+                            // Initialize with actual allocation count
+                            let allocation_count = self
+                                .allocations_by_executor
+                                .get(&fe_meta.executor_id)
+                                .and_then(|fe_allocs| fe_allocs.get(&fe_meta.function_executor.id))
+                                .map(|allocs| allocs.len() as u32)
+                                .unwrap_or(0);
+                            let tracked_fe = TrackedFE {
+                                fe_id: fe_meta.function_executor.id.clone(),
+                                fn_uri,
+                                executor_id: fe_meta.executor_id.clone(),
+                                allocation_count,
+                            };
+                            self.resource_placement_index.add_fe(tracked_fe);
+                        }
 
                         // Executor has a new function executor
                         changed_executors.insert(fe_meta.executor_id.clone());
@@ -648,7 +626,8 @@ impl InMemoryState {
                     let start_time = Instant::now();
                     for allocation in &req.new_allocations {
                         if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                            self.unallocated_function_runs.remove(&function_run.into());
+                            self.resource_placement_index
+                                .remove_pending_run(&function_run.into());
 
                             self.allocations_by_executor
                                 .entry(allocation.target.executor_id.clone())
@@ -656,6 +635,20 @@ impl InMemoryState {
                                 .entry(allocation.target.function_executor_id.clone())
                                 .or_default()
                                 .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                            // Update FE allocation count for autoscaling
+                            let new_count = self
+                                .allocations_by_executor
+                                .get(&allocation.target.executor_id)
+                                .and_then(|fe_allocs| {
+                                    fe_allocs.get(&allocation.target.function_executor_id)
+                                })
+                                .map(|allocs| allocs.len() as u32)
+                                .unwrap_or(0);
+                            self.resource_placement_index.update_fe_allocation_count(
+                                &allocation.target.function_executor_id,
+                                new_count,
+                            );
 
                             // Record metrics
                             self.metrics.function_run_pending_latency.record(
@@ -699,6 +692,10 @@ impl InMemoryState {
                         }
 
                         for function_executor_id in function_executors {
+                            // Remove FE from autoscaling tracker
+                            self.resource_placement_index
+                                .remove_fe(function_executor_id);
+
                             let fe = self.executor_states.get_mut(executor_id).and_then(
                                 |executor_state| {
                                     executor_state.resource_claims.remove(function_executor_id);
@@ -732,6 +729,8 @@ impl InMemoryState {
                         self.executors.remove(executor_id);
                         self.allocations_by_executor.remove(executor_id);
                         self.executor_states.remove(executor_id);
+                        // Remove from spatial placement index
+                        self.resource_placement_index.remove_executor(executor_id);
 
                         // Executor is removed
                         changed_executors.insert(executor_id.clone());
@@ -749,6 +748,8 @@ impl InMemoryState {
                         if let Some(executor) = self.executor_states.get_mut(executor_id) {
                             executor.free_resources = free_resources.clone();
                         }
+                        // Update executor capacity in spatial placement index
+                        self.update_executor_capacity_in_index(executor_id);
                     }
                     // record the time instead of using a timer because we cannot
                     // borrow the metric as immutable and borrow self as mutable inside the loop.
@@ -771,18 +772,24 @@ impl InMemoryState {
                         }),
                     );
                 }
+                // Update executor capacity in spatial placement index
+                self.update_executor_capacity_in_index(&req.executor.id);
 
                 for allocation_output in &req.allocation_outputs {
+                    let fe_id = allocation_output
+                        .allocation
+                        .target
+                        .function_executor_id
+                        .clone();
                     // Remove the allocation
                     {
                         let _ = self
                             .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
-                                if let Some(allocations) = fe_allocations.get_mut(
-                                    &allocation_output.allocation.target.function_executor_id,
-                                ) && let Some(existing_allocation) =
-                                    allocations.remove(&allocation_output.allocation.id)
+                                if let Some(allocations) = fe_allocations.get_mut(&fe_id) &&
+                                    let Some(existing_allocation) =
+                                        allocations.remove(&allocation_output.allocation.id)
                                 {
                                     // Record metrics
                                     self.metrics.allocation_running_latency.record(
@@ -800,6 +807,16 @@ impl InMemoryState {
                                 // Remove the function if no allocations left
                                 fe_allocations.retain(|_, f| !f.is_empty());
                             });
+
+                        // Update FE allocation count for autoscaling
+                        let new_count = self
+                            .allocations_by_executor
+                            .get(&allocation_output.executor_id)
+                            .and_then(|fe_allocs| fe_allocs.get(&fe_id))
+                            .map(|allocs| allocs.len() as u32)
+                            .unwrap_or(0);
+                        self.resource_placement_index
+                            .update_fe_allocation_count(&fe_id, new_count);
 
                         // Executor's allocation is removed
                         changed_executors.insert(allocation_output.executor_id.clone());
@@ -976,9 +993,11 @@ impl InMemoryState {
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         for function_run in function_runs.iter() {
             self.function_runs.remove(&function_run.into());
-            self.unallocated_function_runs.remove(&function_run.into());
             // Remove from catalog entry index
             self.unindex_function_run_from_catalog(function_run);
+            // Remove from spatial placement index
+            self.resource_placement_index
+                .remove_pending_run(&function_run.into());
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -1043,34 +1062,157 @@ impl InMemoryState {
         self.delete_function_runs(function_runs_to_remove);
     }
 
-    pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
-        let unallocated_function_run_keys = self
-            .unallocated_function_runs
-            .iter()
+    /// Find pending runs that can be placed on an executor using the spatial
+    /// index. This is O(log N + K) instead of O(N) - much faster for large
+    /// numbers of pending runs.
+    pub fn find_placeable_runs_for_executor(
+        &self,
+        executor_id: &ExecutorId,
+        limit: usize,
+    ) -> Vec<FunctionRun> {
+        let placeable = self
+            .resource_placement_index
+            .find_runs_for_executor(executor_id, limit);
+
+        placeable
+            .into_iter()
+            .filter_map(|point| self.function_runs.get(&point.key).map(|fr| *fr.clone()))
+            .collect()
+    }
+
+    /// Find pending runs for a specific function. O(1) lookup + O(K) iteration.
+    /// Used to check if there's work for an FE after an allocation completes.
+    pub fn find_pending_runs_for_function(
+        &self,
+        fn_uri: &FunctionURI,
+        limit: usize,
+    ) -> Vec<FunctionRun> {
+        self.resource_placement_index
+            .get_runs_for_function(fn_uri)
+            .into_iter()
+            .take(limit)
+            .filter_map(|run_key| self.function_runs.get(&run_key).map(|fr| *fr.clone()))
+            .collect()
+    }
+
+    /// Add a pending function run to the spatial placement index.
+    pub fn add_pending_run_to_index(&mut self, function_run: &FunctionRun) {
+        let Some(app_version) = self.get_existing_application_version(function_run) else {
+            debug!(
+                fn_call_id = function_run.id.to_string(),
+                "Skipping placement index: application version not found"
+            );
+            return;
+        };
+
+        let Some(function) = app_version.functions.get(&function_run.name) else {
+            debug!(
+                fn_call_id = function_run.id.to_string(),
+                fn_name = &function_run.name,
+                "Skipping placement index: function not found"
+            );
+            return;
+        };
+
+        let point = PendingRunPoint::new(
+            function_run.into(),
+            FunctionURI::from(function_run),
+            &function.resources,
+            function.placement_constraints.clone(),
+            function_run.creation_time_ns as u64,
+        );
+
+        self.resource_placement_index.add_pending_run(point);
+    }
+
+    pub fn update_executor_capacity_in_index(&mut self, executor_id: &ExecutorId) {
+        let Some(executor_state) = self.executor_states.get(executor_id) else {
+            return;
+        };
+
+        let Some(executor) = self.executors.get(executor_id) else {
+            return;
+        };
+
+        self.resource_placement_index.update_executor(
+            executor_id.clone(),
+            executor_state.free_resources.clone(),
+            executor.labels.clone(),
+        );
+    }
+
+    /// Populate the spatial placement index from existing unallocated runs.
+    /// Called during initialization or after state is cloned.
+    pub fn populate_placement_index(&mut self) {
+        // Add all pending function runs to the spatial index
+        let pending_runs: Vec<_> = self
+            .function_runs
+            .values()
+            .filter(|fr| fr.status == FunctionRunStatus::Pending)
             .cloned()
-            .collect::<Vec<_>>();
-        let mut function_runs = Vec::new();
-        for function_run_key in unallocated_function_run_keys {
-            if let Some(function_run) = self.function_runs.get(&function_run_key) {
-                function_runs.push(*function_run.clone());
-            } else {
-                error!(
-                    function_run_key = function_run_key.0,
-                    "function run not found for unallocated function run"
-                );
+            .collect();
+        for function_run in pending_runs {
+            self.add_pending_run_to_index(&function_run);
+        }
+
+        // Then, update all executor capacities
+        let executor_ids: Vec<_> = self.executor_states.keys().cloned().collect();
+        for executor_id in executor_ids {
+            self.update_executor_capacity_in_index(&executor_id);
+        }
+
+        // Finally, populate FE tracking for autoscaling
+        for (executor_id, executor_state) in &self.executor_states {
+            for (fe_id, fe_meta) in &executor_state.function_executors {
+                // Skip FEs that are already terminated
+                if matches!(
+                    fe_meta.desired_state,
+                    crate::data_model::FunctionExecutorState::Terminated { .. }
+                ) {
+                    continue;
+                }
+
+                let fn_uri = FunctionURI::from(fe_meta.as_ref());
+                let allocation_count = self
+                    .allocations_by_executor
+                    .get(executor_id)
+                    .and_then(|fe_allocs| fe_allocs.get(fe_id))
+                    .map(|allocs| allocs.len() as u32)
+                    .unwrap_or(0);
+
+                let tracked_fe = TrackedFE {
+                    fe_id: fe_id.clone(),
+                    fn_uri,
+                    executor_id: executor_id.clone(),
+                    allocation_count,
+                };
+                self.resource_placement_index.add_fe(tracked_fe);
             }
         }
-        function_runs
+
+        debug!(
+            pending_count = self.resource_placement_index.pending_count(),
+            executor_count = self.resource_placement_index.executor_count(),
+            "populated resource placement index"
+        );
     }
 
     #[tracing::instrument(skip_all)]
     pub fn vacuum_function_executors_candidates(
         &self,
         fe_resource: &FunctionResources,
+        target_function_run: Option<&FunctionRun>,
     ) -> Result<Vec<FunctionExecutorServerMetadata>> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
+                continue;
+            }
+
+            // If we have a target function run, only vacuum executors that can serve it
+            if let Some(fn_run) = target_function_run &&
+                !executor.is_function_allowed(fn_run)
+            {
                 continue;
             }
 
@@ -1122,6 +1264,14 @@ impl InMemoryState {
 
                 let has_pending_tasks = self.has_pending_tasks(fe_metadata);
 
+                // Check if FE has any running allocations
+                let has_running_allocations = self
+                    .allocations_by_executor
+                    .get(executor_id)
+                    .and_then(|fe_allocs| fe_allocs.get(&fe.id))
+                    .map(|allocs| !allocs.is_empty())
+                    .unwrap_or(false);
+
                 let mut can_be_removed = false;
                 if !has_pending_tasks {
                     let mut found_allowlist_match = false;
@@ -1142,6 +1292,15 @@ impl InMemoryState {
                             executor_id.get(),
                             fe.version,
                             latest_cg_version
+                        );
+                        can_be_removed = true;
+                    } else if !has_running_allocations {
+                        // Also remove idle FEs (in allowlist but no running allocations, no pending
+                        // tasks) to make room for other functions
+                        debug!(
+                            "Candidate for removal: idle function executor {} from executor {} (no running allocations, no pending tasks)",
+                            fe.id.get(),
+                            executor_id.get(),
                         );
                         can_be_removed = true;
                     }
@@ -1181,7 +1340,7 @@ impl InMemoryState {
         Ok(Vec::new())
     }
 
-    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
+    pub fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
         let task_prefixes_for_fe = format!(
             "{}|{}|",
             fe_meta.function_executor.namespace, fe_meta.function_executor.application_name
@@ -1307,7 +1466,8 @@ impl InMemoryState {
     }
 
     pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
-        Arc::new(tokio::sync::RwLock::new(InMemoryState {
+        // All fields use COW data structures (imbl), so clone is O(1)
+        let cloned = InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             applications: self.applications.clone(),
@@ -1319,10 +1479,12 @@ impl InMemoryState {
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
+            // ResourcePlacementIndex now uses imbl, so clone is O(1) COW
+            resource_placement_index: self.resource_placement_index.clone(),
             metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
-            unallocated_function_runs: self.unallocated_function_runs.clone(),
-        }))
+        };
+        Arc::new(tokio::sync::RwLock::new(cloned))
     }
 
     #[allow(clippy::borrowed_box)]
@@ -1368,6 +1530,15 @@ impl InMemoryState {
                 );
                 None
             })
+    }
+
+    /// Get scaling config for a function
+    pub fn get_scaling_config(&self, fn_uri: &FunctionURI) -> Option<FunctionScalingConfig> {
+        let key =
+            ApplicationVersion::key_from(&fn_uri.namespace, &fn_uri.application, &fn_uri.version);
+        let app = self.application_versions.get(&key)?;
+        let func = app.functions.get(&fn_uri.function)?;
+        Some(func.scaling_config.clone())
     }
 
     /// Add a function run to the catalog entry index if it matches any catalog
@@ -1520,9 +1691,9 @@ mod test_helpers {
                 request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
                 function_runs_by_catalog_entry: imbl::HashMap::new(),
+                resource_placement_index: ResourcePlacementIndex::new(),
                 metrics: InMemoryStoreMetrics::new(),
                 function_runs: imbl::OrdMap::new(),
-                unallocated_function_runs: imbl::OrdSet::new(),
             }
         }
     }
@@ -1547,11 +1718,11 @@ mod tests {
             FunctionRun,
             FunctionRunBuilder,
             FunctionRunFailureReason,
+            FunctionRunKey,
             FunctionRunOutcome,
             FunctionRunStatus,
         },
         in_memory_state_bootstrap,
-        state_store::in_memory_state::FunctionRunKey,
     };
 
     #[test]
@@ -1974,7 +2145,7 @@ mod tests {
             cpu_ms_per_sec: 1000, // 1 core
             memory_mb: 2048,      // 2 GB
             ephemeral_disk_mb: 5000,
-            gpu_configs: vec![],
+            gpu: None,
         };
 
         let mut function_heavy = Function::default();
@@ -1995,7 +2166,7 @@ mod tests {
             cpu_ms_per_sec: 10000, // 10 cores - only fits on large
             memory_mb: 32768,      // 32 GB
             ephemeral_disk_mb: 100000,
-            gpu_configs: vec![],
+            gpu: None,
         };
 
         let mut function_gpu = Function::default();
@@ -2009,10 +2180,10 @@ mod tests {
             cpu_ms_per_sec: 2000,
             memory_mb: 8192,
             ephemeral_disk_mb: 10000,
-            gpu_configs: vec![GPUResources {
+            gpu: Some(GPUResources {
                 count: 1,
                 model: "nvidia-a100".to_string(),
-            }],
+            }),
         };
 
         let mut functions = HashMap::new();

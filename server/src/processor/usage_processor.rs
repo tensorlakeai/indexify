@@ -46,7 +46,7 @@ pub struct AllocationUsage {
     pub cpu_ms_per_second: u32,
     pub memory_mb: u64,
     pub disk_mb: u64,
-    pub gpu_used: Vec<GPUResources>,
+    pub gpu: Option<GPUResources>,
 }
 
 pub struct UsageProcessor {
@@ -147,7 +147,7 @@ impl UsageProcessor {
             cpu_ms_per_second: function.resources.cpu_ms_per_sec,
             memory_mb: function.resources.memory_mb,
             disk_mb: function.resources.ephemeral_disk_mb,
-            gpu_used: function.resources.gpu_configs.clone(),
+            gpu: function.resources.gpu.clone(),
         }))
     }
 
@@ -382,7 +382,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
 
         usage_entries.push(memory_usage);
 
-        if !allocation_usage.gpu_used.is_empty() {
+        if let Some(gpu) = &allocation_usage.gpu {
             let gpu_amount = allocation_usage.execution_duration_ms / 1000;
 
             let mut gpu_usage_builder = ApplicationResourceUsageBuilder::default();
@@ -394,12 +394,9 @@ impl TryFrom<AllocationUsage> for UsageEvent {
                 .amount(gpu_amount);
 
             let mut gpu_models = Vec::new();
-
-            for gpu in allocation_usage.gpu_used.iter() {
-                for _ in 0..gpu.count {
-                    let gpu_model = GpuModel::from(gpu.model.as_str());
-                    gpu_models.push(gpu_model);
-                }
+            for _ in 0..gpu.count {
+                let gpu_model = GpuModel::from(gpu.model.as_str());
+                gpu_models.push(gpu_model);
             }
 
             gpu_usage_builder.resource(ApplicationsResourceType::Gpu(gpu_models));
@@ -407,7 +404,7 @@ impl TryFrom<AllocationUsage> for UsageEvent {
             let gpu_usage = gpu_usage_builder.build()?;
 
             usage_entries.push(gpu_usage);
-        };
+        }
 
         let usage_event = usage_event_builder
             .application_usage(usage_entries)

@@ -292,11 +292,14 @@ impl FunctionRunCreator {
         // Create a function run for each function call that has all the input data
         // payloads available.
         let pending_function_calls = request_ctx.pending_function_calls();
-        scheduler_update.extend(self.create_function_runs(
+
+        // Debug: log existing function runs and their output status
+        let runs_update = self.create_function_runs(
             &mut request_ctx,
             pending_function_calls,
             &application_version,
-        )?);
+        )?;
+        scheduler_update.extend(runs_update);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -396,16 +399,15 @@ impl FunctionRunCreator {
                             data_payload: data_payload.clone(),
                         });
                     }
-                    FunctionArgs::FunctionRunOutput(function_call_id) => {
-                        let Some(function_run) = request_ctx.function_runs.get(&function_call_id)
-                        else {
+                    FunctionArgs::FunctionRunOutput(dep_call_id) => {
+                        let Some(function_run) = request_ctx.function_runs.get(&dep_call_id) else {
                             // Function run is not created yet - it's output can't be available.
                             schedulable = false;
                             break;
                         };
                         if let Some(output) = &function_run.output {
                             input_args.push(InputArgs {
-                                function_call_id: Some(function_call_id.clone()),
+                                function_call_id: Some(dep_call_id.clone()),
                                 data_payload: output.clone(),
                             });
                         } else {

@@ -8,7 +8,6 @@ use std::{
     hash::Hash,
     ops::Deref,
     str,
-    vec,
 };
 
 use anyhow::{Result, anyhow};
@@ -276,10 +275,13 @@ impl FunctionRun {
     }
 
     pub fn key(&self) -> String {
-        format!(
-            "{}|{}|{}|{}",
-            self.namespace, self.application, self.request_id, self.id
+        FunctionRunKey::new(
+            &self.namespace,
+            &self.application,
+            &self.request_id,
+            &self.id.0,
         )
+        .0
     }
 
     pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
@@ -291,6 +293,56 @@ impl FunctionRun {
             self.outcome,
             Some(FunctionRunOutcome::Success) | Some(FunctionRunOutcome::Failure(_))
         )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionRunKey(pub String);
+
+impl FunctionRunKey {
+    pub fn new(namespace: &str, app: &str, request_id: &str, fn_call_id: &str) -> Self {
+        FunctionRunKey(format!("{namespace}|{app}|{request_id}|{fn_call_id}"))
+    }
+}
+
+impl From<&FunctionRun> for FunctionRunKey {
+    fn from(function_run: &FunctionRun) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<Box<FunctionRun>> for FunctionRunKey {
+    fn from(function_run: Box<FunctionRun>) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<&Box<FunctionRun>> for FunctionRunKey {
+    fn from(function_run: &Box<FunctionRun>) -> Self {
+        FunctionRunKey(function_run.key())
+    }
+}
+
+impl From<&Allocation> for FunctionRunKey {
+    fn from(allocation: &Allocation) -> Self {
+        FunctionRunKey::new(
+            &allocation.namespace,
+            &allocation.application,
+            &allocation.request_id,
+            &allocation.function_call_id.0,
+        )
+    }
+}
+
+impl From<&Box<Allocation>> for FunctionRunKey {
+    fn from(allocation: &Box<Allocation>) -> Self {
+        FunctionRunKey::from(allocation.as_ref())
+    }
+}
+
+impl Display for FunctionRunKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -322,8 +374,8 @@ pub struct FunctionResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
-    // The list is ordered from most to least preferred GPU configuration.
-    pub gpu_configs: Vec<GPUResources>,
+    // Single GPU configuration. None if no GPU required.
+    pub gpu: Option<GPUResources>,
 }
 
 impl Default for FunctionResources {
@@ -332,7 +384,7 @@ impl Default for FunctionResources {
             cpu_ms_per_sec: 1000,    // 1 full CPU core
             memory_mb: 1024,         // 1 GB
             ephemeral_disk_mb: 1024, // 1 GB
-            gpu_configs: vec![],     // No GPUs by default
+            gpu: None,               // No GPU by default
         }
     }
 }
@@ -401,6 +453,32 @@ fn default_max_concurrency() -> u32 {
     1
 }
 
+fn default_min_fe_count() -> u32 {
+    0
+}
+
+fn default_max_fe_count() -> u32 {
+    100
+}
+
+/// FE autoscaling configuration per function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionScalingConfig {
+    #[serde(default = "default_min_fe_count")]
+    pub min_fe_count: u32,
+    #[serde(default = "default_max_fe_count")]
+    pub max_fe_count: u32,
+}
+
+impl Default for FunctionScalingConfig {
+    fn default() -> Self {
+        Self {
+            min_fe_count: default_min_fe_count(),
+            max_fe_count: default_max_fe_count(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Function {
     pub name: String,
@@ -427,6 +505,8 @@ pub struct Function {
     pub return_type: Option<serde_json::Value>,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+    #[serde(default)]
+    pub scaling_config: FunctionScalingConfig,
 }
 
 impl Function {
@@ -575,15 +655,15 @@ impl Application {
                 has_cpu = (node.resources.cpu_ms_per_sec / 1000) <= entry.cpu_cores;
                 has_mem = node.resources.memory_mb <= entry.memory_gb * 1024;
                 has_disk = node.resources.ephemeral_disk_mb <= entry.disk_gb * 1024;
-                has_gpu_models = if node.resources.gpu_configs.is_empty() {
-                    true // No GPU required
-                } else {
-                    // Check if any requested GPU matches the catalog entry's GPU model
-                    entry.gpu_model.as_ref().is_some_and(|catalog_gpu| {
-                        node.resources.gpu_configs.iter().any(|gpu| {
-                            gpu.model == catalog_gpu.name && gpu.count <= catalog_gpu.count
+                has_gpu_models = match &node.resources.gpu {
+                    None => true, // No GPU required
+                    Some(required_gpu) => {
+                        // Check if requested GPU matches the catalog entry's GPU model
+                        entry.gpu_model.as_ref().is_some_and(|catalog_gpu| {
+                            required_gpu.model == catalog_gpu.name &&
+                                required_gpu.count <= catalog_gpu.count
                         })
-                    })
+                    }
                 };
 
                 if met_placement_constraints && has_cpu && has_mem && has_disk && has_gpu_models {
@@ -648,14 +728,13 @@ impl Application {
             }
             if !has_gpu_models {
                 return Err(anyhow!(
-                    "function {} is asking for GPU models {}. Not available in any executor catalog entry, current catalog: {}",
+                    "function {} is asking for GPU {}. Not available in any executor catalog entry, current catalog: {}",
                     node.name,
                     node.resources
-                        .gpu_configs
-                        .iter()
-                        .map(|gpu| gpu.model.clone())
-                        .collect::<Vec<String>>()
-                        .join(", "),
+                        .gpu
+                        .as_ref()
+                        .map(|gpu| format!("{}x{}", gpu.count, gpu.model))
+                        .unwrap_or_default(),
                     executor_catalog
                         .entries
                         .iter()
@@ -967,11 +1046,6 @@ pub struct RequestCtx {
     #[builder(default)]
     pub function_runs: HashMap<FunctionCallId, FunctionRun>,
     pub function_calls: HashMap<FunctionCallId, FunctionCall>,
-
-    #[builder(default)]
-    pub child_function_calls: HashMap<String, RequestCtx>, /* Child Request ID ->
-                                                            * Child
-                                                            * RequestCtx */
 }
 
 impl RequestCtxBuilder {
@@ -1335,25 +1409,13 @@ impl HostResources {
 
     // If can't handle, returns error that describes the reason why.
     pub fn can_handle_function_resources(&self, request: &FunctionResources) -> Result<()> {
-        let fe_resources_no_gpu = FunctionExecutorResources {
+        let fe_resources = FunctionExecutorResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
-            gpu: None,
+            gpu: request.gpu.clone(),
         };
-
-        let mut result = self.can_handle_fe_resources(&fe_resources_no_gpu);
-
-        for gpu in &request.gpu_configs {
-            let mut fe_resources_gpu = fe_resources_no_gpu.clone();
-            fe_resources_gpu.gpu = Some(gpu.clone());
-            result = self.can_handle_fe_resources(&fe_resources_gpu);
-            if result.is_ok() {
-                return Ok(());
-            }
-        }
-
-        result
+        self.can_handle_fe_resources(&fe_resources)
     }
 
     pub fn consume_fe_resources(&mut self, request: &FunctionExecutorResources) -> Result<()> {
@@ -1377,31 +1439,14 @@ impl HostResources {
         &mut self,
         request: &FunctionResources,
     ) -> Result<FunctionExecutorResources> {
-        let fe_resources_no_gpu = FunctionExecutorResources {
+        let fe_resources = FunctionExecutorResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
-            gpu: None,
+            gpu: request.gpu.clone(),
         };
-
-        if request.gpu_configs.is_empty() {
-            self.consume_fe_resources(&fe_resources_no_gpu)?;
-            return Ok(fe_resources_no_gpu);
-        }
-
-        for gpu in &request.gpu_configs {
-            let mut fe_resources_gpu = fe_resources_no_gpu.clone();
-            fe_resources_gpu.gpu = Some(gpu.clone());
-            if self.consume_fe_resources(&fe_resources_gpu).is_ok() {
-                return Ok(fe_resources_gpu);
-            }
-        }
-
-        Err(anyhow!(
-            "Function asked for GPUs {:?} but executor only has {:?}",
-            request.gpu_configs,
-            self.gpu
-        ))
+        self.consume_fe_resources(&fe_resources)?;
+        Ok(fe_resources)
     }
 
     pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {

@@ -162,14 +162,15 @@ impl From<FunctionResources> for data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
-            gpu_configs: value
+            // Use only the first GPU config if provided
+            gpu: value
                 .gpu_configs
                 .into_iter()
+                .next()
                 .map(|gpu| data_model::GPUResources {
                     count: gpu.count,
                     model: gpu.model,
-                })
-                .collect(),
+                }),
         }
     }
 }
@@ -180,8 +181,9 @@ impl From<data_model::FunctionResources> for FunctionResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
+            // Convert single GPU back to list for API compatibility
             gpu_configs: value
-                .gpu_configs
+                .gpu
                 .into_iter()
                 .map(|gpu| GPUResources {
                     count: gpu.count,
@@ -195,6 +197,33 @@ impl From<data_model::FunctionResources> for FunctionResources {
 impl Default for FunctionResources {
     fn default() -> Self {
         data_model::FunctionResources::default().into()
+    }
+}
+
+/// HTTP API scaling config - fields are optional, defaults come from data_model
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Default)]
+pub struct FunctionScalingConfig {
+    pub min_containers: Option<u32>,
+    pub max_containers: Option<u32>,
+}
+
+impl FunctionScalingConfig {
+    /// Merge HTTP values with data model defaults
+    pub fn into_data_model(self) -> data_model::FunctionScalingConfig {
+        let defaults = data_model::FunctionScalingConfig::default();
+        data_model::FunctionScalingConfig {
+            min_fe_count: self.min_containers.unwrap_or(defaults.min_fe_count),
+            max_fe_count: self.max_containers.unwrap_or(defaults.max_fe_count),
+        }
+    }
+}
+
+impl From<data_model::FunctionScalingConfig> for FunctionScalingConfig {
+    fn from(value: data_model::FunctionScalingConfig) -> Self {
+        FunctionScalingConfig {
+            min_containers: Some(value.min_fe_count),
+            max_containers: Some(value.max_fe_count),
+        }
     }
 }
 
@@ -344,6 +373,8 @@ pub struct ApplicationFunction {
     pub return_type: Option<serde_json::Value>,
     pub placement_constraints: PlacementConstraints,
     pub max_concurrency: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaling_config: Option<FunctionScalingConfig>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -366,6 +397,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            scaling_config: val.scaling_config.unwrap_or_default().into_data_model(),
         })
     }
 }
@@ -385,6 +417,7 @@ impl From<data_model::Function> for ApplicationFunction {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            scaling_config: Some(c.scaling_config.into()),
         }
     }
 }
@@ -431,6 +464,9 @@ pub struct Function {
     pub placement_constraints: PlacementConstraints,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+    /// Optional scaling config. If not specified, uses defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaling_config: Option<FunctionScalingConfig>,
 }
 
 impl TryFrom<Function> for data_model::Function {
@@ -453,6 +489,7 @@ impl TryFrom<Function> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            scaling_config: val.scaling_config.unwrap_or_default().into_data_model(),
         })
     }
 }
@@ -475,6 +512,7 @@ impl From<data_model::Function> for Function {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            scaling_config: Some(c.scaling_config.into()),
         }
     }
 }

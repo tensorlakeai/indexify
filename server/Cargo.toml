@@ -74,7 +74,6 @@ tonic-types = "0.14.2"
 tokio-util = { version = "0.7.17", features = ["rt"] }
 imbl = "6.1.0"
 
-
 [dev-dependencies]
 tempfile = "3.20.0"
 strum = { version = "0.27.1", features = ["derive"] }

@@ -16,13 +16,15 @@ use crate::{
         FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
+        FunctionRunKey,
         FunctionRunOutcome,
         FunctionRunStatus,
+        FunctionURI,
         RunningFunctionRunStatus,
     },
     processor::retry_policy::FunctionRunRetryPolicy,
     state_store::{
-        in_memory_state::{FunctionRunKey, InMemoryState},
+        in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
@@ -40,6 +42,70 @@ impl FunctionExecutorManager {
         Self { clock, queue_size }
     }
 
+    /// Core FE building logic - shared by both reactive and proactive creation
+    /// paths
+    fn build_function_executor(
+        in_memory_state: &InMemoryState,
+        executor_id: &ExecutorId,
+        fn_uri: &FunctionURI,
+        free_resources: &mut crate::data_model::HostResources,
+    ) -> Result<
+        Option<(
+            FunctionExecutorServerMetadata,
+            crate::data_model::HostResources,
+        )>,
+    > {
+        // Get function resources from application version
+        let Some(node_resources) = in_memory_state.get_fe_resources_by_uri(
+            &fn_uri.namespace,
+            &fn_uri.application,
+            &fn_uri.function,
+            &fn_uri.version,
+        ) else {
+            debug!("function resources not found for FE creation");
+            return Ok(None);
+        };
+
+        // Check if executor has enough resources
+        let fe_resources = match free_resources.consume_function_resources(&node_resources) {
+            Ok(resources) => resources,
+            Err(e) => {
+                debug!(error = %e, "executor doesn't have enough resources for FE creation");
+                return Ok(None);
+            }
+        };
+
+        // Get max concurrency
+        let Some(max_concurrency) = in_memory_state.get_fe_max_concurrency_by_uri(
+            &fn_uri.namespace,
+            &fn_uri.application,
+            &fn_uri.function,
+            &fn_uri.version,
+        ) else {
+            debug!("max concurrency not found for FE creation");
+            return Ok(None);
+        };
+
+        // Build the function executor
+        let function_executor = FunctionExecutorBuilder::default()
+            .namespace(fn_uri.namespace.clone())
+            .application_name(fn_uri.application.clone())
+            .function_name(fn_uri.function.clone())
+            .version(fn_uri.version.clone())
+            .state(FunctionExecutorState::Unknown)
+            .resources(fe_resources)
+            .max_concurrency(max_concurrency)
+            .build()?;
+
+        let fe_server_metadata = FunctionExecutorServerMetadata::new(
+            executor_id.clone(),
+            function_executor,
+            FunctionExecutorState::Running,
+        );
+
+        Ok(Some((fe_server_metadata, free_resources.clone())))
+    }
+
     /// Vacuum phase - identifies function executors that should be terminated
     /// Returns scheduler update for cleanup actions
     #[tracing::instrument(skip_all, target = "scheduler")]
@@ -47,10 +113,11 @@ impl FunctionExecutorManager {
         &self,
         in_memory_state: &mut InMemoryState,
         fe_resource: &FunctionResources,
+        target_function_run: Option<&FunctionRun>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let function_executors_to_mark =
-            in_memory_state.vacuum_function_executors_candidates(fe_resource)?;
+        let function_executors_to_mark = in_memory_state
+            .vacuum_function_executors_candidates(fe_resource, target_function_run)?;
 
         debug!(
             "vacuum phase identified {} function executors to mark for termination",
@@ -79,7 +146,117 @@ impl FunctionExecutorManager {
         Ok(update)
     }
 
-    /// Creates a new function executor for the given function run
+    /// Vacuum idle FEs on a specific executor to free resources for pending
+    /// runs
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = executor_id.get()))]
+    pub fn vacuum_idle_fes(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        executor_id: &ExecutorId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        let Some(executor_state) = in_memory_state.executor_states.get(executor_id) else {
+            return Ok(update);
+        };
+
+        let Some(executor) = in_memory_state.executors.get(executor_id) else {
+            return Ok(update);
+        };
+
+        // Check if there are any pending runs this executor could serve
+        // (if it has an allowlist, only count runs for allowed functions)
+        let has_serviceable_pending_runs = in_memory_state
+            .resource_placement_index
+            .pending_run_keys()
+            .any(|run_key| {
+                if let Some(run) = in_memory_state.function_runs.get(run_key) {
+                    executor
+                        .function_allowlist
+                        .as_ref()
+                        .is_none_or(|allowlist| {
+                            allowlist.iter().any(|allowed| {
+                                allowed
+                                    .namespace
+                                    .as_ref()
+                                    .is_none_or(|ns| ns == &run.namespace) &&
+                                    allowed
+                                        .application
+                                        .as_ref()
+                                        .is_none_or(|app| app == &run.application) &&
+                                    allowed.function.as_ref().is_none_or(|f| f == &run.name)
+                            })
+                        })
+                } else {
+                    false
+                }
+            });
+
+        // Don't vacuum if there's nothing this executor can serve
+        if !has_serviceable_pending_runs {
+            return Ok(update);
+        }
+
+        // Find idle FEs (no running allocations, no pending tasks)
+        for (fe_id, fe_meta) in &executor_state.function_executors {
+            // Skip if already marked for termination
+            if matches!(
+                fe_meta.desired_state,
+                FunctionExecutorState::Terminated { .. }
+            ) {
+                continue;
+            }
+
+            // Check if FE has running allocations
+            let has_running_allocations = in_memory_state
+                .allocations_by_executor
+                .get(executor_id)
+                .and_then(|fe_allocs| fe_allocs.get(fe_id))
+                .map(|allocs| !allocs.is_empty())
+                .unwrap_or(false);
+
+            if has_running_allocations {
+                continue;
+            }
+
+            // Check if there are pending tasks for this FE's function
+            let has_pending_tasks = in_memory_state.has_pending_tasks(fe_meta);
+            if has_pending_tasks {
+                continue;
+            }
+
+            // This FE is idle - mark for termination
+            let mut update_fe = fe_meta.as_ref().clone();
+            update_fe.desired_state = FunctionExecutorState::Terminated {
+                reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                failed_alloc_ids: Vec::new(),
+            };
+            update.new_function_executors.push(update_fe);
+
+            info!(
+                app = fe_meta.function_executor.application_name,
+                fn_name = fe_meta.function_executor.function_name,
+                namespace = fe_meta.function_executor.namespace,
+                fn_executor_id = fe_meta.function_executor.id.get(),
+                executor_id = executor_id.get(),
+                "vacuuming idle FE to free resources"
+            );
+        }
+
+        // Apply the update to free resources
+        if !update.new_function_executors.is_empty() {
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
+                "vacuum_idle_fes",
+            )?;
+        }
+
+        Ok(update)
+    }
+
+    /// Creates a new function executor for the given function run (reactive
+    /// path)
     #[tracing::instrument(skip_all, target = "scheduler", fields(namespace = %fn_run.namespace, request_id = %fn_run.request_id, fn_call_id = %fn_run.id, app = %fn_run.application, fn = %fn_run.name, app_version = %fn_run.version))]
     fn create_function_executor(
         &self,
@@ -89,9 +266,18 @@ impl FunctionExecutorManager {
         let mut update = SchedulerUpdateRequest::default();
         let mut candidates = in_memory_state.candidate_executors(fn_run)?;
         if candidates.is_empty() {
-            debug!("no executors are available to create function executor");
+            info!(
+                fn_name = fn_run.name,
+                namespace = fn_run.namespace,
+                app = fn_run.application,
+                "no executors available, attempting vacuum to free resources"
+            );
             let fe_resource = in_memory_state.fe_resource_for_function_run(fn_run)?;
-            let vacuum_update = self.vacuum(in_memory_state, &fe_resource)?;
+            let vacuum_update = self.vacuum(in_memory_state, &fe_resource, Some(fn_run))?;
+            info!(
+                vacuumed_fes = vacuum_update.new_function_executors.len(),
+                "vacuum completed"
+            );
             update.extend(vacuum_update);
             in_memory_state.update_state(
                 self.clock,
@@ -99,66 +285,58 @@ impl FunctionExecutorManager {
                 "function_executor_manager",
             )?;
             candidates = in_memory_state.candidate_executors(fn_run)?;
+            info!(
+                candidates_after_vacuum = candidates.len(),
+                "candidates available after vacuum"
+            );
         }
+
+        // Filter candidates to respect max_fe_count per executor
+        let fn_uri = FunctionURI {
+            namespace: fn_run.namespace.clone(),
+            application: fn_run.application.clone(),
+            function: fn_run.name.clone(),
+            version: fn_run.version.clone(),
+        };
+        if let Some(config) = in_memory_state.get_scaling_config(&fn_uri) {
+            candidates.retain(|c| {
+                let current_count = in_memory_state
+                    .resource_placement_index
+                    .fe_count_for_function(&c.executor_id, &fn_uri);
+                current_count < config.max_fe_count as usize
+            });
+        }
+
         debug!(
-            "found {} candidates for creating function executor",
+            "found {} candidates for creating function executor (after max_fe_count filter)",
             candidates.len()
         );
 
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
             return Ok(update);
         };
-        let executor_id = candidate.executor_id.clone();
-        let node_resources = in_memory_state
-            .get_fe_resources_by_uri(
-                &fn_run.namespace,
-                &fn_run.application,
-                &fn_run.name,
-                &fn_run.version,
-            )
-            .ok_or(anyhow!("failed to get function executor resources"))?;
 
-        let fe_resources = candidate
-            .free_resources
-            .consume_function_resources(&node_resources)?;
-        // Consume resources from executor
-        update
-            .updated_executor_resources
-            .insert(executor_id.clone(), candidate.free_resources.clone());
-
-        let node_max_concurrency = in_memory_state
-            .get_fe_max_concurrency_by_uri(
-                &fn_run.namespace,
-                &fn_run.application,
-                &fn_run.name,
-                &fn_run.version,
-            )
-            .ok_or(anyhow!("failed to get function executor max concurrency"))?;
-
-        // Create a new function executor
-        let function_executor = FunctionExecutorBuilder::default()
-            .namespace(fn_run.namespace.clone())
-            .application_name(fn_run.application.clone())
-            .function_name(fn_run.name.clone())
-            .version(fn_run.version.clone())
-            .state(FunctionExecutorState::Unknown)
-            .resources(fe_resources.clone())
-            .max_concurrency(node_max_concurrency)
-            .build()?;
+        // Use shared builder
+        let Some((fe_meta, updated_resources)) = Self::build_function_executor(
+            in_memory_state,
+            &candidate.executor_id,
+            &fn_uri,
+            &mut candidate.free_resources,
+        )?
+        else {
+            return Ok(update);
+        };
 
         info!(
-            executor_id = executor_id.get(),
-            fn_executor_id = function_executor.id.get(),
+            executor_id = candidate.executor_id.get(),
+            fn_executor_id = fe_meta.function_executor.id.get(),
             "created function executor"
         );
 
-        // Create with current timestamp for last_allocation_at
-        let fe_server_metadata = FunctionExecutorServerMetadata::new(
-            executor_id.clone(),
-            function_executor,
-            FunctionExecutorState::Running, // Start with Running state
-        );
-        update.new_function_executors.push(fe_server_metadata);
+        update
+            .updated_executor_resources
+            .insert(candidate.executor_id.clone(), updated_resources);
+        update.new_function_executors.push(fe_meta);
 
         in_memory_state.update_state(
             self.clock,
@@ -669,6 +847,122 @@ impl FunctionExecutorManager {
 
         // Reconcile function executors
         update.extend(self.reconcile_function_executors(in_memory_state, &executor)?);
+
+        Ok(update)
+    }
+
+    /// Ensure minimum FEs exist for functions this executor can run.
+    /// Only checks functions in the executor's allowlist (if any).
+    /// O(A) where A = allowlist size (typically small).
+    pub fn ensure_min_fes(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        executor_id: &ExecutorId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        let Some(executor) = in_memory_state.executors.get(executor_id).cloned() else {
+            return Ok(update);
+        };
+
+        // Only process if executor has an allowlist - otherwise reactive path handles
+        // it
+        let Some(allowlist) = &executor.function_allowlist else {
+            return Ok(update);
+        };
+
+        // For each allowlist entry, check if we need to create min FEs
+        for entry in allowlist {
+            // Build FunctionURI from allowlist entry (if fully specified)
+            let (Some(ns), Some(app), Some(func), Some(ver)) = (
+                entry.namespace.as_ref(),
+                entry.application.as_ref(),
+                entry.function.as_ref(),
+                entry.version.as_ref(),
+            ) else {
+                // Skip wildcard entries - can't determine specific function
+                continue;
+            };
+
+            let fn_uri = FunctionURI {
+                namespace: ns.clone(),
+                application: app.clone(),
+                function: func.clone(),
+                version: ver.clone(),
+            };
+
+            // Get scaling config for this function
+            let Some(config) = in_memory_state.get_scaling_config(&fn_uri) else {
+                continue;
+            };
+
+            // Skip if no minimum required
+            if config.min_fe_count == 0 {
+                continue;
+            }
+
+            // Check global FE count
+            let global_count = in_memory_state
+                .resource_placement_index
+                .total_fe_count_for_function(&fn_uri) as u32;
+
+            if global_count >= config.min_fe_count {
+                continue;
+            }
+
+            // Need to create FEs - try to create on this executor
+            let needed = config.min_fe_count - global_count;
+            debug!(
+                executor_id = executor_id.get(),
+                fn_uri = %fn_uri,
+                global_count,
+                min_fe_count = config.min_fe_count,
+                needed,
+                "creating min FEs for function"
+            );
+
+            for _ in 0..needed {
+                // Get executor state for resources
+                let Some(executor_state) =
+                    in_memory_state.executor_states.get(executor_id).cloned()
+                else {
+                    break;
+                };
+
+                let mut free_resources = executor_state.free_resources.clone();
+                let Some((fe_meta, updated_resources)) = Self::build_function_executor(
+                    in_memory_state,
+                    executor_id,
+                    &fn_uri,
+                    &mut free_resources,
+                )?
+                else {
+                    // No resources available
+                    break;
+                };
+
+                info!(
+                    executor_id = executor_id.get(),
+                    fn_executor_id = fe_meta.function_executor.id.get(),
+                    fn_uri = %fn_uri,
+                    "created min FE for function"
+                );
+
+                // Apply immediately so resource tracking updates
+                let mut fe_update = SchedulerUpdateRequest::default();
+                fe_update
+                    .updated_executor_resources
+                    .insert(executor_id.clone(), updated_resources);
+                fe_update.new_function_executors.push(fe_meta);
+
+                in_memory_state.update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate((Box::new(fe_update.clone()), vec![])),
+                    "function_executor_manager_min_fe",
+                )?;
+                update.extend(fe_update);
+            }
+        }
 
         Ok(update)
     }
