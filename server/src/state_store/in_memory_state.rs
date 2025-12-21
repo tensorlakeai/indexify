@@ -337,6 +337,9 @@ impl InMemoryState {
             in_memory_state.index_function_run_by_catalog(&function_run);
         }
 
+        // Populate the resource placement index for pending runs
+        in_memory_state.populate_placement_index();
+
         info!(
             "completed in-memory state initialization from state store at clock {}",
             clock
@@ -1463,7 +1466,8 @@ impl InMemoryState {
     }
 
     pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
-        let mut cloned = InMemoryState {
+        // All fields use COW data structures (imbl), so clone is O(1)
+        let cloned = InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             applications: self.applications.clone(),
@@ -1475,13 +1479,11 @@ impl InMemoryState {
             function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
-            // ResourcePlacementIndex is rebuilt from existing data
-            resource_placement_index: ResourcePlacementIndex::new(),
+            // ResourcePlacementIndex now uses imbl, so clone is O(1) COW
+            resource_placement_index: self.resource_placement_index.clone(),
             metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
         };
-        // Populate the spatial index from existing unallocated runs and executors
-        cloned.populate_placement_index();
         Arc::new(tokio::sync::RwLock::new(cloned))
     }
 

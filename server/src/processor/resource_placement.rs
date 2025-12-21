@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use rstar::{AABB, RTree, RTreeObject};
 use tracing::debug;
 
 use crate::data_model::{
@@ -50,30 +49,11 @@ impl PendingRunPoint {
             created_at_ns,
         }
     }
-
-    fn gpu_count(&self) -> u32 {
-        self.gpu.as_ref().map(|g| g.count).unwrap_or(0)
-    }
 }
 
 impl PartialEq for PendingRunPoint {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
-    }
-}
-
-impl RTreeObject for PendingRunPoint {
-    type Envelope = AABB<[i64; 4]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        // Represent this point as a zero-volume bounding box
-        let point = [
-            self.cpu_ms as i64,
-            self.memory_bytes as i64,
-            self.disk_bytes as i64,
-            self.gpu_count() as i64,
-        ];
-        AABB::from_point(point)
     }
 }
 
@@ -102,24 +82,44 @@ impl TrackedFE {
 /// Key for FE grouping: (executor, function)
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExecutorFunctionKey {
-    pub executor_id: ExecutorId,
-    pub fn_uri: FunctionURI,
+    executor_id: ExecutorId,
+    fn_uri: FunctionURI,
 }
 
-#[derive(Debug, Default)]
+/// Composite key for sorted pending runs index.
+/// Sorted by (cpu_ms, created_at_ns, run_key) for efficient range queries.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct PendingRunSortKey {
+    cpu_ms: u32,
+    created_at_ns: u64,
+    key: FunctionRunKey,
+}
+
+/// Resource placement index using imbl collections for O(1) clone
+/// (copy-on-write).
+///
+/// Uses sorted index by CPU for range queries - most runs are CPU-constrained,
+/// so filtering by CPU first then checking other dimensions is efficient.
+#[derive(Clone, Debug, Default)]
 pub struct ResourcePlacementIndex {
-    pending_tree: RTree<PendingRunPoint>,
+    // Primary index: sorted by CPU for range queries
+    // Key: (cpu_ms, created_at_ns, run_key) for unique ordering
+    pending_by_cpu: imbl::OrdMap<PendingRunSortKey, PendingRunPoint>,
 
-    pending_by_key: HashMap<FunctionRunKey, PendingRunPoint>,
+    // Secondary index for O(1) lookup by key
+    pending_by_key: imbl::HashMap<FunctionRunKey, PendingRunSortKey>,
 
-    pending_by_fn_uri: HashMap<FunctionURI, HashSet<FunctionRunKey>>,
+    // Secondary index: runs by function URI
+    pending_by_fn_uri: imbl::HashMap<FunctionURI, imbl::HashSet<FunctionRunKey>>,
 
-    executors: HashMap<ExecutorId, TrackedExecutor>,
+    // Executor tracking
+    executors: imbl::HashMap<ExecutorId, TrackedExecutor>,
 
-    fes_by_id: HashMap<FunctionExecutorId, TrackedFE>,
-    fes_by_executor_function: HashMap<ExecutorFunctionKey, HashSet<FunctionExecutorId>>,
-    fes_by_fn_uri: HashMap<FunctionURI, HashSet<FunctionExecutorId>>,
-    idle_fes_by_executor: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
+    // FE tracking for autoscaling
+    fes_by_id: imbl::HashMap<FunctionExecutorId, TrackedFE>,
+    fes_by_executor_function: imbl::HashMap<ExecutorFunctionKey, imbl::HashSet<FunctionExecutorId>>,
+    fes_by_fn_uri: imbl::HashMap<FunctionURI, imbl::HashSet<FunctionExecutorId>>,
+    idle_fes_by_executor: imbl::HashMap<ExecutorId, imbl::HashSet<FunctionExecutorId>>,
 }
 
 impl ResourcePlacementIndex {
@@ -143,35 +143,41 @@ impl ResourcePlacementIndex {
             "adding pending run to placement index"
         );
 
-        // Add to secondary index
+        let sort_key = PendingRunSortKey {
+            cpu_ms: point.cpu_ms,
+            created_at_ns: point.created_at_ns,
+            key: point.key.clone(),
+        };
+
+        // Add to secondary index by function
         self.pending_by_fn_uri
             .entry(point.fn_uri.clone())
             .or_default()
             .insert(point.key.clone());
 
-        // Add to reverse lookup
-        self.pending_by_key.insert(point.key.clone(), point.clone());
+        // Add to key lookup
+        self.pending_by_key
+            .insert(point.key.clone(), sort_key.clone());
 
-        // Add to R-Tree
-        self.pending_tree.insert(point);
+        // Add to sorted index
+        self.pending_by_cpu.insert(sort_key, point);
     }
 
     pub fn remove_pending_run(&mut self, run_key: &FunctionRunKey) -> Option<PendingRunPoint> {
-        let point = self.pending_by_key.remove(run_key)?;
+        let sort_key = self.pending_by_key.remove(run_key)?;
+        let point = self.pending_by_cpu.remove(&sort_key)?;
 
         debug!(
             run_key = %run_key,
             "removing pending run from placement index"
         );
 
-        if let Some(keys) = self.pending_by_fn_uri.get_mut(&point.fn_uri) {
+        if let Some(mut keys) = self.pending_by_fn_uri.remove(&point.fn_uri) {
             keys.remove(run_key);
-            if keys.is_empty() {
-                self.pending_by_fn_uri.remove(&point.fn_uri);
+            if !keys.is_empty() {
+                self.pending_by_fn_uri.insert(point.fn_uri.clone(), keys);
             }
         }
-
-        self.pending_tree.remove(&point);
 
         Some(point)
     }
@@ -205,7 +211,6 @@ impl ResourcePlacementIndex {
         self.executors.remove(executor_id);
 
         // Remove all FEs for this executor from tracking
-        // Collect FE IDs to remove (can't modify while iterating)
         let fe_ids_to_remove: Vec<_> = self
             .fes_by_id
             .iter()
@@ -217,7 +222,6 @@ impl ResourcePlacementIndex {
             self.remove_fe(&fe_id);
         }
 
-        // Also clean up the idle tracking for this executor
         self.idle_fes_by_executor.remove(executor_id);
     }
 
@@ -231,47 +235,62 @@ impl ResourcePlacementIndex {
         };
 
         let free = &executor.free_resources;
-        let max_gpu = free.gpu.as_ref().map(|g| g.count as i64).unwrap_or(0);
-        let query_box = AABB::from_corners(
-            [0, 0, 0, 0],
-            [
-                free.cpu_ms_per_sec as i64,
-                free.memory_bytes as i64,
-                free.disk_bytes as i64,
-                max_gpu,
-            ],
-        );
 
         debug!(
             free_cpu = free.cpu_ms_per_sec,
             free_memory = free.memory_bytes,
             free_disk = free.disk_bytes,
-            free_gpu = max_gpu,
             total_pending = self.pending_by_key.len(),
-            "querying R-Tree for matching runs"
+            "querying index for matching runs"
         );
 
+        // Create upper bound key for range query
+        // We want all runs with cpu_ms <= free.cpu_ms_per_sec
+        let upper_bound = PendingRunSortKey {
+            cpu_ms: free.cpu_ms_per_sec + 1, // exclusive upper bound
+            created_at_ns: 0,
+            key: FunctionRunKey::new("", "", "", ""),
+        };
+
+        // Range query: get all runs with CPU <= capacity, then filter by other
+        // dimensions
         let mut results: Vec<_> = self
-            .pending_tree
-            .locate_in_envelope(&query_box)
+            .pending_by_cpu
+            .range(..upper_bound)
+            .map(|(_, point)| point)
             .filter(|point| self.matches_constraints(point, executor))
             .cloned()
             .collect();
 
-        debug!(matches_found = results.len(), "R-Tree query completed");
+        debug!(matches_found = results.len(), "index query completed");
 
-        results.sort_by_key(|p| p.created_at_ns);
+        // Already sorted by (cpu_ms, created_at_ns) due to OrdMap ordering
+        // Just need to truncate
         results.truncate(limit);
         results
     }
 
     fn matches_constraints(&self, point: &PendingRunPoint, executor: &TrackedExecutor) -> bool {
+        let free = &executor.free_resources;
+
+        // Check memory
+        if point.memory_bytes > free.memory_bytes {
+            return false;
+        }
+
+        // Check disk
+        if point.disk_bytes > free.disk_bytes {
+            return false;
+        }
+
+        // Check placement constraints
         if !point.placement_constraints.matches(&executor.labels) {
             return false;
         }
 
+        // Check GPU requirements
         if let Some(required_gpu) = &point.gpu {
-            let Some(executor_gpu) = &executor.free_resources.gpu else {
+            let Some(executor_gpu) = &free.gpu else {
                 return false;
             };
 
@@ -283,7 +302,6 @@ impl ResourcePlacementIndex {
         true
     }
 
-    /// Get pending runs for a specific function. O(1) lookup + O(K) iteration.
     pub fn get_runs_for_function(&self, fn_uri: &FunctionURI) -> Vec<FunctionRunKey> {
         self.pending_by_fn_uri
             .get(fn_uri)
@@ -291,7 +309,6 @@ impl ResourcePlacementIndex {
             .unwrap_or_default()
     }
 
-    /// Check if a run is pending. O(1)
     #[cfg(test)]
     pub fn is_pending(&self, run_key: &FunctionRunKey) -> bool {
         self.pending_by_key.contains_key(run_key)
@@ -322,7 +339,6 @@ impl ResourcePlacementIndex {
             .entry(key)
             .or_default()
             .insert(fe.fe_id.clone());
-        // Track globally by function URI (for min_fe_count)
         self.fes_by_fn_uri
             .entry(fe.fn_uri.clone())
             .or_default()
@@ -344,37 +360,50 @@ impl ResourcePlacementIndex {
             executor_id: fe.executor_id.clone(),
             fn_uri: fe.fn_uri.clone(),
         };
-        if let Some(fes) = self.fes_by_executor_function.get_mut(&key) {
+
+        if let Some(mut fes) = self.fes_by_executor_function.remove(&key) {
             fes.remove(fe_id);
-            if fes.is_empty() {
-                self.fes_by_executor_function.remove(&key);
+            if !fes.is_empty() {
+                self.fes_by_executor_function.insert(key, fes);
             }
         }
-        // Clean up global function URI index
-        if let Some(fes) = self.fes_by_fn_uri.get_mut(&fe.fn_uri) {
+
+        if let Some(mut fes) = self.fes_by_fn_uri.remove(&fe.fn_uri) {
             fes.remove(fe_id);
-            if fes.is_empty() {
-                self.fes_by_fn_uri.remove(&fe.fn_uri);
+            if !fes.is_empty() {
+                self.fes_by_fn_uri.insert(fe.fn_uri.clone(), fes);
             }
         }
-        if let Some(idle) = self.idle_fes_by_executor.get_mut(&fe.executor_id) {
+
+        if let Some(mut idle) = self.idle_fes_by_executor.remove(&fe.executor_id) {
             idle.remove(fe_id);
-            if idle.is_empty() {
-                self.idle_fes_by_executor.remove(&fe.executor_id);
+            if !idle.is_empty() {
+                self.idle_fes_by_executor
+                    .insert(fe.executor_id.clone(), idle);
             }
         }
     }
 
     pub fn update_fe_allocation_count(&mut self, fe_id: &FunctionExecutorId, count: u32) {
-        let Some(fe) = self.fes_by_id.get_mut(fe_id) else {
+        let Some(fe) = self.fes_by_id.get(fe_id).cloned() else {
             return;
         };
         let was_idle = fe.is_idle();
-        fe.allocation_count = count;
-        let is_idle = fe.is_idle();
+
+        // Update the FE
+        let mut updated_fe = fe.clone();
+        updated_fe.allocation_count = count;
+        let is_idle = updated_fe.is_idle();
+        self.fes_by_id.insert(fe_id.clone(), updated_fe);
+
+        // Update idle tracking
         if was_idle && !is_idle {
-            if let Some(idle) = self.idle_fes_by_executor.get_mut(&fe.executor_id) {
+            if let Some(mut idle) = self.idle_fes_by_executor.remove(&fe.executor_id) {
                 idle.remove(fe_id);
+                if !idle.is_empty() {
+                    self.idle_fes_by_executor
+                        .insert(fe.executor_id.clone(), idle);
+                }
             }
         } else if !was_idle && is_idle {
             self.idle_fes_by_executor
@@ -607,5 +636,28 @@ mod tests {
         let mut index = ResourcePlacementIndex::new();
         let result = index.remove_pending_run(&make_run_key("nonexistent"));
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_clone_is_independent() {
+        let mut index = ResourcePlacementIndex::new();
+        index.add_pending_run(make_point("call1", 1000, 2048, 1024, 0));
+
+        // Clone the index
+        let mut cloned = index.clone();
+
+        // Modify original
+        index.add_pending_run(make_point("call2", 1000, 2048, 1024, 0));
+
+        // Clone should NOT see the new run (COW semantics)
+        assert_eq!(index.pending_count(), 2);
+        assert_eq!(cloned.pending_count(), 1);
+
+        // Modify clone
+        cloned.remove_pending_run(&make_run_key("call1"));
+
+        // Original should still have call1
+        assert!(index.is_pending(&make_run_key("call1")));
+        assert!(!cloned.is_pending(&make_run_key("call1")));
     }
 }
