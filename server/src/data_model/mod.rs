@@ -302,9 +302,7 @@ pub struct FunctionRunKey(pub String);
 impl FunctionRunKey {
     pub fn new(namespace: &str, app: &str, request_id: &str, fn_call_id: &str) -> Self {
         FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            namespace, app, request_id, fn_call_id
-        ))
+            "{namespace}|{app}|{request_id}|{fn_call_id}"))
     }
 }
 
