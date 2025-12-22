@@ -5,6 +5,7 @@ use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
+pub use proto_api::descriptor as executor_api_descriptor;
 use tokio::{self, signal, sync::watch};
 use tonic::transport::Server;
 use tower_http::{
@@ -32,11 +33,6 @@ use crate::{
     routes_v1::configure_v1_routes,
     state_store::IndexifyState,
 };
-
-pub mod executor_api_descriptor {
-    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("executor_api_descriptor");
-}
 
 fn otel_axum_filter(path: &str) -> bool {
     path.starts_with("/healthz") || path.starts_with("/docs") || path.starts_with("/ui")

@@ -1914,6 +1914,7 @@ dependencies = [
  "priority-queue",
  "prost",
  "prost-types",
+ "proto-api",
  "rand 0.9.2",
  "rocksdb",
  "rust-embed",
@@ -1930,7 +1931,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tonic-reflection",
  "tonic-types",
  "tower-http",
@@ -2742,6 +2742,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
  "prost",
+]
+
+[[package]]
+name = "proto-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]
