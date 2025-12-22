@@ -89,8 +89,6 @@ pub struct ApiDoc;
 
 pub fn configure_internal_routes(route_state: RouteState) -> Router {
     Router::new()
-        .merge(SwaggerUi::new("/docs/internal/swagger").url("/docs/internal/openapi.json", ApiDoc::openapi()))
-        .route("/", get(index))
         .route(
             "/namespaces",
             get(namespaces).with_state(route_state.clone()),
@@ -139,7 +137,19 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/applications/{application}/versions/{version}",
             get(get_application_by_version).with_state(route_state.clone()),
         )
-        .route("/healthz", get(healthz_handler).with_state(route_state.clone()))
+}
+
+pub fn configure_helper_router(route_state: RouteState) -> Router {
+    Router::new()
+        .merge(
+            SwaggerUi::new("/docs/internal/swagger")
+                .url("/docs/internal/openapi.json", ApiDoc::openapi()),
+        )
+        .route("/", get(index))
+        .route(
+            "/healthz",
+            get(healthz_handler).with_state(route_state.clone()),
+        )
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
 }
