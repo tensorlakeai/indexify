@@ -130,6 +130,7 @@ impl FunctionRunCreator {
             application = alloc_finished_event.application,
             request_id = alloc_finished_event.request_id,
             fn = alloc_finished_event.function,
+            fn_run_id = alloc_finished_event.function_call_id.to_string(),
             allocation_id = alloc_finished_event.allocation.id.to_string(),
             "handling allocation ingestion",
         );
