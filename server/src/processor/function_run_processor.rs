@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use opentelemetry::metrics::Histogram;
-use tracing::{debug, error, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     data_model::{
@@ -186,7 +186,15 @@ impl<'a> FunctionRunProcessor<'a> {
             .outcome(FunctionRunOutcome::Unknown)
             .build()?;
 
-        debug!(allocation_id = %allocation.id, "created allocation");
+        info!(
+            allocation_id = %allocation.id,
+            fn_run_id = function_run.id.to_string(),
+            request_id = function_run.request_id,
+            namespace = function_run.namespace,
+            app = function_run.application,
+            fn = function_run.name,
+            "created allocation",
+        );
 
         let mut updated_function_run = function_run.clone();
         updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
