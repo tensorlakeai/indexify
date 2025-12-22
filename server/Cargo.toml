@@ -49,9 +49,8 @@ opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trac
 axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
 base64 = "0.22.1"
 tonic = "0.14.2"
-prost = "0.14.1"
-tonic-prost = "0.14.2"
 tonic-reflection = "0.14.2"
+proto-api = { path = "../crates/proto-api" }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 priority-queue = "2.6.0"
 rust-embed = { version = "8.8.0", features = ["mime-guess"] }
@@ -91,7 +90,6 @@ criterion = { version = "0.8", features = ["html_reports"] }
 anyhow = "1.0.98"
 # All features enabled
 vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
-tonic-prost-build = "0.14.2"
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
