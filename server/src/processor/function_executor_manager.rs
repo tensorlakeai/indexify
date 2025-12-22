@@ -369,6 +369,7 @@ impl FunctionExecutorManager {
                         allocation_outcome = updated_alloc.outcome.to_string(),
                         fn_run_status = function_run.status.to_string(),
                         fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
+                        fn_run_id = function_run.id.to_string(),
                         blame_allocation_id = blame_alloc_ids.contains(&updated_alloc.id.to_string()),
                         termination_reason = termination_reason.to_string(),
                         "function executor terminated, updating allocation outcome",
@@ -391,6 +392,7 @@ impl FunctionExecutorManager {
                         allocation_outcome = updated_alloc.outcome.to_string(),
                         fn_run_status = function_run.status.to_string(),
                         fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
+                        fn_run_id = function_run.id.to_string(),
                         "function executor is being removed, cancelling allocation",
                     );
                     update.updated_allocations.push(updated_alloc);
@@ -403,6 +405,7 @@ impl FunctionExecutorManager {
                     fn = function_run.name.clone(),
                     fn_run_status = function_run.status.to_string(),
                     fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
+                    fn_run_id = function_run.id.to_string(),
                     "updating function run to request context because function executor is being removed",
                 );
 
