@@ -6,14 +6,16 @@ use crate::{
     state_store::in_memory_state::FunctionCallOutcome,
 };
 
-pub fn string_to_data_payload_encoding(value: &str) -> executor_api_pb::DataPayloadEncoding {
-    match value {
-        "application/json" => executor_api_pb::DataPayloadEncoding::Utf8Json,
-        "application/python-pickle" => executor_api_pb::DataPayloadEncoding::BinaryPickle,
-        "application/zip" => executor_api_pb::DataPayloadEncoding::BinaryZip,
-        "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
-        // User supplied content type for tensorlake.File.
-        _ => executor_api_pb::DataPayloadEncoding::Raw,
+impl From<String> for executor_api_pb::DataPayloadEncoding {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "application/json" => executor_api_pb::DataPayloadEncoding::Utf8Json,
+            "application/python-pickle" => executor_api_pb::DataPayloadEncoding::BinaryPickle,
+            "application/zip" => executor_api_pb::DataPayloadEncoding::BinaryZip,
+            "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
+            // User supplied content type for tensorlake.File.
+            _ => executor_api_pb::DataPayloadEncoding::Raw,
+        }
     }
 }
 
@@ -68,7 +70,7 @@ pub fn fn_call_outcome_to_pb(
         .clone()
         .map(|return_value| {
             // TODO Eugene - Can you check this conversion is correct?
-            let encoding = string_to_data_payload_encoding(&return_value.encoding);
+            let encoding: executor_api_pb::DataPayloadEncoding = return_value.encoding.into();
             executor_api_pb::DataPayload {
                 uri: Some(blob_store_path_to_url(
                     &return_value.path,
@@ -91,7 +93,7 @@ pub fn fn_call_outcome_to_pb(
         .request_error
         .clone()
         .map(|request_error| {
-            let encoding = string_to_data_payload_encoding(&request_error.encoding);
+            let encoding: executor_api_pb::DataPayloadEncoding = request_error.encoding.into();
             executor_api_pb::DataPayload {
                 uri: Some(blob_store_path_to_url(
                     &request_error.path,
