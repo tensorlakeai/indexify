@@ -97,6 +97,7 @@ class AllocationOutput:
             outcome_code=AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
             failure_reason=AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
             fe_result=None,
+            function_outputs_blob_uri=None,
             execution_duration_ms=execution_duration_ms,
         )
 

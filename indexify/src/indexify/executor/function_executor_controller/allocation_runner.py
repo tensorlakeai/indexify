@@ -134,6 +134,9 @@ from .metrics.allocation_runner import (
     metric_allocation_runner_allocation_run_latency,
     metric_allocation_runner_allocation_runs,
     metric_allocation_runner_allocation_runs_in_progress,
+    metric_call_function_rpc_errors,
+    metric_call_function_rpc_latency,
+    metric_call_function_rpcs,
     metric_function_call_message_size_mb,
 )
 
@@ -1048,12 +1051,17 @@ class AllocationRunner:
             ),
         )
         async def _call_function_rpc() -> None:
-            ExecutorAPIStub(
-                await self._channel_manager.get_shared_channel()
-            ).call_function(
-                server_function_call_request,
-                timeout=SERVER_RPC_TIMEOUT_SEC,
-            )
+            with (
+                metric_call_function_rpc_errors.count_exceptions(),
+                metric_call_function_rpc_latency.time(),
+            ):
+                metric_call_function_rpcs.inc()
+                ExecutorAPIStub(
+                    await self._channel_manager.get_shared_channel()
+                ).call_function(
+                    server_function_call_request,
+                    timeout=SERVER_RPC_TIMEOUT_SEC,
+                )
 
         try:
             await _call_function_rpc()

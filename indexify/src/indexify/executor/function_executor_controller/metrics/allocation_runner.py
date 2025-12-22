@@ -2,6 +2,7 @@ import prometheus_client
 
 from indexify.executor.monitoring.metrics import (
     latency_metric_for_customer_controlled_operation,
+    latency_metric_for_fast_operation,
 )
 
 metric_allocation_runner_allocation_runs: prometheus_client.Counter = (
@@ -33,6 +34,21 @@ metric_allocation_runner_allocation_run_latency: prometheus_client.Histogram = (
     latency_metric_for_customer_controlled_operation(
         "allocation_run",
         "Run allocation on Function Executor",
+    )
+)
+
+# Server call_function RPC metrics.
+metric_call_function_rpcs = prometheus_client.Counter(
+    "call_function_rpcs",
+    "Number of Executor call function RPCs to Server",
+)
+metric_call_function_rpc_errors = prometheus_client.Counter(
+    "call_function_rpc_errors",
+    "Number of Executor to Server call function RPC errors",
+)
+metric_call_function_rpc_latency: prometheus_client.Histogram = (
+    latency_metric_for_fast_operation(
+        "call_function_rpc", "Executor call function rpc to Server"
     )
 )
 
