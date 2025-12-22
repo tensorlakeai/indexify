@@ -27,9 +27,8 @@ Consider providing screenshots, logs, code or other visual aids to help the revi
 
 ## Contribution Checklist
 
-- [ ] If a Python package was changed, please run `make fmt` in the package directory.
-- [ ] If the server was changed, please run `make fmt` in `server/`.
-- [ ] Make sure all PR Checks are passing.
+- [ ] I ran `just fmt` to format the code.
+- [ ] All PR Checks are passing.
 <!--
 Notes:
 

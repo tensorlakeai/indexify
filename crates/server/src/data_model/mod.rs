@@ -769,10 +769,11 @@ impl DataPayload {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RequestOutcome {
     #[serde(alias = "Unknown")]
+    #[default]
     Unknown,
     #[serde(alias = "Success")]
     Success,
@@ -780,17 +781,11 @@ pub enum RequestOutcome {
     Failure(RequestFailureReason),
 }
 
-impl Default for RequestOutcome {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
 impl From<FunctionRunOutcome> for RequestOutcome {
     fn from(outcome: FunctionRunOutcome) -> Self {
         match outcome {
             FunctionRunOutcome::Success => RequestOutcome::Success,
-            FunctionRunOutcome::Failure(failure_reason) => {
+            FunctionRunOutcome::Failure(ref failure_reason) => {
                 RequestOutcome::Failure(failure_reason.into())
             }
             FunctionRunOutcome::Unknown => RequestOutcome::Unknown,
@@ -812,11 +807,12 @@ impl Display for RequestOutcome {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
     // Used when request didn't finish yet and when request finished successfully
     #[serde(alias = "Unknown")]
+    #[default]
     Unknown,
     // Internal error on Executor aka platform error.
     #[serde(alias = "InternalError")]
@@ -857,14 +853,8 @@ impl Display for RequestFailureReason {
     }
 }
 
-impl Default for RequestFailureReason {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
-impl From<FunctionRunFailureReason> for RequestFailureReason {
-    fn from(failure_reason: FunctionRunFailureReason) -> Self {
+impl From<&FunctionRunFailureReason> for RequestFailureReason {
+    fn from(failure_reason: &FunctionRunFailureReason) -> Self {
         match failure_reason {
             FunctionRunFailureReason::Unknown => RequestFailureReason::Unknown,
             FunctionRunFailureReason::InternalError => RequestFailureReason::InternalError,
@@ -1038,7 +1028,7 @@ impl RequestCtx {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FunctionRunOutcome {
     #[default]
     Unknown,
@@ -1060,8 +1050,9 @@ impl Display for FunctionRunOutcome {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub enum FunctionRunFailureReason {
+    #[default]
     Unknown,
     // Internal error on Executor aka platform error.
     InternalError,
@@ -1103,12 +1094,6 @@ impl Display for FunctionRunFailureReason {
     }
 }
 
-impl Default for FunctionRunFailureReason {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
 impl FunctionRunFailureReason {
     pub fn is_retriable(&self) -> bool {
         // RequestError and RetryLimitExceeded are not retriable;
@@ -1124,7 +1109,7 @@ impl FunctionRunFailureReason {
         )
     }
 
-    pub fn should_count_against_function_run_retry_attempts(self) -> bool {
+    pub fn should_count_against_function_run_retry_attempts(&self) -> bool {
         // Explicit platform decisions and provable infrastructure
         // failures don't count against retry attempts; everything
         // else counts against retry attempts.
@@ -1146,20 +1131,15 @@ pub struct RunningFunctionRunStatus {
     pub allocation_id: AllocationId,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub enum FunctionRunStatus {
     /// Function run is waiting for execution
     Pending,
     /// Function run is running
     Running(RunningFunctionRunStatus),
     /// Function run is completed
+    #[default]
     Completed,
-}
-
-impl Default for FunctionRunStatus {
-    fn default() -> Self {
-        Self::Completed
-    }
 }
 
 impl Display for FunctionRunStatus {
@@ -1516,8 +1496,8 @@ pub enum FunctionExecutorTerminationReason {
     Oom,
 }
 
-impl From<FunctionExecutorTerminationReason> for FunctionRunFailureReason {
-    fn from(reason: FunctionExecutorTerminationReason) -> Self {
+impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
+    fn from(reason: &FunctionExecutorTerminationReason) -> Self {
         match reason {
             FunctionExecutorTerminationReason::Unknown => {
                 FunctionRunFailureReason::FunctionExecutorTerminated

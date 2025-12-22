@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "server",
+    "crates/proto-api",
+    "crates/server",
 ]
 resolver = "2"

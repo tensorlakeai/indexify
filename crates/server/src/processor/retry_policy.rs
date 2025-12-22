@@ -16,7 +16,7 @@ impl FunctionRunRetryPolicy {
     /// reason, updating the task accordingly.
     fn handle_allocation_failure(
         run: &mut FunctionRun,
-        alloc_failure_reason: FunctionRunFailureReason,
+        alloc_failure_reason: &FunctionRunFailureReason,
         application_version: &ApplicationVersion,
     ) {
         let uses_attempt = alloc_failure_reason.should_count_against_function_run_retry_attempts();
@@ -32,7 +32,7 @@ impl FunctionRunRetryPolicy {
         }
 
         run.status = FunctionRunStatus::Completed;
-        run.outcome = Some(FunctionRunOutcome::Failure(alloc_failure_reason));
+        run.outcome = Some(FunctionRunOutcome::Failure(alloc_failure_reason.clone()));
     }
 
     /// Determines if a task should be retried based on allocation
@@ -43,10 +43,10 @@ impl FunctionRunRetryPolicy {
         allocation: &Allocation,
         application_version: &ApplicationVersion,
     ) {
-        match allocation.outcome {
+        match &allocation.outcome {
             FunctionRunOutcome::Success => {
                 run.status = FunctionRunStatus::Completed;
-                run.outcome = Some(allocation.outcome);
+                run.outcome = Some(allocation.outcome.clone());
             }
             FunctionRunOutcome::Failure(failure_reason) => {
                 // Handle allocation failure

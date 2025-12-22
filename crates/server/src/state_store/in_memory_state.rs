@@ -482,7 +482,7 @@ impl InMemoryState {
                                     .function_runs
                                     .entry(FunctionRunKey(function_run.key()))
                                     .and_modify(|existing_function_run| {
-                                        *existing_function_run = Box::new(function_run.clone());
+                                        **existing_function_run = function_run.clone();
                                     });
                             }
                         }
@@ -1220,15 +1220,18 @@ impl InMemoryState {
                 );
                 continue;
             };
-            let failure_reason = match function_run.outcome {
-                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason),
+            let failure_reason = match &function_run.outcome {
+                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
                 _ => None,
             };
             function_call_outcomes.push(FunctionCallOutcome {
                 namespace: function_run.namespace.clone(),
                 request_id: function_run.request_id.clone(),
                 function_call_id: function_run.id.clone(),
-                outcome: function_run.outcome.unwrap_or(FunctionRunOutcome::Unknown),
+                outcome: function_run
+                    .outcome
+                    .clone()
+                    .unwrap_or(FunctionRunOutcome::Unknown),
                 failure_reason,
                 return_value: function_run.output.clone(),
                 request_error: function_run.request_error.clone(),

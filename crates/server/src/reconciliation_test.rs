@@ -10,6 +10,7 @@ mod tests {
             FunctionAllowlist,
             FunctionExecutorState,
             FunctionExecutorTerminationReason,
+            FunctionRunFailureReason,
             FunctionRunOutcome,
             test_objects::tests::{
                 TEST_EXECUTOR_ID,
@@ -249,7 +250,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
+        let task_failure_reason = FunctionRunFailureReason::from(&reason);
         assert!(task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;
@@ -464,7 +465,7 @@ mod tests {
         reason: FunctionExecutorTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
-        let task_failure_reason: crate::data_model::FunctionRunFailureReason = reason.into();
+        let task_failure_reason = FunctionRunFailureReason::from(&reason);
         assert!(!task_failure_reason.should_count_against_function_run_retry_attempts());
 
         let test_srv = testing::TestService::new().await?;

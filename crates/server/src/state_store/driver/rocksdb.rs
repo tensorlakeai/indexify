@@ -18,7 +18,7 @@ use rocksdb::{
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
-use tracing::{error, warn};
+use tracing::warn;
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},

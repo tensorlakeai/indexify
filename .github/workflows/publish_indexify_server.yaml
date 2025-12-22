@@ -98,8 +98,8 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: ./server
-          file: ./server/dockerfiles/Dockerfile.release_server
+          context: .
+          file: ./dockerfiles/Dockerfile.server
           push: true
           tags: |
             tensorlake/indexify-server:latest

@@ -345,7 +345,7 @@ impl FunctionExecutorManager {
                         termination_reason == &FunctionExecutorTerminationReason::ExecutorRemoved
                     {
                         updated_alloc.outcome =
-                            FunctionRunOutcome::Failure((*termination_reason).into());
+                            FunctionRunOutcome::Failure(termination_reason.into());
                     } else {
                         // This allocation wasn't blamed for the FE termination,
                         // retry without involving the function run retry policy but still fail the
@@ -360,18 +360,18 @@ impl FunctionExecutorManager {
                         &application_version,
                     );
                     info!(
-                        allocation_id = updated_alloc.id.to_string(),
-                        request_id = updated_alloc.request_id.clone(),
-                        namespace = updated_alloc.namespace.clone(),
-                        app = updated_alloc.application.clone(),
-                        fn = updated_alloc.function.clone(),
-                        fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
-                        allocation_outcome = updated_alloc.outcome.to_string(),
-                        fn_run_status = function_run.status.to_string(),
-                        fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
-                        fn_run_id = function_run.id.to_string(),
+                        allocation_id = %updated_alloc.id,
+                        request_id = %updated_alloc.request_id,
+                        namespace = %updated_alloc.namespace,
+                        app = %updated_alloc.application,
+                        fn = %updated_alloc.function,
+                        fn_executor_id = %updated_alloc.target.function_executor_id,
+                        allocation_outcome = %updated_alloc.outcome,
+                        fn_run_status = %function_run.status,
+                        fn_run_outcome = ?function_run.outcome.as_ref(),
+                        fn_run_id = %function_run.id,
                         blame_allocation_id = blame_alloc_ids.contains(&updated_alloc.id.to_string()),
-                        termination_reason = termination_reason.to_string(),
+                        termination_reason = %termination_reason,
                         "function executor terminated, updating allocation outcome",
                     );
                     update.updated_allocations.push(updated_alloc);
@@ -383,29 +383,29 @@ impl FunctionExecutorManager {
                     updated_alloc.outcome =
                         FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled);
                     info!(
-                        allocation_id = updated_alloc.id.to_string(),
-                        request_id = updated_alloc.request_id.clone(),
-                        namespace = updated_alloc.namespace.clone(),
-                        app = updated_alloc.application.clone(),
-                        fn = updated_alloc.function.clone(),
-                        fn_executor_id = updated_alloc.target.function_executor_id.to_string(),
-                        allocation_outcome = updated_alloc.outcome.to_string(),
-                        fn_run_status = function_run.status.to_string(),
-                        fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
-                        fn_run_id = function_run.id.to_string(),
+                        allocation_id = %updated_alloc.id,
+                        request_id = %updated_alloc.request_id,
+                        namespace = %updated_alloc.namespace,
+                        app = %updated_alloc.application,
+                        fn = %updated_alloc.function,
+                        fn_executor_id = %updated_alloc.target.function_executor_id,
+                        allocation_outcome = %updated_alloc.outcome,
+                        fn_run_status = %function_run.status,
+                        fn_run_outcome = ?function_run.outcome.as_ref(),
+                        fn_run_id = %function_run.id,
                         "function executor is being removed, cancelling allocation",
                     );
                     update.updated_allocations.push(updated_alloc);
                 }
 
                 info!(
-                    request_id = function_run.request_id.clone(),
-                    namespace = function_run.namespace.clone(),
-                    app = function_run.application.clone(),
-                    fn = function_run.name.clone(),
-                    fn_run_status = function_run.status.to_string(),
-                    fn_run_outcome = function_run.outcome.map(|o| o.to_string()),
-                    fn_run_id = function_run.id.to_string(),
+                    request_id = %function_run.request_id,
+                    namespace = %function_run.namespace,
+                    app = %function_run.application,
+                    fn = %function_run.name,
+                    fn_run_status = %function_run.status,
+                    fn_run_outcome = ?function_run.outcome.as_ref(),
+                    fn_run_id = %function_run.id,
                     "updating function run to request context because function executor is being removed",
                 );
 
@@ -532,13 +532,13 @@ impl FunctionExecutorManager {
                     );
                     scheduler_update.updated_allocations.push(updated_alloc);
                     info!(
-                        allocation_id = alloc.id.to_string(),
-                        request_id = function_run.request_id.clone(),
-                        namespace = function_run.namespace.clone(),
-                        app = function_run.application.clone(),
-                        fn = function_run.name.clone(),
-                        status = function_run.status.to_string(),
-                        outcome = function_run.outcome.map(|o| o.to_string()),
+                        allocation_id = %alloc.id,
+                        request_id = %function_run.request_id,
+                        namespace = %function_run.namespace,
+                        app = %function_run.application,
+                        fn = %function_run.name,
+                        status = %function_run.status,
+                        outcome = ?function_run.outcome.as_ref(),
                         "function run status after removing function executor because of FE termination",
                     );
                     scheduler_update.add_function_run(function_run, &mut request_ctx);

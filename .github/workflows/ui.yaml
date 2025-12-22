@@ -8,7 +8,7 @@ on:
     branches:
       - 'main'
     paths:
-      - 'server/ui/**'
+      - 'crates/server/ui/**'
       - '.github/workflows/tests_ui.yaml'
 
 jobs:
@@ -21,10 +21,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Npm Install
-        run: cd server/ui && npm ci
+        run: cd crates/server/ui && npm ci
 
       - name: UI Lint Check
-        run: cd server/ui && npm run lint
+        run: cd crates/server/ui && npm run lint
