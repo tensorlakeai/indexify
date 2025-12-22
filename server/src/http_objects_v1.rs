@@ -390,3 +390,22 @@ impl From<data_model::Allocation> for Allocation {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CodeDigest {
+    pub url: String,
+    pub size_bytes: u64,
+    pub sha256_hash: String,
+}
+
+/// Application metadata sent from frontend proxy
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApplicationMetadata {
+    pub namespace: String,
+    pub application: String,
+    pub version: String,
+    #[serde(default)]
+    pub upgrade_requests: bool,
+    pub manifest: Application,
+    pub code_digest: CodeDigest,
+}
