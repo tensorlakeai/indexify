@@ -49,8 +49,6 @@ opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trac
 axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
 base64 = "0.22.1"
 tonic = "0.14.2"
-prost = "0.14.1"
-tonic-prost = "0.14.2"
 tonic-reflection = "0.14.2"
 proto-api = { path = "../crates/proto-api" }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
