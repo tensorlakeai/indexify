@@ -21,7 +21,6 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::debug;
 use url::Url;
-use utoipa::ToSchema;
 
 use crate::metrics::{Timer, blob_storage};
 

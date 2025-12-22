@@ -56,7 +56,7 @@ use crate::{
             list_unprocessed_state_changes,
             list_executor_catalog,
             get_application_by_version,
-            create_or_update_application_from_proxy,
+            create_or_update_application_with_metadata,
             healthz_handler,
         ),
         components(
@@ -129,7 +129,7 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/internal/v1/namespaces/{namespace}/applications",
-            post(create_or_update_application_from_proxy).with_state(route_state.clone()),
+            post(create_or_update_application_with_metadata).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/state",
@@ -589,7 +589,7 @@ pub async fn healthz_handler(
         (status = INTERNAL_SERVER_ERROR, description = "unable to create or update application")
     ),
 )]
-pub async fn create_or_update_application_from_proxy(
+pub async fn create_or_update_application_with_metadata(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
     Json(payload): Json<ApplicationMetadata>,
