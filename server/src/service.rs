@@ -29,7 +29,7 @@ use crate::{
     },
     queue::Queue,
     routes::routes_state::RouteState,
-    routes_internal::configure_internal_routes,
+    routes_internal::{configure_helper_router, configure_internal_routes},
     routes_v1::configure_v1_routes,
     state_store::IndexifyState,
 };
@@ -279,14 +279,11 @@ impl Service {
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
-        let internal_routes = configure_internal_routes(route_state.clone());
         let v1_routes = configure_v1_routes(route_state.clone());
-        let cors = CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST, Method::DELETE])
-            .allow_origin(Any)
-            .allow_headers(Any);
-        let instance_trace = TraceLayer::new_for_http().make_span_with(instance_span);
-        let mut router = Router::new().merge(internal_routes).merge(v1_routes);
+        let internal_routes = configure_internal_routes(route_state.clone());
+        let helper_routes = configure_helper_router(route_state.clone());
+
+        let mut router = Router::new().merge(v1_routes).merge(internal_routes);
 
         // Only apply OpenTelemetry middleware layers when telemetry is enabled
         if self.config.telemetry.tracing_enabled() {
@@ -295,7 +292,14 @@ impl Service {
                 .layer(OtelAxumLayer::default().filter(otel_axum_filter));
         }
 
+        let cors = CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::DELETE])
+            .allow_origin(Any)
+            .allow_headers(Any);
+        let instance_trace = TraceLayer::new_for_http().make_span_with(instance_span);
+
         let router = router
+            .merge(helper_routes)
             .layer(instance_trace)
             .layer(cors)
             .layer(DefaultBodyLimit::disable());

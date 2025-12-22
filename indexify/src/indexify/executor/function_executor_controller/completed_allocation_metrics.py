@@ -73,12 +73,16 @@ def emit_completed_allocation_metrics(alloc_info: AllocationInfo, logger: Any) -
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR,
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_REQUEST_ERROR,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM,
         ]:
             metric_allocations_completed.labels(
                 outcome_code=METRIC_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
                 failure_reason=METRIC_ALLOCATIONS_COMPLETED_FAILURE_REASON_FUNCTION_ERROR,
             ).inc()
         else:
+            # These failure reasons never come from Executor:
+            # - ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE
+            # - ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED
             metric_allocations_completed.labels(
                 outcome_code=METRIC_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
                 failure_reason=METRIC_ALLOCATIONS_COMPLETED_FAILURE_REASON_UNKNOWN,
