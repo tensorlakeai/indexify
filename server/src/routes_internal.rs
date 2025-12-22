@@ -14,7 +14,6 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    blob_store::PutResult,
     http_objects::{
         Allocation,
         ApplicationVersion,
@@ -35,7 +34,7 @@ use crate::{
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
     },
-    http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState},
+    http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState, CodeDigest},
     indexify_ui::Assets as UiAssets,
     routes::{common::validate_and_submit_application, routes_state::RouteState},
     state_store::requests::{
@@ -79,7 +78,7 @@ use crate::{
                 HealthzResponse,
                 Application,
                 ApplicationMetadata,
-                PutResult,
+                CodeDigest,
             )
         ),
         tags(
@@ -596,9 +595,9 @@ pub async fn create_or_update_application_from_proxy(
     Json(payload): Json<ApplicationMetadata>,
 ) -> Result<(), IndexifyAPIError> {
     let application = payload.manifest.into_data_model(
-        &payload.put_result.url,
-        &payload.put_result.sha256_hash,
-        payload.put_result.size_bytes,
+        &payload.code_digest.url,
+        &payload.code_digest.sha256_hash,
+        payload.code_digest.size_bytes,
     )?;
 
     validate_and_submit_application(&state, namespace, application, payload.upgrade_requests).await

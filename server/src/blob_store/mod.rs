@@ -55,7 +55,7 @@ fn default_blob_store_path() -> String {
     )
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone)]
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,

@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    blob_store::PutResult,
     data_model::{self, ApplicationBuilder, RequestCtx},
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
@@ -392,6 +391,13 @@ impl From<data_model::Allocation> for Allocation {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CodeDigest {
+    pub url: String,
+    pub size_bytes: u64,
+    pub sha256_hash: String,
+}
+
 /// Application metadata sent from frontend proxy
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationMetadata {
@@ -401,5 +407,5 @@ pub struct ApplicationMetadata {
     #[serde(default)]
     pub upgrade_requests: bool,
     pub manifest: Application,
-    pub put_result: PutResult,
+    pub code_digest: CodeDigest,
 }
