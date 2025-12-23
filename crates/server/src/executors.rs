@@ -250,8 +250,7 @@ impl ExecutorManager {
                 .cloned();
             let executor = match existing_executor {
                 None => executor.clone(),
-                Some(existing_executor) => {
-                    let mut existing_executor = existing_executor.clone();
+                Some(mut existing_executor) => {
                     existing_executor.update(executor.clone());
                     *existing_executor
                 }
@@ -259,12 +258,11 @@ impl ExecutorManager {
 
             // Update runtime data with the new state hash and clock
             let mut runtime_data_write = self.runtime_data.write().await;
+            let state_hash = executor.state_hash.clone();
             runtime_data_write
                 .entry(executor.id.clone())
-                .and_modify(|data| data.update_state(executor.state_hash.clone(), executor.clock))
-                .or_insert_with(|| {
-                    ExecutorRuntimeData::new(executor.state_hash.clone(), executor.clock)
-                });
+                .and_modify(|data| data.update_state(state_hash.clone(), executor.clock))
+                .or_insert_with(|| ExecutorRuntimeData::new(state_hash, executor.clock));
         }
 
         Ok(should_update)

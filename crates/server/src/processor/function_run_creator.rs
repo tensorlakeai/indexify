@@ -161,11 +161,11 @@ impl FunctionRunCreator {
             .cloned()
         else {
             error!(
-                fn_call_id = alloc_finished_event.function_call_id.to_string(),
-                request_id = alloc_finished_event.request_id,
-                namespace = alloc_finished_event.namespace,
-                app = alloc_finished_event.application,
-                fn = alloc_finished_event.function,
+                fn_call_id = %alloc_finished_event.function_call_id,
+                request_id = %alloc_finished_event.request_id,
+                namespace = %alloc_finished_event.namespace,
+                app = %alloc_finished_event.application,
+                fn = %alloc_finished_event.function,
                 "function run not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());
@@ -220,11 +220,11 @@ impl FunctionRunCreator {
             .cloned()
         else {
             warn!(
-                fn_call_id = function_run.id.to_string(),
-                request_id = function_run.request_id,
-                namespace = function_run.namespace,
-                app = function_run.application,
-                app_version = function_run.version,
+                fn_call_id = %function_run.id,
+                request_id = %function_run.request_id,
+                namespace = %function_run.namespace,
+                app = %function_run.application,
+                app_version = %function_run.version,
                 "application version not found, stopping scheduling of child function runs",
             );
             return Ok(SchedulerUpdateRequest::default());

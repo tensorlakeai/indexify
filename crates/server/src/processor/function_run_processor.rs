@@ -110,9 +110,9 @@ impl<'a> FunctionRunProcessor<'a> {
                         err.downcast_ref::<state_store::in_memory_state::Error>()
                     {
                         warn!(
-                            fn_call_id = function_run.id.to_string(),
-                            namespace = function_run.namespace,
-                            app = function_run.application,
+                            fn_call_id = %function_run.id,
+                            namespace = %function_run.namespace,
+                            app = %function_run.application,
                             app_version = state_store_error.version(),
                             "fn" = state_store_error.function_name(),
                             error = %state_store_error,
@@ -188,11 +188,11 @@ impl<'a> FunctionRunProcessor<'a> {
 
         info!(
             allocation_id = %allocation.id,
-            fn_run_id = function_run.id.to_string(),
-            request_id = function_run.request_id,
-            namespace = function_run.namespace,
-            app = function_run.application,
-            fn = function_run.name,
+            fn_run_id = %function_run.id,
+            request_id = %function_run.request_id,
+            namespace = %function_run.namespace,
+            app = %function_run.application,
+            fn = %function_run.name,
             "created allocation",
         );
 

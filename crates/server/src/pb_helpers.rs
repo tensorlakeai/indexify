@@ -61,7 +61,7 @@ pub fn fn_call_outcome_to_pb(
 
     let return_value = function_call_outcome
         .return_value
-        .clone()
+        .as_ref()
         .map(|return_value| {
             // TODO Eugene - Can you check this conversion is correct?
             let encoding = string_to_data_payload_encoding(&return_value.encoding);
@@ -77,15 +77,15 @@ pub fn fn_call_outcome_to_pb(
                 metadata_size: Some(return_value.metadata_size),
                 offset: Some(return_value.offset),
                 size: Some(return_value.size),
-                sha256_hash: Some(return_value.sha256_hash),
+                sha256_hash: Some(return_value.sha256_hash.clone()),
                 source_function_call_id: None,
-                id: Some(return_value.id),
+                id: Some(return_value.id.clone()),
             }
         });
 
     let request_error = function_call_outcome
         .request_error
-        .clone()
+        .as_ref()
         .map(|request_error| {
             let encoding = string_to_data_payload_encoding(&request_error.encoding);
             executor_api_pb::DataPayload {
@@ -100,9 +100,9 @@ pub fn fn_call_outcome_to_pb(
                 metadata_size: Some(request_error.metadata_size),
                 offset: Some(request_error.offset),
                 size: Some(request_error.size),
-                sha256_hash: Some(request_error.sha256_hash),
+                sha256_hash: Some(request_error.sha256_hash.clone()),
                 source_function_call_id: None,
-                id: Some(request_error.id),
+                id: Some(request_error.id.clone()),
             }
         });
 
@@ -148,7 +148,8 @@ pub fn blob_store_url_to_path(
     if blob_store_url_scheme == "file" {
         // Local file blob store implementation is always using absolute paths without
         // "/"" prefix. The paths are not relative to the configure blob_store_url path.
-        url.strip_prefix(&format!("{blob_store_url_scheme}:///").to_string())
+        let prefix = format!("{blob_store_url_scheme}:///");
+        url.strip_prefix(&prefix)
             // The url doesn't include blob_store_scheme if this payload was uploaded to server
             // instead of directly to blob storage.
             .unwrap_or(url)
@@ -156,18 +157,16 @@ pub fn blob_store_url_to_path(
     } else if blob_store_url_scheme == "s3" {
         // S3 blob store implementation uses paths relative to its bucket from
         // blob_store_url.
-        url.strip_prefix(
-            &format!(
-                "{}://{}/",
-                blob_store_url_scheme,
-                bucket_name_from_s3_blob_store_url(blob_store_url)
-            )
-            .to_string(),
-        )
-        // The url doesn't include blob_store_url if this payload was uploaded to server instead
-        // of directly to blob storage.
-        .unwrap_or(url)
-        .to_string()
+        let prefix = format!(
+            "{}://{}/",
+            blob_store_url_scheme,
+            bucket_name_from_s3_blob_store_url(blob_store_url)
+        );
+        url.strip_prefix(&prefix)
+            // The url doesn't include blob_store_url if this payload was uploaded to server instead
+            // of directly to blob storage.
+            .unwrap_or(url)
+            .to_string()
     } else {
         format!("not supported blob store scheme: {blob_store_url_scheme}")
     }

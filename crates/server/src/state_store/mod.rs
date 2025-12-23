@@ -379,12 +379,12 @@ impl IndexifyState {
                 // from the ingestion path.
                 for allocation_output in &request.allocation_outputs {
                     info!(
-                        request_id = allocation_output.allocation.request_id.as_str(),
-                        executor_id = allocation_output.allocation.target.executor_id.get().to_string(),
-                        app = allocation_output.allocation.application.as_str(),
-                        fn = allocation_output.allocation.function.as_str(),
-                        allocation_id = allocation_output.allocation.id.to_string(),
-                        allocation_outcome = allocation_output.allocation.outcome.to_string(),
+                        request_id = %allocation_output.allocation.request_id,
+                        executor_id = %allocation_output.allocation.target.executor_id,
+                        app = %allocation_output.allocation.application,
+                        fn = %allocation_output.allocation.function,
+                        allocation_id = %allocation_output.allocation.id,
+                        allocation_outcome = ?allocation_output.allocation.outcome,
                         "creating allocation ingestion state change",
                     );
                     let changes = state_changes::task_outputs_ingested(

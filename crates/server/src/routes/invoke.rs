@@ -74,7 +74,7 @@ async fn create_request_progress_stream(
             match rx.recv().await {
                 Ok(ev) => {
                     if ev.request_id() == request_id {
-                        yield Event::default().json_data(ev.clone());
+                        yield Event::default().json_data(&ev);
 
                         if let RequestStateChangeEvent::RequestFinished(_) = ev {
                             return;
@@ -220,7 +220,7 @@ pub async fn invoke_application_with_object_v1(
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
-    let function_call_id = FunctionCallId(request_id.clone());
+    let function_call_id = FunctionCallId(request_id.clone()); // This clone is necessary here as we reuse request_id later
 
     let entrypoint_fn_name = &application.entrypoint.function_name;
     let Some(entrypoint_fn) = application.functions.get(entrypoint_fn_name) else {
@@ -250,7 +250,7 @@ pub async fn invoke_application_with_object_v1(
             &fn_call,
             vec![InputArgs {
                 function_call_id: None,
-                data_payload: data_payload.clone(),
+                data_payload,
             }],
             &request_id,
         )
@@ -261,8 +261,8 @@ pub async fn invoke_application_with_object_v1(
     let fn_calls = HashMap::from([(fn_call.function_call_id.clone(), fn_call)]);
 
     let request_ctx = RequestCtxBuilder::default()
-        .namespace(namespace.to_string())
-        .application_name(application.name.to_string())
+        .namespace(namespace.clone())
+        .application_name(application.name.clone())
         .application_version(application.version.clone())
         .request_id(request_id.clone())
         .created_at(get_epoch_time_in_ms())
@@ -271,9 +271,9 @@ pub async fn invoke_application_with_object_v1(
         .build()
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}")))?;
     let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
-        namespace: namespace.clone(),
-        application_name: application.name.clone(),
-        ctx: request_ctx.clone(),
+        namespace: request_ctx.namespace.clone(),
+        application_name: request_ctx.application_name.clone(),
+        ctx: request_ctx,
     });
     state
         .indexify_state

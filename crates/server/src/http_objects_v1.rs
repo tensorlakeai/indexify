@@ -31,7 +31,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
             function_name: entrypoint.function_name,
             input_serializer: entrypoint.input_serializer,
             output_serializer: entrypoint.output_serializer,
-            output_type_hints_base64: entrypoint.output_type_hints_base64.clone(),
+            output_type_hints_base64: entrypoint.output_type_hints_base64,
         }
     }
 }
@@ -122,10 +122,10 @@ impl Application {
                 id: nanoid::nanoid!(),
                 metadata_size: 0,
                 offset: 0,
-                encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
-                sha256_hash: sha256_hash.to_string(),
+                encoding: DataPayloadEncoding::BinaryZip.as_str_name().into(),
+                sha256_hash: sha256_hash.into(),
                 size,
-                path: code_path.to_string(),
+                path: code_path.into(),
             })
             .functions(functions)
             .created_at(self.created_at)
@@ -184,11 +184,11 @@ pub struct ShallowRequest {
 impl From<RequestCtx> for ShallowRequest {
     fn from(ctx: RequestCtx) -> Self {
         Self {
-            id: ctx.request_id.to_string(),
+            id: ctx.request_id,
             created_at: ctx.created_at.into(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             function_runs_count: ctx.function_runs.len(),
-            application_version: ctx.application_version.to_string(),
+            application_version: ctx.application_version,
         }
     }
 }
@@ -225,7 +225,7 @@ impl FunctionRun {
             Some(data_model::FunctionRunOutcome::Failure(reason)) => Some(reason.into()),
             _ => None,
         };
-        let outcome = function_run.outcome.clone().map(|outcome| outcome.into());
+        let outcome = function_run.outcome.map(|outcome| outcome.into());
         Self {
             id: function_run.id.to_string(),
             name: function_run.name,
@@ -348,9 +348,9 @@ impl Request {
             _ => None,
         };
         Self {
-            id: ctx.request_id.to_string(),
+            id: ctx.request_id,
             outcome: ctx.outcome.map(|outcome| outcome.into()),
-            application_version: ctx.application_version.to_string(),
+            application_version: ctx.application_version,
             failure_reason,
             created_at: ctx.created_at.into(),
             request_error,
@@ -380,7 +380,7 @@ impl From<data_model::Allocation> for Allocation {
         };
         Self {
             id: allocation.id.to_string(),
-            function_name: allocation.function.to_string(),
+            function_name: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
             function_executor_id: allocation.target.function_executor_id.get().to_string(),
             created_at: allocation.created_at,
