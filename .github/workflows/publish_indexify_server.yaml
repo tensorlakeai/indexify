@@ -26,10 +26,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-defaults:
-  run:
-    working-directory: ./server
-
 jobs:
   build-release-packages:
     uses: ./.github/workflows/wf_build_indexify_server_release_packages.yaml

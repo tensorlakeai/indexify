@@ -11,10 +11,6 @@ permissions:
   contents: read
   pull-requests: write
 
-defaults:
-  run:
-    working-directory: ./server
-    
 jobs:
   extract-version:
     name: Extract Version Number
@@ -31,7 +27,7 @@ jobs:
 
   build_dev_ecr:
     uses: ./.github/workflows/build_ecr_image.yaml
-    with: 
+    with:
       environment: dev
       version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
@@ -40,7 +36,7 @@ jobs:
 
   build_prod_ecr:
     uses: ./.github/workflows/build_ecr_image.yaml
-    with: 
+    with:
       environment: prod
       version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
