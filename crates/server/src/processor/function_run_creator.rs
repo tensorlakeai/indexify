@@ -248,9 +248,9 @@ impl FunctionRunCreator {
             return Ok(scheduler_update);
         }
 
-        if let FunctionRunOutcome::Failure(failure_reason) = allocation.outcome {
+        if let FunctionRunOutcome::Failure(failure_reason) = &allocation.outcome {
             function_run.status = FunctionRunStatus::Completed;
-            function_run.outcome = Some(allocation.outcome);
+            function_run.outcome = Some(allocation.outcome.clone());
             if let Some(request_error_payload) = &alloc_finished_event.request_exception {
                 request_ctx.request_error = Some(RequestError {
                     function_name: function_run.name.clone(),

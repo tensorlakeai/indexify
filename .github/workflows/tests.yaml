@@ -7,7 +7,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
-      - 'server/**'
+      - 'crates/**'
       - 'indexify/**'
       - 'tensorlake'
       - '.github/workflows/tests.yaml'
@@ -24,8 +24,6 @@ jobs:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v6
-      - name: Copy rust-toolchain
-        run: cp server/rust-toolchain.toml .
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -46,8 +44,6 @@ jobs:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v6
-      - name: Copy rust-toolchain
-        run: cp server/rust-toolchain.toml .
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

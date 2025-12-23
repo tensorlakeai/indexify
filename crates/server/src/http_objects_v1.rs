@@ -222,15 +222,16 @@ impl FunctionRun {
         child_function_run_ids: Vec<String>,
     ) -> Self {
         let failure_reason = match &function_run.outcome {
-            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some((*reason).into()),
+            Some(data_model::FunctionRunOutcome::Failure(reason)) => Some(reason.into()),
             _ => None,
         };
+        let outcome = function_run.outcome.clone().map(|outcome| outcome.into());
         Self {
             id: function_run.id.to_string(),
             name: function_run.name,
             application: function_run.application,
             namespace: function_run.namespace,
-            outcome: function_run.outcome.map(|outcome| outcome.into()),
+            outcome,
             child_function_run_ids,
             failure_reason,
             status: function_run.status.into(),
@@ -373,7 +374,7 @@ pub struct Allocation {
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
-        let failure_reason = match allocation.outcome {
+        let failure_reason = match &allocation.outcome {
             data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
             _ => None,
         };

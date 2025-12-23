@@ -1,0 +1,18 @@
+[package]
+name = "proto-api"
+version = "0.1.0"
+edition = "2024"
+authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
+license = "Apache-2.0"
+build = "build.rs"
+
+[dependencies]
+tonic = "0.14.2"
+tonic-prost = "0.14.2"
+prost = "0.14.1"
+prost-types = "0.14.1"
+
+[build-dependencies]
+anyhow = "1.0.98"
+tonic-prost-build = "0.14.2"
+

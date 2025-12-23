@@ -530,8 +530,8 @@ pub enum FunctionRunFailureReason {
     OutOfMemory,
 }
 
-impl From<data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
-    fn from(reason: data_model::FunctionRunFailureReason) -> Self {
+impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
+    fn from(reason: &data_model::FunctionRunFailureReason) -> Self {
         match reason {
             data_model::FunctionRunFailureReason::Unknown => FunctionRunFailureReason::Unknown,
             data_model::FunctionRunFailureReason::InternalError => {
@@ -817,7 +817,8 @@ pub struct Allocation {
 
 impl From<data_model::Allocation> for Allocation {
     fn from(allocation: data_model::Allocation) -> Self {
-        let failure_reason = match allocation.outcome {
+        let outcome = allocation.outcome.clone().into();
+        let failure_reason = match &allocation.outcome {
             data_model::FunctionRunOutcome::Failure(reason) => Some(reason.into()),
             _ => None,
         };
@@ -831,7 +832,7 @@ impl From<data_model::Allocation> for Allocation {
             function_call_id: allocation.function_call_id.to_string(),
             request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
-            outcome: allocation.outcome.into(),
+            outcome,
             failure_reason,
             attempt_number: allocation.attempt_number,
             execution_duration_ms: allocation.execution_duration_ms,

@@ -634,7 +634,7 @@ mod tests {
                             None,
                             None,
                         )
-                        .function_run_outcome(FunctionRunOutcome::Failure(reason)),
+                        .function_run_outcome(FunctionRunOutcome::Failure(reason.clone())),
                     )
                     .await?;
 
@@ -767,7 +767,7 @@ mod tests {
                         None,
                         None,
                     )
-                    .function_run_outcome(FunctionRunOutcome::Failure(reason)),
+                    .function_run_outcome(FunctionRunOutcome::Failure(reason.clone())),
                 )
                 .await?;
 

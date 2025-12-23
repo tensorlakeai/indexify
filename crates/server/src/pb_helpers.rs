@@ -6,16 +6,14 @@ use crate::{
     state_store::in_memory_state::FunctionCallOutcome,
 };
 
-impl From<String> for executor_api_pb::DataPayloadEncoding {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "application/json" => executor_api_pb::DataPayloadEncoding::Utf8Json,
-            "application/python-pickle" => executor_api_pb::DataPayloadEncoding::BinaryPickle,
-            "application/zip" => executor_api_pb::DataPayloadEncoding::BinaryZip,
-            "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
-            // User supplied content type for tensorlake.File.
-            _ => executor_api_pb::DataPayloadEncoding::Raw,
-        }
+pub fn string_to_data_payload_encoding(value: &str) -> executor_api_pb::DataPayloadEncoding {
+    match value {
+        "application/json" => executor_api_pb::DataPayloadEncoding::Utf8Json,
+        "application/python-pickle" => executor_api_pb::DataPayloadEncoding::BinaryPickle,
+        "application/zip" => executor_api_pb::DataPayloadEncoding::BinaryZip,
+        "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
+        // User supplied content type for tensorlake.File.
+        _ => executor_api_pb::DataPayloadEncoding::Raw,
     }
 }
 
@@ -29,48 +27,44 @@ pub fn fn_call_outcome_to_pb(
         FunctionRunOutcome::Failure(_) => executor_api_pb::AllocationOutcomeCode::Failure,
         FunctionRunOutcome::Unknown => executor_api_pb::AllocationOutcomeCode::Unknown,
     };
-    let failure_reason =
-        function_call_outcome
-            .failure_reason
-            .map(|failure_reason| match failure_reason {
-                FunctionRunFailureReason::Unknown => {
-                    executor_api_pb::AllocationFailureReason::Unknown
-                }
-                FunctionRunFailureReason::InternalError => {
-                    executor_api_pb::AllocationFailureReason::InternalError
-                }
-                FunctionRunFailureReason::FunctionError => {
-                    executor_api_pb::AllocationFailureReason::FunctionError
-                }
-                FunctionRunFailureReason::FunctionTimeout => {
-                    executor_api_pb::AllocationFailureReason::FunctionTimeout
-                }
-                FunctionRunFailureReason::RequestError => {
-                    executor_api_pb::AllocationFailureReason::RequestError
-                }
-                FunctionRunFailureReason::FunctionRunCancelled => {
-                    executor_api_pb::AllocationFailureReason::AllocationCancelled
-                }
-                FunctionRunFailureReason::FunctionExecutorTerminated => {
-                    executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
-                }
-                FunctionRunFailureReason::ConstraintUnsatisfiable => {
-                    executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
-                }
-                FunctionRunFailureReason::OutOfMemory => {
-                    executor_api_pb::AllocationFailureReason::Oom
-                }
-                FunctionRunFailureReason::ExecutorRemoved => {
-                    executor_api_pb::AllocationFailureReason::ExecutorRemoved
-                }
-            });
+    let failure_reason = function_call_outcome
+        .failure_reason
+        .as_ref()
+        .map(|failure_reason| match failure_reason {
+            FunctionRunFailureReason::Unknown => executor_api_pb::AllocationFailureReason::Unknown,
+            FunctionRunFailureReason::InternalError => {
+                executor_api_pb::AllocationFailureReason::InternalError
+            }
+            FunctionRunFailureReason::FunctionError => {
+                executor_api_pb::AllocationFailureReason::FunctionError
+            }
+            FunctionRunFailureReason::FunctionTimeout => {
+                executor_api_pb::AllocationFailureReason::FunctionTimeout
+            }
+            FunctionRunFailureReason::RequestError => {
+                executor_api_pb::AllocationFailureReason::RequestError
+            }
+            FunctionRunFailureReason::FunctionRunCancelled => {
+                executor_api_pb::AllocationFailureReason::AllocationCancelled
+            }
+            FunctionRunFailureReason::FunctionExecutorTerminated => {
+                executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
+            }
+            FunctionRunFailureReason::ConstraintUnsatisfiable => {
+                executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
+            }
+            FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
+            FunctionRunFailureReason::ExecutorRemoved => {
+                executor_api_pb::AllocationFailureReason::ExecutorRemoved
+            }
+        });
 
     let return_value = function_call_outcome
         .return_value
         .clone()
         .map(|return_value| {
             // TODO Eugene - Can you check this conversion is correct?
-            let encoding: executor_api_pb::DataPayloadEncoding = return_value.encoding.into();
+            let encoding = string_to_data_payload_encoding(&return_value.encoding);
             executor_api_pb::DataPayload {
                 uri: Some(blob_store_path_to_url(
                     &return_value.path,
@@ -93,7 +87,7 @@ pub fn fn_call_outcome_to_pb(
         .request_error
         .clone()
         .map(|request_error| {
-            let encoding: executor_api_pb::DataPayloadEncoding = request_error.encoding.into();
+            let encoding = string_to_data_payload_encoding(&request_error.encoding);
             executor_api_pb::DataPayload {
                 uri: Some(blob_store_path_to_url(
                     &request_error.path,

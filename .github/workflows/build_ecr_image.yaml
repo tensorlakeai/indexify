@@ -24,10 +24,6 @@ permissions:
   id-token: write
   contents: read
 
-defaults:
-  run:
-    working-directory: ./server
-
 jobs:
   build-and-push:
     name: Build indexify server and push to ${{ inputs.environment }}
@@ -53,8 +49,8 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           push: true
-          context: server/
-          file: server/dockerfiles/Dockerfile.local
+          context: .
+          file: dockerfiles/Dockerfile.server
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
           cache-from: type=gha
           cache-to: type=gha,mode=max

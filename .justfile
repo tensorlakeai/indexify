@@ -136,3 +136,7 @@ run-jaeger:
 [working-directory: 'indexify']
 run-tl-benchmarks:
     poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
+
+[doc('Build a Docker image for the Indexify server')]
+build-server-image TAG="latest":
+    docker build -t indexify-server:{{TAG}} -f dockerfiles/Dockerfile.server .
