@@ -1,0 +1,21 @@
+name: Build Server Docker Image
+
+on:
+  pull_request:
+    paths:
+      - 'dockerfiles/Dockerfile.server'
+      - '.github/workflows/build_server_image.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  build_server_image:
+    name: Build Server Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Just
+        uses: extractions/setup-just@v3
+      - name: Build server image
+        run: just build-server-image
