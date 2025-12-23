@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-slim-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.92-bullseye AS chef
 
 WORKDIR /app
 
@@ -9,9 +9,7 @@ RUN apt-get update && apt-get install -y \
     sqlite3 clang gcc g++ \
     protobuf-compiler
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash && \
-    apt-get install -y \
-    nodejs \
-    npm
+    apt-get install -y nodejs
 
 FROM chef AS planner
 
