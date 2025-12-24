@@ -17,12 +17,14 @@ use tracing::{error, info, warn};
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
+    data_model::{
+        self, ApplicationState, DataPayload, FunctionCallId, InputArgs, RequestCtx,
+        RequestCtxBuilder, RequestOutcome,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        IndexifyState,
-        driver,
+        IndexifyState, driver,
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
     },
@@ -31,6 +33,148 @@ use crate::{
 
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
+const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
+
+#[derive(Serialize)]
+struct RequestFinishedWithOutput {
+    namespace: String,
+    application_name: String,
+    application_version: String,
+    request_id: String,
+    outcome: RequestOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_encoding: Option<String>,
+}
+
+/// Build the download URL for a request's output
+fn build_output_url(application: &str, request_id: &str) -> String {
+    format!(
+        "/applications/{}/requests/{}/output",
+        application, request_id
+    )
+}
+
+async fn read_json_output(
+    payload: &DataPayload,
+    state: &RouteState,
+    namespace: &str,
+) -> Option<serde_json::Value> {
+    if payload.encoding != "application/json" {
+        return None;
+    }
+
+    let data_size = payload.size - payload.metadata_size;
+    if data_size > MAX_INLINE_JSON_SIZE {
+        return None;
+    }
+
+    let blob_storage = state.blob_storage.get_blob_store(namespace);
+    let data_offset = payload.offset + payload.metadata_size;
+
+    let storage_reader = match blob_storage
+        .get(&payload.path, Some(data_offset..data_offset + data_size))
+        .await
+    {
+        Ok(reader) => reader,
+        Err(e) => {
+            warn!(?e, "failed to read output blob for SSE");
+            return None;
+        }
+    };
+
+    let bytes = match storage_reader
+        .map_ok(|chunk| chunk.to_vec())
+        .try_concat()
+        .await
+    {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            warn!(?e, "failed to concat output blob chunks for SSE");
+            return None;
+        }
+    };
+
+    serde_json::from_slice(&bytes).ok()
+}
+
+async fn build_finished_event_with_output(
+    state: &RouteState,
+    namespace: &str,
+    application: &str,
+    application_version: &str,
+    request_id: &str,
+    outcome: RequestOutcome,
+) -> RequestFinishedWithOutput {
+    let output_info = match state
+        .indexify_state
+        .reader()
+        .request_ctx(namespace, application, request_id)
+        .await
+    {
+        Ok(Some(ctx)) => {
+            // Get the entrypoint function's output (uses request_id as function_call_id)
+            ctx.function_runs
+                .get(&FunctionCallId::from(request_id))
+                .and_then(|fn_run| fn_run.output.clone())
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!(?e, "failed to get request context for output");
+            None
+        }
+    };
+
+    let (output, output_url, output_encoding) = match output_info {
+        Some(payload) => {
+            let encoding = payload.encoding.clone();
+            let json_output = read_json_output(&payload, state, namespace).await;
+            if json_output.is_some() {
+                (json_output, None, Some(encoding))
+            } else {
+                let url = build_output_url(application, request_id);
+                (None, Some(url), Some(encoding))
+            }
+        }
+        None => (None, None, None),
+    };
+
+    RequestFinishedWithOutput {
+        namespace: namespace.to_string(),
+        application_name: application.to_string(),
+        application_version: application_version.to_string(),
+        request_id: request_id.to_string(),
+        outcome,
+        output,
+        output_url,
+        output_encoding,
+    }
+}
+
+enum RequestCheckResult {
+    Completed(RequestFinishedWithOutput),
+    InProgress,
+}
+
+async fn check_request_completion(state: &RouteState, ctx: &RequestCtx) -> RequestCheckResult {
+    if let Some(outcome) = &ctx.outcome {
+        let enriched_event = build_finished_event_with_output(
+            state,
+            &ctx.namespace,
+            &ctx.application_name,
+            &ctx.application_version,
+            &ctx.request_id,
+            outcome.clone(),
+        )
+        .await;
+        RequestCheckResult::Completed(enriched_event)
+    } else {
+        RequestCheckResult::InProgress
+    }
+}
 
 struct SubscriptionGuard {
     indexify_state: Arc<IndexifyState>,
@@ -322,15 +466,15 @@ pub async fn invoke_application_with_object_v1(
     let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
         namespace: request_ctx.namespace.clone(),
         application_name: request_ctx.application_name.clone(),
-        ctx: request_ctx,
+        ctx: request_ctx.clone(),
     });
     state
         .indexify_state
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
-                driver_error.is_request_already_exists()
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>()
+                && driver_error.is_request_already_exists()
             {
                 IndexifyAPIError::conflict(&driver_error.to_string())
             } else {
@@ -348,9 +492,7 @@ pub async fn invoke_application_with_object_v1(
         return return_sse_response(
             // cloning the state is cheap because all its fields are inside arcs
             state.clone(),
-            namespace,
-            application.name,
-            request_id,
+            request_ctx,
         )
         .await;
     }
@@ -374,14 +516,21 @@ pub async fn progress_stream(
     Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    return_sse_response(state, namespace, application, request_id).await
+    let ctx = state
+        .indexify_state
+        .reader()
+        .request_ctx(&namespace, &application, &request_id)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}"))
+        })?
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
+    return_sse_response(state, ctx).await
 }
 
 async fn return_sse_response(
     state: RouteState,
-    namespace: String,
-    application: String,
-    request_id: String,
+    ctx: RequestCtx,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     let rx = state
         .indexify_state
