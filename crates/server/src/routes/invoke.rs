@@ -343,7 +343,7 @@ async fn return_sse_response(
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
-                .text("keep-alive-text"),
+                .text(""),
         )
         .into_response())
 }
