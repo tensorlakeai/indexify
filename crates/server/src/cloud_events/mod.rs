@@ -223,6 +223,8 @@ mod tests {
             .application_version(version.to_string())
             .request_id(request_id.to_string())
             .outcome(Some(outcome))
+            .function_calls(Default::default())
+            .function_runs(Default::default())
             .build()
             .unwrap()
     }

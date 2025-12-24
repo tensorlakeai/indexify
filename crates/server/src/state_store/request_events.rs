@@ -476,6 +476,8 @@ mod tests {
             .application_version("1.0.2".to_string())
             .request_id("req-789".to_string())
             .outcome(Some(RequestOutcome::Success))
+            .function_calls(Default::default())
+            .function_runs(Default::default())
             .build()
             .unwrap();
         let event = RequestStateChangeEvent::finished(&ctx);
