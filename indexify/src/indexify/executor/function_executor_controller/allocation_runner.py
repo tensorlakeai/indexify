@@ -265,18 +265,17 @@ class AllocationRunner:
         )
         self._channel_manager: ChannelManager = channel_manager
         self._logger: Any = logger
+        # Executor side allocation state:
+        #
         # BLOB ID -> BLOBInfo
-        # Output BLOBs with pending multipart uploads.
-        # BLOB is deleted once its upload is either completed or aborted.
         self._pending_output_blobs: Dict[str, _BLOBInfo] = {}
-        # Function Call IDs ever started in this allocation.
-        # This is an append-only set.
-        self._started_function_call_ids: Set[str] = set()
-        # FE Function Call Watcher ID -> _FunctionCallWatcherInfo
+        # Allocation Function Call IDs.
+        self._pending_function_call_ids: Set[str] = set()
+        # Allocation Function Call Watcher ID -> _FunctionCallWatcherInfo
         self._pending_function_call_watchers: Dict[str, _FunctionCallWatcherInfo] = {}
-        # Set(FE Request State Read Operation ID)
+        # Allocation Request State Read Operation IDs
         self._pending_request_state_read_operations: set[str] = set()
-        # FE Request State Write Operation ID -> _RequestStateWriteOperationInfo
+        # Allocation Request State Write Operation ID -> _RequestStateWriteOperationInfo
         self._pending_request_state_write_operations: Dict[
             str, _RequestStateWriteOperationInfo
         ] = {}
@@ -921,25 +920,32 @@ class AllocationRunner:
         fe_stub: FunctionExecutorStub,
         function_calls: list[FEAllocationFunctionCall],
     ) -> None:
+        fe_function_call_ids: Set[str] = set()
         for function_call in function_calls:
+            function_call_id: str = (
+                function_call.id
+                if _proto_field_is_defined(function_call, "id")
+                else function_call.updates.root_function_call_id
+            )
+
             if not _validate_fe_function_call(function_call):
                 self._logger.warning(
                     "skipping invalid FE function call",
-                    child_fn_call_id=function_call.updates.root_function_call_id,
+                    alloc_fn_call_id=function_call_id,
                 )
                 continue
 
-            if (
-                function_call.updates.root_function_call_id
-                not in self._started_function_call_ids
-            ):
+            fe_function_call_ids.add(function_call_id)
+            if function_call_id not in self._pending_function_call_ids:
+                self._pending_function_call_ids.add(function_call_id)
+
                 try:
                     await self._create_function_call(function_call)
                     await self._send_function_call_creation_result_to_fe(
                         fe_stub=fe_stub,
                         allocation_id=self._alloc_info.allocation.allocation_id,
+                        allocation_function_call_id=function_call_id,
                         result=FEAllocationFunctionCallCreationResult(
-                            function_call_id=function_call.updates.root_function_call_id,
                             status=Status(
                                 code=grpc.StatusCode.OK.value[0],
                             ),
@@ -948,14 +954,15 @@ class AllocationRunner:
                 except Exception as e:
                     self._logger.error(
                         "failed to create function call",
+                        alloc_fn_call_id=function_call_id,
                         child_fn_call_id=function_call.updates.root_function_call_id,
                         exc_info=e,
                     )
                     await self._send_function_call_creation_result_to_fe(
                         fe_stub=fe_stub,
                         allocation_id=self._alloc_info.allocation.allocation_id,
+                        allocation_function_call_id=function_call_id,
                         result=FEAllocationFunctionCallCreationResult(
-                            function_call_id=function_call.updates.root_function_call_id,
                             status=Status(
                                 code=grpc.StatusCode.INTERNAL.value[0],
                                 message="Failed to create function call.",
@@ -963,18 +970,27 @@ class AllocationRunner:
                         ),
                     )
 
-        # Don't delete function calls because _started_function_call_ids is append only.
+        for function_call_id in list(self._pending_function_call_ids):
+            if function_call_id not in fe_function_call_ids:
+                self._pending_function_call_ids.remove(function_call_id)
 
     async def _send_function_call_creation_result_to_fe(
         self,
         fe_stub: FunctionExecutorStub,
         allocation_id: str,
+        allocation_function_call_id: str,
         result: FEAllocationFunctionCallCreationResult,
     ) -> None:
         """Sends function call creation result to FE.
 
         Doesn't raise any exceptions.
         """
+        # TODO: function_call_id is deprecated, remove after FE migration period.
+        if _proto_field_is_defined(result, "function_call_id"):
+            result.function_call_id = allocation_function_call_id
+        if _proto_field_is_defined(result, "allocation_function_call_id"):
+            result.allocation_function_call_id = allocation_function_call_id
+
         try:
             await fe_stub.send_allocation_update(
                 FEAllocationUpdate(
@@ -1070,10 +1086,6 @@ class AllocationRunner:
                 "Server call_function RPC failed after all retries"
             ) from e
 
-        self._started_function_call_ids.add(
-            fe_function_call.updates.root_function_call_id
-        )
-
     async def _reconcile_function_call_watchers(
         self,
         fe_stub: FunctionExecutorStub,
@@ -1088,35 +1100,20 @@ class AllocationRunner:
                 )
                 continue
 
-            fe_function_call_watchers[function_call_watcher.watcher_id] = (
-                function_call_watcher
+            # TODO: Remove watcher_id field support after FE migration period.
+            watcher_id: str = (
+                function_call_watcher.id
+                if _proto_field_is_defined(function_call_watcher, "id")
+                else function_call_watcher.watcher_id
             )
+            fe_function_call_watchers[watcher_id] = function_call_watcher
 
-            if (
-                function_call_watcher.watcher_id
-                not in self._pending_function_call_watchers
-            ):
-                if (
-                    function_call_watcher.function_call_id
-                    in self._started_function_call_ids
-                ):
-                    await self._create_function_call_watcher(function_call_watcher)
-                else:
-                    # Send "Not found" to FE because function call doesn't exist.
-                    self._logger.info(
-                        "reporting function call as failed to FE because it was not started on this Executor",
-                        child_fn_call_id=function_call_watcher.function_call_id,
-                    )
-                    await fe_stub.send_allocation_update(
-                        FEAllocationUpdate(
-                            allocation_id=self._alloc_info.allocation.allocation_id,
-                            function_call_result=FEAllocationFunctionCallResult(
-                                function_call_id=function_call_watcher.function_call_id,
-                                outcome_code=FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE,
-                            ),
-                        ),
-                        timeout=_SEND_ALLOCATION_UPDATE_TIMEOUT_SECS,
-                    )
+            if watcher_id not in self._pending_function_call_watchers:
+                # We allow allocation to watch function calls that were not started by it.
+                # There's no known reason to disallow it and it simplifies implementation.
+                await self._create_function_call_watcher(
+                    watcher_id, function_call_watcher
+                )
 
         for function_call_watcher_id in list(
             self._pending_function_call_watchers.keys()
@@ -1127,19 +1124,27 @@ class AllocationRunner:
                 )
 
     async def _create_function_call_watcher(
-        self, fe_function_call_watcher: FEAllocationFunctionCallWatcher
+        self, watcher_id: str, fe_function_call_watcher: FEAllocationFunctionCallWatcher
     ) -> None:
         """Adds a note to Executor state to create a function call watcher.
 
         Server creates the watcher asynchronously based on the note.
         Doesn't raise any exceptions."""
+        # TODO: remove function_call_id field support after FE migration period.
+        watched_function_call_id: str = (
+            fe_function_call_watcher.root_function_call_id
+            if _proto_field_is_defined(
+                fe_function_call_watcher, "root_function_call_id"
+            )
+            else fe_function_call_watcher.function_call_id
+        )
         watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
-            fe_watcher_id=fe_function_call_watcher.watcher_id,
+            fe_watcher_id=watcher_id,
             server_watch=ServerFunctionCallWatch(
                 namespace=self._alloc_info.allocation.function.namespace,
                 application=self._alloc_info.allocation.function.application_name,
                 request_id=self._alloc_info.allocation.request_id,
-                function_call_id=fe_function_call_watcher.function_call_id,
+                function_call_id=watched_function_call_id,
             ),
             task=None,
             result_queue=asyncio.Queue(maxsize=1),
@@ -1203,6 +1208,8 @@ class AllocationRunner:
                     ),
                 )
             )
+            if _proto_field_is_defined(fe_function_call_result, "watcher_id"):
+                fe_function_call_result.watcher_id = watcher_info.fe_watcher_id
 
             if function_call_result.HasField("return_value"):
                 fe_function_call_result.value_output.CopyFrom(
@@ -1563,13 +1570,14 @@ def _validate_fe_output_blob_request(
 def _validate_fe_function_call_watcher(
     fe_function_call_watcher: FEAllocationFunctionCallWatcher,
 ) -> bool:
-    if not fe_function_call_watcher.HasField("watcher_id"):
-        return False
-
-    if not fe_function_call_watcher.HasField("function_call_id"):
-        return False
-
-    return True
+    if _proto_field_is_defined(fe_function_call_watcher, "id"):
+        return fe_function_call_watcher.HasField(
+            "id"
+        ) and fe_function_call_watcher.HasField("root_function_call_id")
+    else:
+        return fe_function_call_watcher.HasField(
+            "watcher_id"
+        ) and fe_function_call_watcher.HasField("function_call_id")
 
 
 def _validate_fe_function_call(
@@ -1579,6 +1587,7 @@ def _validate_fe_function_call(
         MessageValidator(fe_function_call).optional_blob("args_blob").required_field(
             "updates"
         )
+        # TODO: add required id field once all FEs send it.
         # TODO: Validate the update tree.
     except ValueError:
         return False
@@ -1605,3 +1614,12 @@ def _to_fe_allocation_outcome_code(
         return FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE
     else:
         return FEAllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_UNKNOWN
+
+
+def _proto_field_is_defined(proto: Any, field_name: str) -> bool:
+    """Returns True if the given protobuf field is defined in .proto file."""
+    try:
+        proto.HasField(field_name)
+        return True
+    except ValueError:
+        return False
