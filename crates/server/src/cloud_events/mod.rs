@@ -191,7 +191,7 @@ pub fn serde_json_to_otel_any_value(value: &JsonValue) -> AnyValue {
 mod tests {
     use super::*;
     use crate::{
-        data_model::{RequestFailureReason, RequestOutcome},
+        data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
             FunctionRunAssigned,
             FunctionRunCompleted,
@@ -207,6 +207,23 @@ mod tests {
         Some(AnyValue {
             value: Some(Value::StringValue(s.to_string())),
         })
+    }
+
+    fn make_test_ctx(
+        namespace: &str,
+        app: &str,
+        version: &str,
+        request_id: &str,
+        outcome: RequestOutcome,
+    ) -> crate::data_model::RequestCtx {
+        RequestCtxBuilder::default()
+            .namespace(namespace.to_string())
+            .application_name(app.to_string())
+            .application_version(version.to_string())
+            .request_id(request_id.to_string())
+            .outcome(Some(outcome))
+            .build()
+            .unwrap()
     }
 
     fn extract_inner_kvlist(any_value: &AnyValue) -> KeyValueList {
@@ -300,13 +317,14 @@ mod tests {
 
     #[test]
     fn test_request_finished_event_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.2",
             "req-789",
             RequestOutcome::Success,
         );
+        let event = RequestStateChangeEvent::finished(&ctx);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -514,13 +532,14 @@ mod tests {
 
     #[test]
     fn test_failure_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-fail",
             RequestOutcome::Failure(RequestFailureReason::InternalError),
         );
+        let event = RequestStateChangeEvent::finished(&ctx);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -562,13 +581,14 @@ mod tests {
 
     #[test]
     fn test_unknown_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-unknown",
             RequestOutcome::Unknown,
         );
+        let event = RequestStateChangeEvent::finished(&ctx);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -600,13 +620,14 @@ mod tests {
 
     #[test]
     fn test_success_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-unknown",
             RequestOutcome::Success,
         );
+        let event = RequestStateChangeEvent::finished(&ctx);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());

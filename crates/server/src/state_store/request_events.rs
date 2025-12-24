@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    data_model::{FunctionRunOutcome, RequestOutcome},
+    data_model::{FunctionRunOutcome, RequestCtx, RequestOutcome},
     state_store::requests::{AllocationOutput, RequestPayload, StateMachineUpdateRequest},
 };
 
@@ -63,19 +63,13 @@ pub enum RequestStateChangeEvent {
 }
 
 impl RequestStateChangeEvent {
-    pub fn finished(
-        namespace: &str,
-        application: &str,
-        application_version: &str,
-        request_id: &str,
-        outcome: RequestOutcome,
-    ) -> Self {
+    pub fn finished(ctx: &RequestCtx) -> Self {
         Self::RequestFinished(RequestFinishedEvent {
-            namespace: namespace.to_string(),
-            application_name: application.to_string(),
-            application_version: application_version.to_string(),
-            request_id: request_id.to_string(),
-            outcome,
+            namespace: ctx.namespace.clone(),
+            application_name: ctx.application_name.clone(),
+            application_version: ctx.application_version.clone(),
+            request_id: ctx.request_id.clone(),
+            outcome: ctx.outcome.clone().unwrap_or_default(),
         })
     }
 
@@ -428,14 +422,8 @@ pub fn build_request_state_change_events(
             }
 
             for request_ctx in sched_update.updated_request_states.values() {
-                if let Some(outcome) = &request_ctx.outcome {
-                    changes.push(RequestStateChangeEvent::finished(
-                        &request_ctx.namespace,
-                        &request_ctx.application_name,
-                        &request_ctx.application_version,
-                        &request_ctx.request_id,
-                        outcome.clone(),
-                    ));
+                if request_ctx.outcome.is_some() {
+                    changes.push(RequestStateChangeEvent::finished(request_ctx));
                 }
             }
 
@@ -448,6 +436,7 @@ pub fn build_request_state_change_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_model::RequestCtxBuilder;
 
     #[test]
     fn test_request_created_event_metadata() {
@@ -493,13 +482,15 @@ mod tests {
 
     #[test]
     fn test_request_finished_event_metadata() {
-        let event = RequestStateChangeEvent::finished(
-            "test-ns",
-            "test-app",
-            "1.0.2",
-            "req-789",
-            RequestOutcome::Success,
-        );
+        let ctx = RequestCtxBuilder::default()
+            .namespace("test-ns".to_string())
+            .application_name("test-app".to_string())
+            .application_version("1.0.2".to_string())
+            .request_id("req-789".to_string())
+            .outcome(Some(RequestOutcome::Success))
+            .build()
+            .unwrap();
+        let event = RequestStateChangeEvent::finished(&ctx);
 
         assert_eq!(event.namespace(), "test-ns");
         assert_eq!(event.application_name(), "test-app");
