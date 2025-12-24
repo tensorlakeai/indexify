@@ -1,9 +1,9 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.92-bullseye AS chef
+FROM rust:slim-trixie AS builder
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    software-properties-common unzip \
+    unzip \
     build-essential make cmake ca-certificates \
     curl pkg-config git \
     sqlite3 clang gcc g++ \
@@ -11,23 +11,12 @@ RUN apt-get update && apt-get install -y \
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash && \
     apt-get install -y nodejs
 
-FROM chef AS planner
-
-COPY Cargo.toml .
-COPY Cargo.lock .
-COPY crates crates
-
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM chef AS rust-builder
-COPY --from=planner /app/recipe.json recipe.json
-
 COPY rust-toolchain.toml .
 COPY Cargo.toml .
 COPY Cargo.lock .
+COPY proto proto
 COPY crates crates
 
-RUN cargo chef cook --release --recipe-path recipe.json
 RUN cargo build --release --bin indexify-server
 
 FROM ubuntu:24.04 AS runner
@@ -44,7 +33,7 @@ RUN update-ca-certificates
 
 WORKDIR /indexify
 
-COPY --from=rust-builder /app/target/release/indexify-server ./
+COPY --from=builder /app/target/release/indexify-server ./
 
 ENV PATH="/indexify:${PATH}"
 

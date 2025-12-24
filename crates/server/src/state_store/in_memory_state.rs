@@ -1212,10 +1212,10 @@ impl InMemoryState {
         for executor_watch in executor_watches.iter() {
             let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
                 error!(
-                    namspace = executor_watch.namespace.clone(),
-                    app = executor_watch.application.clone(),
-                    request_id = executor_watch.request_id.clone(),
-                    function_call_id = executor_watch.function_call_id.clone(),
+                    namespace = %executor_watch.namespace,
+                    app = %executor_watch.application,
+                    request_id = %executor_watch.request_id,
+                    function_call_id = %executor_watch.function_call_id,
                     "function run not found for executor watch",
                 );
                 continue;

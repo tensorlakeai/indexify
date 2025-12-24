@@ -115,12 +115,12 @@ impl SchedulerUpdateRequest {
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
         info!(
-            allocation_id = allocation.id.to_string(),
-            request_id = allocation.request_id.clone(),
-            namespace = allocation.namespace.clone(),
-            app = allocation.application.clone(),
-            fn = allocation.function.clone(),
-            fn_executor_id = allocation.target.function_executor_id.to_string(),
+            allocation_id = %allocation.id,
+            request_id = %allocation.request_id,
+            namespace = %allocation.namespace,
+            app = %allocation.application,
+            fn = %allocation.function,
+            fn_executor_id = %allocation.target.function_executor_id,
             "cancelling allocation",
         );
         allocation.outcome =

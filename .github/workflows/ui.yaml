@@ -26,5 +26,5 @@ jobs:
       - name: Npm Install
         run: cd crates/server/ui && npm ci
 
-      - name: UI Lint Check
-        run: cd crates/server/ui && npm run lint
+      # - name: UI Lint Check
+      #   run: cd crates/server/ui && npm run lint

@@ -55,12 +55,6 @@
     "eject": "react-scripts eject",
     "lint": "npx eslint --max-warnings 0 ./src"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
   "browserslist": {
     "production": [
       ">0.2%",

@@ -339,8 +339,8 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
         if value.request_id == req.request_id {
             info!(
                 allocation_id = %value.id,
-                fn_call_id = value.function_call_id.to_string(),
-                "fn" = value.function,
+                fn_call_id = %value.function_call_id,
+                "fn" = %value.function,
                 "deleting allocation",
             );
             txn.delete(IndexifyObjectsColumns::Allocations.as_ref(), &key)
@@ -550,14 +550,14 @@ pub(crate) async fn handle_scheduler_update(
 
     for alloc in &request.new_allocations {
         debug!(
-            namespace = alloc.namespace,
-            app = alloc.application,
-            request_id = alloc.request_id,
-            "fn" = alloc.function,
-            fn_call_id = alloc.function_call_id.to_string(),
+            namespace = %alloc.namespace,
+            app = %alloc.application,
+            request_id = %alloc.request_id,
+            "fn" = %alloc.function,
+            fn_call_id = %alloc.function_call_id,
             allocation_id = %alloc.id,
-            fn_executor_id = alloc.target.function_executor_id.get(),
-            executor_id = alloc.target.executor_id.get(),
+            fn_executor_id = %alloc.target.function_executor_id,
+            executor_id = %alloc.target.executor_id,
             "add_allocation",
         );
         let serialized_alloc = JsonEncoder::encode(&alloc)?;

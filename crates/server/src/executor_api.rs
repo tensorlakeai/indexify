@@ -587,7 +587,7 @@ impl ExecutorAPIService {
                 .map_err(|e| Status::internal(e.to_string()))?
             else {
                 warn!(
-                    allocation_key = allocation_key.clone(),
+                    allocation_key = %allocation_key,
                     "allocation not found"
                 );
                 return Ok(Vec::new());

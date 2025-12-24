@@ -468,12 +468,12 @@ impl FunctionExecutorManager {
             for allocs_by_fe in allocations.values() {
                 for alloc in allocs_by_fe.values() {
                     info!(
-                        allocation_id = alloc.id.to_string(),
-                        request_id = alloc.request_id.clone(),
-                        namespace = alloc.namespace.clone(),
-                        app = alloc.application.clone(),
-                        fn = alloc.function.clone(),
-                        fn_call_id = alloc.function_call_id.to_string(),
+                        allocation_id = %alloc.id,
+                        request_id = %alloc.request_id,
+                        namespace = %alloc.namespace,
+                        app = %alloc.application,
+                        fn = %alloc.function,
+                        fn_call_id = %alloc.function_call_id,
                         "marking allocation as failed due to deregistered executor",
                     );
                     let mut updated_alloc = alloc.as_ref().clone();
@@ -485,11 +485,11 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            fn_call_id = alloc.id.to_string(),
-                            fn = alloc.function.clone(),
-                            request_id = alloc.request_id.clone(),
-                            namespace = alloc.namespace.clone(),
-                            app = alloc.application.clone(),
+                            fn_call_id = %alloc.id,
+                            fn = %alloc.function,
+                            request_id = %alloc.request_id,
+                            namespace = %alloc.namespace,
+                            app = %alloc.application,
                             "function run not found while removing allocations for deregistered executor",
                         );
                         continue;
@@ -501,11 +501,11 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            fn_call_id = alloc.id.to_string(),
-                            fn = alloc.function.clone(),
-                            request_id = alloc.request_id.clone(),
-                            namespace = alloc.namespace.clone(),
-                            app = alloc.application.clone(),
+                            fn_call_id = %alloc.id,
+                            fn = %alloc.function,
+                            request_id = %alloc.request_id,
+                            namespace = %alloc.namespace,
+                            app = %alloc.application,
                             "request context not found while removing allocations for deregistered executor",
                         );
                         continue;
@@ -515,11 +515,11 @@ impl FunctionExecutorManager {
                         .cloned()
                     else {
                         warn!(
-                            fn_call_id = alloc.id.to_string(),
-                            fn = alloc.function.clone(),
-                            request_id = alloc.request_id.clone(),
-                            namespace = alloc.namespace.clone(),
-                            app = alloc.application.clone(),
+                            fn_call_id = %alloc.id,
+                            fn = %alloc.function,
+                            request_id = %alloc.request_id,
+                            namespace = %alloc.namespace,
+                            app = %alloc.application,
                             "application version not found while removing allocations for deregistered executor",
                         );
                         continue;
