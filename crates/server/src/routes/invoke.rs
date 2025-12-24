@@ -103,39 +103,24 @@ async fn read_json_output(
 
 async fn build_finished_event_with_output(
     state: &RouteState,
-    namespace: &str,
-    application: &str,
-    application_version: &str,
-    request_id: &str,
-    outcome: RequestOutcome,
+    ctx: &RequestCtx,
 ) -> RequestFinishedWithOutput {
-    let output_info = match state
-        .indexify_state
-        .reader()
-        .request_ctx(namespace, application, request_id)
-        .await
-    {
-        Ok(Some(ctx)) => {
-            // Get the entrypoint function's output (uses request_id as function_call_id)
-            ctx.function_runs
-                .get(&FunctionCallId::from(request_id))
-                .and_then(|fn_run| fn_run.output.clone())
-        }
-        Ok(None) => None,
-        Err(e) => {
-            warn!(?e, "failed to get request context for output");
-            None
-        }
-    };
+    let outcome = ctx.outcome.clone().unwrap_or_default();
 
-    let (output, output_url, output_encoding) = match output_info {
+    // Get the entrypoint function's output (uses request_id as function_call_id)
+    let output_payload = ctx
+        .function_runs
+        .get(&FunctionCallId::from(ctx.request_id.as_str()))
+        .and_then(|fn_run| fn_run.output.clone());
+
+    let (output, output_url, output_encoding) = match output_payload {
         Some(payload) => {
             let encoding = payload.encoding.clone();
-            let json_output = read_json_output(&payload, state, namespace).await;
+            let json_output = read_json_output(&payload, state, &ctx.namespace).await;
             if json_output.is_some() {
                 (json_output, None, Some(encoding))
             } else {
-                let url = build_output_url(application, request_id);
+                let url = build_output_url(&ctx.application_name, &ctx.request_id);
                 (None, Some(url), Some(encoding))
             }
         }
@@ -143,10 +128,10 @@ async fn build_finished_event_with_output(
     };
 
     RequestFinishedWithOutput {
-        namespace: namespace.to_string(),
-        application_name: application.to_string(),
-        application_version: application_version.to_string(),
-        request_id: request_id.to_string(),
+        namespace: ctx.namespace.clone(),
+        application_name: ctx.application_name.clone(),
+        application_version: ctx.application_version.clone(),
+        request_id: ctx.request_id.clone(),
         outcome,
         output,
         output_url,
@@ -160,16 +145,8 @@ enum RequestCheckResult {
 }
 
 async fn check_request_completion(state: &RouteState, ctx: &RequestCtx) -> RequestCheckResult {
-    if let Some(outcome) = &ctx.outcome {
-        let enriched_event = build_finished_event_with_output(
-            state,
-            &ctx.namespace,
-            &ctx.application_name,
-            &ctx.application_version,
-            &ctx.request_id,
-            outcome.clone(),
-        )
-        .await;
+    if ctx.outcome.is_some() {
+        let enriched_event = build_finished_event_with_output(state, ctx).await;
         RequestCheckResult::Completed(enriched_event)
     } else {
         RequestCheckResult::InProgress
@@ -273,15 +250,35 @@ async fn create_request_progress_stream(
         loop {
             match rx.recv().await {
                 Ok(ev) => {
+<<<<<<< HEAD
                     let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
                     yield Event::default().json_data(&ev);
                     if is_finished {
                         return;
+=======
+                    if ev.request_id() == ctx.request_id {
+                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
+                            // Re-read ctx to get the latest state including output
+                            if let Ok(Some(updated_ctx)) = state
+                                .indexify_state
+                                .reader()
+                                .request_ctx(&ctx.namespace, &ctx.application_name, &ctx.request_id)
+                                .await
+                            {
+                                let enriched_event = build_finished_event_with_output(&state, &updated_ctx).await;
+                                yield Event::default().json_data(enriched_event);
+                            }
+                            return;
+                        } else {
+                            yield Event::default().json_data(&ev);
+                        }
+>>>>>>> c0e70680 (adding the output of the application in the SSE response)
                     }
                 }
                 Err(RecvError::Lagged(num)) => {
                     warn!("lagging behind request event stream by {} events", num);
 
+<<<<<<< HEAD
                     // Check if completion happened during lag
                     match reader.request_ctx(&namespace, &application, &request_id).await {
                         Ok(Some(context)) => {
@@ -305,6 +302,21 @@ async fn create_request_progress_stream(
                         Err(e) => {
                             error!(?e, "failed to get request context");
                             return;
+=======
+                    // Re-read ctx to check for completion
+                    if let Ok(Some(updated_ctx)) = state
+                        .indexify_state
+                        .reader()
+                        .request_ctx(&ctx.namespace, &ctx.application_name, &ctx.request_id)
+                        .await
+                    {
+                        match check_request_completion(&state, &updated_ctx).await {
+                            RequestCheckResult::Completed(event) => {
+                                yield Event::default().json_data(event);
+                                return;
+                            }
+                            RequestCheckResult::InProgress => {}
+>>>>>>> c0e70680 (adding the output of the application in the SSE response)
                         }
                     }
                 }
