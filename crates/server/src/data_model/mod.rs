@@ -256,8 +256,16 @@ pub struct FunctionRun {
     pub attempt_number: u32,
     #[builder(default = "self.default_creation_time_ns()")]
     pub creation_time_ns: u128,
+    /// Server clock value when this function run was first persisted.
+    /// None means never persisted or legacy data.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock value when this function run was last persisted.
+    /// None means never persisted or legacy data.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
     pub call_metadata: bytes::Bytes,
 
     #[builder(default)]
@@ -293,8 +301,20 @@ impl FunctionRun {
         )
     }
 
-    pub fn vector_clock(&self) -> &VectorClock {
-        &self.vector_clock
+    /// Returns true if this function run has never been persisted to the
+    /// database.
+    pub fn is_new(&self) -> bool {
+        self.created_at_clock.is_none()
+    }
+
+    /// Prepares the function run for persistence by setting the server clock.
+    /// Sets created_at_clock only on first persistence, updated_at_clock on
+    /// every persistence.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
     }
 }
 
@@ -503,8 +523,14 @@ pub struct Application {
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
+    /// Server clock when this application was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this application was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
     pub entrypoint: ApplicationEntryPoint,
 }
 
@@ -517,6 +543,14 @@ impl ApplicationBuilder {
 impl Application {
     pub fn key(&self) -> String {
         Application::key_from(&self.namespace, &self.name)
+    }
+
+    /// Prepares the application for persistence by setting the server clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
     }
 
     pub fn key_from(namespace: &str, name: &str) -> String {
@@ -689,11 +723,26 @@ pub struct ApplicationVersion {
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
+    /// Server clock when this application version was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this application version was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
 
 impl ApplicationVersion {
+    /// Prepares the application version for persistence by setting the server
+    /// clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
+
     pub fn create_function_run(
         &self,
         fn_call: &FunctionCall,
@@ -719,7 +768,7 @@ impl ApplicationVersion {
             .attempt_number(0)
             .call_metadata(fn_call.call_metadata.clone())
             .creation_time_ns(get_epoch_time_in_ns())
-            .vector_clock(VectorClock::default())
+            // created_at_clock and updated_at_clock default to None (not yet persisted)
             .outcome(None)
             .build()
             .map_err(|e| anyhow!("failed to create function run: {e}"))
@@ -955,8 +1004,14 @@ pub struct RequestCtx {
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
     pub request_error: Option<RequestError>,
+    /// Server clock when this request context was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this request context was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 
     #[builder(default)]
     pub function_runs: HashMap<FunctionCallId, FunctionRun>,
@@ -1029,6 +1084,22 @@ impl RequestCtx {
         self.function_runs
             .values()
             .all(|function_run| matches!(function_run.status, FunctionRunStatus::Completed))
+    }
+
+    /// Prepares the RequestCtx and all its function runs for persistence.
+    /// Sets created_at_clock only on first persistence, updated_at_clock on
+    /// every persistence.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        // Set RequestCtx's own clock values
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+
+        // Prepare all function runs
+        for function_run in self.function_runs.values_mut() {
+            function_run.prepare_for_persistence(clock);
+        }
     }
 }
 
@@ -1593,13 +1664,27 @@ pub struct FunctionExecutorResources {
 pub struct GcUrl {
     pub url: String,
     pub namespace: String,
+    /// Server clock when this GcUrl was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this GcUrl was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
 
 impl GcUrl {
     pub fn key(&self) -> String {
         format!("{}|{}", self.namespace, self.url)
+    }
+
+    /// Prepares for persistence by setting the server clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
     }
 }
 
@@ -1614,9 +1699,19 @@ pub struct FunctionExecutor {
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
+    /// Server clock when this function executor was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this function executor was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
+
+// Note: FunctionExecutor is stored in memory, not persisted to RocksDB,
+// so created_at_clock and updated_at_clock are currently unused but kept
+// for future use if ExecutorMetadata becomes persisted.
 
 impl PartialEq for FunctionExecutor {
     fn eq(&self, other: &Self) -> bool {
@@ -1728,9 +1823,19 @@ pub struct ExecutorMetadata {
     pub clock: u64,
     #[builder(default)]
     pub catalog_name: Option<String>,
+    /// Server clock when this executor metadata was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this executor metadata was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
+
+// Note: ExecutorMetadata is stored in memory, not persisted to RocksDB,
+// so created_at_clock and updated_at_clock are currently unused but kept
+// for future use if ExecutorMetadata becomes persisted.
 
 impl ExecutorMetadata {
     pub fn is_function_allowed(&self, function_run: &FunctionRun) -> bool {
@@ -1908,13 +2013,27 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
+    /// Server clock when this state change was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this state change was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
 
 impl StateChange {
     pub fn key(&self) -> [u8; 8] {
         self.id.0.to_be_bytes()
+    }
+
+    /// Prepares for persistence by setting the server clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
     }
 }
 
@@ -1937,8 +2056,24 @@ pub struct Namespace {
     pub created_at: u64,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
+    /// Server clock when this namespace was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this namespace was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+}
+
+impl Namespace {
+    /// Prepares for persistence by setting the server clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]
@@ -1973,16 +2108,30 @@ pub struct AllocationUsageEvent {
     pub execution_duration_ms: u64,
     pub function: String,
 
+    /// Server clock when this allocation usage event was first persisted.
     #[builder(default)]
-    vector_clock: VectorClock,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    /// Server clock when this allocation usage event was last persisted.
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
 }
 
 impl AllocationUsageEvent {
+    /// Prepares for persistence by setting the server clock.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
+
     /// Returns a key suitable for use in RocksDB.
     ///
     /// It uses the AllocationUsageId as the key, encoded as big-endian bytes.
     pub fn key(&self) -> [u8; 8] {
-        // RocksDB sorts keys in lexicographical order. Using the vector clock
+        // RocksDB sorts keys in lexicographical order. Using the id
         // as the key ensures that newer versions of the same AllocationUsage
         // will sort after older versions.
         self.id.0.to_be_bytes()
@@ -2407,7 +2556,8 @@ mod tests {
         assert_eq!(ctx.outcome, None);
         assert!(ctx.request_error.is_none());
         assert_eq!(ctx.created_at, 9999999999);
-        assert_eq!(ctx.vector_clock.value(), 0);
+        assert_eq!(ctx.created_at_clock, None);
+        assert_eq!(ctx.updated_at_clock, None);
 
         // Check key format
         let key = ctx.key();
@@ -2434,7 +2584,8 @@ mod tests {
         assert!(json.contains("\"outcome\":null"));
         assert!(json.contains("\"created_at\":"));
         assert!(json.contains("\"request_error\":null"));
-        assert!(json.contains("\"vector_clock\":1"));
+        // created_at_clock and updated_at_clock are None by default, so they
+        // may or may not be serialized
     }
 
     #[test]
@@ -2477,7 +2628,8 @@ mod tests {
         assert_eq!(fe.state, state);
         assert_eq!(fe.resources, resources);
         assert_eq!(fe.max_concurrency, max_concurrency);
-        assert_eq!(fe.vector_clock.value(), 0);
+        assert_eq!(fe.created_at_clock, None);
+        assert_eq!(fe.updated_at_clock, None);
 
         // Check serialization
         let json = serde_json::to_string(&fe).expect("Should serialize FunctionExecutor to JSON");
@@ -2504,7 +2656,7 @@ mod tests {
             "\"model\":\"{}\"",
             resources.gpu.as_ref().unwrap().model
         )));
-        assert!(json.contains("\"vector_clock\":1"));
+        // created_at_clock and updated_at_clock are None by default
     }
 
     #[test]
@@ -2577,7 +2729,8 @@ mod tests {
         assert_eq!(metadata.tombstoned, tombstoned);
         assert_eq!(metadata.state_hash, state_hash);
         assert_eq!(metadata.clock, clock);
-        assert_eq!(metadata.vector_clock.value(), 0);
+        assert_eq!(metadata.created_at_clock, None);
+        assert_eq!(metadata.updated_at_clock, None);
 
         // Check serialization
         let json =
@@ -2592,7 +2745,7 @@ mod tests {
         assert!(json.contains(&format!("\"tombstoned\":{}", metadata.tombstoned)));
         assert!(json.contains(&format!("\"state_hash\":\"{}\"", metadata.state_hash)));
         assert!(json.contains("\"clock\":42"));
-        assert!(json.contains("\"vector_clock\":1"));
+        // created_at_clock and updated_at_clock are None by default
     }
 
     #[test]

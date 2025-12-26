@@ -35,6 +35,26 @@ pub struct StateMachineUpdateRequest {
 }
 
 impl StateMachineUpdateRequest {
+    /// Prepares all objects in the payload with clock values.
+    /// This should be called once before persisting or storing in memory.
+    /// After this call, both the persistent store and in-memory store
+    /// receive the same prepared objects.
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        match &mut self.payload {
+            RequestPayload::InvokeApplication(req) => {
+                req.ctx.prepare_for_persistence(clock);
+            }
+            RequestPayload::SchedulerUpdate((req, _)) => {
+                for request_ctx in req.updated_request_states.values_mut() {
+                    request_ctx.prepare_for_persistence(clock);
+                }
+            }
+            // Other payload types don't have objects with clocks that need preparation,
+            // or they're handled directly in their respective state machine functions.
+            _ => {}
+        }
+    }
+
     pub fn state_changes(
         &self,
         state_change_id_seq: &AtomicU64,

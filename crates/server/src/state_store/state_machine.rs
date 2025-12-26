@@ -76,13 +76,18 @@ pub enum IndexifyObjectsColumns {
     RequestStateChangeEvents,
 }
 
-pub(crate) async fn upsert_namespace(db: Arc<RocksDBDriver>, req: &NamespaceRequest) -> Result<()> {
-    let ns = NamespaceBuilder::default()
+pub(crate) async fn upsert_namespace(
+    db: Arc<RocksDBDriver>,
+    req: &NamespaceRequest,
+    clock: u64,
+) -> Result<()> {
+    let mut ns = NamespaceBuilder::default()
         .name(req.name.clone())
         .created_at(get_epoch_time_in_ms())
         .blob_storage_bucket(req.blob_storage_bucket.clone())
         .blob_storage_region(req.blob_storage_region.clone())
         .build()?;
+    ns.prepare_for_persistence(clock);
     let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put(
         IndexifyObjectsColumns::Namespaces.as_ref(),
@@ -145,6 +150,9 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
         .into());
     }
 
+    // The request context has already been prepared with clocks by
+    // StateMachineUpdateRequest::prepare_for_persistence before this function is
+    // called.
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         request_key.as_bytes(),
@@ -205,6 +213,7 @@ pub(crate) async fn upsert_allocation(
     txn: &Transaction,
     allocation: &Allocation,
     usage_event_sequence_id: Option<&AtomicU64>,
+    clock: u64,
 ) -> Result<AllocationUpsertResult> {
     let mut allocation_upsert_result = AllocationUpsertResult {
         usage_recorded: false,
@@ -254,7 +263,7 @@ pub(crate) async fn upsert_allocation(
     let Some(execution_duration_ms) = allocation.execution_duration_ms else {
         return Ok(allocation_upsert_result);
     };
-    let allocation_usage = AllocationUsageEventBuilder::default()
+    let mut allocation_usage = AllocationUsageEventBuilder::default()
         .id(AllocationUsageId::new(
             usage_event_sequence_id.fetch_add(1, Ordering::Relaxed),
         ))
@@ -266,6 +275,7 @@ pub(crate) async fn upsert_allocation(
         .execution_duration_ms(execution_duration_ms)
         .function(allocation.function.clone())
         .build()?;
+    allocation_usage.prepare_for_persistence(clock);
 
     let serialized_usage = JsonEncoder::encode(&allocation_usage)?;
     txn.put(
@@ -281,7 +291,11 @@ pub(crate) async fn upsert_allocation(
 }
 
 #[tracing::instrument(skip_all, fields(namespace = req.namespace, application_name = req.application, request_id = req.request_id))]
-pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest) -> Result<()> {
+pub(crate) async fn delete_request(
+    txn: &Transaction,
+    req: &DeleteRequestRequest,
+    clock: u64,
+) -> Result<()> {
     info!("deleting request");
 
     // Check if the request was deleted before the task completes
@@ -314,10 +328,11 @@ pub(crate) async fn delete_request(txn: &Transaction, req: &DeleteRequestRequest
         }
     }
     for payload_url in payload_urls {
-        let gc_url = GcUrlBuilder::default()
+        let mut gc_url = GcUrlBuilder::default()
             .url(payload_url)
             .namespace(req.namespace.clone())
             .build()?;
+        gc_url.prepare_for_persistence(clock);
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put(
             IndexifyObjectsColumns::GcUrls.as_ref(),
@@ -426,6 +441,7 @@ pub(crate) async fn create_or_update_application(
     txn: &Transaction,
     application: Application,
     upgrade_existing_function_runs_to_current_version: bool,
+    clock: u64,
 ) -> Result<()> {
     info!("creating application");
     let existing_application = txn
@@ -436,7 +452,7 @@ pub(crate) async fn create_or_update_application(
         .await?
         .map(|v| JsonEncoder::decode::<Application>(&v));
 
-    let new_application_version = match existing_application {
+    let mut new_application_version = match existing_application {
         Some(Ok(mut existing_application)) => {
             existing_application.update(application.clone());
             existing_application.to_version()
@@ -450,6 +466,7 @@ pub(crate) async fn create_or_update_application(
         version = &new_application_version.version,
         "new application version"
     );
+    new_application_version.prepare_for_persistence(clock);
     let serialized_application_version = JsonEncoder::encode(&new_application_version)?;
     txn.put(
         IndexifyObjectsColumns::ApplicationVersions.as_ref(),
@@ -458,7 +475,9 @@ pub(crate) async fn create_or_update_application(
     )
     .await?;
 
-    let serialized_application = JsonEncoder::encode(&application)?;
+    let mut application_for_persistence = application.clone();
+    application_for_persistence.prepare_for_persistence(clock);
+    let serialized_application = JsonEncoder::encode(&application_for_persistence)?;
     txn.put(
         IndexifyObjectsColumns::Applications.as_ref(),
         application.key().as_bytes(),
@@ -478,7 +497,12 @@ pub(crate) async fn create_or_update_application(
 }
 
 #[tracing::instrument(skip(txn), fields(namespace = namespace, name = name))]
-pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) -> Result<()> {
+pub async fn delete_application(
+    txn: &Transaction,
+    namespace: &str,
+    name: &str,
+    clock: u64,
+) -> Result<()> {
     info!("deleting application");
     txn.delete(
         IndexifyObjectsColumns::Applications.as_ref(),
@@ -501,6 +525,7 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
                 application: value.application_name,
                 request_id: value.request_id,
             },
+            clock,
         )
         .await?;
     }
@@ -517,10 +542,11 @@ pub async fn delete_application(txn: &Transaction, namespace: &str, name: &str) 
         let value = JsonEncoder::decode::<ApplicationVersion>(&value)?;
 
         // mark all code urls for gc.
-        let gc_url = GcUrlBuilder::default()
+        let mut gc_url = GcUrlBuilder::default()
             .url(value.code.path.clone())
             .namespace(namespace.to_string())
             .build()?;
+        gc_url.prepare_for_persistence(clock);
         let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
         txn.put(
             IndexifyObjectsColumns::GcUrls.as_ref(),
@@ -543,6 +569,7 @@ pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
     usage_event_id_seq: Option<&AtomicU64>,
+    clock: u64, // Used for AllocationUsageEvent
 ) -> Result<SchedulerUpdateResult> {
     let mut result = SchedulerUpdateResult {
         usage_recorded: false,
@@ -581,7 +608,10 @@ pub(crate) async fn handle_scheduler_update(
                 "request completed"
             );
         }
-        let serialized_graph_ctx = JsonEncoder::encode(&request_ctx)?;
+        // The request context has already been prepared with clocks by
+        // StateMachineUpdateRequest::prepare_for_persistence before this function is
+        // called.
+        let serialized_graph_ctx = JsonEncoder::encode(request_ctx)?;
         txn.put(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             request_ctx.key().as_bytes(),
@@ -590,7 +620,7 @@ pub(crate) async fn handle_scheduler_update(
         .await?;
     }
     for alloc in &request.updated_allocations {
-        let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq).await?;
+        let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq, clock).await?;
         if upsert_result.usage_recorded {
             result.usage_recorded = true;
         }
@@ -602,10 +632,13 @@ pub(crate) async fn handle_scheduler_update(
 pub(crate) async fn save_state_changes(
     txn: &Transaction,
     state_changes: &[StateChange],
+    clock: u64,
 ) -> Result<()> {
     for state_change in state_changes {
         let key = &state_change.key();
-        let serialized_state_change = JsonEncoder::encode(&state_change)?;
+        let mut state_change_for_persistence = state_change.clone();
+        state_change_for_persistence.prepare_for_persistence(clock);
+        let serialized_state_change = JsonEncoder::encode(&state_change_for_persistence)?;
         let cf = match &state_change.change_type {
             ChangeType::ExecutorUpserted(_) | ChangeType::TombStoneExecutor(_) => {
                 IndexifyObjectsColumns::ExecutorStateChanges.as_ref()

@@ -410,15 +410,16 @@ pub fn build_request_state_change_events(
             let mut changes = Vec::new();
 
             // 1. FunctionRunCreated events first (runs must exist before being assigned)
-            // Only emit for NEWLY created runs (vector_clock == 0 means never persisted)
+            // Only emit for NEWLY created runs (created_at_clock is None means never
+            // persisted)
             for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                 for function_call_id in function_call_ids {
                     let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
                     let function_run =
                         ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                     if let Some(function_run) = function_run {
-                        // vector_clock == 0 means this run was just created and never persisted
-                        if function_run.vector_clock().value() == 0 {
+                        // is_new() returns true if created_at_clock is None (never persisted)
+                        if function_run.is_new() {
                             changes.push(RequestStateChangeEvent::FunctionRunCreated(
                                 FunctionRunCreated {
                                     namespace: function_run.namespace.clone(),

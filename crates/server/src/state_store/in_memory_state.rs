@@ -410,6 +410,8 @@ impl InMemoryState {
 
         match state_machine_update_request {
             RequestPayload::InvokeApplication(req) => {
+                // The request context has already been prepared with clocks by
+                // StateMachineUpdateRequest::prepare_for_persistence in the state machine.
                 self.request_ctx
                     .insert(req.ctx.key().into(), Box::new(req.ctx.clone()));
                 for function_run in req.ctx.function_runs.values() {
@@ -592,6 +594,9 @@ impl InMemoryState {
                                 &request_ctx.request_id,
                             );
                         } else {
+                            // The request context has already been prepared with clocks by
+                            // StateMachineUpdateRequest::prepare_for_persistence in the state
+                            // machine.
                             self.request_ctx
                                 .insert(key.into(), Box::new(request_ctx.clone()));
                         }
