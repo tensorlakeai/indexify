@@ -121,8 +121,6 @@ async fn create_request_progress_stream(
 
 #[derive(Serialize)]
 struct RequestIdV1 {
-    // FIXME: Remove this once we migrate clients off this.
-    id: String,
     request_id: String,
 }
 
@@ -291,7 +289,6 @@ pub async fn invoke_application_with_object_v1(
 
     if accept_header.contains("application/json") {
         return Ok(Json(RequestIdV1 {
-            id: request_id.clone(),
             request_id: request_id.clone(),
         })
         .into_response());

@@ -58,7 +58,6 @@ pub enum RequestStateChangeEvent {
     FunctionRunAssigned(FunctionRunAssigned),
     FunctionRunCompleted(FunctionRunCompleted),
     FunctionRunMatchedCache(FunctionRunMatchedCache),
-    RequestCreated(RequestCreatedEvent),
     RequestFinished(RequestFinishedEvent),
 }
 
@@ -95,7 +94,6 @@ impl RequestStateChangeEvent {
     pub fn namespace(&self) -> &str {
         match self {
             RequestStateChangeEvent::RequestStarted(event) => event.namespace(),
-            RequestStateChangeEvent::RequestCreated(event) => event.namespace(),
             RequestStateChangeEvent::RequestFinished(event) => event.namespace(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.namespace(),
             RequestStateChangeEvent::FunctionRunAssigned(event) => event.namespace(),
@@ -107,7 +105,6 @@ impl RequestStateChangeEvent {
     pub fn application_name(&self) -> &str {
         match self {
             RequestStateChangeEvent::RequestStarted(event) => event.application_name(),
-            RequestStateChangeEvent::RequestCreated(event) => event.application_name(),
             RequestStateChangeEvent::RequestFinished(event) => event.application_name(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.application_name(),
             RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_name(),
@@ -119,7 +116,6 @@ impl RequestStateChangeEvent {
     pub fn application_version(&self) -> &str {
         match self {
             RequestStateChangeEvent::RequestStarted(event) => event.application_version(),
-            RequestStateChangeEvent::RequestCreated(event) => event.application_version(),
             RequestStateChangeEvent::RequestFinished(event) => event.application_version(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.application_version(),
             RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_version(),
@@ -131,7 +127,6 @@ impl RequestStateChangeEvent {
     pub fn request_id(&self) -> &str {
         match self {
             RequestStateChangeEvent::RequestStarted(event) => event.request_id(),
-            RequestStateChangeEvent::RequestCreated(event) => event.request_id(),
             RequestStateChangeEvent::RequestFinished(event) => event.request_id(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.request_id(),
             RequestStateChangeEvent::FunctionRunAssigned(event) => event.request_id(),
@@ -143,7 +138,6 @@ impl RequestStateChangeEvent {
     pub fn message(&self) -> &str {
         match self {
             RequestStateChangeEvent::RequestStarted(_) => "Request Started",
-            RequestStateChangeEvent::RequestCreated(_) => "Request Created",
             RequestStateChangeEvent::RequestFinished(_) => "Request Finished",
             RequestStateChangeEvent::FunctionRunCreated(_) => "Function Run Created",
             RequestStateChangeEvent::FunctionRunAssigned(_) => "Function Run Assigned",
@@ -154,33 +148,6 @@ impl RequestStateChangeEvent {
         }
     }
 }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RequestCreatedEvent {
-    pub namespace: String,
-    pub application_name: String,
-    pub application_version: String,
-    pub request_id: String,
-}
-
-impl RequestEventMetadata for RequestCreatedEvent {
-    fn namespace(&self) -> &str {
-        &self.namespace
-    }
-
-    fn application_name(&self) -> &str {
-        &self.application_name
-    }
-
-    fn application_version(&self) -> &str {
-        &self.application_version
-    }
-
-    fn request_id(&self) -> &str {
-        &self.request_id
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RequestFinishedEvent {
     pub namespace: String,
@@ -470,27 +437,6 @@ pub fn build_request_state_change_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_request_created_event_metadata() {
-        let event = RequestCreatedEvent {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "1.0.0".to_string(),
-            request_id: "req-123".to_string(),
-        };
-
-        assert_eq!(event.namespace(), "test-ns");
-        assert_eq!(event.application_name(), "test-app");
-        assert_eq!(event.application_version(), "1.0.0");
-        assert_eq!(event.request_id(), "req-123");
-
-        let wrapped = RequestStateChangeEvent::RequestCreated(event);
-        assert_eq!(wrapped.namespace(), "test-ns");
-        assert_eq!(wrapped.application_name(), "test-app");
-        assert_eq!(wrapped.application_version(), "1.0.0");
-        assert_eq!(wrapped.request_id(), "req-123");
-    }
 
     #[test]
     fn test_request_started_event_metadata() {
