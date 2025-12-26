@@ -256,13 +256,9 @@ pub struct FunctionRun {
     pub attempt_number: u32,
     #[builder(default = "self.default_creation_time_ns()")]
     pub creation_time_ns: u128,
-    /// Server clock value when this function run was first persisted.
-    /// None means never persisted or legacy data.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock value when this function run was last persisted.
-    /// None means never persisted or legacy data.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -523,11 +519,9 @@ pub struct Application {
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
-    /// Server clock when this application was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this application was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -723,11 +717,9 @@ pub struct ApplicationVersion {
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
-    /// Server clock when this application version was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this application version was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -1004,11 +996,9 @@ pub struct RequestCtx {
     pub created_at: u64,
     #[builder(setter(strip_option), default)]
     pub request_error: Option<RequestError>,
-    /// Server clock when this request context was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this request context was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -1664,11 +1654,9 @@ pub struct FunctionExecutorResources {
 pub struct GcUrl {
     pub url: String,
     pub namespace: String,
-    /// Server clock when this GcUrl was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this GcUrl was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -1699,11 +1687,9 @@ pub struct FunctionExecutor {
     pub state: FunctionExecutorState,
     pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
-    /// Server clock when this function executor was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this function executor was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -1823,11 +1809,9 @@ pub struct ExecutorMetadata {
     pub clock: u64,
     #[builder(default)]
     pub catalog_name: Option<String>,
-    /// Server clock when this executor metadata was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this executor metadata was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -2013,11 +1997,9 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    /// Server clock when this state change was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this state change was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -2056,11 +2038,9 @@ pub struct Namespace {
     pub created_at: u64,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
-    /// Server clock when this namespace was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this namespace was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
@@ -2108,11 +2088,9 @@ pub struct AllocationUsageEvent {
     pub execution_duration_ms: u64,
     pub function: String,
 
-    /// Server clock when this allocation usage event was first persisted.
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
-    /// Server clock when this allocation usage event was last persisted.
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
