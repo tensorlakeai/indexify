@@ -383,7 +383,6 @@ pub fn build_request_state_change_events(
             )];
 
             // Emit FunctionRunCreated for all function runs in the request context
-            // (typically just the entrypoint function run)
             for function_run in request.ctx.function_runs.values() {
                 events.push(RequestStateChangeEvent::FunctionRunCreated(
                     FunctionRunCreated {
@@ -410,8 +409,6 @@ pub fn build_request_state_change_events(
             let mut changes = Vec::new();
 
             // 1. FunctionRunCreated events first (runs must exist before being assigned)
-            // Only emit for NEWLY created runs (created_at_clock is None means never
-            // persisted)
             for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                 for function_call_id in function_call_ids {
                     let ctx = sched_update.updated_request_states.get(ctx_key).cloned();

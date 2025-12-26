@@ -365,7 +365,7 @@ impl IndexifyState {
                     &txn,
                     request,
                     Some(&self.usage_event_id_seq),
-                    current_clock, // For AllocationUsageEvent
+                    current_clock,
                 )
                 .await?;
                 if scheduler_result.usage_recorded {

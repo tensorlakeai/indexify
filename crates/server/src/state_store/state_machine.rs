@@ -569,7 +569,7 @@ pub(crate) async fn handle_scheduler_update(
     txn: &Transaction,
     request: &SchedulerUpdateRequest,
     usage_event_id_seq: Option<&AtomicU64>,
-    clock: u64, // Used for AllocationUsageEvent
+    clock: u64,
 ) -> Result<SchedulerUpdateResult> {
     let mut result = SchedulerUpdateResult {
         usage_recorded: false,
