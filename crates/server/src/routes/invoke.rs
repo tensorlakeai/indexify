@@ -9,14 +9,23 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use serde::Serialize;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
+    data_model::{
+        self,
+        ApplicationState,
+        DataPayload,
+        FunctionCallId,
+        InputArgs,
+        RequestCtx,
+        RequestCtxBuilder,
+        RequestOutcome,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
@@ -30,86 +39,181 @@ use crate::{
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
 
+/// Maximum size of JSON output to inline in SSE event (1MB)
+const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
+
+#[derive(Serialize)]
+struct RequestFinishedWithOutput {
+    namespace: String,
+    application_name: String,
+    application_version: String,
+    request_id: String,
+    outcome: RequestOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_encoding: Option<String>,
+}
+
+/// Build the download URL for a request's output
+fn build_output_url(application: &str, request_id: &str) -> String {
+    format!(
+        "/applications/{}/requests/{}/output",
+        application, request_id
+    )
+}
+
+async fn read_json_output(
+    payload: &DataPayload,
+    state: &RouteState,
+    namespace: &str,
+) -> Option<serde_json::Value> {
+    if payload.encoding != "application/json" {
+        return None;
+    }
+
+    let data_size = payload.size - payload.metadata_size;
+    if data_size > MAX_INLINE_JSON_SIZE {
+        return None;
+    }
+
+    let blob_storage = state.blob_storage.get_blob_store(namespace);
+    let data_offset = payload.offset + payload.metadata_size;
+
+    let storage_reader = match blob_storage
+        .get(&payload.path, Some(data_offset..data_offset + data_size))
+        .await
+    {
+        Ok(reader) => reader,
+        Err(e) => {
+            warn!(?e, "failed to read output blob for SSE");
+            return None;
+        }
+    };
+
+    let bytes = match storage_reader
+        .map_ok(|chunk| chunk.to_vec())
+        .try_concat()
+        .await
+    {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            warn!(?e, "failed to concat output blob chunks for SSE");
+            return None;
+        }
+    };
+
+    serde_json::from_slice(&bytes).ok()
+}
+
+async fn build_finished_event_with_output(
+    state: &RouteState,
+    ctx: &RequestCtx,
+) -> RequestFinishedWithOutput {
+    let outcome = ctx.outcome.clone().unwrap_or_default();
+
+    // Get the entrypoint function's output (uses request_id as function_call_id)
+    let output_payload = ctx
+        .function_runs
+        .get(&FunctionCallId::from(ctx.request_id.as_str()))
+        .and_then(|fn_run| fn_run.output.clone());
+
+    let (output, output_url, output_encoding) = match output_payload {
+        Some(payload) => {
+            let encoding = payload.encoding.clone();
+            let json_output = read_json_output(&payload, state, &ctx.namespace).await;
+            if json_output.is_some() {
+                (json_output, None, Some(encoding))
+            } else {
+                let url = build_output_url(&ctx.application_name, &ctx.request_id);
+                (None, Some(url), Some(encoding))
+            }
+        }
+        None => (None, None, None),
+    };
+
+    RequestFinishedWithOutput {
+        namespace: ctx.namespace.clone(),
+        application_name: ctx.application_name.clone(),
+        application_version: ctx.application_version.clone(),
+        request_id: ctx.request_id.clone(),
+        outcome,
+        output,
+        output_url,
+        output_encoding,
+    }
+}
+
+enum RequestCheckResult {
+    Completed(RequestFinishedWithOutput),
+    InProgress,
+}
+
+async fn check_request_completion(state: &RouteState, ctx: &RequestCtx) -> RequestCheckResult {
+    if ctx.outcome.is_some() {
+        let enriched_event = build_finished_event_with_output(state, ctx).await;
+        RequestCheckResult::Completed(enriched_event)
+    } else {
+        RequestCheckResult::InProgress
+    }
+}
+
 // New shared function for creating SSE streams
 #[tracing::instrument(skip(rx, state))]
 async fn create_request_progress_stream(
     mut rx: Receiver<RequestStateChangeEvent>,
     state: RouteState,
-    namespace: String,
-    application: String,
-    request_id: String,
+    ctx: RequestCtx,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
-    let reader = state.indexify_state.reader();
-
     async_stream::stream! {
-        // check completion when starting stream
-        match reader.request_ctx(&namespace, &application, &request_id).await
-        {
-            Ok(Some(request_ctx)) => {
-                if let Some(outcome) = &request_ctx.outcome {
-                    yield Event::default().json_data(
-                        RequestStateChangeEvent::finished(
-                            &namespace,
-                            &application,
-                            &request_ctx.application_version,
-                            &request_id,
-                            outcome.clone(),
-                        )
-                    );
-                    return;
-                }
-            }
-            Ok(None) => {
-                info!("request not found, stopping stream");
+        match check_request_completion(&state, &ctx).await {
+            RequestCheckResult::Completed(event) => {
+                yield Event::default().json_data(event);
                 return;
             }
-            Err(e) => {
-                error!(?e, "failed to get request");
-                return;
-            }
+            RequestCheckResult::InProgress => {}
         }
 
         // Stream events
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    if ev.request_id() == request_id {
-                        yield Event::default().json_data(&ev);
-
+                    if ev.request_id() == ctx.request_id {
                         if let RequestStateChangeEvent::RequestFinished(_) = ev {
+                            // Re-read ctx to get the latest state including output
+                            if let Ok(Some(updated_ctx)) = state
+                                .indexify_state
+                                .reader()
+                                .request_ctx(&ctx.namespace, &ctx.application_name, &ctx.request_id)
+                                .await
+                            {
+                                let enriched_event = build_finished_event_with_output(&state, &updated_ctx).await;
+                                yield Event::default().json_data(enriched_event);
+                            }
                             return;
+                        } else {
+                            yield Event::default().json_data(&ev);
                         }
                     }
                 }
                 Err(RecvError::Lagged(num)) => {
                     warn!("lagging behind request event stream by {} events", num);
 
-                    // Check if completion happened during lag
-                    match reader
-                        .request_ctx(&namespace, &application, &request_id)
+                    // Re-read ctx to check for completion
+                    if let Ok(Some(updated_ctx)) = state
+                        .indexify_state
+                        .reader()
+                        .request_ctx(&ctx.namespace, &ctx.application_name, &ctx.request_id)
                         .await
                     {
-                        Ok(Some(context)) => {
-                            if let Some(outcome) = &context.outcome {
-                                yield Event::default().json_data(
-                                    RequestStateChangeEvent::finished(
-                                        &namespace,
-                                        &application,
-                                        &context.application_version,
-                                        &request_id,
-                                        outcome.clone(),
-                                    )
-                                );
+                        match check_request_completion(&state, &updated_ctx).await {
+                            RequestCheckResult::Completed(event) => {
+                                yield Event::default().json_data(event);
                                 return;
                             }
-                        }
-                        Ok(None) => {
-                            error!("request not found");
-                            return;
-                        }
-                        Err(e) => {
-                            error!(?e, "failed to get request context");
-                            return;
+                            RequestCheckResult::InProgress => {}
                         }
                     }
                 }
@@ -273,7 +377,7 @@ pub async fn invoke_application_with_object_v1(
     let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
         namespace: request_ctx.namespace.clone(),
         application_name: request_ctx.application_name.clone(),
-        ctx: request_ctx,
+        ctx: request_ctx.clone(),
     });
     state
         .indexify_state
@@ -300,9 +404,7 @@ pub async fn invoke_application_with_object_v1(
         return return_sse_response(
             // cloning the state is cheap because all its fields are inside arcs
             state.clone(),
-            namespace,
-            application.name,
-            request_id,
+            request_ctx,
         )
         .await;
     }
@@ -326,19 +428,25 @@ pub async fn progress_stream(
     Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    return_sse_response(state, namespace, application, request_id).await
+    let ctx = state
+        .indexify_state
+        .reader()
+        .request_ctx(&namespace, &application, &request_id)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}"))
+        })?
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
+    return_sse_response(state, ctx).await
 }
 
 async fn return_sse_response(
     state: RouteState,
-    namespace: String,
-    application: String,
-    request_id: String,
+    ctx: RequestCtx,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     let rx = state.indexify_state.function_run_event_stream();
 
-    let request_event_stream =
-        create_request_progress_stream(rx, state, namespace, application, request_id).await;
+    let request_event_stream = create_request_progress_stream(rx, state, ctx).await;
     Ok(axum::response::Sse::new(request_event_stream)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
