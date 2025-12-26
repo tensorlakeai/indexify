@@ -326,6 +326,13 @@ impl IndexifyState {
     ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
+
+        // Build request state change events BEFORE any serialization happens.
+        // VectorClock uses Arc<AtomicU64> and tick() is called during serialization,
+        // so we must check vector_clock values before any serialization.
+        let request_state_changes = request_events::build_request_state_change_events(request);
+        let should_notify_request_events = !request_state_changes.is_empty();
+
         let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
@@ -434,10 +441,6 @@ impl IndexifyState {
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes).await?;
         }
-
-        // Persist request state change events in the same transaction
-        let request_state_changes = request_events::build_request_state_change_events(request);
-        let should_notify_request_events = !request_state_changes.is_empty();
         if should_notify_request_events {
             state_machine::persist_request_state_change_events(
                 &txn,

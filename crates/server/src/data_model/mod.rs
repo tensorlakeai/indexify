@@ -292,6 +292,10 @@ impl FunctionRun {
             Some(FunctionRunOutcome::Success) | Some(FunctionRunOutcome::Failure(_))
         )
     }
+
+    pub fn vector_clock(&self) -> &VectorClock {
+        &self.vector_clock
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

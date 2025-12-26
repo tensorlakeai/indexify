@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    data_model::{FunctionRunOutcome, FunctionRunStatus, RequestOutcome},
+    data_model::{FunctionRunOutcome, RequestOutcome},
     state_store::requests::{AllocationOutput, RequestPayload, StateMachineUpdateRequest},
 };
 
@@ -373,14 +373,31 @@ pub fn build_request_state_change_events(
 ) -> Vec<RequestStateChangeEvent> {
     match &update_request.payload {
         RequestPayload::InvokeApplication(request) => {
-            vec![RequestStateChangeEvent::RequestStarted(
+            let mut events = vec![RequestStateChangeEvent::RequestStarted(
                 RequestStartedEvent {
                     namespace: request.ctx.namespace.clone(),
                     application_name: request.ctx.application_name.clone(),
                     application_version: request.ctx.application_version.clone(),
                     request_id: request.ctx.request_id.clone(),
                 },
-            )]
+            )];
+
+            // Emit FunctionRunCreated for all function runs in the request context
+            // (typically just the entrypoint function run)
+            for function_run in request.ctx.function_runs.values() {
+                events.push(RequestStateChangeEvent::FunctionRunCreated(
+                    FunctionRunCreated {
+                        namespace: function_run.namespace.clone(),
+                        application_name: function_run.application.clone(),
+                        application_version: function_run.version.clone(),
+                        request_id: function_run.request_id.clone(),
+                        function_name: function_run.name.clone(),
+                        function_run_id: function_run.id.to_string(),
+                    },
+                ));
+            }
+
+            events
         }
         RequestPayload::UpsertExecutor(request) => request
             .allocation_outputs
@@ -393,15 +410,15 @@ pub fn build_request_state_change_events(
             let mut changes = Vec::new();
 
             // 1. FunctionRunCreated events first (runs must exist before being assigned)
-            // Only emit for newly created runs (Pending status), not for updated ones
+            // Only emit for NEWLY created runs (vector_clock == 0 means never persisted)
             for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                 for function_call_id in function_call_ids {
                     let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
                     let function_run =
                         ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
                     if let Some(function_run) = function_run {
-                        // Only emit FunctionRunCreated for new runs (Pending status)
-                        if matches!(function_run.status, FunctionRunStatus::Pending) {
+                        // vector_clock == 0 means this run was just created and never persisted
+                        if function_run.vector_clock().value() == 0 {
                             changes.push(RequestStateChangeEvent::FunctionRunCreated(
                                 FunctionRunCreated {
                                     namespace: function_run.namespace.clone(),
