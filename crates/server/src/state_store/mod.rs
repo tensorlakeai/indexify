@@ -246,12 +246,14 @@ impl IndexifyState {
             request_type = request.payload.to_string(),
         )
     )]
-    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+    pub async fn write(&self, mut request: StateMachineUpdateRequest) -> Result<()> {
         debug!("writing state machine update request: {:#?}", request);
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
 
-        let write_result = self.write_in_persistent_store(&request, timer_kv).await?;
+        let write_result = self
+            .write_in_persistent_store(&mut request, timer_kv)
+            .await?;
 
         let mut changed_executors = {
             let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
@@ -321,11 +323,27 @@ impl IndexifyState {
 
     async fn write_in_persistent_store(
         &self,
-        request: &StateMachineUpdateRequest,
+        request: &mut StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
     ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
+
+        // Build request state change events BEFORE preparing the payload.
+        // This uses FunctionRun::is_new() which checks if created_at_clock is None
+        // to identify newly created function runs that need FunctionRunCreated events.
+        let request_state_changes = request_events::build_request_state_change_events(request);
+        let should_notify_request_events = !request_state_changes.is_empty();
+
+        // Get the current clock value for setting created_at_clock and
+        // updated_at_clock.
+        let current_clock = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
+
+        // Prepare the payload with clocks AFTER building events.
+        // This mutates the payload in-place, so both the persistent store and
+        // in-memory store will receive the same prepared objects.
+        request.prepare_for_persistence(current_clock);
+
         let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
@@ -347,6 +365,7 @@ impl IndexifyState {
                     &txn,
                     request,
                     Some(&self.usage_event_id_seq),
+                    current_clock,
                 )
                 .await?;
                 if scheduler_result.usage_recorded {
@@ -355,22 +374,30 @@ impl IndexifyState {
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
-                state_machine::upsert_namespace(self.db.clone(), namespace_request).await?;
+                state_machine::upsert_namespace(self.db.clone(), namespace_request, current_clock)
+                    .await?;
             }
             RequestPayload::CreateOrUpdateApplication(req) => {
                 state_machine::create_or_update_application(
                     &txn,
                     req.application.clone(),
                     req.upgrade_requests_to_current_version,
+                    current_clock,
                 )
                 .await?;
             }
             RequestPayload::DeleteApplicationRequest((request, processed_state_changes)) => {
-                state_machine::delete_application(&txn, &request.namespace, &request.name).await?;
+                state_machine::delete_application(
+                    &txn,
+                    &request.namespace,
+                    &request.name,
+                    current_clock,
+                )
+                .await?;
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::DeleteRequestRequest((request, processed_state_changes)) => {
-                state_machine::delete_request(&txn, request).await?;
+                state_machine::delete_request(&txn, request, current_clock).await?;
                 state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::UpsertExecutor(request) => {
@@ -432,12 +459,8 @@ impl IndexifyState {
         let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
         new_state_changes.extend(allocation_ingestion_events);
         if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(&txn, &new_state_changes).await?;
+            state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
         }
-
-        // Persist request state change events in the same transaction
-        let request_state_changes = request_events::build_request_state_change_events(request);
-        let should_notify_request_events = !request_state_changes.is_empty();
         if should_notify_request_events {
             state_machine::persist_request_state_change_events(
                 &txn,
@@ -636,7 +659,7 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_1).await?;
+        state_machine::save_state_changes(&tx, &state_change_1, 0).await?;
         tx.commit().await?;
 
         let tx = indexify_state.db.transaction();
@@ -645,7 +668,7 @@ mod tests {
             &TEST_EXECUTOR_ID.into(),
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_2).await?;
+        state_machine::save_state_changes(&tx, &state_change_2, 0).await?;
         tx.commit().await?;
 
         let tx = indexify_state.db.transaction();
@@ -658,7 +681,7 @@ mod tests {
             },
         )
         .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_3).await?;
+        state_machine::save_state_changes(&tx, &state_change_3, 0).await?;
         tx.commit().await?;
 
         let state_changes = indexify_state
