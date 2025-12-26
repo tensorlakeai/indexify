@@ -255,8 +255,6 @@ impl IndexifyState {
             .write_in_persistent_store(&mut request, timer_kv)
             .await?;
 
-        // The state machine prepared all objects with clocks. The same prepared
-        // payload is now sent to the in-memory store to keep both stores in sync.
         let mut changed_executors = {
             let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
             self.in_memory_state
