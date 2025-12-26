@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    data_model::{FunctionRunOutcome, RequestOutcome},
+    data_model::{FunctionRunOutcome, FunctionRunStatus, RequestOutcome},
     state_store::requests::{AllocationOutput, RequestPayload, StateMachineUpdateRequest},
 };
 
@@ -390,11 +390,37 @@ pub fn build_request_state_change_events(
             })
             .collect::<Vec<_>>(),
         RequestPayload::SchedulerUpdate((sched_update, _)) => {
-            let mut changes = sched_update
-                .new_allocations
-                .iter()
-                .map(|allocation| {
-                    RequestStateChangeEvent::FunctionRunAssigned(FunctionRunAssigned {
+            let mut changes = Vec::new();
+
+            // 1. FunctionRunCreated events first (runs must exist before being assigned)
+            // Only emit for newly created runs (Pending status), not for updated ones
+            for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
+                for function_call_id in function_call_ids {
+                    let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
+                    let function_run =
+                        ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
+                    if let Some(function_run) = function_run {
+                        // Only emit FunctionRunCreated for new runs (Pending status)
+                        if matches!(function_run.status, FunctionRunStatus::Pending) {
+                            changes.push(RequestStateChangeEvent::FunctionRunCreated(
+                                FunctionRunCreated {
+                                    namespace: function_run.namespace.clone(),
+                                    application_name: function_run.application.clone(),
+                                    application_version: function_run.version.clone(),
+                                    request_id: function_run.request_id.clone(),
+                                    function_name: function_run.name.clone(),
+                                    function_run_id: function_run.id.to_string(),
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // 2. FunctionRunAssigned events (after runs are created)
+            for allocation in &sched_update.new_allocations {
+                changes.push(RequestStateChangeEvent::FunctionRunAssigned(
+                    FunctionRunAssigned {
                         namespace: allocation.namespace.clone(),
                         application_name: allocation.application.clone(),
                         application_version: allocation.application_version.clone(),
@@ -403,30 +429,11 @@ pub fn build_request_state_change_events(
                         function_run_id: allocation.function_call_id.to_string(),
                         executor_id: allocation.target.executor_id.get().to_string(),
                         allocation_id: allocation.id.to_string(),
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
-                for function_call_id in function_call_ids {
-                    let ctx = sched_update.updated_request_states.get(ctx_key).cloned();
-                    let function_run =
-                        ctx.and_then(|ctx| ctx.function_runs.get(function_call_id).cloned());
-                    if let Some(function_run) = function_run {
-                        changes.push(RequestStateChangeEvent::FunctionRunCreated(
-                            FunctionRunCreated {
-                                namespace: function_run.namespace.clone(),
-                                application_name: function_run.application.clone(),
-                                application_version: function_run.version.clone(),
-                                request_id: function_run.request_id.clone(),
-                                function_name: function_run.name.clone(),
-                                function_run_id: function_run.id.to_string(),
-                            },
-                        ));
-                    }
-                }
+                    },
+                ));
             }
 
+            // 3. RequestFinished events last
             for request_ctx in sched_update.updated_request_states.values() {
                 if let Some(outcome) = &request_ctx.outcome {
                     changes.push(RequestStateChangeEvent::finished(
