@@ -198,7 +198,6 @@ mod tests {
             FunctionRunCreated,
             FunctionRunMatchedCache,
             FunctionRunOutcomeSummary,
-            RequestCreatedEvent,
             RequestStartedEvent,
         },
     };
@@ -225,42 +224,6 @@ mod tests {
         };
 
         inner_kvlist.clone()
-    }
-
-    #[test]
-    fn test_request_created_event_to_any_value() {
-        let event = RequestStateChangeEvent::RequestCreated(RequestCreatedEvent {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "1.0.0".to_string(),
-            request_id: "req-123".to_string(),
-        });
-
-        let result = super::update_to_any_value(&event);
-        assert!(result.is_ok());
-
-        let any_value = result.unwrap();
-        let inner_kvlist = extract_inner_kvlist(&any_value);
-
-        let keys: std::collections::HashSet<_> = inner_kvlist
-            .values
-            .iter()
-            .map(|kv| kv.key.as_str())
-            .collect();
-        assert!(keys.contains("namespace"));
-        assert!(keys.contains("application_name"));
-        assert!(keys.contains("application_version"));
-        assert!(keys.contains("request_id"));
-
-        for kv in &inner_kvlist.values {
-            match kv.key.as_str() {
-                "namespace" => assert_eq!(kv.value, string_value("test-ns")),
-                "application_name" => assert_eq!(kv.value, string_value("test-app")),
-                "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
-                "request_id" => assert_eq!(kv.value, string_value("req-123")),
-                _ => {}
-            }
-        }
     }
 
     #[test]
@@ -638,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_create_export_request_structure() {
-        let event = RequestStateChangeEvent::RequestCreated(RequestCreatedEvent {
+        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "1.0.0".to_string(),
@@ -679,7 +642,7 @@ mod tests {
 
     #[test]
     fn test_create_export_request_log_record() {
-        let event = RequestStateChangeEvent::RequestCreated(RequestCreatedEvent {
+        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "1.0.0".to_string(),
