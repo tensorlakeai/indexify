@@ -77,16 +77,15 @@ async fn create_request_progress_stream(
     application: String,
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
-    let reader = indexify_state.reader();
-
-    let _guard = SubscriptionGuard::new(
-        indexify_state,
-        namespace.clone(),
-        application.clone(),
-        request_id.clone(),
-    );
-
     async_stream::stream! {
+        let _guard = SubscriptionGuard::new(
+            indexify_state.clone(),
+            namespace.clone(),
+            application.clone(),
+            request_id.clone(),
+        );
+        let reader = indexify_state.reader();
+
         // Check completion when starting stream
         match reader.request_ctx(&namespace, &application, &request_id).await {
             Ok(Some(request_ctx)) => {
