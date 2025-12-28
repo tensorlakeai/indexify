@@ -139,17 +139,18 @@ impl RequestEventBuffers {
         if should_remove {
             let mut subscriptions = self.subscriptions.write().await;
             // Double-check: another subscriber might have joined between read and write
-            if let Some(state) = subscriptions.get(&key)
-                && state.receiver_count.load(Ordering::Relaxed) == 0 {
-                    subscriptions.remove(&key);
-                    self.subscription_count.fetch_sub(1, Ordering::Relaxed);
-                    debug!(
-                        namespace = namespace,
-                        application = application,
-                        request_id = request_id,
-                        "subscription removed (last client disconnected)"
-                    );
-                }
+            if let Some(state) = subscriptions.get(&key) &&
+                state.receiver_count.load(Ordering::Relaxed) == 0
+            {
+                subscriptions.remove(&key);
+                self.subscription_count.fetch_sub(1, Ordering::Relaxed);
+                debug!(
+                    namespace = namespace,
+                    application = application,
+                    request_id = request_id,
+                    "subscription removed (last client disconnected)"
+                );
+            }
         }
     }
 
