@@ -16,7 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{RwLock, broadcast, watch};
+use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -36,7 +36,9 @@ use crate::{
 };
 
 pub mod executor_watches;
+pub mod request_event_buffers;
 use executor_watches::ExecutorWatches;
+use request_event_buffers::RequestEventBuffers;
 
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorCatalog {
@@ -107,7 +109,6 @@ pub struct IndexifyState {
     pub usage_event_id_seq: Arc<AtomicU64>,
     pub request_event_id_seq: Arc<AtomicU64>,
 
-    pub function_run_event_tx: broadcast::Sender<RequestStateChangeEvent>,
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
@@ -117,9 +118,9 @@ pub struct IndexifyState {
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
-    // keep handle to in_memory_state metrics to avoid dropping it
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
+    pub request_event_buffers: RequestEventBuffers,
     // Observable gauge for tracking total executors - must be kept alive for callback to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
 }
@@ -184,7 +185,6 @@ impl IndexifyState {
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
 
-        let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
         let (request_events_tx, request_events_rx) = tokio::sync::watch::channel(());
@@ -207,7 +207,6 @@ impl IndexifyState {
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             executor_states: RwLock::new(HashMap::new()),
-            function_run_event_tx: task_event_tx,
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
@@ -217,6 +216,7 @@ impl IndexifyState {
             request_events_tx,
             request_events_rx,
             executor_watches: ExecutorWatches::new(),
+            request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
         });
 
@@ -497,8 +497,30 @@ impl IndexifyState {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
     }
 
-    pub fn function_run_event_stream(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
-        self.function_run_event_tx.subscribe()
+    pub async fn subscribe_request_events(
+        &self,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+    ) -> tokio::sync::broadcast::Receiver<RequestStateChangeEvent> {
+        self.request_event_buffers
+            .subscribe(namespace, application, request_id)
+            .await
+    }
+
+    pub async fn unsubscribe_request_events(
+        &self,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+    ) {
+        self.request_event_buffers
+            .unsubscribe(namespace, application, request_id)
+            .await
+    }
+
+    pub async fn push_request_event(&self, event: RequestStateChangeEvent) {
+        self.request_event_buffers.push_event(event).await;
     }
 }
 

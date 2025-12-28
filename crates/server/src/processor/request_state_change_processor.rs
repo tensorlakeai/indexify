@@ -211,10 +211,9 @@ impl RequestStateChangeProcessor {
             error!(?err, "Failed to send request state change event to OTLP");
         }
 
-        let _ = self
-            .indexify_state
-            .function_run_event_tx
-            .send(event.event.clone());
+        self.indexify_state
+            .push_request_event(event.event.clone())
+            .await;
 
         Ok(())
     }
