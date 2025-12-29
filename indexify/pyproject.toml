@@ -21,7 +21,7 @@ nanoid = "^2.0.0"
 # Executor only
 aiohttp = "^3.13.2"
 # mTLS support for httpx 0.28.1 is broken, wait for 0.28.2 to see if the bug is fixed
-httpx = { version = "0.27.2", extras = ["http2"] }
+httpx = { version = "0.28.1", extras = ["http2"] }
 pydantic = "^2.12.5"
 prometheus-client = "^0.23.1"
 psutil = "^7.2.1"
