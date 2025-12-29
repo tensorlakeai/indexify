@@ -146,21 +146,28 @@ _SEND_ALLOCATION_UPDATE_TIMEOUT_SECS = 5
 _DELETE_ALLOCATION_TIMEOUT_SECS = 5
 
 
-class _AllocationTimeoutError(Exception):
+class _AllocationExecutionException(Exception):
+    """Base class for allocation execution exceptions.
+
+    Used internally in AllocationRunner.
+    """
+
+
+class _AllocationTimeoutError(_AllocationExecutionException):
     """Raised when allocation execution times out.
 
     Used internally in AllocationRunner.
     """
 
 
-class _AllocationFailedLeavingFEInUndefinedState(Exception):
+class _AllocationFailedLeavingFEInUndefinedState(_AllocationExecutionException):
     """Raised when allocation execution fails leaving FE in undefined state.
 
     Used internally in AllocationRunner.
     """
 
 
-class _AllocationFailedDueToUserError(Exception):
+class _AllocationFailedDueToUserError(_AllocationExecutionException):
     """Raised when allocation execution fails due to user error.
 
     Used internally in AllocationRunner. Doesn't imply that FE is in undefined state.
@@ -601,6 +608,8 @@ class AllocationRunner:
         except grpc.aio.AioRpcError as e:
             # This is regular FE gRPC call error (all Server gRPC calls errors are handled in-place).
             _raise_from_grpc_error(e)
+        except _AllocationExecutionException:
+            raise
         except Exception as e:
             # We cannot rollback FE state to something clean so we have to report leaving FE in undefined state here.
             self._logger.error(

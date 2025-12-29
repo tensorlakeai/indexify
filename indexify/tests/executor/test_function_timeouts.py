@@ -40,8 +40,10 @@ class TestFunctionTimeouts(unittest.TestCase):
             "",
         )
         start_time = time.monotonic()
-        # Check that the function failed.
-        self.assertRaises(RequestFailed, request.output)
+        with self.assertRaises(RequestFailed) as cm:
+            request.output()
+
+        self.assertEqual(str(cm.exception), "function_timeout")
         duration_sec = time.monotonic() - start_time
         self.assertLess(
             duration_sec,
@@ -55,8 +57,10 @@ class TestFunctionTimeouts(unittest.TestCase):
             "",
         )
         start_time = time.monotonic()
-        # Check that the function failed.
-        self.assertRaises(RequestFailed, request.output)
+        with self.assertRaises(RequestFailed) as cm:
+            request.output()
+
+        self.assertEqual(str(cm.exception), "function_timeout")
         duration_sec = time.monotonic() - start_time
         self.assertLess(
             duration_sec,
