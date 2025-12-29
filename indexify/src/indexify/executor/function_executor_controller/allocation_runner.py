@@ -922,9 +922,11 @@ class AllocationRunner:
     ) -> None:
         fe_function_call_ids: Set[str] = set()
         for function_call in function_calls:
+            # TODO: Remove updates.root_function_call_id after FE migration period.
             function_call_id: str = (
                 function_call.id
                 if _proto_field_is_defined(function_call, "id")
+                and function_call.HasField("id")
                 else function_call.updates.root_function_call_id
             )
 
@@ -1104,6 +1106,7 @@ class AllocationRunner:
             watcher_id: str = (
                 function_call_watcher.id
                 if _proto_field_is_defined(function_call_watcher, "id")
+                and function_call_watcher.HasField("id")
                 else function_call_watcher.watcher_id
             )
             fe_function_call_watchers[watcher_id] = function_call_watcher
@@ -1136,6 +1139,7 @@ class AllocationRunner:
             if _proto_field_is_defined(
                 fe_function_call_watcher, "root_function_call_id"
             )
+            and fe_function_call_watcher.HasField("root_function_call_id")
             else fe_function_call_watcher.function_call_id
         )
         watcher_info: _FunctionCallWatcherInfo = _FunctionCallWatcherInfo(
@@ -1570,10 +1574,15 @@ def _validate_fe_output_blob_request(
 def _validate_fe_function_call_watcher(
     fe_function_call_watcher: FEAllocationFunctionCallWatcher,
 ) -> bool:
+    # TODO: Remove watcher_id and function_call_id field support after FE migration period.
     if _proto_field_is_defined(fe_function_call_watcher, "id"):
-        return fe_function_call_watcher.HasField(
-            "id"
-        ) and fe_function_call_watcher.HasField("root_function_call_id")
+        return (
+            fe_function_call_watcher.HasField("id")
+            or fe_function_call_watcher.HasField("watcher_id")
+        ) and (
+            fe_function_call_watcher.HasField("root_function_call_id")
+            or fe_function_call_watcher.HasField("function_call_id")
+        )
     else:
         return fe_function_call_watcher.HasField(
             "watcher_id"
