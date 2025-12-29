@@ -34,7 +34,7 @@ utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 sha2 = "0.10.9"
 nanoid = "0.4.0"
-object_store = { version = "0.12.4", features = ["aws"] }
+object_store = { version = "0.13.0", features = ["aws"] }
 uuid = { version = "1.19.0", features = ["v4"] }
 tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
 bytes = { version = "1.10.1", features = ["serde"] }
