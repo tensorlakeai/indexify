@@ -95,10 +95,8 @@ impl RequestEventBuffers {
         let state = subscriptions.entry(key.clone()).or_insert_with(|| {
             self.subscription_count.fetch_add(1, Ordering::Relaxed);
             debug!(
-                namespace = namespace,
-                application = application,
-                request_id = request_id,
-                "new subscription created"
+                namespace,
+                application, request_id, "new subscription created"
             );
             SubscriptionState::new()
         });
@@ -145,10 +143,8 @@ impl RequestEventBuffers {
                 subscriptions.remove(&key);
                 self.subscription_count.fetch_sub(1, Ordering::Relaxed);
                 debug!(
-                    namespace = namespace,
-                    application = application,
-                    request_id = request_id,
-                    "subscription removed (last client disconnected)"
+                    namespace,
+                    application, request_id, "subscription removed (last client disconnected)"
                 );
             }
         }
