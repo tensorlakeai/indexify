@@ -1910,7 +1910,6 @@ dependencies = [
  "opentelemetry-stdout",
  "opentelemetry_sdk",
  "pin-project",
- "pin-project-lite",
  "priority-queue",
  "prost-types",
  "proto-api",

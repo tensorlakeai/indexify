@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -10,8 +10,9 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
+use pin_project::pin_project;
 use serde::Serialize;
-use tokio::sync::broadcast::{Receiver, error::RecvError};
+use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, warn};
 
 use super::routes_state::RouteState;
@@ -20,6 +21,7 @@ use crate::{
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
+        IndexifyState,
         driver,
         request_events::RequestStateChangeEvent,
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
@@ -30,21 +32,76 @@ use crate::{
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
 
-// New shared function for creating SSE streams
-#[tracing::instrument(skip(rx, state))]
+struct SubscriptionGuard {
+    indexify_state: Arc<IndexifyState>,
+    namespace: String,
+    application: String,
+    request_id: String,
+}
+
+impl SubscriptionGuard {
+    fn new(
+        indexify_state: Arc<IndexifyState>,
+        namespace: String,
+        application: String,
+        request_id: String,
+    ) -> Self {
+        Self {
+            indexify_state,
+            namespace,
+            application,
+            request_id,
+        }
+    }
+}
+
+impl Drop for SubscriptionGuard {
+    fn drop(&mut self) {
+        let indexify_state = self.indexify_state.clone();
+        let namespace = self.namespace.clone();
+        let application = self.application.clone();
+        let request_id = self.request_id.clone();
+
+        tokio::spawn(async move {
+            indexify_state
+                .unsubscribe_request_events(&namespace, &application, &request_id)
+                .await;
+        });
+    }
+}
+
+#[pin_project]
+struct StreamWithGuard {
+    #[pin]
+    stream: Pin<Box<dyn Stream<Item = Result<Event, axum::Error>> + Send>>,
+    _guard: SubscriptionGuard,
+}
+
+impl Stream for StreamWithGuard {
+    type Item = Result<Event, axum::Error>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        this.stream.poll_next(cx)
+    }
+}
+
+#[tracing::instrument(skip(rx, indexify_state))]
 async fn create_request_progress_stream(
-    mut rx: Receiver<RequestStateChangeEvent>,
-    state: RouteState,
+    mut rx: broadcast::Receiver<RequestStateChangeEvent>,
+    indexify_state: Arc<IndexifyState>,
     namespace: String,
     application: String,
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
-    let reader = state.indexify_state.reader();
-
     async_stream::stream! {
-        // check completion when starting stream
-        match reader.request_ctx(&namespace, &application, &request_id).await
-        {
+        let reader = indexify_state.reader();
+
+        // Check completion when starting stream
+        match reader.request_ctx(&namespace, &application, &request_id).await {
             Ok(Some(request_ctx)) => {
                 if let Some(outcome) = &request_ctx.outcome {
                     yield Event::default().json_data(
@@ -69,26 +126,20 @@ async fn create_request_progress_stream(
             }
         }
 
-        // Stream events
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    if ev.request_id() == request_id {
-                        yield Event::default().json_data(&ev);
-
-                        if let RequestStateChangeEvent::RequestFinished(_) = ev {
-                            return;
-                        }
+                    let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
+                    yield Event::default().json_data(&ev);
+                    if is_finished {
+                        return;
                     }
                 }
                 Err(RecvError::Lagged(num)) => {
                     warn!("lagging behind request event stream by {} events", num);
 
                     // Check if completion happened during lag
-                    match reader
-                        .request_ctx(&namespace, &application, &request_id)
-                        .await
-                    {
+                    match reader.request_ctx(&namespace, &application, &request_id).await {
                         Ok(Some(context)) => {
                             if let Some(outcome) = &context.outcome {
                                 yield Event::default().json_data(
@@ -332,11 +383,33 @@ async fn return_sse_response(
     application: String,
     request_id: String,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
-    let rx = state.indexify_state.function_run_event_stream();
+    let rx = state
+        .indexify_state
+        .subscribe_request_events(&namespace, &application, &request_id)
+        .await;
 
-    let request_event_stream =
-        create_request_progress_stream(rx, state, namespace, application, request_id).await;
-    Ok(axum::response::Sse::new(request_event_stream)
+    let guard = SubscriptionGuard::new(
+        state.indexify_state.clone(),
+        namespace.clone(),
+        application.clone(),
+        request_id.clone(),
+    );
+
+    let inner_stream = create_request_progress_stream(
+        rx,
+        state.indexify_state.clone(),
+        namespace,
+        application,
+        request_id,
+    )
+    .await;
+
+    let stream_with_guard = StreamWithGuard {
+        stream: Box::pin(inner_stream),
+        _guard: guard,
+    };
+
+    Ok(axum::response::Sse::new(stream_with_guard)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
