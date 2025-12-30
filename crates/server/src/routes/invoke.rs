@@ -209,7 +209,16 @@ async fn create_request_progress_stream(
             match rx.recv().await {
                 Ok(ev) => {
                     let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
-                    yield Event::default().json_data(&ev);
+
+                    if is_finished && let Ok(Some(context)) = reader.request_ctx(&namespace, &application, &request_id).await
+                            && let Some(outcome) = &context.outcome {
+                        yield Event::default().json_data(
+                            build_finished_event_with_output(&state, &context, outcome).await
+                        );
+                    } else {
+                        yield Event::default().json_data(&ev);
+                    }
+
                     if is_finished {
                         return;
                     }
