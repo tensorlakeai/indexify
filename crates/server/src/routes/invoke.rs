@@ -59,16 +59,14 @@ async fn read_json_output(
         return None;
     }
 
-    let data_size = payload.size - payload.metadata_size;
-    if data_size > MAX_INLINE_JSON_SIZE {
+    if payload.data_size() > MAX_INLINE_JSON_SIZE {
         return None;
     }
 
     let blob_storage = state.blob_storage.get_blob_store(namespace);
-    let data_offset = payload.offset + payload.metadata_size;
 
     let storage_reader = match blob_storage
-        .get(&payload.path, Some(data_offset..data_offset + data_size))
+        .get(&payload.path, Some(payload.data_range()))
         .await
     {
         Ok(reader) => reader,
@@ -108,12 +106,11 @@ async fn build_finished_event_with_output(
         return RequestStateChangeEvent::finished(ctx, outcome, None);
     };
 
-    let content_encoding = payload.encoding.clone();
     let body = read_json_output(&payload, state, &ctx.namespace).await;
 
     let output = RequestStateFinishedOutput {
         body,
-        content_encoding,
+        content_encoding: payload.encoding,
         path: build_output_url(&ctx.application_name, &ctx.request_id),
     };
 

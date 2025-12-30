@@ -6,7 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::Hash,
-    ops::Deref,
+    ops::{Deref, Range},
     str,
     vec,
 };
@@ -811,6 +811,23 @@ impl DataPayloadBuilder {
 impl DataPayload {
     pub fn request_key_prefix(namespace: &str, application: &str, request_id: &str) -> String {
         format!("{namespace}/{application}/{request_id}")
+    }
+
+    pub fn data_size(&self) -> u64 {
+        self.size - self.metadata_size
+    }
+
+    fn data_offset(&self) -> u64 {
+        self.offset + self.metadata_size
+    }
+
+    pub fn data_range(&self) -> Range<u64> {
+        let offset = self.data_offset();
+        offset..offset + self.data_size()
+    }
+
+    pub fn full_range(&self) -> Range<u64> {
+        self.offset..self.offset + self.size
     }
 }
 
