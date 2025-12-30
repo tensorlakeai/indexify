@@ -162,6 +162,8 @@ impl RequestEventBuffers {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
     use super::*;
     use crate::state_store::request_events::RequestStartedEvent;
 
@@ -178,6 +180,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         buffers.push_event(event.clone()).await;
@@ -200,6 +203,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         buffers.push_event(event).await;
@@ -233,6 +237,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         buffers.push_event(event).await;
@@ -261,6 +266,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
         buffers.push_event(event).await;
         assert!(rx2.recv().await.is_ok());
@@ -288,6 +294,7 @@ mod tests {
                 application_name: "app".to_string(),
                 application_version: format!("{}", i),
                 request_id: "req1".to_string(),
+                created_at: Utc::now().timestamp_millis(),
             });
             buffers.push_event(event).await;
         }
