@@ -26,9 +26,14 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build indexify server and push to ${{ inputs.environment }}
+    name: Build and push ${{ matrix.platform }} to ${{ inputs.environment }}
     environment: ${{ inputs.environment }}
     runs-on: namespace-profile-indexify-builder
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -47,7 +52,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
           context: .
           file: dockerfiles/Dockerfile.server
