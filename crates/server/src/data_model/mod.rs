@@ -2753,6 +2753,219 @@ mod tests {
         assert_eq!(id_str.len(), 21); // nanoid length
         assert_eq!(format!("\"{id_str}\""), serde_json::to_string(&id).unwrap());
     }
+
+    #[test]
+    fn test_data_size() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 0,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        // data_size = size - metadata_size
+        assert_eq!(payload.data_size(), 400);
+    }
+
+    #[test]
+    fn test_data_size_with_different_sizes() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 50,
+            offset: 0,
+            size: 1000,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        assert_eq!(payload.data_size(), 950);
+    }
+
+    #[test]
+    fn test_data_offset() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 500,
+            size: 600,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        // data_offset = offset + metadata_size
+        assert_eq!(payload.data_offset(), 600);
+    }
+
+    #[test]
+    fn test_data_offset_with_zero_offset() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 0,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        assert_eq!(payload.data_offset(), 100);
+    }
+
+    #[test]
+    fn test_data_range() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 0,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let range = payload.data_range();
+        // start = offset + metadata_size = 0 + 100 = 100
+        // end = start + data_size = 100 + 400 = 500
+        assert_eq!(range.start, 100);
+        assert_eq!(range.end, 500);
+        assert_eq!(range.end - range.start, 400);
+    }
+
+    #[test]
+    fn test_data_range_with_non_zero_offset() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 50,
+            offset: 1000,
+            size: 200,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let range = payload.data_range();
+        // start = offset + metadata_size = 1000 + 50 = 1050
+        // end = start + data_size = 1050 + 150 = 1200
+        assert_eq!(range.start, 1050);
+        assert_eq!(range.end, 1200);
+        assert_eq!(range.end - range.start, 150);
+    }
+
+    #[test]
+    fn test_full_range() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 0,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let range = payload.full_range();
+        // start = offset = 0
+        // end = offset + size = 0 + 500 = 500
+        assert_eq!(range.start, 0);
+        assert_eq!(range.end, 500);
+        assert_eq!(range.end - range.start, 500);
+    }
+
+    #[test]
+    fn test_full_range_with_non_zero_offset() {
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 75,
+            offset: 2000,
+            size: 300,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let range = payload.full_range();
+        // start = offset = 2000
+        // end = offset + size = 2000 + 300 = 2300
+        assert_eq!(range.start, 2000);
+        assert_eq!(range.end, 2300);
+        assert_eq!(range.end - range.start, 300);
+    }
+
+    #[test]
+    fn test_data_range_and_full_range_relationship() {
+        // Test that data_range is contained within full_range
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 100,
+            offset: 500,
+            size: 600,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let full = payload.full_range();
+        let data = payload.data_range();
+
+        // full_range: [500, 1100]
+        // data_range: [600, 1100]
+        assert_eq!(full.start, 500);
+        assert_eq!(full.end, 1100);
+        assert_eq!(data.start, 600);
+        assert_eq!(data.end, 1100);
+
+        // Verify data_range is within full_range
+        assert!(data.start >= full.start);
+        assert!(data.end <= full.end);
+
+        // Verify the gap at the beginning equals metadata_size
+        assert_eq!(data.start - full.start, 100);
+    }
+
+    #[test]
+    fn test_zero_metadata_size() {
+        // When metadata_size is 0, data_range should equal full_range
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 0,
+            offset: 100,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        let full = payload.full_range();
+        let data = payload.data_range();
+
+        assert_eq!(data.start, full.start);
+        assert_eq!(data.end, full.end);
+        assert_eq!(data.end - data.start, full.end - full.start);
+    }
+
+    #[test]
+    fn test_metadata_equals_size() {
+        // When metadata_size equals size, data_size should be 0
+        let payload = DataPayload {
+            id: "test".to_string(),
+            path: "/path/to/data".to_string(),
+            metadata_size: 500,
+            offset: 0,
+            size: 500,
+            sha256_hash: "hash".to_string(),
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        assert_eq!(payload.data_size(), 0);
+        let data_range = payload.data_range();
+        assert_eq!(data_range.end - data_range.start, 0);
+        assert_eq!(data_range.start, data_range.end);
+    }
 }
 
 #[cfg(test)]
