@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 pub fn low_latency_boundaries() -> Vec<f64> {
     vec![
         0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0,
@@ -14,20 +14,20 @@ pub fn low_latency_boundaries() -> Vec<f64> {
     ]
 }
 
-trait TimedFn: FnOnce(Duration) {}
+pub trait TimedFn: FnOnce(Duration) {}
 
-pin_project! {
-    #[must_use = "futures do nothing unless you `.await` or poll them"]
-    pub struct TimedFuture<F, C>
-    where
-        F: Future,
-        C: TimedFn,
-    {
-        #[pin]
-        inner: F,
-        start: Instant,
-        callback: Option<C>, // This is an Option because the future might be polled even after completion
-    }
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+#[pin_project]
+pub struct TimedFuture<F, C>
+where
+    F: Future,
+    C: TimedFn,
+{
+    #[pin]
+    inner: F,
+    start: Instant,
+    callback: Option<C>, /* This is an Option because the future might be polled even after
+                          * completion */
 }
 
 impl<F, C> Future for TimedFuture<F, C>

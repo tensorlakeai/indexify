@@ -10,6 +10,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
+use pin_project::pin_project;
 use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, warn};
@@ -69,7 +70,9 @@ impl Drop for SubscriptionGuard {
     }
 }
 
+#[pin_project]
 struct StreamWithGuard {
+    #[pin]
     stream: Pin<Box<dyn Stream<Item = Result<Event, axum::Error>> + Send>>,
     _guard: SubscriptionGuard,
 }
@@ -78,10 +81,11 @@ impl Stream for StreamWithGuard {
     type Item = Result<Event, axum::Error>;
 
     fn poll_next(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.stream).poll_next(cx)
+        let this = self.project();
+        this.stream.poll_next(cx)
     }
 }
 
