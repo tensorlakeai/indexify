@@ -42,11 +42,10 @@ use crate::{
 const MAX_REQUEST_ID_LENGTH: usize = 36;
 const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
 
-/// Build the download URL for a request's output
-fn build_output_url(application: &str, request_id: &str) -> String {
+fn build_output_path(namespace: &str, application: &str, request_id: &str) -> String {
     format!(
-        "/applications/{}/requests/{}/output",
-        application, request_id
+        "/v1/namespaces/{}/applications/{}/requests/{}/output",
+        namespace, application, request_id
     )
 }
 
@@ -111,7 +110,7 @@ async fn build_finished_event_with_output(
     let output = RequestStateFinishedOutput {
         body,
         content_encoding: payload.encoding,
-        path: build_output_url(&ctx.application_name, &ctx.request_id),
+        path: build_output_path(&ctx.namespace, &ctx.application_name, &ctx.request_id),
     };
 
     RequestStateChangeEvent::finished(ctx, outcome, Some(output))
