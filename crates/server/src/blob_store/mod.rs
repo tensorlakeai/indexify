@@ -8,6 +8,7 @@ use futures::{StreamExt, stream::BoxStream};
 use object_store::{
     GetOptions,
     ObjectStore,
+    ObjectStoreExt,
     ObjectStoreScheme,
     WriteMultipart,
     aws::{AmazonS3Builder, S3ConditionalPut},
