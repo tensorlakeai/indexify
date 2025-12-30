@@ -296,7 +296,7 @@ mod tests {
             "req-789",
             RequestOutcome::Success,
         );
-        let event = RequestStateChangeEvent::finished(&ctx);
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Success, None);
         let now = match event {
             RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
             _ => panic!("unexpected event type"),
@@ -539,7 +539,11 @@ mod tests {
             "req-fail",
             RequestOutcome::Failure(RequestFailureReason::InternalError),
         );
-        let event = RequestStateChangeEvent::finished(&ctx);
+        let event = RequestStateChangeEvent::finished(
+            &ctx,
+            &RequestOutcome::Failure(RequestFailureReason::InternalError),
+            None,
+        );
         let now = match event {
             RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
             _ => panic!("unexpected event type"),
@@ -595,7 +599,7 @@ mod tests {
             "req-unknown",
             RequestOutcome::Unknown,
         );
-        let event = RequestStateChangeEvent::finished(&ctx);
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Unknown, None);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -634,7 +638,7 @@ mod tests {
             "req-unknown",
             RequestOutcome::Success,
         );
-        let event = RequestStateChangeEvent::finished(&ctx);
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Success, None);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());

@@ -62,15 +62,28 @@ pub enum RequestStateChangeEvent {
     RequestFinished(RequestFinishedEvent),
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RequestStateFinishedOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<serde_json::Value>,
+    pub path: String,
+    pub content_encoding: String,
+}
+
 impl RequestStateChangeEvent {
-    pub fn finished(ctx: &RequestCtx) -> Self {
+    pub fn finished(
+        ctx: &RequestCtx,
+        outcome: &RequestOutcome,
+        output: Option<RequestStateFinishedOutput>,
+    ) -> Self {
         Self::RequestFinished(RequestFinishedEvent {
             namespace: ctx.namespace.clone(),
             application_name: ctx.application_name.clone(),
             application_version: ctx.application_version.clone(),
             request_id: ctx.request_id.clone(),
-            outcome: ctx.outcome.clone().unwrap_or_default(),
+            outcome: outcome.clone(),
             created_at: Utc::now(),
+            output,
         })
     }
 
@@ -154,6 +167,8 @@ pub struct RequestFinishedEvent {
     pub outcome: RequestOutcome,
     #[serde(default)]
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<RequestStateFinishedOutput>,
 }
 
 impl RequestEventMetadata for RequestFinishedEvent {
@@ -430,8 +445,12 @@ pub fn build_request_state_change_events(
 
             // 3. RequestFinished events last
             for request_ctx in sched_update.updated_request_states.values() {
-                if request_ctx.outcome.is_some() {
-                    changes.push(RequestStateChangeEvent::finished(request_ctx));
+                if let Some(outcome) = &request_ctx.outcome {
+                    changes.push(RequestStateChangeEvent::finished(
+                        request_ctx,
+                        outcome,
+                        None,
+                    ));
                 }
             }
 
@@ -480,7 +499,7 @@ mod tests {
             .function_runs(Default::default())
             .build()
             .unwrap();
-        let event = RequestStateChangeEvent::finished(&ctx);
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Success, None);
 
         assert_eq!(event.namespace(), "test-ns");
         assert_eq!(event.application_name(), "test-app");
