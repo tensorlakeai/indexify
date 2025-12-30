@@ -233,6 +233,7 @@ mod tests {
             application_name: "test-app".to_string(),
             application_version: "1.0.1".to_string(),
             request_id: "req-456".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::update_to_any_value(&event);
@@ -308,6 +309,7 @@ mod tests {
             request_id: "req-001".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-123".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::update_to_any_value(&event);
@@ -351,6 +353,7 @@ mod tests {
             function_run_id: "run-456".to_string(),
             allocation_id: "alloc-789".to_string(),
             executor_id: "executor-001".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::update_to_any_value(&event);
@@ -398,6 +401,7 @@ mod tests {
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::update_to_any_value(&event);
@@ -443,6 +447,7 @@ mod tests {
             request_id: "req-004".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-111".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::update_to_any_value(&event);
@@ -606,6 +611,7 @@ mod tests {
             application_name: "test-app".to_string(),
             application_version: "1.0.0".to_string(),
             request_id: "req-123".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::create_export_request(&event);
@@ -647,6 +653,7 @@ mod tests {
             application_name: "test-app".to_string(),
             application_version: "1.0.0".to_string(),
             request_id: "req-456".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::create_export_request(&event);
@@ -706,6 +713,7 @@ mod tests {
             application_name: "test-app".to_string(),
             application_version: "1.0.1".to_string(),
             request_id: "req-789".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::create_export_request(&event);
@@ -731,6 +739,7 @@ mod tests {
             request_id: "req-001".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-123".to_string(),
+            created_at: Utc::now().timestamp_millis(),
         });
 
         let result = super::create_export_request(&event);
