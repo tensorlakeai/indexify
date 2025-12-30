@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, pin::Pin, sync::Arc, task::Poll, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -69,6 +69,22 @@ impl Drop for SubscriptionGuard {
     }
 }
 
+struct StreamWithGuard {
+    stream: Pin<Box<dyn Stream<Item = Result<Event, axum::Error>> + Send>>,
+    _guard: SubscriptionGuard,
+}
+
+impl Stream for StreamWithGuard {
+    type Item = Result<Event, axum::Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.stream).poll_next(cx)
+    }
+}
+
 #[tracing::instrument(skip(rx, indexify_state))]
 async fn create_request_progress_stream(
     mut rx: broadcast::Receiver<RequestStateChangeEvent>,
@@ -78,12 +94,6 @@ async fn create_request_progress_stream(
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     async_stream::stream! {
-        let _guard = SubscriptionGuard::new(
-            indexify_state.clone(),
-            namespace.clone(),
-            application.clone(),
-            request_id.clone(),
-        );
         let reader = indexify_state.reader();
 
         // Check completion when starting stream
@@ -374,7 +384,14 @@ async fn return_sse_response(
         .subscribe_request_events(&namespace, &application, &request_id)
         .await;
 
-    let request_event_stream = create_request_progress_stream(
+    let guard = SubscriptionGuard::new(
+        state.indexify_state.clone(),
+        namespace.clone(),
+        application.clone(),
+        request_id.clone(),
+    );
+
+    let inner_stream = create_request_progress_stream(
         rx,
         state.indexify_state.clone(),
         namespace,
@@ -382,7 +399,13 @@ async fn return_sse_response(
         request_id,
     )
     .await;
-    Ok(axum::response::Sse::new(request_event_stream)
+
+    let stream_with_guard = StreamWithGuard {
+        stream: Box::pin(inner_stream),
+        _guard: guard,
+    };
+
+    Ok(axum::response::Sse::new(stream_with_guard)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(1))
