@@ -208,6 +208,12 @@ mod tests {
         })
     }
 
+    fn int_value(v: i64) -> Option<AnyValue> {
+        Some(AnyValue {
+            value: Some(Value::IntValue(v)),
+        })
+    }
+
     fn extract_inner_kvlist(any_value: &AnyValue) -> KeyValueList {
         let Some(Value::KvlistValue(kvlist)) = &any_value.value else {
             panic!("Expected outer KvlistValue");
@@ -228,12 +234,13 @@ mod tests {
 
     #[test]
     fn test_request_started_event_to_any_value() {
+        let now = Utc::now().timestamp_millis();
         let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "1.0.1".to_string(),
             request_id: "req-456".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: now,
         });
 
         let result = super::update_to_any_value(&event);
@@ -257,6 +264,7 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.1")),
                 "request_id" => assert_eq!(kv.value, string_value("req-456")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -271,6 +279,10 @@ mod tests {
             "req-789",
             RequestOutcome::Success,
         );
+        let now = match event {
+            RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
+            _ => panic!("unexpected event type"),
+        };
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -295,6 +307,7 @@ mod tests {
                 "application_version" => assert_eq!(kv.value, string_value("1.0.2")),
                 "request_id" => assert_eq!(kv.value, string_value("req-789")),
                 "outcome" => assert_eq!(kv.value, string_value("success")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -302,6 +315,7 @@ mod tests {
 
     #[test]
     fn test_function_run_created_event_to_any_value() {
+        let now = Utc::now().timestamp_millis();
         let event = RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
@@ -309,7 +323,7 @@ mod tests {
             request_id: "req-001".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-123".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: now,
         });
 
         let result = super::update_to_any_value(&event);
@@ -328,6 +342,7 @@ mod tests {
         assert!(keys.contains("request_id"));
         assert!(keys.contains("function_name"));
         assert!(keys.contains("function_run_id"));
+        assert!(keys.contains("created_at"));
 
         for kv in &inner_kvlist.values {
             match kv.key.as_str() {
@@ -337,6 +352,7 @@ mod tests {
                 "request_id" => assert_eq!(kv.value, string_value("req-001")),
                 "function_name" => assert_eq!(kv.value, string_value("my-function")),
                 "function_run_id" => assert_eq!(kv.value, string_value("run-123")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -344,6 +360,7 @@ mod tests {
 
     #[test]
     fn test_function_run_assigned_event_to_any_value() {
+        let now = Utc::now().timestamp_millis();
         let event = RequestStateChangeEvent::FunctionRunAssigned(FunctionRunAssigned {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
@@ -353,7 +370,7 @@ mod tests {
             function_run_id: "run-456".to_string(),
             allocation_id: "alloc-789".to_string(),
             executor_id: "executor-001".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: now,
         });
 
         let result = super::update_to_any_value(&event);
@@ -385,6 +402,7 @@ mod tests {
                 "function_run_id" => assert_eq!(kv.value, string_value("run-456")),
                 "allocation_id" => assert_eq!(kv.value, string_value("alloc-789")),
                 "executor_id" => assert_eq!(kv.value, string_value("executor-001")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -392,6 +410,7 @@ mod tests {
 
     #[test]
     fn test_function_run_completed_event_to_any_value() {
+        let now = Utc::now().timestamp_millis();
         let event = RequestStateChangeEvent::FunctionRunCompleted(FunctionRunCompleted {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
@@ -401,7 +420,7 @@ mod tests {
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
-            created_at: Utc::now().timestamp_millis(),
+            created_at: now,
         });
 
         let result = super::update_to_any_value(&event);
@@ -433,6 +452,7 @@ mod tests {
                 "function_run_id" => assert_eq!(kv.value, string_value("run-789")),
                 "allocation_id" => assert_eq!(kv.value, string_value("alloc-456")),
                 "outcome" => assert_eq!(kv.value, string_value("success")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -440,6 +460,7 @@ mod tests {
 
     #[test]
     fn test_function_run_matched_cache_event_to_any_value() {
+        let now = Utc::now().timestamp_millis();
         let event = RequestStateChangeEvent::FunctionRunMatchedCache(FunctionRunMatchedCache {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
@@ -447,7 +468,7 @@ mod tests {
             request_id: "req-004".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-111".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: now,
         });
 
         let result = super::update_to_any_value(&event);
@@ -475,6 +496,7 @@ mod tests {
                 "request_id" => assert_eq!(kv.value, string_value("req-004")),
                 "function_name" => assert_eq!(kv.value, string_value("my-function")),
                 "function_run_id" => assert_eq!(kv.value, string_value("run-111")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 _ => {}
             }
         }
@@ -489,6 +511,10 @@ mod tests {
             "req-fail",
             RequestOutcome::Failure(RequestFailureReason::InternalError),
         );
+        let now = match event {
+            RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
+            _ => panic!("unexpected event type"),
+        };
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -512,6 +538,7 @@ mod tests {
                 "application_name" => assert_eq!(kv.value, string_value("test-app")),
                 "application_version" => assert_eq!(kv.value, string_value("1.0.0")),
                 "request_id" => assert_eq!(kv.value, string_value("req-fail")),
+                "created_at" => assert_eq!(kv.value, int_value(now)),
                 "outcome" => assert_eq!(
                     kv.value,
                     Some(AnyValue {
