@@ -176,7 +176,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         });
 
         buffers.push_event(event.clone()).await;
@@ -199,7 +199,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         });
 
         buffers.push_event(event).await;
@@ -233,7 +233,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         });
 
         buffers.push_event(event).await;
@@ -262,7 +262,7 @@ mod tests {
             application_name: "app".to_string(),
             application_version: "1.0".to_string(),
             request_id: "req1".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         });
         buffers.push_event(event).await;
         assert!(rx2.recv().await.is_ok());
@@ -290,7 +290,7 @@ mod tests {
                 application_name: "app".to_string(),
                 application_version: format!("{}", i),
                 request_id: "req1".to_string(),
-                created_at: Utc::now().timestamp_millis(),
+                created_at: Utc::now(),
             });
             buffers.push_event(event).await;
         }
