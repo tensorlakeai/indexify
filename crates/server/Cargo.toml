@@ -20,7 +20,7 @@ console-subscriber = ["dep:console-subscriber"]
 async-stream = "0.3.6"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-inline-default = "1.0.0"
-serde_json = "1.0.146"
+serde_json = "1.0.148"
 serde-saphyr = "0.0.11"
 anyhow = "1.0.100"
 clap = { version = "4.5.50", features = ["derive"] }
@@ -59,7 +59,7 @@ async-trait = "0.1.89"
 rocksdb = { version = "0.24.0" }
 strum = { version = "0.27.2", features = ["derive"] }
 derive_builder = "0.20.2"
-tempfile = "3.23.0"
+tempfile = "3.24.0"
 thiserror = "2.0.17"
 json-subscriber = "0.2.6"
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
@@ -74,7 +74,7 @@ imbl = "6.1.0"
 
 
 [dev-dependencies]
-tempfile = "3.20.0"
+tempfile = "3.24.0"
 strum = { version = "0.27.1", features = ["derive"] }
 rocksdb = { version = "0.24.0" }
 tokio = { version = "1.45.1", features = ["full", "test-util"] }
