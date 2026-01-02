@@ -25,10 +25,7 @@ pub async fn download_request_error(
     let storage_reader = blob_storage
         .get(
             &request_error.payload.path,
-            Some(
-                request_error.payload.offset..
-                    request_error.payload.offset + request_error.payload.size,
-            ),
+            Some(request_error.payload.full_range()),
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -180,12 +177,14 @@ async fn stream_data_payload(
     blob_storage: &BlobStorage,
     encoding: &str,
 ) -> Result<Response<Body>, IndexifyAPIError> {
-    let data_size = payload.size - payload.metadata_size;
-    let data_offset = payload.offset + payload.metadata_size;
     let storage_reader = blob_storage
-        .get(&payload.path, Some(data_offset..data_offset + data_size))
+        .get(&payload.path, Some(payload.data_range()))
         .await
         .map_err(IndexifyAPIError::internal_error)?;
+
+    let response = Response::builder()
+        .header("Content-Type", encoding)
+        .header("Content-Length", payload.data_size().to_string());
 
     if encoding == "application/json" {
         let json_bytes = storage_reader
@@ -194,15 +193,12 @@ async fn stream_data_payload(
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {e}")))?;
 
-        return Response::builder()
-            .header("Content-Type", encoding)
-            .header("Content-Length", data_size.to_string())
+        return response
             .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
-    Response::builder()
-        .header("Content-Type", encoding)
-        .header("Content-Length", data_size.to_string())
+
+    response
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

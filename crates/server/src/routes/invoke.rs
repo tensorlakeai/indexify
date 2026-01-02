@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError};
@@ -17,13 +17,22 @@ use tracing::{error, info, warn};
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::{self, ApplicationState, FunctionCallId, InputArgs, RequestCtxBuilder},
+    data_model::{
+        self,
+        ApplicationState,
+        DataPayload,
+        FunctionCallId,
+        InputArgs,
+        RequestCtx,
+        RequestCtxBuilder,
+        RequestOutcome,
+    },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
         IndexifyState,
         driver,
-        request_events::RequestStateChangeEvent,
+        request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::get_epoch_time_in_ms,
@@ -31,6 +40,81 @@ use crate::{
 
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
+const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
+
+fn build_output_path(namespace: &str, application: &str, request_id: &str) -> String {
+    format!(
+        "/v1/namespaces/{}/applications/{}/requests/{}/output",
+        namespace, application, request_id
+    )
+}
+
+async fn read_json_output(
+    payload: &DataPayload,
+    state: &RouteState,
+    namespace: &str,
+) -> Option<serde_json::Value> {
+    if payload.encoding != "application/json" {
+        return None;
+    }
+
+    if payload.data_size() > MAX_INLINE_JSON_SIZE {
+        return None;
+    }
+
+    let blob_storage = state.blob_storage.get_blob_store(namespace);
+
+    let storage_reader = match blob_storage
+        .get(&payload.path, Some(payload.data_range()))
+        .await
+    {
+        Ok(reader) => reader,
+        Err(e) => {
+            warn!(?e, "failed to read output blob for SSE");
+            return None;
+        }
+    };
+
+    let bytes = match storage_reader
+        .map_ok(|chunk| chunk.to_vec())
+        .try_concat()
+        .await
+    {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            warn!(?e, "failed to concat output blob chunks for SSE");
+            return None;
+        }
+    };
+
+    serde_json::from_slice(&bytes).ok()
+}
+
+async fn build_finished_event_with_output(
+    state: &RouteState,
+    ctx: &RequestCtx,
+    outcome: &RequestOutcome,
+) -> RequestStateChangeEvent {
+    // Get the entrypoint function's output (uses request_id as function_call_id)
+    let output_payload = ctx
+        .function_runs
+        .get(&FunctionCallId::from(ctx.request_id.as_str()))
+        .and_then(|fn_run| fn_run.output.clone());
+
+    let Some(payload) = output_payload else {
+        return RequestStateChangeEvent::finished(ctx, outcome, None);
+    };
+
+    let body = read_json_output(&payload, state, &ctx.namespace).await;
+
+    let output = RequestStateFinishedOutput {
+        body,
+        content_encoding: payload.encoding,
+        path: build_output_path(&ctx.namespace, &ctx.application_name, &ctx.request_id),
+    };
+
+    RequestStateChangeEvent::finished(ctx, outcome, Some(output))
+}
 
 struct SubscriptionGuard {
     indexify_state: Arc<IndexifyState>,
@@ -42,15 +126,15 @@ struct SubscriptionGuard {
 impl SubscriptionGuard {
     fn new(
         indexify_state: Arc<IndexifyState>,
-        namespace: String,
-        application: String,
-        request_id: String,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
     ) -> Self {
         Self {
             indexify_state,
-            namespace,
-            application,
-            request_id,
+            namespace: namespace.to_string(),
+            application: application.to_string(),
+            request_id: request_id.to_string(),
         }
     }
 }
@@ -89,29 +173,23 @@ impl Stream for StreamWithGuard {
     }
 }
 
-#[tracing::instrument(skip(rx, indexify_state))]
+#[tracing::instrument(skip(rx, state))]
 async fn create_request_progress_stream(
     mut rx: broadcast::Receiver<RequestStateChangeEvent>,
-    indexify_state: Arc<IndexifyState>,
+    state: RouteState,
     namespace: String,
     application: String,
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     async_stream::stream! {
-        let reader = indexify_state.reader();
+        let reader = state.indexify_state.reader();
 
         // Check completion when starting stream
         match reader.request_ctx(&namespace, &application, &request_id).await {
-            Ok(Some(request_ctx)) => {
-                if let Some(outcome) = &request_ctx.outcome {
+            Ok(Some(context)) => {
+                if let Some(outcome) = &context.outcome {
                     yield Event::default().json_data(
-                        RequestStateChangeEvent::finished(
-                            &namespace,
-                            &application,
-                            &request_ctx.application_version,
-                            &request_id,
-                            outcome.clone(),
-                        )
+                        build_finished_event_with_output(&state, &context, outcome).await
                     );
                     return;
                 }
@@ -130,7 +208,16 @@ async fn create_request_progress_stream(
             match rx.recv().await {
                 Ok(ev) => {
                     let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
-                    yield Event::default().json_data(&ev);
+
+                    if is_finished && let Ok(Some(context)) = reader.request_ctx(&namespace, &application, &request_id).await
+                            && let Some(outcome) = &context.outcome {
+                        yield Event::default().json_data(
+                            build_finished_event_with_output(&state, &context, outcome).await
+                        );
+                    } else {
+                        yield Event::default().json_data(&ev);
+                    }
+
                     if is_finished {
                         return;
                     }
@@ -143,13 +230,7 @@ async fn create_request_progress_stream(
                         Ok(Some(context)) => {
                             if let Some(outcome) = &context.outcome {
                                 yield Event::default().json_data(
-                                    RequestStateChangeEvent::finished(
-                                        &namespace,
-                                        &application,
-                                        &context.application_version,
-                                        &request_id,
-                                        outcome.clone(),
-                                    )
+                                    build_finished_event_with_output(&state, &context, outcome).await
                                 );
                                 return;
                             }
@@ -322,7 +403,7 @@ pub async fn invoke_application_with_object_v1(
     let payload = RequestPayload::InvokeApplication(InvokeApplicationRequest {
         namespace: request_ctx.namespace.clone(),
         application_name: request_ctx.application_name.clone(),
-        ctx: request_ctx,
+        ctx: request_ctx.clone(),
     });
     state
         .indexify_state
@@ -348,9 +429,7 @@ pub async fn invoke_application_with_object_v1(
         return return_sse_response(
             // cloning the state is cheap because all its fields are inside arcs
             state.clone(),
-            namespace,
-            application.name,
-            request_id,
+            request_ctx,
         )
         .await;
     }
@@ -374,33 +453,40 @@ pub async fn progress_stream(
     Path((namespace, application, request_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    return_sse_response(state, namespace, application, request_id).await
+    let ctx = state
+        .indexify_state
+        .reader()
+        .request_ctx(&namespace, &application, &request_id)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get request context: {e}"))
+        })?
+        .ok_or(IndexifyAPIError::not_found("request not found"))?;
+    return_sse_response(state, ctx).await
 }
 
 async fn return_sse_response(
     state: RouteState,
-    namespace: String,
-    application: String,
-    request_id: String,
+    ctx: RequestCtx,
 ) -> Result<axum::response::Response, IndexifyAPIError> {
     let rx = state
         .indexify_state
-        .subscribe_request_events(&namespace, &application, &request_id)
+        .subscribe_request_events(&ctx.namespace, &ctx.application_name, &ctx.request_id)
         .await;
 
     let guard = SubscriptionGuard::new(
         state.indexify_state.clone(),
-        namespace.clone(),
-        application.clone(),
-        request_id.clone(),
+        &ctx.namespace,
+        &ctx.application_name,
+        &ctx.request_id,
     );
 
     let inner_stream = create_request_progress_stream(
         rx,
-        state.indexify_state.clone(),
-        namespace,
-        application,
-        request_id,
+        state.clone(),
+        ctx.namespace,
+        ctx.application_name,
+        ctx.request_id,
     )
     .await;
 

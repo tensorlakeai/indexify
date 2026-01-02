@@ -193,7 +193,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        data_model::{RequestFailureReason, RequestOutcome},
+        data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
             FunctionRunAssigned,
             FunctionRunCompleted,
@@ -217,6 +217,25 @@ mod tests {
         #[cfg(target_os = "linux")]
         let format = SecondsFormat::Nanos;
         string_value(&v.to_rfc3339_opts(format, true))
+    }
+
+    fn make_test_ctx(
+        namespace: &str,
+        app: &str,
+        version: &str,
+        request_id: &str,
+        outcome: RequestOutcome,
+    ) -> crate::data_model::RequestCtx {
+        RequestCtxBuilder::default()
+            .namespace(namespace.to_string())
+            .application_name(app.to_string())
+            .application_version(version.to_string())
+            .request_id(request_id.to_string())
+            .outcome(Some(outcome))
+            .function_calls(Default::default())
+            .function_runs(Default::default())
+            .build()
+            .unwrap()
     }
 
     fn extract_inner_kvlist(any_value: &AnyValue) -> KeyValueList {
@@ -279,13 +298,14 @@ mod tests {
 
     #[test]
     fn test_request_finished_event_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.2",
             "req-789",
             RequestOutcome::Success,
         );
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Success, None);
         let now = match event {
             RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
             _ => panic!("unexpected event type"),
@@ -521,12 +541,17 @@ mod tests {
 
     #[test]
     fn test_failure_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-fail",
             RequestOutcome::Failure(RequestFailureReason::InternalError),
+        );
+        let event = RequestStateChangeEvent::finished(
+            &ctx,
+            &RequestOutcome::Failure(RequestFailureReason::InternalError),
+            None,
         );
         let now = match event {
             RequestStateChangeEvent::RequestFinished(ref event) => event.created_at,
@@ -576,13 +601,14 @@ mod tests {
 
     #[test]
     fn test_unknown_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-unknown",
             RequestOutcome::Unknown,
         );
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Unknown, None);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
@@ -614,13 +640,14 @@ mod tests {
 
     #[test]
     fn test_success_outcome_to_any_value() {
-        let event = RequestStateChangeEvent::finished(
+        let ctx = make_test_ctx(
             "test-ns",
             "test-app",
             "1.0.0",
             "req-unknown",
             RequestOutcome::Success,
         );
+        let event = RequestStateChangeEvent::finished(&ctx, &RequestOutcome::Success, None);
 
         let result = super::update_to_any_value(&event);
         assert!(result.is_ok());
