@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -75,7 +75,7 @@ impl RequestStateChangeEvent {
             application_name: application.to_string(),
             application_version: application_version.to_string(),
             request_id: request_id.to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
             outcome,
         })
     }
@@ -90,7 +90,7 @@ impl RequestStateChangeEvent {
             function_run_id: event.allocation.function_call_id.to_string(),
             outcome: (&event.allocation.outcome).into(),
             allocation_id: event.allocation.id.to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         })
     }
 
@@ -159,7 +159,7 @@ pub struct RequestFinishedEvent {
     pub request_id: String,
     pub outcome: RequestOutcome,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for RequestFinishedEvent {
@@ -187,7 +187,7 @@ pub struct RequestStartedEvent {
     pub application_version: String,
     pub request_id: String,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for RequestStartedEvent {
@@ -216,7 +216,7 @@ pub struct FunctionRunCreated {
     pub function_name: String,
     pub function_run_id: String,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for FunctionRunCreated {
@@ -248,7 +248,7 @@ pub struct FunctionRunAssigned {
     pub allocation_id: String,
     pub executor_id: String,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for FunctionRunAssigned {
@@ -280,7 +280,7 @@ pub struct FunctionRunCompleted {
     pub allocation_id: String,
     pub outcome: FunctionRunOutcomeSummary,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for FunctionRunCompleted {
@@ -310,7 +310,7 @@ pub struct FunctionRunMatchedCache {
     pub function_name: String,
     pub function_run_id: String,
     #[serde(default)]
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 impl RequestEventMetadata for FunctionRunMatchedCache {
@@ -361,7 +361,7 @@ pub fn build_request_state_change_events(
                     application_name: request.ctx.application_name.clone(),
                     application_version: request.ctx.application_version.clone(),
                     request_id: request.ctx.request_id.clone(),
-                    created_at: Utc::now().timestamp_millis(),
+                    created_at: Utc::now(),
                 },
             )];
 
@@ -375,7 +375,7 @@ pub fn build_request_state_change_events(
                         request_id: function_run.request_id.clone(),
                         function_name: function_run.name.clone(),
                         function_run_id: function_run.id.to_string(),
-                        created_at: Utc::now().timestamp_millis(),
+                        created_at: Utc::now(),
                     },
                 ));
             }
@@ -409,7 +409,7 @@ pub fn build_request_state_change_events(
                                     request_id: function_run.request_id.clone(),
                                     function_name: function_run.name.clone(),
                                     function_run_id: function_run.id.to_string(),
-                                    created_at: Utc::now().timestamp_millis(),
+                                    created_at: Utc::now(),
                                 },
                             ));
                         }
@@ -429,7 +429,7 @@ pub fn build_request_state_change_events(
                         function_run_id: allocation.function_call_id.to_string(),
                         executor_id: allocation.target.executor_id.get().to_string(),
                         allocation_id: allocation.id.to_string(),
-                        created_at: Utc::now().timestamp_millis(),
+                        created_at: Utc::now(),
                     },
                 ));
             }
@@ -464,7 +464,7 @@ mod tests {
             application_name: "test-app".to_string(),
             application_version: "1.0.1".to_string(),
             request_id: "req-456".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(event.namespace(), "test-ns");
@@ -504,7 +504,7 @@ mod tests {
             request_id: "req-001".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-123".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(event.namespace(), "test-ns");
@@ -530,7 +530,7 @@ mod tests {
             function_run_id: "run-456".to_string(),
             allocation_id: "alloc-789".to_string(),
             executor_id: "executor-001".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(event.namespace(), "test-ns");
@@ -556,7 +556,7 @@ mod tests {
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(event.namespace(), "test-ns");
@@ -580,7 +580,7 @@ mod tests {
             request_id: "req-004".to_string(),
             function_name: "my-function".to_string(),
             function_run_id: "run-111".to_string(),
-            created_at: Utc::now().timestamp_millis(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(event.namespace(), "test-ns");
