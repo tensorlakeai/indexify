@@ -1122,6 +1122,18 @@ dependencies = [
 [[package]]
 name = "dataplane"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "json-subscriber",
+ "proto-api",
+ "serde",
+ "serde-inline-default",
+ "serde-saphyr",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "deranged"
