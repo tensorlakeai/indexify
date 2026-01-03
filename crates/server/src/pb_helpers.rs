@@ -57,6 +57,15 @@ pub fn fn_call_outcome_to_pb(
             FunctionRunFailureReason::ExecutorRemoved => {
                 executor_api_pb::AllocationFailureReason::ExecutorRemoved
             }
+            FunctionRunFailureReason::ContainerStartupFunctionError => {
+                executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
+            }
+            FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
+                executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
+            }
+            FunctionRunFailureReason::ContainerStartupInternalError => {
+                executor_api_pb::AllocationFailureReason::StartupFailedInternalError
+            }
         });
 
     let return_value = function_call_outcome

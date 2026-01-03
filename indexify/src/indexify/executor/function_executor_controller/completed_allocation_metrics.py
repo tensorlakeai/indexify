@@ -45,10 +45,10 @@ def emit_completed_allocation_metrics(alloc_info: AllocationInfo, logger: Any) -
             failure_reason=METRIC_ALLOCATIONS_COMPLETED_FAILURE_REASON_NONE,
         ).inc()
     elif alloc_outcome_code == AllocationOutcomeCode.ALLOCATION_OUTCOME_CODE_FAILURE:
-        if (
-            alloc_failure_reason
-            == AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
-        ):
+        if alloc_failure_reason in [
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR,
+        ]:
             metric_allocations_completed.labels(
                 outcome_code=METRIC_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,
                 failure_reason=METRIC_ALLOCATIONS_COMPLETED_FAILURE_REASON_INTERNAL_ERROR,
@@ -74,6 +74,8 @@ def emit_completed_allocation_metrics(alloc_info: AllocationInfo, logger: Any) -
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT,
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_REQUEST_ERROR,
             AllocationFailureReason.ALLOCATION_FAILURE_REASON_OOM,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR,
+            AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT,
         ]:
             metric_allocations_completed.labels(
                 outcome_code=METRIC_ALLOCATIONS_COMPLETED_OUTCOME_CODE_FAILURE,

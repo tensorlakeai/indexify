@@ -528,6 +528,9 @@ pub enum FunctionRunFailureReason {
     ConstraintUnsatisfiable,
     ExecutorRemoved,
     OutOfMemory,
+    ContainerStartupFunctionError,
+    ContainerStartupFunctionTimeout,
+    ContainerStartupInternalError,
 }
 
 impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
@@ -560,6 +563,15 @@ impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             }
             data_model::FunctionRunFailureReason::OutOfMemory => {
                 FunctionRunFailureReason::OutOfMemory
+            }
+            data_model::FunctionRunFailureReason::ContainerStartupFunctionError => {
+                FunctionRunFailureReason::ContainerStartupFunctionError
+            }
+            data_model::FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout
+            }
+            data_model::FunctionRunFailureReason::ContainerStartupInternalError => {
+                FunctionRunFailureReason::ContainerStartupInternalError
             }
         }
     }
