@@ -188,17 +188,17 @@ def _fe_startup_failure_reason_to_alloc_failure_reason(
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR
     ):
-        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_ERROR
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
     ):
-        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_FUNCTION_TIMEOUT
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR
     ):
-        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_INTERNAL_ERROR
+        return AllocationFailureReason.ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR
     elif (
         fe_termination_reason
         == FunctionExecutorTerminationReason.FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED
