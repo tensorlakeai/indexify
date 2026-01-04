@@ -1214,7 +1214,10 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::FunctionExecutorTerminated |
                 FunctionRunFailureReason::ExecutorRemoved |
-                FunctionRunFailureReason::OutOfMemory
+                FunctionRunFailureReason::OutOfMemory |
+                FunctionRunFailureReason::ContainerStartupFunctionError |
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 
@@ -1230,7 +1233,10 @@ impl FunctionRunFailureReason {
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
-                FunctionRunFailureReason::OutOfMemory
+                FunctionRunFailureReason::OutOfMemory |
+                FunctionRunFailureReason::ContainerStartupFunctionError |
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 }
