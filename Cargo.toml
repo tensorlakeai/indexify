@@ -86,6 +86,8 @@ url = "2.5.6"
 chrono = "0.4.42"
 rust-embed = { version = "8.8.0", features = ["mime-guess"] }
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
+bollard = "0.19.4"
+libc = "0.2.178"
 
 # Testing and benchmarking
 tempfile = "3.24.0"

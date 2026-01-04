@@ -13,4 +13,8 @@ clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 json-subscriber = { workspace = true }
+bollard = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+libc = { workspace = true }
 proto-api = { path = "../proto-api" }

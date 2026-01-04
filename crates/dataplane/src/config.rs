@@ -11,6 +11,34 @@ pub struct TlsConfig {
     pub ca_bundle_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerDriverType {
+    #[default]
+    Docker,
+    ForkExec,
+}
+
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForkExecConfig {
+    /// Base directory for function executor binaries
+    #[serde_inline_default("/usr/local/bin/indexify".to_string())]
+    pub bin_path: String,
+    /// Working directory for spawned processes (uses tmpfs by default)
+    #[serde_inline_default("/tmp/indexify".to_string())]
+    pub work_dir: String,
+}
+
+impl Default for ForkExecConfig {
+    fn default() -> Self {
+        Self {
+            bin_path: "/usr/local/bin/indexify".to_string(),
+            work_dir: "/tmp/indexify".to_string(),
+        }
+    }
+}
+
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -22,6 +50,10 @@ pub struct Config {
     pub server_http_addr: String,
     #[serde(default)]
     pub tls_config: Option<TlsConfig>,
+    #[serde(default)]
+    pub container_driver: ContainerDriverType,
+    #[serde(default)]
+    pub fork_exec: ForkExecConfig,
 }
 
 impl Default for Config {
@@ -31,6 +63,8 @@ impl Default for Config {
             server_grpc_addr: "0.0.0.0:8901".to_string(),
             server_http_addr: "0.0.0.0:8900".to_string(),
             tls_config: None,
+            container_driver: ContainerDriverType::default(),
+            fork_exec: ForkExecConfig::default(),
         }
     }
 }

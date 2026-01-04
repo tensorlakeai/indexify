@@ -4,6 +4,11 @@ use clap::Parser;
 
 mod agent;
 mod config;
+mod container_driver;
+mod docker;
+mod fork_exec;
+mod function_executors;
+mod objects;
 mod tracing;
 
 use tracing::setup_tracing;
