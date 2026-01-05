@@ -13,7 +13,7 @@
 
 ---
 
-Indexify is a compute engine for building **data platforms** in Python. Create large-scale data processing workflows and agentic applications with durable execution—functions automatically retry on failure, and workflows seamlessly scale across machines. Deploy your applications as live API endpoints for seamless integration with existing systems.
+Indexify is a compute engine for building **data platforms** in Python. Create large-scale data processing workflows and agentic applications with durable execution—functions automatically retry on failure, and workflows seamlessly scale across machines. Upon deployment, each application gets a unique URL that can be called from any system.
 
 > **Note:** Indexify is the open-source core that powers [Tensorlake Cloud](https://tensorlake.ai)—a serverless platform for document processing, media pipelines, and agentic applications.
 
@@ -142,7 +142,10 @@ export TENSORLAKE_API_KEY="your-api-key"
 
 # Deploy the application
 tensorlake deploy workflow.py
+# => Deployed! URL: https://api.tensorlake.ai/namespaces/default/applications/text_embedder
 ```
+
+Invoke your application using the SDK or call the URL directly:
 
 ```python
 from tensorlake.applications import run_remote_application
@@ -169,6 +172,7 @@ Set the API URL and deploy:
 ```bash
 export TENSORLAKE_API_URL=http://localhost:8900
 tensorlake deploy workflow.py
+# => Deployed! URL: http://localhost:8900/namespaces/default/applications/text_embedder
 ```
 
 Run your application:
