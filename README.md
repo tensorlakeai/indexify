@@ -24,7 +24,6 @@ Indexify is a compute engine for building **data platforms** in Python. Create l
 | **🐍 Python Native** | Define workflows as Python functions with type hints—no DSLs, YAML, or config files |
 | **🔄 Durable Execution** | Functions automatically retry on failure with persistent state across restarts |
 | **📊 Distributed Map/Reduce** | Parallelize functions over sequences across machines with automatic data shuffling |
-| **🔀 Dynamic Routing** | Router functions dynamically choose execution paths based on inputs |
 | **⚡ Request Queuing** | Automatically queue and batch invocations to maximize GPU utilization |
 | **🌐 Multi-Cloud** | Run across multiple clouds, datacenters, or regions with minimal configuration |
 | **📈 Autoscaling** | Server automatically redistributes work when machines come and go |
