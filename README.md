@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/images/logo/TL-Dark.svg" alt="Indexify Logo" width="400"/>
-</p>
-
 <h1 align="center">Indexify</h1>
 
 <p align="center">
