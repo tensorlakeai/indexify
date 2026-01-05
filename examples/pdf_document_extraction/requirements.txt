@@ -1,9 +1,0 @@
-indexify
-pydantic
-docling==2.14.0
-docling-core
-sentence-transformers
-chromadb
-elasticsearch
-langchain-text-splitters
-elastic-transport

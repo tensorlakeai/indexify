@@ -1,3 +1,0 @@
-indexify
-openai
-elevenlabs
