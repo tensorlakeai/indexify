@@ -42,7 +42,6 @@ Build durable AI agents that reliably execute multi-step workflows:
 
 - **Tool-Calling Agents** — Orchestrate LLM tool calls with automatic state management and retry logic
 - **Multi-Agent Systems** — Coordinate multiple agents with durable message passing
-- **Human-in-the-Loop** — Build approval workflows with persistent state across sessions
 
 📖 **[Explore the Cookbooks →](https://github.com/tensorlakeai/cookbooks)** for complete examples and tutorials.
 
