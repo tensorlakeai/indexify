@@ -439,10 +439,11 @@ fn create_function_call_from_reduce_op(
     let inputs = vec![first_arg, second_arg];
     FunctionCall {
         function_call_id: FunctionCallId(nanoid::nanoid!()),
-        inputs,
         fn_name: reduce_op.fn_name.clone(),
-        call_metadata: reduce_op.call_metadata.clone(),
         parent_function_call_id,
+        inputs,
+        call_metadata: reduce_op.call_metadata.clone(),
+        input_names: None,
     }
 }
 

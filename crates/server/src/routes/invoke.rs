@@ -4,12 +4,12 @@ use anyhow::anyhow;
 use axum::{
     Json,
     body::Body,
-    extract::{Path, State},
+    extract::{Multipart, OptionalFromRequest, Path, Request, State},
     http::HeaderMap,
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, TryStreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError};
@@ -260,7 +260,17 @@ struct RequestIdV1 {
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
+    request_body(content_type = "application/json",
+        content = inline(serde_json::Value),
+        description = "The first positional argument for the application function",
+    ),
+    request_body(
+        content_type = "multipart/form-data",
+        description = concat!("Each multipart form field is mapped to an application function argument. ",
+            "If the field name is integer N, it is mapped to the N-th positional argument. ",
+            "If the field name is string NAME, it is mapped to the kword argument NAME.",
+        ),
+    ),
     tag = "ingestion",
     responses(
         (status = 200, description = "request successful"),
@@ -272,7 +282,7 @@ pub async fn invoke_application_with_object_v1(
     Path((namespace, application_name)): Path<(String, String)>,
     State(state): State<RouteState>,
     headers: HeaderMap,
-    body: Body,
+    request: Request<Body>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     let _inc = Increment::inc(&state.metrics.requests, &[]);
 
@@ -293,51 +303,6 @@ pub async fn invoke_application_with_object_v1(
         None => nanoid::nanoid!(),
     };
 
-    let accept_header = headers
-        .get("Accept")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("application/json");
-
-    let encoding = headers
-        .get("Content-Type")
-        .and_then(|value| value.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("application/octet-stream".to_string());
-
-    let payload_key = format!(
-        "{}/input",
-        data_model::DataPayload::request_key_prefix(&namespace, &application_name, &request_id)
-    );
-    let payload_stream = body
-        .into_data_stream()
-        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-
-    let put_result = state
-        .blob_storage
-        .get_blob_store(&namespace)
-        .put(&payload_key, Box::pin(payload_stream))
-        .await
-        .map_err(|e| {
-            error!("failed to write to blob store: {:?}", e);
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
-        })?;
-
-    let data_payload = data_model::DataPayload {
-        id: request_id.clone(), // Use request_id for idempotency
-        metadata_size: 0,
-        path: put_result.url,
-        size: put_result.size_bytes,
-        sha256_hash: put_result.sha256_hash,
-        offset: 0, // Whole BLOB was written, so offset is 0
-        encoding,
-    };
-
-    state
-        .metrics
-        .request_input_bytes
-        .add(data_payload.size, &[]);
-    state.metrics.requests.add(1, &[]);
-
     let application = state
         .indexify_state
         .reader()
@@ -350,6 +315,69 @@ pub async fn invoke_application_with_object_v1(
         return Result::Err(IndexifyAPIError::conflict(reason));
     }
 
+    let accept_header = headers
+        .get("Accept")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json");
+
+    let content_type = headers
+        .get("Content-Type")
+        .and_then(|value| value.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("application/octet-stream".to_string());
+
+    let content_length = headers
+        .get("Content-Length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    // Argument ix/name -> DataPayload
+    let mut data_payloads: HashMap<String, DataPayload> = HashMap::new();
+    if content_type.starts_with("multipart/form-data") {
+        // Multi parameter application call. Each part is an application function
+        // argument.
+        let multipart = Multipart::from_request(request, &state)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::bad_request(&format!("failed to parse multipart/form-data: {e}"))
+            })?
+            .ok_or(IndexifyAPIError::bad_request(
+                "failed to parse multipart/form-data: no multipart data found",
+            ))?;
+
+        data_payloads = upload_multipart_application_arguments(
+            &state,
+            &namespace,
+            &application_name,
+            &request_id,
+            multipart,
+        )
+        .await?;
+
+        // If content_length is 0 then we're dealing with parameterless
+        // application function call.
+    } else if content_length > 0 {
+        // The body is the first positional argument (arg 0).
+        let body_stream = request
+            .into_body()
+            .into_data_stream()
+            .map_err(|err| -> anyhow::Error { anyhow!(err) });
+        let arg0_data_payload = upload_application_argument(
+            &state,
+            &namespace,
+            &application_name,
+            &request_id,
+            0,
+            "application/json".to_string(),
+            body_stream,
+        )
+        .await?;
+        data_payloads.insert("0".to_string(), arg0_data_payload);
+    }
+
+    state.metrics.requests.add(1, &[]);
+
     let function_call_id = FunctionCallId(request_id.clone()); // This clone is necessary here as we reuse request_id later
 
     let entrypoint_fn_name = &application.entrypoint.function_name;
@@ -359,12 +387,28 @@ pub async fn invoke_application_with_object_v1(
         )));
     };
 
-    let fn_call = entrypoint_fn.create_function_call(
+    let mut inputs: Vec<data_model::FunctionArgs> = Vec::new();
+    let mut input_args: Vec<InputArgs> = Vec::new();
+    let mut input_names: Vec<String> = Vec::new();
+    data_payloads.iter().for_each(|(arg_name, data_payload)| {
+        // Order in vectors must be the same.
+        inputs.push(data_model::FunctionArgs::DataPayload(data_payload.clone()));
+        input_args.push(InputArgs {
+            function_call_id: None,
+            data_payload: data_payload.clone(),
+        });
+        input_names.push(arg_name.clone());
+    });
+
+    let fn_call = data_model::FunctionCall {
         function_call_id,
-        vec![data_payload.clone()],
-        Bytes::new(),
-        None,
-    );
+        fn_name: entrypoint_fn.name.clone(),
+        parent_function_call_id: None,
+        inputs,
+        call_metadata: Bytes::new(),
+        input_names: Some(input_names),
+    };
+
     let app_version = state
         .indexify_state
         .in_memory_state
@@ -376,14 +420,7 @@ pub async fn invoke_application_with_object_v1(
             "compute graph version not found",
         ))?;
     let fn_run = app_version
-        .create_function_run(
-            &fn_call,
-            vec![InputArgs {
-                function_call_id: None,
-                data_payload,
-            }],
-            &request_id,
-        )
+        .create_function_run(&fn_call, input_args, &request_id)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to create function run: {e}"))
         })?;
@@ -502,4 +539,97 @@ async fn return_sse_response(
                 .text(""),
         )
         .into_response())
+}
+
+async fn upload_application_argument(
+    state: &RouteState,
+    namespace: &str,
+    application_name: &str,
+    request_id: &str,
+    arg_seq_number: usize,
+    arg_content_type: String,
+    arg_data_stream: impl futures::Stream<Item = anyhow::Result<Bytes>> + Send + Unpin,
+) -> Result<DataPayload, IndexifyAPIError> {
+    let payload_key = format!(
+        "{}/inputs/{arg_seq_number}",
+        data_model::DataPayload::request_key_prefix(&namespace, &application_name, &request_id)
+    );
+
+    let put_result = state
+        .blob_storage
+        .get_blob_store(&namespace)
+        .put(&payload_key, arg_data_stream)
+        .await
+        .map_err(|e| {
+            error!("failed to write to blob store: {:?}", e);
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {e}"))
+        })?;
+
+    let data_payload = data_model::DataPayload {
+        id: nanoid::nanoid!(), // Not really used anywhere as of now
+        metadata_size: 0,
+        path: put_result.url,
+        size: put_result.size_bytes,
+        sha256_hash: put_result.sha256_hash,
+        offset: 0, // Whole BLOB was written, so offset is 0
+        encoding: arg_content_type,
+    };
+
+    state
+        .metrics
+        .request_input_bytes
+        .add(data_payload.size, &[]);
+
+    Ok(data_payload)
+}
+
+async fn upload_multipart_application_arguments(
+    state: &RouteState,
+    namespace: &str,
+    application_name: &str,
+    request_id: &str,
+    mut multipart: Multipart,
+) -> Result<HashMap<String, DataPayload>, IndexifyAPIError> {
+    let mut arg_seq_number = 0;
+    let mut data_payloads: HashMap<String, DataPayload> = HashMap::new();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| IndexifyAPIError::internal_error(anyhow!(err)))?
+    {
+        let field_name = field
+            .name()
+            .ok_or(IndexifyAPIError::bad_request(
+                "multipart field name is missing",
+            ))?
+            .to_string();
+
+        let field_content_type = field
+            .content_type()
+            .ok_or(IndexifyAPIError::bad_request(
+                "multipart field content type is missing",
+            ))?
+            .to_string();
+
+        let data_stream = field
+            .into_stream()
+            .map_err(|err| -> anyhow::Error { anyhow!(err) });
+
+        let data_payload = upload_application_argument(
+            state,
+            namespace,
+            application_name,
+            request_id,
+            arg_seq_number,
+            field_content_type,
+            data_stream,
+        )
+        .await?;
+
+        arg_seq_number += 1;
+        data_payloads.insert(field_name, data_payload);
+    }
+
+    Ok(data_payloads)
 }

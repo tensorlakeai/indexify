@@ -229,9 +229,15 @@ message Allocation {
     // BLOB URI prefix for the request error payloads.
     optional string request_error_payload_uri_prefix = 7;
     optional string function_executor_id = 8;
-
-    // Always set. An empty bytes array if no metadata, e.g. for API function call.
+    // Always set. An empty bytes array if no metadata.
+    // SDK provided metadata for if the function call was created by an SDK.
+    // Application function calls have this field empty.
     optional bytes function_call_metadata = 9;
+    // Empty for function calls created by SDK.
+    // Names of the arguments in the same order as args if application function call.
+    // If a name is an integer string then it's a positional argument with the given index.
+    // Otherwise, a keyword argument with the given name.
+    repeated string arg_names = 10;
 }
 
 // A message sent by Executor to Server to open the stream of desired Executor States for the Executor.

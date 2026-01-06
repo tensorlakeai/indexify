@@ -187,10 +187,11 @@ pub mod tests {
     ) -> FunctionCall {
         FunctionCall {
             function_call_id: FunctionCallId(nanoid!()),
-            inputs,
             fn_name: fn_name.to_string(),
-            call_metadata: Bytes::new(),
             parent_function_call_id,
+            inputs,
+            call_metadata: Bytes::new(),
+            input_names: None,
         }
     }
 

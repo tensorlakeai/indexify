@@ -546,6 +546,7 @@ impl ExecutorManager {
                     request_data_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
                     request_error_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
                     function_call_metadata: Some(allocation.call_metadata.clone().into()),
+                    arg_names: allocation.input_names.clone().unwrap_or_default(),
                 };
                 allocations_pb.push(allocation_pb);
             }

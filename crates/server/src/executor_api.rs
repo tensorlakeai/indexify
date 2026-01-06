@@ -448,6 +448,7 @@ fn to_internal_function_call(
             .collect::<Result<Vec<data_model::FunctionArgs>, anyhow::Error>>()?,
         call_metadata: function_call.call_metadata.unwrap_or_default().into(),
         parent_function_call_id: source_function_call_id.map(FunctionCallId::from),
+        input_names: None, // Empty for SDK issued function calls.
     })
 }
 

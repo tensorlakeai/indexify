@@ -1602,12 +1602,12 @@ mod tests {
                     fn_name: function.to_string(),
                     call_metadata: Bytes::new(),
                     parent_function_call_id: None,
+                    input_names: None,
                 }))
                 .status(FunctionRunStatus::Pending)
                 .outcome(outcome)
                 .input_args(vec![])
                 .attempt_number(0)
-                .call_metadata(Bytes::new())
                 .build()
                 .unwrap()
         }
@@ -2029,7 +2029,6 @@ mod tests {
             .created_at(0)
             .version("1.0".to_string())
             .functions(functions)
-            .edges(HashMap::new())
             .code(mock_data_payload())
             .entrypoint(ApplicationEntryPoint {
                 function_name: "light".to_string(),
@@ -2200,12 +2199,12 @@ mod tests {
                 fn_name: function_name.to_string(),
                 call_metadata: bytes::Bytes::new(),
                 parent_function_call_id: None,
+                input_names: None,
             }))
             .status(FunctionRunStatus::Pending)
             .outcome(None)
             .input_args(vec![])
             .attempt_number(0)
-            .call_metadata(bytes::Bytes::new())
             .build()
             .unwrap()
     }

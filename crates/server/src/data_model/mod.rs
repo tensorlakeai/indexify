@@ -113,7 +113,7 @@ impl std::ops::DerefMut for AllocationId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputArgs {
     // ID of the function call that produced this payload
-    // or consumed it from its child functionc call.
+    // or consumed it from its child function call.
     pub function_call_id: Option<FunctionCallId>,
     pub data_payload: DataPayload,
 }
@@ -139,7 +139,14 @@ pub struct Allocation {
     pub input_args: Vec<InputArgs>,
     #[builder(default)]
     vector_clock: VectorClock,
+    // Metadata for function calls created by other function calls (opaque, SDK specific).
     pub call_metadata: bytes::Bytes,
+    // Metadata for application function calls created by Server.
+    //
+    // None if function call was created by SDK.
+    // Names of each input (in-order), used for mapping inputs to
+    // application function parameter names. 0 or more inputs are supported.
+    pub input_names: Option<Vec<String>>,
 }
 
 impl AllocationBuilder {
@@ -202,10 +209,17 @@ impl From<String> for FunctionCallId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub function_call_id: FunctionCallId,
-    pub inputs: Vec<FunctionArgs>,
     pub fn_name: String,
-    pub call_metadata: bytes::Bytes,
     pub parent_function_call_id: Option<FunctionCallId>,
+    pub inputs: Vec<FunctionArgs>,
+    // Metadata for function calls created by other function calls (opaque, SDK specific).
+    pub call_metadata: bytes::Bytes,
+    // Metadata for application function calls created by Server.
+    //
+    // None if function call was created by SDK.
+    // Names of each input (in-order), used for mapping inputs to
+    // application function parameter names. 0 or more inputs are supported.
+    pub input_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +240,22 @@ pub struct ReduceOperation {
 pub enum ComputeOp {
     Reduce(ReduceOperation),
     FunctionCall(FunctionCall),
+}
+
+impl ComputeOp {
+    pub fn call_metadata(&self) -> &bytes::Bytes {
+        match self {
+            ComputeOp::FunctionCall(fc) => &fc.call_metadata,
+            ComputeOp::Reduce(ro) => &ro.call_metadata,
+        }
+    }
+
+    pub fn input_names(&self) -> Option<&Vec<String>> {
+        match self {
+            ComputeOp::FunctionCall(fc) => fc.input_names.as_ref(),
+            ComputeOp::Reduce(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
@@ -262,7 +292,6 @@ pub struct FunctionRun {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
-    pub call_metadata: bytes::Bytes,
 
     #[builder(default)]
     pub request_error: Option<DataPayload>,
@@ -447,24 +476,6 @@ pub struct Function {
     pub return_type: Option<serde_json::Value>,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
-}
-
-impl Function {
-    pub fn create_function_call(
-        &self,
-        function_call_id: FunctionCallId,
-        inputs: Vec<DataPayload>,
-        call_metadata: bytes::Bytes,
-        parent_function_call_id: Option<FunctionCallId>,
-    ) -> FunctionCall {
-        FunctionCall {
-            function_call_id,
-            inputs: inputs.into_iter().map(FunctionArgs::DataPayload).collect(),
-            fn_name: self.name.clone(),
-            call_metadata,
-            parent_function_call_id,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -712,8 +723,6 @@ pub struct ApplicationVersion {
     pub entrypoint: ApplicationEntryPoint,
     #[builder(default)]
     pub functions: HashMap<String, Function>,
-    #[builder(default)]
-    pub edges: HashMap<String, Vec<String>>,
     #[serde(default)]
     #[builder(default)]
     pub state: ApplicationState,
@@ -746,19 +755,12 @@ impl ApplicationVersion {
             .namespace(self.namespace.clone())
             .application(self.name.clone())
             .version(self.version.clone())
-            .compute_op(ComputeOp::FunctionCall(FunctionCall {
-                function_call_id: fn_call.function_call_id.clone(),
-                inputs: fn_call.inputs.clone(),
-                fn_name: fn_call.fn_name.clone(),
-                call_metadata: fn_call.call_metadata.clone(),
-                parent_function_call_id: fn_call.parent_function_call_id.clone(),
-            }))
+            .compute_op(ComputeOp::FunctionCall(fn_call.clone()))
             .input_args(input_args)
             .name(fn_call.fn_name.clone())
             .request_id(request_id.to_string())
             .status(FunctionRunStatus::Pending)
             .attempt_number(0)
-            .call_metadata(fn_call.call_metadata.clone())
             .creation_time_ns(get_epoch_time_in_ns())
             // created_at_clock and updated_at_clock default to None (not yet persisted)
             .outcome(None)
@@ -2448,6 +2450,7 @@ mod tests {
                     offset: 0,
                 },
             }])
+            .input_names(Some(vec!["0".to_string()]))
             .target(target.clone())
             .call_metadata(Bytes::new())
             .attempt_number(1)

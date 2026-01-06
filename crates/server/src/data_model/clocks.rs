@@ -224,6 +224,7 @@ mod tests {
             .function_call_id("task-1".into())
             .application_version("v1".to_string())
             .input_args(vec![])
+            .input_names(None)
             .call_metadata(Bytes::new())
             .target(target.clone())
             .attempt_number(1)
