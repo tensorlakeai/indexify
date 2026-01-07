@@ -1,67 +1,32 @@
 use anyhow::Context;
 use chrono::Utc;
-use opentelemetry_proto::tonic::{
-    collector::logs::v1::{ExportLogsServiceRequest, logs_service_client::LogsServiceClient},
-    common::v1::{
-        AnyValue,
-        ArrayValue,
-        InstrumentationScope,
-        KeyValue,
-        KeyValueList,
-        any_value::Value,
+use otlp_logs_exporter::{
+    OtlpLogsExporter,
+    opentelemetry_proto::tonic::{
+        collector::logs::v1::ExportLogsServiceRequest,
+        common::v1::{
+            AnyValue,
+            ArrayValue,
+            InstrumentationScope,
+            KeyValue,
+            KeyValueList,
+            any_value::Value,
+        },
+        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
+        resource::v1::Resource,
     },
-    logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
-    resource::v1::Resource,
 };
 use serde_json::Value as JsonValue;
-use tonic::transport::Channel;
 use uuid::Uuid;
 
-use crate::{config::CloudEventsConfig, state_store::request_events::RequestStateChangeEvent};
+use crate::state_store::request_events::RequestStateChangeEvent;
 
-mod retry;
-use retry::*;
-
-/// CloudEventsExporter sends request state change events to an OTLP endpoint.
-pub struct CloudEventsExporter {
-    client: LogsServiceClient<Channel>,
-    retry_policy: RetryPolicy,
-}
-
-impl CloudEventsExporter {
-    pub async fn new(config: &CloudEventsConfig) -> Result<Self, anyhow::Error> {
-        let channel_builder = Channel::from_shared(config.endpoint.clone())
-            .context("building OTLP channel builder")?;
-
-        let channel = channel_builder
-            .connect()
-            .await
-            .context("building OTLP channel")?;
-
-        let retry_policy = RetryPolicy {
-            max_retries: 3,
-            initial_delay_ms: 100,
-            max_delay_ms: 1600,
-            jitter_ms: 100,
-        };
-
-        let client = LogsServiceClient::new(channel)
-            .send_compressed(tonic::codec::CompressionEncoding::Zstd);
-
-        Ok(Self {
-            client,
-            retry_policy,
-        })
-    }
-
-    /// Send a request state change event to the OTLP endpoint.
-    pub async fn send_request_state_change_event(
-        &mut self,
-        update: &RequestStateChangeEvent,
-    ) -> Result<(), anyhow::Error> {
-        let request = create_export_request(update)?;
-        export_with_retry(&mut self.client, &self.retry_policy, &request).await
-    }
+pub async fn export_progress_update(
+    exporter: &mut OtlpLogsExporter,
+    update: &RequestStateChangeEvent,
+) -> Result<(), anyhow::Error> {
+    let request = create_export_request(update)?;
+    exporter.send_request(request).await.map_err(Into::into)
 }
 
 fn create_export_request(

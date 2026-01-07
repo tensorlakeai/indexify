@@ -1909,6 +1909,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry-stdout",
  "opentelemetry_sdk",
+ "otlp-logs-exporter",
  "pin-project",
  "priority-queue",
  "prost-types",
@@ -2495,6 +2496,21 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "otlp-logs-exporter"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "http 1.4.0",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "tonic-types",
+ "tracing",
 ]
 
 [[package]]
@@ -3143,6 +3159,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "533f54bc6a7d4f647e46ad909549eda97bf5afc1585190ef692b4286b198bd8f"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -3802,6 +3819,7 @@ dependencies = [
  "socket2 0.6.1",
  "sync_wrapper",
  "tokio",
+ "tokio-rustls 0.26.4",
  "tokio-stream",
  "tower",
  "tower-layer",

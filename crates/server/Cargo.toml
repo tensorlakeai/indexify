@@ -71,6 +71,7 @@ console-subscriber = { version = "0.5.0", optional = true }
 tonic-types = "0.14.2"
 tokio-util = { version = "0.7.18", features = ["rt"] }
 imbl = "6.1.0"
+otlp-logs-exporter = { path = "../otlp-logs-exporter" }
 
 
 [dev-dependencies]

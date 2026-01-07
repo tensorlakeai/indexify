@@ -5,11 +5,12 @@ use opentelemetry::{
     KeyValue,
     metrics::{Counter, Histogram},
 };
+use otlp_logs_exporter::OtlpLogsExporter;
 use tokio::sync::Notify;
 use tracing::{error, info, instrument};
 
 use crate::{
-    cloud_events::CloudEventsExporter,
+    cloud_events::export_progress_update,
     metrics::{Timer, low_latency_boundaries},
     state_store::{
         IndexifyState,
@@ -53,7 +54,7 @@ impl RequestStateChangeProcessor {
     #[instrument(skip_all)]
     pub async fn start(
         &self,
-        mut cloud_events_exporter: Option<CloudEventsExporter>,
+        mut cloud_events_exporter: Option<OtlpLogsExporter>,
         mut shutdown_rx: tokio::sync::watch::Receiver<()>,
     ) {
         let mut request_events_rx = self.indexify_state.request_events_rx.clone();
@@ -93,7 +94,7 @@ impl RequestStateChangeProcessor {
         &self,
         cursor: &mut Option<Vec<u8>>,
         notify: &Arc<Notify>,
-        cloud_events_exporter: &mut Option<CloudEventsExporter>,
+        cloud_events_exporter: &mut Option<OtlpLogsExporter>,
     ) -> Result<()> {
         let timer_kvs = &[KeyValue::new("op", "process_request_state_change_events")];
         let _timer = Timer::start_with_labels(&self.processing_latency, timer_kvs);
@@ -202,11 +203,11 @@ impl RequestStateChangeProcessor {
     async fn send_event(
         &self,
         event: &PersistedRequestStateChangeEvent,
-        cloud_events_exporter: &mut Option<CloudEventsExporter>,
+        cloud_events_exporter: &mut Option<OtlpLogsExporter>,
     ) -> Result<()> {
         // Send to cloud events exporter if configured
         if let Some(exporter) = cloud_events_exporter &&
-            let Err(err) = exporter.send_request_state_change_event(&event.event).await
+            let Err(err) = export_progress_update(exporter, &event.event).await
         {
             error!(?err, "Failed to send request state change event to OTLP");
         }
@@ -223,7 +224,7 @@ impl RequestStateChangeProcessor {
     #[allow(dead_code)]
     pub async fn drain_all_events(&self) -> Result<()> {
         let mut cursor: Option<Vec<u8>> = None;
-        let mut no_exporter: Option<CloudEventsExporter> = None;
+        let mut no_exporter: Option<OtlpLogsExporter> = None;
 
         loop {
             let (events, new_cursor) = self

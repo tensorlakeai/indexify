@@ -13,6 +13,8 @@ use tonic::transport::Channel;
 use tonic_types::StatusExt;
 use tracing::{error, warn};
 
+use crate::error::Error;
+
 /// Classification of errors for retry purposes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RetryErrorType {
@@ -102,7 +104,7 @@ pub async fn export_with_retry(
     client: &mut LogsServiceClient<Channel>,
     policy: &RetryPolicy,
     request: &ExportLogsServiceRequest,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), Error> {
     let mut attempt = 0;
     let mut delay = policy.initial_delay_ms;
 
