@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/otlp-logs-exporter",
     "crates/proto-api",
     "crates/server",
 ]

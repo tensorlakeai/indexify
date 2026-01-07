@@ -2501,6 +2501,7 @@ dependencies = [
 [[package]]
 name = "otlp-logs-exporter"
 version = "0.1.0"
+source = "git+https://github.com/tensorlakeai/otlp-logs-exporter#cf0ad5b9367ab7e35328c34959c7a91e4eae24a3"
 dependencies = [
  "chrono",
  "http 1.4.0",
