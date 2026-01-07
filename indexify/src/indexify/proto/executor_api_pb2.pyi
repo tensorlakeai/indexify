@@ -506,29 +506,29 @@ class Allocation(_message.Message):
         "allocation_id",
         "function_call_id",
         "request_id",
-        "args",
         "request_data_payload_uri_prefix",
         "request_error_payload_uri_prefix",
         "function_executor_id",
+        "args",
         "function_call_metadata",
     )
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_CALL_ID_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    ARGS_FIELD_NUMBER: _ClassVar[int]
     REQUEST_DATA_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     REQUEST_ERROR_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_CALL_METADATA_FIELD_NUMBER: _ClassVar[int]
     function: FunctionRef
     allocation_id: str
     function_call_id: str
     request_id: str
-    args: _containers.RepeatedCompositeFieldContainer[DataPayload]
     request_data_payload_uri_prefix: str
     request_error_payload_uri_prefix: str
     function_executor_id: str
+    args: _containers.RepeatedCompositeFieldContainer[DataPayload]
     function_call_metadata: bytes
     def __init__(
         self,
@@ -536,10 +536,10 @@ class Allocation(_message.Message):
         allocation_id: _Optional[str] = ...,
         function_call_id: _Optional[str] = ...,
         request_id: _Optional[str] = ...,
-        args: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         request_data_payload_uri_prefix: _Optional[str] = ...,
         request_error_payload_uri_prefix: _Optional[str] = ...,
         function_executor_id: _Optional[str] = ...,
+        args: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
         function_call_metadata: _Optional[bytes] = ...,
     ) -> None: ...
 

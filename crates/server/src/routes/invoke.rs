@@ -256,11 +256,51 @@ struct RequestIdV1 {
     request_id: String,
 }
 
+/// Sensitive header names that should not be forwarded to applications.
+const APPLICATION_REQUEST_HEADERS_DENYLIST: [&str; 3] = [
+    "Host",          // Always required header, we set it to a fake value ourselves
+    "Authorization", // Contains auth secrets, should not be stored in blob store
+    "Cookie",        // Contains auth secrets, should not be stored in blob store
+];
+
+fn filter_out_denylisted_headers(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(header_name, header_value)| {
+            let header_name_str = header_name.as_str();
+            if APPLICATION_REQUEST_HEADERS_DENYLIST
+                .iter()
+                .any(|denied| denied.eq_ignore_ascii_case(header_name_str))
+            {
+                None
+            } else {
+                Some((
+                    header_name_str.to_string(),
+                    header_value.to_str().unwrap_or_default().to_string(),
+                ))
+            }
+        })
+        .collect::<HashMap<String, String>>()
+}
+
 /// Make a request to application
 #[utoipa::path(
     post,
     path = "/v1/namespaces/{namespace}/applications/{application}",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
+    request_body(content_type = "*/*",
+        description = "Empty request body means no arguments are passed to the application function",
+    ),
+    request_body(content_type = "application/json",
+        content = inline(serde_json::Value),
+        description = "The first positional argument for the application function",
+    ),
+    request_body(
+        content_type = "multipart/form-data",
+        description = concat!("Each multipart form field is mapped to an application function argument. ",
+            "If the field name is integer N, it is mapped to the N-th positional argument. ",
+            "If the field name is string NAME, it is mapped to the kword argument NAME.",
+        ),
+    ),
     tag = "ingestion",
     responses(
         (status = 200, description = "request successful"),
@@ -298,20 +338,43 @@ pub async fn invoke_application_with_object_v1(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json");
 
-    let encoding = headers
-        .get("Content-Type")
-        .and_then(|value| value.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or("application/octet-stream".to_string());
+    let allowlisted_headers = filter_out_denylisted_headers(&headers);
+    // Use fake path and host for now to comply with HTTP 1.1 spec.
+    let mut payload_http_message_strs = vec![
+        "POST /invoke HTTP/1.1\r\n".to_string(),
+        "Host: example.com\r\n".to_string(),
+    ];
+
+    // Renders headers following HTTP 1.1. spec.
+    payload_http_message_strs.extend(
+        allowlisted_headers
+            .iter()
+            .map(|(key, value)| format!("{key}: {value}\r\n")),
+    );
+    // Double CRLF to separate headers and body.
+    payload_http_message_strs.push("\r\n\r\n".to_string());
+    let payload_http_message_bytes = payload_http_message_strs.concat().into_bytes();
 
     let payload_key = format!(
         "{}/input",
         data_model::DataPayload::request_key_prefix(&namespace, &application_name, &request_id)
     );
-    let payload_stream = body
+
+    let body_stream = body
         .into_data_stream()
         .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
 
+    // Yields the HTTP message bytes first (mainly headers), then the HTTP message
+    // body.
+    let payload_stream = async_stream::stream! {
+        yield Ok(Bytes::from(payload_http_message_bytes));
+        let mut body_stream = body_stream;
+        while let Some(item) = body_stream.next().await {
+            yield item;
+        }
+    };
+
+    // Pass the new stream instead of Box::pin(body_stream)
     let put_result = state
         .blob_storage
         .get_blob_store(&namespace)
@@ -329,7 +392,7 @@ pub async fn invoke_application_with_object_v1(
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
         offset: 0, // Whole BLOB was written, so offset is 0
-        encoding,
+        encoding: "message/http".to_string(),
     };
 
     state
@@ -347,7 +410,7 @@ pub async fn invoke_application_with_object_v1(
         .ok_or(IndexifyAPIError::not_found("application not found"))?;
 
     if let ApplicationState::Disabled { reason } = &application.state {
-        return Result::Err(IndexifyAPIError::conflict(reason));
+        return Result::Err(IndexifyAPIError::bad_request(reason));
     }
 
     let function_call_id = FunctionCallId(request_id.clone()); // This clone is necessary here as we reuse request_id later
