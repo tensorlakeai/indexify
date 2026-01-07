@@ -101,6 +101,15 @@ class AllocationFailureReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper)
         AllocationFailureReason
     ]
     ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED: _ClassVar[AllocationFailureReason]
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR: _ClassVar[
+        AllocationFailureReason
+    ]
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR: _ClassVar[
+        AllocationFailureReason
+    ]
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: _ClassVar[
+        AllocationFailureReason
+    ]
 
 DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
 DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
@@ -154,6 +163,9 @@ ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_OOM: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_CONSTRAINT_UNSATISFIABLE: AllocationFailureReason
 ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR: AllocationFailureReason
+ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT: AllocationFailureReason
 
 class DataPayload(_message.Message):
     __slots__ = (

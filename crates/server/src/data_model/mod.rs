@@ -921,6 +921,15 @@ impl From<&FunctionRunFailureReason> for RequestFailureReason {
             FunctionRunFailureReason::Unknown => RequestFailureReason::Unknown,
             FunctionRunFailureReason::InternalError => RequestFailureReason::InternalError,
             FunctionRunFailureReason::FunctionError => RequestFailureReason::FunctionError,
+            FunctionRunFailureReason::ContainerStartupFunctionError => {
+                RequestFailureReason::FunctionError
+            }
+            FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
+                RequestFailureReason::FunctionTimeout
+            }
+            FunctionRunFailureReason::ContainerStartupInternalError => {
+                RequestFailureReason::InternalError
+            }
             FunctionRunFailureReason::FunctionTimeout => RequestFailureReason::FunctionTimeout,
             FunctionRunFailureReason::RequestError => RequestFailureReason::RequestError,
             FunctionRunFailureReason::FunctionRunCancelled => RequestFailureReason::Cancelled,
@@ -1155,6 +1164,15 @@ pub enum FunctionRunFailureReason {
     // Executor was removed
     ExecutorRemoved,
 
+    // Container startup failed.
+    ContainerStartupFunctionError,
+
+    // Container startup timed out.
+    ContainerStartupFunctionTimeout,
+
+    // Container startup internal error.
+    ContainerStartupInternalError,
+
     OutOfMemory,
 }
 
@@ -1171,6 +1189,15 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::ConstraintUnsatisfiable => "ConstraintUnsatisfiable",
             FunctionRunFailureReason::ExecutorRemoved => "ExecutorRemoved",
             FunctionRunFailureReason::OutOfMemory => "OOM",
+            FunctionRunFailureReason::ContainerStartupFunctionError => {
+                "ContainerStartupFunctionError"
+            }
+            FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
+                "ContainerStartupFunctionTimeout"
+            }
+            FunctionRunFailureReason::ContainerStartupInternalError => {
+                "ContainerStartupInternalError"
+            }
         };
         write!(f, "{str_val}")
     }
@@ -1187,7 +1214,10 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::FunctionExecutorTerminated |
                 FunctionRunFailureReason::ExecutorRemoved |
-                FunctionRunFailureReason::OutOfMemory
+                FunctionRunFailureReason::OutOfMemory |
+                FunctionRunFailureReason::ContainerStartupFunctionError |
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 
@@ -1203,7 +1233,10 @@ impl FunctionRunFailureReason {
             FunctionRunFailureReason::InternalError |
                 FunctionRunFailureReason::FunctionError |
                 FunctionRunFailureReason::FunctionTimeout |
-                FunctionRunFailureReason::OutOfMemory
+                FunctionRunFailureReason::OutOfMemory |
+                FunctionRunFailureReason::ContainerStartupFunctionError |
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 }

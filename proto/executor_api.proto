@@ -297,6 +297,14 @@ enum AllocationFailureReason {
     // Another failure reason which doesn't make sense to put here
     // but this is one of the function run reasons - again shouldn't happen in practice,
     ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED = 9;
+
+    // Internal error aka platform error on FE startup.
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR = 10;
+    // A clear function constructor code error on FE startup.
+    // Typically an exception raised from the constructor.
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR = 11;
+    // Timeout on FE startup while running the function constructor.
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 12;
 }
 
 message ExecutionPlanUpdate {

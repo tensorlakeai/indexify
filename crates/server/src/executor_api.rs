@@ -687,6 +687,15 @@ impl ExecutorAPIService {
                     executor_api_pb::AllocationFailureReason::ExecutorRemoved => {
                         Some(FunctionRunFailureReason::ExecutorRemoved)
                     }
+                    executor_api_pb::AllocationFailureReason::StartupFailedInternalError => {
+                        Some(FunctionRunFailureReason::ContainerStartupInternalError)
+                    }
+                    executor_api_pb::AllocationFailureReason::StartupFailedFunctionError => {
+                        Some(FunctionRunFailureReason::ContainerStartupFunctionError)
+                    }
+                    executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout => {
+                        Some(FunctionRunFailureReason::ContainerStartupFunctionTimeout)
+                    }
                 },
                 None => None,
             };

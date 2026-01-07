@@ -496,10 +496,6 @@ async fn return_sse_response(
     };
 
     Ok(axum::response::Sse::new(stream_with_guard)
-        .keep_alive(
-            axum::response::sse::KeepAlive::new()
-                .interval(Duration::from_secs(1))
-                .text(""),
-        )
+        .keep_alive(axum::response::sse::KeepAlive::new().interval(Duration::from_secs(1)))
         .into_response())
 }
