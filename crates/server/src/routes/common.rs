@@ -25,6 +25,14 @@ pub async fn validate_and_submit_application(
     application: Application,
     upgrade_requests_to_current_version: bool,
 ) -> Result<(), IndexifyAPIError> {
+    // Prevent creating or updating applications in a different namespace.
+    if namespace != application.namespace {
+        return Err(IndexifyAPIError::bad_request(&format!(
+            "Invalid namespace in the application manifest: {}",
+            application.namespace
+        )));
+    }
+
     let existing_application = state
         .indexify_state
         .reader()
