@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "mintlify": "^4.2.243"
+    "mintlify": "^4.2.257"
   },
   "overrides": {
     "axios": "^1.13.2",
