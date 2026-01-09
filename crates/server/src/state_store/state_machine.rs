@@ -443,11 +443,12 @@ pub(crate) async fn create_or_update_application(
     upgrade_existing_function_runs_to_current_version: bool,
     clock: u64,
 ) -> Result<()> {
-    info!("creating application");
+    let application_key = application.key();
+
     let existing_application = txn
         .get(
             IndexifyObjectsColumns::Applications.as_ref(),
-            application.key().as_bytes(),
+            application_key.as_bytes(),
         )
         .await?
         .map(|v| JsonEncoder::decode::<Application>(&v));
@@ -480,7 +481,7 @@ pub(crate) async fn create_or_update_application(
     let serialized_application = JsonEncoder::encode(&application_for_persistence)?;
     txn.put(
         IndexifyObjectsColumns::Applications.as_ref(),
-        application.key().as_bytes(),
+        application_key.as_bytes(),
         &serialized_application,
     )
     .await?;
@@ -489,10 +490,7 @@ pub(crate) async fn create_or_update_application(
         update_requests_for_application(txn, &application).await?;
     }
 
-    info!(
-        "finished creating application namespace: {} name: {}, version: {}",
-        application.namespace, application.name, application.version
-    );
+    info!("finished creating/updating application");
     Ok(())
 }
 
