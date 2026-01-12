@@ -9,8 +9,8 @@ build = "build.rs"
 [dependencies]
 tonic = "0.14.2"
 tonic-prost = "0.14.2"
-prost = "0.14.1"
-prost-types = "0.14.1"
+prost = "0.14.3"
+prost-types = "0.14.3"
 
 [build-dependencies]
 anyhow = "1.0.98"
