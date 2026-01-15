@@ -18,9 +18,26 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EntryPointInputManifest {
+    pub arg_name: String,
+    pub type_hints_base64: String,
+}
+
+impl From<data_model::ApplicationEntryPointInput> for EntryPointInputManifest {
+    fn from(entrypoint: data_model::ApplicationEntryPointInput) -> Self {
+        Self {
+            arg_name: entrypoint.arg_name,
+            type_hints_base64: entrypoint.type_hints_base64,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EntryPointManifest {
     pub function_name: String,
     pub input_serializer: String,
+    #[serde(default)]
+    pub inputs: Vec<EntryPointInputManifest>,
     pub output_serializer: String,
     pub output_type_hints_base64: String,
 }
@@ -30,6 +47,11 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
         Self {
             function_name: entrypoint.function_name,
             input_serializer: entrypoint.input_serializer,
+            inputs: entrypoint
+                .inputs
+                .into_iter()
+                .map(EntryPointInputManifest::from)
+                .collect(),
             output_serializer: entrypoint.output_serializer,
             output_type_hints_base64: entrypoint.output_type_hints_base64,
         }
@@ -134,6 +156,7 @@ impl Application {
             .entrypoint(data_model::ApplicationEntryPoint {
                 function_name: self.entrypoint.function_name,
                 input_serializer: self.entrypoint.input_serializer,
+                inputs: vec![],
                 output_serializer: self.entrypoint.output_serializer,
                 output_type_hints_base64: self.entrypoint.output_type_hints_base64,
             })

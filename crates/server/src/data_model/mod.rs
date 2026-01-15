@@ -494,9 +494,17 @@ impl ApplicationState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApplicationEntryPointInput {
+    pub arg_name: String,
+    pub type_hints_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApplicationEntryPoint {
     pub function_name: String,
     pub input_serializer: String,
+    #[serde(default)]
+    pub inputs: Vec<ApplicationEntryPointInput>,
     pub output_serializer: String,
     pub output_type_hints_base64: String,
 }
@@ -2209,6 +2217,7 @@ mod tests {
             .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
+                inputs: vec![],
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
             })
@@ -2315,6 +2324,7 @@ mod tests {
                     entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
+                        inputs: vec![],
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
                     },
@@ -2325,6 +2335,7 @@ mod tests {
                     entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
+                        inputs: vec![],
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
                     },
@@ -2335,6 +2346,7 @@ mod tests {
                     entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
+                        inputs: vec![],
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
                     },
@@ -2561,6 +2573,7 @@ mod tests {
             .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
+                inputs: vec![],
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
             })

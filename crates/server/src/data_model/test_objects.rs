@@ -169,6 +169,7 @@ pub mod tests {
             .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
+                inputs: vec![],
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
             })

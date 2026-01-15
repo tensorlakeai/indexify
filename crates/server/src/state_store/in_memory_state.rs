@@ -2034,6 +2034,7 @@ mod tests {
             .entrypoint(ApplicationEntryPoint {
                 function_name: "light".to_string(),
                 input_serializer: "cloudpickle".to_string(),
+                inputs: vec![],
                 output_serializer: "cloudpickle".to_string(),
                 output_type_hints_base64: String::new(),
             })
