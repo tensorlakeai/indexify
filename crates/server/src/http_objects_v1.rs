@@ -21,6 +21,8 @@ use crate::{
 pub struct EntryPointManifest {
     pub function_name: String,
     pub input_serializer: String,
+    #[serde(default)]
+    pub inputs_base64: String,
     pub output_serializer: String,
     pub output_type_hints_base64: String,
 }
@@ -30,6 +32,7 @@ impl From<data_model::ApplicationEntryPoint> for EntryPointManifest {
         Self {
             function_name: entrypoint.function_name,
             input_serializer: entrypoint.input_serializer,
+            inputs_base64: entrypoint.inputs_base64,
             output_serializer: entrypoint.output_serializer,
             output_type_hints_base64: entrypoint.output_type_hints_base64,
         }
@@ -124,6 +127,7 @@ impl Application {
             Some(data_model::ApplicationEntryPoint {
                 function_name: ep.function_name,
                 input_serializer: ep.input_serializer,
+                inputs_base64: ep.inputs_base64,
                 output_serializer: ep.output_serializer,
                 output_type_hints_base64: ep.output_type_hints_base64,
             })
