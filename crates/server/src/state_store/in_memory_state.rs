@@ -1124,6 +1124,7 @@ mod tests {
             .entrypoint(Some(ApplicationEntryPoint {
                 function_name: "light".to_string(),
                 input_serializer: "cloudpickle".to_string(),
+                inputs_base64: String::new(),
                 output_serializer: "cloudpickle".to_string(),
                 output_type_hints_base64: String::new(),
             }))
