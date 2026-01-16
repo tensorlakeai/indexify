@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    data_model::{FunctionRunOutcome, RequestCtx, RequestOutcome},
+    data_model::{FunctionRunOutcome, FunctionRunStatus, RequestCtx, RequestOutcome},
     state_store::requests::{AllocationOutput, RequestPayload, StateMachineUpdateRequest},
 };
 
@@ -56,9 +56,10 @@ impl PersistedRequestStateChangeEvent {
 pub enum RequestStateChangeEvent {
     RequestStarted(RequestStartedEvent),
     FunctionRunCreated(FunctionRunCreated),
-    FunctionRunAssigned(FunctionRunAssigned),
     FunctionRunCompleted(FunctionRunCompleted),
     FunctionRunMatchedCache(FunctionRunMatchedCache),
+    AllocationCreated(AllocationCreated),
+    AllocationCompleted(AllocationCompleted),
     RequestFinished(RequestFinishedEvent),
 }
 
@@ -87,8 +88,8 @@ impl RequestStateChangeEvent {
         })
     }
 
-    pub fn from_finished_function_run(event: AllocationOutput) -> Self {
-        Self::FunctionRunCompleted(FunctionRunCompleted {
+    pub fn from_allocation_output(event: AllocationOutput) -> Self {
+        Self::AllocationCompleted(AllocationCompleted {
             namespace: event.allocation.namespace.clone(),
             application_name: event.allocation.application.clone(),
             application_version: event.allocation.application_version.clone(),
@@ -106,9 +107,10 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::RequestStarted(event) => event.namespace(),
             RequestStateChangeEvent::RequestFinished(event) => event.namespace(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.namespace(),
-            RequestStateChangeEvent::FunctionRunAssigned(event) => event.namespace(),
             RequestStateChangeEvent::FunctionRunCompleted(event) => event.namespace(),
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.namespace(),
+            RequestStateChangeEvent::AllocationCreated(event) => event.namespace(),
+            RequestStateChangeEvent::AllocationCompleted(event) => event.namespace(),
         }
     }
 
@@ -117,9 +119,10 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::RequestStarted(event) => event.application_name(),
             RequestStateChangeEvent::RequestFinished(event) => event.application_name(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.application_name(),
-            RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_name(),
             RequestStateChangeEvent::FunctionRunCompleted(event) => event.application_name(),
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.application_name(),
+            RequestStateChangeEvent::AllocationCreated(event) => event.application_name(),
+            RequestStateChangeEvent::AllocationCompleted(event) => event.application_name(),
         }
     }
 
@@ -128,9 +131,10 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::RequestStarted(event) => event.application_version(),
             RequestStateChangeEvent::RequestFinished(event) => event.application_version(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.application_version(),
-            RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_version(),
             RequestStateChangeEvent::FunctionRunCompleted(event) => event.application_version(),
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.application_version(),
+            RequestStateChangeEvent::AllocationCreated(event) => event.application_version(),
+            RequestStateChangeEvent::AllocationCompleted(event) => event.application_version(),
         }
     }
 
@@ -139,9 +143,10 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::RequestStarted(event) => event.request_id(),
             RequestStateChangeEvent::RequestFinished(event) => event.request_id(),
             RequestStateChangeEvent::FunctionRunCreated(event) => event.request_id(),
-            RequestStateChangeEvent::FunctionRunAssigned(event) => event.request_id(),
             RequestStateChangeEvent::FunctionRunCompleted(event) => event.request_id(),
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.request_id(),
+            RequestStateChangeEvent::AllocationCreated(event) => event.request_id(),
+            RequestStateChangeEvent::AllocationCompleted(event) => event.request_id(),
         }
     }
 
@@ -150,11 +155,12 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::RequestStarted(_) => "Request Started",
             RequestStateChangeEvent::RequestFinished(_) => "Request Finished",
             RequestStateChangeEvent::FunctionRunCreated(_) => "Function Run Created",
-            RequestStateChangeEvent::FunctionRunAssigned(_) => "Function Run Assigned",
             RequestStateChangeEvent::FunctionRunCompleted(_) => "Function Run Completed",
             RequestStateChangeEvent::FunctionRunMatchedCache(_) => {
                 "Function Run Matched a Cached output"
             }
+            RequestStateChangeEvent::AllocationCreated(_) => "Allocation Created",
+            RequestStateChangeEvent::AllocationCompleted(_) => "Allocation Completed",
         }
     }
 }
@@ -246,21 +252,22 @@ impl RequestEventMetadata for FunctionRunCreated {
     }
 }
 
+/// Event emitted when a function run reaches its final outcome (after all
+/// retries exhausted or success)
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FunctionRunAssigned {
+pub struct FunctionRunCompleted {
     pub namespace: String,
     pub application_name: String,
     pub application_version: String,
     pub request_id: String,
     pub function_name: String,
     pub function_run_id: String,
-    pub allocation_id: String,
-    pub executor_id: String,
+    pub outcome: FunctionRunOutcomeSummary,
     #[serde(default)]
     pub created_at: DateTime<Utc>,
 }
 
-impl RequestEventMetadata for FunctionRunAssigned {
+impl RequestEventMetadata for FunctionRunCompleted {
     fn namespace(&self) -> &str {
         &self.namespace
     }
@@ -278,8 +285,44 @@ impl RequestEventMetadata for FunctionRunAssigned {
     }
 }
 
+/// Event emitted when an allocation (execution attempt) is created and assigned
+/// to an executor
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FunctionRunCompleted {
+pub struct AllocationCreated {
+    pub namespace: String,
+    pub application_name: String,
+    pub application_version: String,
+    pub request_id: String,
+    pub function_name: String,
+    pub function_run_id: String,
+    pub allocation_id: String,
+    pub executor_id: String,
+    #[serde(default)]
+    pub created_at: DateTime<Utc>,
+}
+
+impl RequestEventMetadata for AllocationCreated {
+    fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    fn application_name(&self) -> &str {
+        &self.application_name
+    }
+
+    fn application_version(&self) -> &str {
+        &self.application_version
+    }
+
+    fn request_id(&self) -> &str {
+        &self.request_id
+    }
+}
+
+/// Event emitted when an allocation (execution attempt) completes with an
+/// outcome
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AllocationCompleted {
     pub namespace: String,
     pub application_name: String,
     pub application_version: String,
@@ -292,7 +335,7 @@ pub struct FunctionRunCompleted {
     pub created_at: DateTime<Utc>,
 }
 
-impl RequestEventMetadata for FunctionRunCompleted {
+impl RequestEventMetadata for AllocationCompleted {
     fn namespace(&self) -> &str {
         &self.namespace
     }
@@ -395,7 +438,7 @@ pub fn build_request_state_change_events(
             .allocation_outputs
             .iter()
             .map(|allocation_output| {
-                RequestStateChangeEvent::from_finished_function_run(allocation_output.clone())
+                RequestStateChangeEvent::from_allocation_output(allocation_output.clone())
             })
             .collect::<Vec<_>>(),
         RequestPayload::SchedulerUpdate((sched_update, _)) => {
@@ -426,10 +469,10 @@ pub fn build_request_state_change_events(
                 }
             }
 
-            // 2. FunctionRunAssigned events (after runs are created)
+            // 2. AllocationCreated events (after runs are created)
             for allocation in &sched_update.new_allocations {
-                changes.push(RequestStateChangeEvent::FunctionRunAssigned(
-                    FunctionRunAssigned {
+                changes.push(RequestStateChangeEvent::AllocationCreated(
+                    AllocationCreated {
                         namespace: allocation.namespace.clone(),
                         application_name: allocation.application.clone(),
                         application_version: allocation.application_version.clone(),
@@ -443,7 +486,53 @@ pub fn build_request_state_change_events(
                 ));
             }
 
-            // 3. RequestFinished events last
+            // 3. AllocationCompleted events for updated allocations with terminal outcomes
+            // (e.g., when executor is removed and allocations fail)
+            for allocation in &sched_update.updated_allocations {
+                if !matches!(allocation.outcome, FunctionRunOutcome::Unknown) {
+                    changes.push(RequestStateChangeEvent::AllocationCompleted(
+                        AllocationCompleted {
+                            namespace: allocation.namespace.clone(),
+                            application_name: allocation.application.clone(),
+                            application_version: allocation.application_version.clone(),
+                            request_id: allocation.request_id.clone(),
+                            function_name: allocation.function.clone(),
+                            function_run_id: allocation.function_call_id.to_string(),
+                            allocation_id: allocation.id.to_string(),
+                            outcome: (&allocation.outcome).into(),
+                            created_at: Utc::now(),
+                        },
+                    ));
+                }
+            }
+
+            // 4. FunctionRunCompleted events for function runs that reached final outcome
+            for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
+                if let Some(ctx) = sched_update.updated_request_states.get(ctx_key) {
+                    for function_call_id in function_call_ids {
+                        // Only emit FunctionRunCompleted when the run has reached its final state
+                        if let Some(function_run) = ctx.function_runs.get(function_call_id) &&
+                            matches!(function_run.status, FunctionRunStatus::Completed) &&
+                            let Some(outcome) = &function_run.outcome
+                        {
+                            changes.push(RequestStateChangeEvent::FunctionRunCompleted(
+                                FunctionRunCompleted {
+                                    namespace: function_run.namespace.clone(),
+                                    application_name: function_run.application.clone(),
+                                    application_version: function_run.version.clone(),
+                                    request_id: function_run.request_id.clone(),
+                                    function_name: function_run.name.clone(),
+                                    function_run_id: function_run.id.to_string(),
+                                    outcome: outcome.into(),
+                                    created_at: Utc::now(),
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // 5. RequestFinished events last
             for request_ctx in sched_update.updated_request_states.values() {
                 if let Some(outcome) = &request_ctx.outcome {
                     changes.push(RequestStateChangeEvent::finished(
@@ -532,8 +621,33 @@ mod tests {
     }
 
     #[test]
-    fn test_function_run_assigned_event_metadata() {
-        let event = FunctionRunAssigned {
+    fn test_function_run_completed_event_metadata() {
+        let event = FunctionRunCompleted {
+            namespace: "test-ns".to_string(),
+            application_name: "test-app".to_string(),
+            application_version: "2.0.2".to_string(),
+            request_id: "req-003".to_string(),
+            function_name: "my-function".to_string(),
+            function_run_id: "run-789".to_string(),
+            outcome: FunctionRunOutcomeSummary::Success,
+            created_at: Utc::now(),
+        };
+
+        assert_eq!(event.namespace(), "test-ns");
+        assert_eq!(event.application_name(), "test-app");
+        assert_eq!(event.application_version(), "2.0.2");
+        assert_eq!(event.request_id(), "req-003");
+
+        let wrapped = RequestStateChangeEvent::FunctionRunCompleted(event);
+        assert_eq!(wrapped.namespace(), "test-ns");
+        assert_eq!(wrapped.application_name(), "test-app");
+        assert_eq!(wrapped.application_version(), "2.0.2");
+        assert_eq!(wrapped.request_id(), "req-003");
+    }
+
+    #[test]
+    fn test_allocation_created_event_metadata() {
+        let event = AllocationCreated {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "2.0.1".to_string(),
@@ -550,7 +664,7 @@ mod tests {
         assert_eq!(event.application_version(), "2.0.1");
         assert_eq!(event.request_id(), "req-002");
 
-        let wrapped = RequestStateChangeEvent::FunctionRunAssigned(event);
+        let wrapped = RequestStateChangeEvent::AllocationCreated(event);
         assert_eq!(wrapped.namespace(), "test-ns");
         assert_eq!(wrapped.application_name(), "test-app");
         assert_eq!(wrapped.application_version(), "2.0.1");
@@ -558,8 +672,8 @@ mod tests {
     }
 
     #[test]
-    fn test_function_run_completed_event_metadata() {
-        let event = FunctionRunCompleted {
+    fn test_allocation_completed_event_metadata() {
+        let event = AllocationCompleted {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "2.0.2".to_string(),
@@ -576,7 +690,7 @@ mod tests {
         assert_eq!(event.application_version(), "2.0.2");
         assert_eq!(event.request_id(), "req-003");
 
-        let wrapped = RequestStateChangeEvent::FunctionRunCompleted(event);
+        let wrapped = RequestStateChangeEvent::AllocationCompleted(event);
         assert_eq!(wrapped.namespace(), "test-ns");
         assert_eq!(wrapped.application_name(), "test-app");
         assert_eq!(wrapped.application_version(), "2.0.2");
