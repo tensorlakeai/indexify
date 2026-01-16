@@ -443,7 +443,27 @@ pub fn build_request_state_change_events(
                 ));
             }
 
-            // 3. RequestFinished events last
+            // 3. FunctionRunCompleted events for updated allocations with terminal outcomes
+            // (e.g., when executor is removed and allocations fail)
+            for allocation in &sched_update.updated_allocations {
+                if !matches!(allocation.outcome, FunctionRunOutcome::Unknown) {
+                    changes.push(RequestStateChangeEvent::FunctionRunCompleted(
+                        FunctionRunCompleted {
+                            namespace: allocation.namespace.clone(),
+                            application_name: allocation.application.clone(),
+                            application_version: allocation.application_version.clone(),
+                            request_id: allocation.request_id.clone(),
+                            function_name: allocation.function.clone(),
+                            function_run_id: allocation.function_call_id.to_string(),
+                            allocation_id: allocation.id.to_string(),
+                            outcome: (&allocation.outcome).into(),
+                            created_at: Utc::now(),
+                        },
+                    ));
+                }
+            }
+
+            // 4. RequestFinished events last
             for request_ctx in sched_update.updated_request_states.values() {
                 if let Some(outcome) = &request_ctx.outcome {
                     changes.push(RequestStateChangeEvent::finished(
