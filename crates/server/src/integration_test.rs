@@ -1227,7 +1227,7 @@ mod tests {
             request_id
         );
 
-        // Register executor and process - this should generate FunctionRunAssigned
+        // Register executor and process - this should generate AllocationCreated
         let executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
@@ -1238,13 +1238,13 @@ mod tests {
             .request_state_change_events(None)
             .await?;
 
-        let has_function_run_assigned = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::FunctionRunAssigned(_)) &&
+        let has_allocation_created = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::AllocationCreated(_)) &&
                 e.event.request_id() == request_id
         });
         assert!(
-            has_function_run_assigned,
-            "Expected FunctionRunAssigned event for request_id {}",
+            has_allocation_created,
+            "Expected AllocationCreated event for request_id {}",
             request_id
         );
 
@@ -1277,19 +1277,19 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        // Check that FunctionRunCompleted event was persisted
+        // Check that AllocationCompleted event was persisted
         let (events, _) = indexify_state
             .reader()
             .request_state_change_events(None)
             .await?;
 
-        let has_function_run_completed = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::FunctionRunCompleted(_)) &&
+        let has_allocation_completed = events.iter().any(|e| {
+            matches!(e.event, RequestStateChangeEvent::AllocationCompleted(_)) &&
                 e.event.request_id() == request_id
         });
         assert!(
-            has_function_run_completed,
-            "Expected FunctionRunCompleted event for request_id {}",
+            has_allocation_completed,
+            "Expected AllocationCompleted event for request_id {}",
             request_id
         );
 
