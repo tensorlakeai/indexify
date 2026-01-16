@@ -1364,12 +1364,12 @@ mod tests {
             "Missing 'Function Run Created' event type"
         );
         assert!(
-            event_types.contains("Function Run Assigned"),
-            "Missing 'Function Run Assigned' event type"
+            event_types.contains("Allocation Created"),
+            "Missing 'Allocation Created' event type"
         );
         assert!(
-            event_types.contains("Function Run Completed"),
-            "Missing 'Function Run Completed' event type"
+            event_types.contains("Allocation Completed"),
+            "Missing 'Allocation Completed' event type"
         );
         assert!(
             event_types.contains("Request Finished"),
