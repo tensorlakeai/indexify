@@ -511,9 +511,9 @@ pub fn build_request_state_change_events(
                 if let Some(ctx) = sched_update.updated_request_states.get(ctx_key) {
                     for function_call_id in function_call_ids {
                         // Only emit FunctionRunCompleted when the run has reached its final state
-                        if let Some(function_run) = ctx.function_runs.get(function_call_id)
-                            && matches!(function_run.status, FunctionRunStatus::Completed)
-                            && let Some(outcome) = &function_run.outcome
+                        if let Some(function_run) = ctx.function_runs.get(function_call_id) &&
+                            matches!(function_run.status, FunctionRunStatus::Completed) &&
+                            let Some(outcome) = &function_run.outcome
                         {
                             changes.push(RequestStateChangeEvent::FunctionRunCompleted(
                                 FunctionRunCompleted {
