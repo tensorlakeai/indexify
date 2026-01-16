@@ -160,7 +160,8 @@ mod tests {
     use crate::{
         data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
-            FunctionRunAssigned,
+            AllocationCompleted,
+            AllocationCreated,
             FunctionRunCompleted,
             FunctionRunCreated,
             FunctionRunMatchedCache,
@@ -355,9 +356,9 @@ mod tests {
     }
 
     #[test]
-    fn test_function_run_assigned_event_to_any_value() {
+    fn test_allocation_created_event_to_any_value() {
         let now = Utc::now();
-        let event = RequestStateChangeEvent::FunctionRunAssigned(FunctionRunAssigned {
+        let event = RequestStateChangeEvent::AllocationCreated(AllocationCreated {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "2.0.1".to_string(),
@@ -407,9 +408,9 @@ mod tests {
     }
 
     #[test]
-    fn test_function_run_completed_event_to_any_value() {
+    fn test_allocation_completed_event_to_any_value() {
         let now = Utc::now();
-        let event = RequestStateChangeEvent::FunctionRunCompleted(FunctionRunCompleted {
+        let event = RequestStateChangeEvent::AllocationCompleted(AllocationCompleted {
             namespace: "test-ns".to_string(),
             application_name: "test-app".to_string(),
             application_version: "2.0.2".to_string(),
@@ -449,6 +450,55 @@ mod tests {
                 "function_name" => assert_eq!(kv.value, string_value("my-function")),
                 "function_run_id" => assert_eq!(kv.value, string_value("run-789")),
                 "allocation_id" => assert_eq!(kv.value, string_value("alloc-456")),
+                "outcome" => assert_eq!(kv.value, string_value("success")),
+                "created_at" => {
+                    assert_eq!(kv.value, date_value(&now))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_function_run_completed_event_to_any_value() {
+        let now = Utc::now();
+        let event = RequestStateChangeEvent::FunctionRunCompleted(FunctionRunCompleted {
+            namespace: "test-ns".to_string(),
+            application_name: "test-app".to_string(),
+            application_version: "2.0.2".to_string(),
+            request_id: "req-003".to_string(),
+            function_name: "my-function".to_string(),
+            function_run_id: "run-789".to_string(),
+            outcome: FunctionRunOutcomeSummary::Success,
+            created_at: now,
+        });
+
+        let result = super::update_to_any_value(&event);
+        assert!(result.is_ok());
+
+        let any_value = result.unwrap();
+        let inner_kvlist = extract_inner_kvlist(&any_value);
+        let keys: std::collections::HashSet<_> = inner_kvlist
+            .values
+            .iter()
+            .map(|kv| kv.key.as_str())
+            .collect();
+        assert!(keys.contains("namespace"));
+        assert!(keys.contains("application_name"));
+        assert!(keys.contains("application_version"));
+        assert!(keys.contains("request_id"));
+        assert!(keys.contains("function_name"));
+        assert!(keys.contains("function_run_id"));
+        assert!(keys.contains("outcome"));
+
+        for kv in &inner_kvlist.values {
+            match kv.key.as_str() {
+                "namespace" => assert_eq!(kv.value, string_value("test-ns")),
+                "application_name" => assert_eq!(kv.value, string_value("test-app")),
+                "application_version" => assert_eq!(kv.value, string_value("2.0.2")),
+                "request_id" => assert_eq!(kv.value, string_value("req-003")),
+                "function_name" => assert_eq!(kv.value, string_value("my-function")),
+                "function_run_id" => assert_eq!(kv.value, string_value("run-789")),
                 "outcome" => assert_eq!(kv.value, string_value("success")),
                 "created_at" => {
                     assert_eq!(kv.value, date_value(&now))
