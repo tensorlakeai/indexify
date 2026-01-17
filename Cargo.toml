@@ -42,7 +42,7 @@ opentelemetry-proto = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
 opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic", "gzip-tonic"] }
 opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
-axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
+axum-tracing-opentelemetry = { version = "0.32.3", features = ["tracing_level_info"] }
 json-subscriber = "0.2.6"
 console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter" }
@@ -71,4 +71,4 @@ proto-api = { path = "crates/proto-api" }
 tempfile = "3.24.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8", features = ["html_reports"] }
-vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
+vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
