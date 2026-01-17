@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     data_model::{FunctionRunOutcome, FunctionRunStatus, RequestCtx, RequestOutcome},
-    state_store::requests::{AllocationOutput, RequestPayload, StateMachineUpdateRequest},
+    state_store::requests::{RequestPayload, StateMachineUpdateRequest},
 };
 
 /// Unique identifier for a request state change event
@@ -85,20 +85,6 @@ impl RequestStateChangeEvent {
             outcome: outcome.clone(),
             created_at: Utc::now(),
             output,
-        })
-    }
-
-    pub fn from_allocation_output(event: AllocationOutput) -> Self {
-        Self::AllocationCompleted(AllocationCompleted {
-            namespace: event.allocation.namespace.clone(),
-            application_name: event.allocation.application.clone(),
-            application_version: event.allocation.application_version.clone(),
-            request_id: event.request_id,
-            function_name: event.allocation.function,
-            function_run_id: event.allocation.function_call_id.to_string(),
-            outcome: (&event.allocation.outcome).into(),
-            allocation_id: event.allocation.id.to_string(),
-            created_at: Utc::now(),
         })
     }
 
@@ -434,13 +420,7 @@ pub fn build_request_state_change_events(
 
             events
         }
-        RequestPayload::UpsertExecutor(request) => request
-            .allocation_outputs
-            .iter()
-            .map(|allocation_output| {
-                RequestStateChangeEvent::from_allocation_output(allocation_output.clone())
-            })
-            .collect::<Vec<_>>(),
+        RequestPayload::UpsertExecutor(_) => vec![],
         RequestPayload::SchedulerUpdate((sched_update, _)) => {
             let mut changes = Vec::new();
 
@@ -469,7 +449,6 @@ pub fn build_request_state_change_events(
                 }
             }
 
-            // 2. AllocationCreated events (after runs are created)
             for allocation in &sched_update.new_allocations {
                 changes.push(RequestStateChangeEvent::AllocationCreated(
                     AllocationCreated {
@@ -486,8 +465,6 @@ pub fn build_request_state_change_events(
                 ));
             }
 
-            // 3. AllocationCompleted events for updated allocations with terminal outcomes
-            // (e.g., when executor is removed and allocations fail)
             for allocation in &sched_update.updated_allocations {
                 if !matches!(allocation.outcome, FunctionRunOutcome::Unknown) {
                     changes.push(RequestStateChangeEvent::AllocationCompleted(
@@ -506,7 +483,6 @@ pub fn build_request_state_change_events(
                 }
             }
 
-            // 4. FunctionRunCompleted events for function runs that reached final outcome
             for (ctx_key, function_call_ids) in &sched_update.updated_function_runs {
                 if let Some(ctx) = sched_update.updated_request_states.get(ctx_key) {
                     for function_call_id in function_call_ids {
@@ -532,7 +508,6 @@ pub fn build_request_state_change_events(
                 }
             }
 
-            // 5. RequestFinished events last
             for request_ctx in sched_update.updated_request_states.values() {
                 if let Some(outcome) = &request_ctx.outcome {
                     changes.push(RequestStateChangeEvent::finished(
