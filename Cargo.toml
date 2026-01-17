@@ -4,3 +4,71 @@ members = [
     "crates/server",
 ]
 resolver = "2"
+
+[workspace.package]
+edition = "2024"
+authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
+license = "Apache-2.0"
+
+[workspace.dependencies]
+tokio = { version = "1.49.0", features = ["full"] }
+tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
+async-stream = "0.3.6"
+async-trait = "0.1.89"
+futures = "0.3.31"
+pin-project = "1.1.10"
+serde = { version = "1.0.228", features = ["derive"] }
+serde-inline-default = "1.0.0"
+serde_json = "1.0.149"
+serde-saphyr = "0.0.15"
+ciborium = "0.2.2"
+axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
+axum-server = "0.8.0"
+tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
+hyper = "1.8.1"
+tonic = "0.14.2"
+tonic-prost = "0.14.2"
+tonic-reflection = "0.14.2"
+tonic-types = "0.14.2"
+tonic-prost-build = "0.14.2"
+prost = "0.14.3"
+prost-types = "0.14.3"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.32.1"
+opentelemetry = { version = "0.31.0", features = ["metrics", "trace"] }
+opentelemetry-proto = "0.31.0"
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
+opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic", "gzip-tonic"] }
+opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
+axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
+json-subscriber = "0.2.6"
+console-subscriber = "0.5.0"
+otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter" }
+utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+object_store = { version = "0.13.0", features = ["aws"] }
+rocksdb = "0.24.0"
+anyhow = "1.0.100"
+thiserror = "2.0.17"
+clap = { version = "4.5.54", features = ["derive"] }
+sha2 = "0.10.9"
+base64 = "0.22.1"
+nanoid = "0.4.0"
+uuid = { version = "1.19.0", features = ["v4"] }
+bytes = { version = "1.10.1", features = ["serde"] }
+priority-queue = "2.6.0"
+imbl = "6.1.0"
+rand = "0.9.2"
+url = "2.5.8"
+chrono = "0.4.43"
+strum = { version = "0.27.2", features = ["derive"] }
+derive_builder = "0.20.2"
+rust-embed = { version = "8.11.0", features = ["mime-guess"] }
+omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
+proto-api = { path = "crates/proto-api" }
+tempfile = "3.24.0"
+mock_instant = "0.6.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }

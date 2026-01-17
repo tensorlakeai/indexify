@@ -1,15 +1,11 @@
 [package]
 name = "indexify-server"
 version = "0.3.15"
-edition = "2024"
-authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
-license = "Apache-2.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 build = "build.rs"
 resolver = "2"
-
-# [lib]
-# name = "indexify_server"
-# path = "src/lib.rs"
 
 [features]
 default = []
@@ -17,79 +13,73 @@ migrations = []
 console-subscriber = ["dep:console-subscriber"]
 
 [dependencies]
-async-stream = "0.3.6"
-serde = { version = "1.0.228", features = ["derive"] }
-serde-inline-default = "1.0.0"
-serde_json = "1.0.148"
-serde-saphyr = "0.0.13"
-anyhow = "1.0.100"
-clap = { version = "4.5.54", features = ["derive"] }
-tracing = "0.1.44"
-axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
-tokio = { version = "1.49.0", features = ["full"] }
-axum-server = "0.8.0"
-futures = "0.3.31"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
-utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-sha2 = "0.10.9"
-nanoid = "0.4.0"
-object_store = { version = "0.13.0", features = ["aws"] }
-uuid = { version = "1.19.0", features = ["v4"] }
-tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
-bytes = { version = "1.10.1", features = ["serde"] }
-ciborium = "0.2.2"
-rand = "0.9.2"
-hyper = "1.7.0"
-url = "2.5.6"
-opentelemetry = { version = "0.31.0", features = ["metrics", "trace"] }
-opentelemetry-proto = "0.31.0"
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "trace"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic", "gzip-tonic"] }
-axum-tracing-opentelemetry = { version = "0.32.1", features = ["tracing_level_info"] }
-base64 = "0.22.1"
-tonic = "0.14.2"
-tonic-reflection = "0.14.2"
-proto-api = { path = "../proto-api" }
-tokio-stream = { version = "0.1.18", features = ["sync"] }
-priority-queue = "2.6.0"
-rust-embed = { version = "8.8.0", features = ["mime-guess"] }
-pin-project = "1.1.10"
-async-trait = "0.1.89"
-rocksdb = { version = "0.24.0" }
-strum = { version = "0.27.2", features = ["derive"] }
-derive_builder = "0.20.2"
-tempfile = "3.24.0"
-thiserror = "2.0.17"
-json-subscriber = "0.2.6"
-omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
-chrono = "0.4.42"
-prost-types = "0.14.1"
-tracing-opentelemetry = "0.32.0"
-opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
-console-subscriber = { version = "0.5.0", optional = true }
-tonic-types = "0.14.2"
-tokio-util = { version = "0.7.18", features = ["rt"] }
-imbl = "6.1.0"
-otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter" }
-
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+async-stream.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+pin-project.workspace = true
+serde.workspace = true
+serde-inline-default.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true
+ciborium.workspace = true
+axum.workspace = true
+axum-server.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+tonic.workspace = true
+tonic-reflection.workspace = true
+tonic-types.workspace = true
+prost-types.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-opentelemetry.workspace = true
+opentelemetry.workspace = true
+opentelemetry-proto.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry-stdout.workspace = true
+axum-tracing-opentelemetry.workspace = true
+json-subscriber.workspace = true
+console-subscriber = { workspace = true, optional = true }
+otlp-logs-exporter.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+object_store.workspace = true
+rocksdb.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+clap.workspace = true
+sha2.workspace = true
+base64.workspace = true
+nanoid.workspace = true
+uuid.workspace = true
+bytes.workspace = true
+priority-queue.workspace = true
+imbl.workspace = true
+rand.workspace = true
+url.workspace = true
+chrono.workspace = true
+strum.workspace = true
+derive_builder.workspace = true
+rust-embed.workspace = true
+omniqueue.workspace = true
+proto-api.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
-tempfile = "3.24.0"
-strum = { version = "0.27.1", features = ["derive"] }
-rocksdb = { version = "0.24.0" }
-tokio = { version = "1.49.0", features = ["full", "test-util"] }
-mock_instant = "0.6.0"
-criterion = { version = "0.8", features = ["html_reports"] }
-
-# [[bench]]
-# name = "state_store"
-# harness = false
+tempfile.workspace = true
+strum.workspace = true
+rocksdb.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+mock_instant.workspace = true
+criterion.workspace = true
 
 [build-dependencies]
-anyhow = "1.0.98"
-# All features enabled
-vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
+anyhow.workspace = true
+vergen.workspace = true
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
