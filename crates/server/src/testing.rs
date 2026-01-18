@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use nanoid::nanoid;
@@ -14,8 +17,8 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         FunctionCallId,
-        FunctionExecutor,
-        FunctionExecutorState,
+        FunctionContainer,
+        FunctionContainerState,
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
@@ -152,9 +155,8 @@ impl TestService {
             .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
             .await?
             .into_iter()
-            .map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
-            .flatten()
-            .map(|fr| Box::new(fr))
+            .flat_map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
+            .map(Box::new)
             .collect::<Vec<_>>();
         Ok(function_runs)
     }
@@ -304,22 +306,22 @@ pub struct FinalizeFunctionRunArgs {
 
 pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
     Allocation::key_from(
-        &allocation
+        allocation
             .function
             .as_ref()
             .unwrap()
             .namespace
             .as_ref()
             .unwrap(),
-        &allocation
+        allocation
             .function
             .as_ref()
             .unwrap()
             .application_name
             .as_ref()
             .unwrap(),
-        &allocation.request_id.as_ref().unwrap(),
-        &allocation.allocation_id.as_ref().unwrap(),
+        allocation.request_id.as_ref().unwrap(),
+        allocation.allocation_id.as_ref().unwrap(),
     )
 }
 
@@ -384,7 +386,7 @@ impl TestExecutor<'_> {
 
     pub async fn update_function_executors(
         &mut self,
-        functions: Vec<FunctionExecutor>,
+        functions: Vec<FunctionContainer>,
     ) -> Result<()> {
         // First, get current executor state
         let mut executor = self.get_executor_server_state().await?;
@@ -402,7 +404,7 @@ impl TestExecutor<'_> {
 
     pub async fn set_function_executor_states(
         &mut self,
-        state: FunctionExecutorState,
+        state: FunctionContainerState,
     ) -> Result<()> {
         let fes = self
             .get_executor_server_state()
@@ -424,34 +426,29 @@ impl TestExecutor<'_> {
     }
 
     pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
-        self.set_function_executor_states(FunctionExecutorState::Running)
+        self.set_function_executor_states(FunctionContainerState::Running)
             .await
     }
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {
         // Get the in-memory state first to check if executor exists
-        let indexes = self
+        let container_scheduler = self
             .test_service
             .service
             .indexify_state
-            .in_memory_state
+            .container_scheduler
             .read()
-            .await
-            .clone();
+            .await;
 
         // Get executor from in-memory state - this is the base executor without
         // complete function executors
-        let executor = indexes
-            .read()
-            .await
+        let executor = container_scheduler
             .executors
             .get(&self.executor_id)
             .cloned()
             .ok_or(anyhow::anyhow!("Executor not found in state store"))?;
 
-        let executor_server_metadata = indexes
-            .read()
-            .await
+        let executor_server_metadata = container_scheduler
             .executor_states
             .get(&self.executor_id)
             .cloned()
@@ -460,11 +457,14 @@ impl TestExecutor<'_> {
         // Clone base executor
         let mut executor = *executor.clone();
 
-        executor.function_executors = executor_server_metadata
-            .function_executors
-            .into_iter()
-            .map(|(id, fe)| (id, fe.function_executor))
-            .collect();
+        let mut function_containers = HashMap::new();
+        for container_id in executor_server_metadata.function_container_ids {
+            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
+                continue;
+            };
+            function_containers.insert(container_id, fc.function_container.clone());
+        }
+        executor.function_executors = function_containers;
 
         Ok(executor)
     }
@@ -472,14 +472,12 @@ impl TestExecutor<'_> {
     pub async fn desired_state(
         &self,
     ) -> crate::executor_api::executor_api_pb::DesiredExecutorState {
-        let desired_state = self
-            .test_service
+        self.test_service
             .service
             .executor_manager
             .get_executor_state(&self.executor_id)
             .await
-            .unwrap();
-        desired_state
+            .unwrap()
     }
 
     pub async fn deregister(&self) -> Result<()> {
@@ -513,7 +511,7 @@ impl TestExecutor<'_> {
         source_function_call_id: FunctionCallId,
     ) -> Result<FunctionCallId> {
         use crate::data_model::ComputeOp;
-        let graph_updates = mock_blocking_function_call(&function_name, &source_function_call_id);
+        let graph_updates = mock_blocking_function_call(function_name, &source_function_call_id);
         let function_call_id =
             if let Some(ComputeOp::FunctionCall(fc)) = graph_updates.request_updates.first() {
                 fc.function_call_id.clone()

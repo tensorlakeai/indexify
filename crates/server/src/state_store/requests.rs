@@ -14,15 +14,14 @@ use crate::{
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
+        ExecutorServerMetadata,
         FunctionCall,
         FunctionCallId,
-        FunctionExecutorId,
-        FunctionExecutorServerMetadata,
+        FunctionContainerServerMetadata,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
-        HostResources,
         RequestCtx,
         StateChange,
     },
@@ -103,9 +102,8 @@ pub struct SchedulerUpdateRequest {
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
-    pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
-    pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
-    pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
+    pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    pub new_function_containers: Vec<FunctionContainerServerMetadata>,
     pub state_changes: Vec<StateChange>,
 }
 
@@ -125,12 +123,12 @@ impl SchedulerUpdateRequest {
         self.state_changes.extend(other.state_changes);
 
         self.remove_executors.extend(other.remove_executors);
-        self.new_function_executors
-            .extend(other.new_function_executors);
-        self.remove_function_executors
-            .extend(other.remove_function_executors);
-        self.updated_executor_resources
-            .extend(other.updated_executor_resources);
+        for (executor_id, executor_server_metadata) in other.updated_executor_states {
+            self.updated_executor_states
+                .insert(executor_id, executor_server_metadata);
+        }
+        self.new_function_containers
+            .extend(other.new_function_containers);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {

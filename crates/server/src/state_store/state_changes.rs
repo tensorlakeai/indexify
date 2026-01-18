@@ -127,7 +127,9 @@ pub fn task_outputs_ingested(
     request: &AllocationOutput,
 ) -> Result<Vec<StateChange>> {
     // If the allocation is cancelled, we don't need to trigger the scheduler for
-    // it.
+    // it. Cancelled allocations are handled by the container reconciler which
+    // sets the function run to Pending for retry (without counting against retry
+    // limits) when the FE was removed gracefully.
     if let FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled) =
         request.allocation.outcome
     {

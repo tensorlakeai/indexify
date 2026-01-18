@@ -22,14 +22,14 @@ use crate::{
     },
 };
 
-pub struct FunctionExecutorManager {
+pub struct ContainerReconciler {
     clock: u64,
 }
 
-/// Implements the policy around function executors: when to create
-/// them, when to terminate them, and the selection of function
-/// executors appropriate to a given function run.
-impl FunctionExecutorManager {
+/// Reconciles container state between executors and the server.
+/// Handles container cleanup when executors are removed or containers
+/// terminate.
+impl ContainerReconciler {
     pub fn new(clock: u64) -> Self {
         Self { clock }
     }
@@ -43,12 +43,18 @@ impl FunctionExecutorManager {
         executor: &ExecutorMetadata,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        // Get the function executors from the indexes
-        let Some(mut executor_server_metadata) = container_scheduler 
+        // Clone the executor_server_metadata instead of getting a mutable reference.
+        // This is important because we need the original state in container_scheduler
+        // to remain unchanged so that update_scheduler_update can detect the difference
+        // and properly remove containers from function_containers and
+        // containers_by_function_uri.
+        let Some(mut executor_server_metadata) = container_scheduler
             .executor_states
-            .get_mut(&executor.id) else {
-                return Ok(update);
-            };
+            .get(&executor.id)
+            .cloned()
+        else {
+            return Ok(update);
+        };
         let server_function_container_ids = executor_server_metadata.function_container_ids.clone();
         let mut function_executors_to_remove = Vec::new();
         let mut new_function_executors = Vec::new();
@@ -65,7 +71,9 @@ impl FunctionExecutorManager {
             .collect::<Vec<_>>();
         let mut server_only_containers = Vec::new();
         for container_id in container_exist_only_in_server {
-            let Some(function_container) = container_scheduler.function_containers.get(container_id) else {
+            let Some(function_container) =
+                container_scheduler.function_containers.get(container_id)
+            else {
                 continue;
             };
             server_only_containers.push(function_container);
@@ -82,14 +90,16 @@ impl FunctionExecutorManager {
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
             {
-                
                 let existing_fe = FunctionContainerServerMetadata::new(
                     executor.id.clone(),
                     fe.clone(),
                     fe.state.clone(),
                 );
-                executor_server_metadata.add_container(&fe);
-                update.updated_executor_states.insert(executor_server_metadata.executor_id.clone(), executor_server_metadata.clone());
+                executor_server_metadata.add_container(&fe)?;
+                update.updated_executor_states.insert(
+                    executor_server_metadata.executor_id.clone(),
+                    executor_server_metadata.clone(),
+                );
                 update.new_function_containers.push(existing_fe);
             }
         }
@@ -116,7 +126,9 @@ impl FunctionExecutorManager {
                 }
             }
         }
-        update.new_function_containers.extend(new_function_executors);
+        update
+            .new_function_containers
+            .extend(new_function_executors);
 
         update.extend(self.remove_function_containers(
             in_memory_state,
@@ -124,11 +136,12 @@ impl FunctionExecutorManager {
             function_executors_to_remove,
         )?);
 
-        in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
-            "function_executor_manager",
-        )?;
+        // Apply update to container_scheduler so removed containers are no longer
+        // visible for subsequent allocate_function_runs call
+        let payload = RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
+        container_scheduler.update(&payload)?;
+
+        in_memory_state.update_state(self.clock, &payload, "container_reconciler")?;
 
         Ok(update)
     }
@@ -291,9 +304,12 @@ impl FunctionExecutorManager {
         }
 
         for fc in function_containers {
-            executor_server_metadata.remove_container(&fc);
+            executor_server_metadata.remove_container(&fc)?;
         }
-        update.updated_executor_states.insert(executor_server_metadata.executor_id.clone(), Box::new(executor_server_metadata.clone()));
+        update.updated_executor_states.insert(
+            executor_server_metadata.executor_id.clone(),
+            Box::new(executor_server_metadata.clone()),
+        );
         Ok(update)
     }
 
@@ -307,8 +323,10 @@ impl FunctionExecutorManager {
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut scheduler_update = SchedulerUpdateRequest::default();
-        let Some(mut executor_server_metadata) =
-            in_memory_state.executor_states.get(executor_id).cloned()
+        let Some(mut executor_server_metadata) = container_scheduler
+            .executor_states
+            .get(executor_id)
+            .cloned()
         else {
             warn!("executor not found while removing function executors");
             let allocations = in_memory_state
@@ -401,18 +419,20 @@ impl FunctionExecutorManager {
 
         // Get all function executors to remove
         let mut function_containers_to_remove = Vec::new();
-        for container_id in &executor_server_metadata.function_container_ids { 
-            let Some(function_container) = container_scheduler.function_containers.get(container_id) else {
+        for container_id in &executor_server_metadata.function_container_ids {
+            let Some(function_container) =
+                container_scheduler.function_containers.get(container_id)
+            else {
                 continue;
             };
             let mut fec = function_container.function_container.clone();
-                if !matches!(fec.state, FunctionContainerState::Terminated { .. }) {
-                    fec.state = FunctionContainerState::Terminated {
-                        reason: FunctionExecutorTerminationReason::ExecutorRemoved,
-                        failed_alloc_ids: Vec::new(),
-                    };
-                    function_containers_to_remove.push(fec);
-                }
+            if !matches!(fec.state, FunctionContainerState::Terminated { .. }) {
+                fec.state = FunctionContainerState::Terminated {
+                    reason: FunctionExecutorTerminationReason::ExecutorRemoved,
+                    failed_alloc_ids: Vec::new(),
+                };
+                function_containers_to_remove.push(fec);
+            }
         }
         self.remove_function_containers(
             in_memory_state,
@@ -438,14 +458,24 @@ impl FunctionExecutorManager {
         info!("de-registering executor");
 
         // Remove all function executors for this executor
-        update
-            .extend(self.remove_all_function_executors_for_executor(in_memory_state, container_scheduler, executor_id)?);
+        update.extend(self.remove_all_function_executors_for_executor(
+            in_memory_state,
+            container_scheduler,
+            executor_id,
+        )?);
 
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
-            "function_executor_manager",
+            "container_reconciler",
         )?;
+
+        // Apply the update to container_scheduler immediately so the executor
+        // is removed before subsequent allocate_function_runs calls
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
 
         Ok(update)
     }
@@ -460,7 +490,7 @@ impl FunctionExecutorManager {
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let executor = in_memory_state
+        let executor = container_scheduler
             .executors
             .get(executor_id)
             .ok_or(anyhow!("executor not found"))?
@@ -468,8 +498,36 @@ impl FunctionExecutorManager {
 
         tracing::debug!(?executor, "reconciling executor state for executor",);
 
+        // Create ExecutorServerMetadata if it doesn't exist
+        if !container_scheduler
+            .executor_states
+            .contains_key(executor_id)
+        {
+            let executor_server_metadata = ExecutorServerMetadata {
+                executor_id: executor_id.clone(),
+                function_container_ids: std::collections::HashSet::new(),
+                free_resources: executor.host_resources.clone(),
+                resource_claims: std::collections::HashMap::new(),
+            };
+            update
+                .updated_executor_states
+                .insert(executor_id.clone(), Box::new(executor_server_metadata));
+            // Apply update to container_scheduler so the new executor state is visible
+            // for the subsequent reconcile_function_executors call
+            container_scheduler.update(
+                &crate::state_store::requests::RequestPayload::SchedulerUpdate((
+                    Box::new(update.clone()),
+                    vec![],
+                )),
+            )?;
+        }
+
         // Reconcile function executors
-        update.extend(self.reconcile_function_executors(in_memory_state, container_scheduler, &executor)?);
+        update.extend(self.reconcile_function_executors(
+            in_memory_state,
+            container_scheduler,
+            &executor,
+        )?);
 
         Ok(update)
     }

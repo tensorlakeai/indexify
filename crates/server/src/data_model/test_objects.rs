@@ -79,7 +79,6 @@ pub mod tests {
         Function {
             name: name.to_string(),
             description: format!("description {name}"),
-            fn_name: name.to_string(),
             retry_policy: FunctionRetryPolicy {
                 max_retries,
                 ..Default::default()

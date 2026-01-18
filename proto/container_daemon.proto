@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+// Container daemon API for communication between dataplane agent and PID1 daemon
+// running inside function executor containers.
+package container_daemon_pb;
+
+// Status of the managed child process
+enum ProcessStatus {
+    PROCESS_STATUS_UNKNOWN = 0;
+    // Process has not been started yet
+    PROCESS_STATUS_NOT_STARTED = 1;
+    // Process is currently running
+    PROCESS_STATUS_RUNNING = 2;
+    // Process has exited normally
+    PROCESS_STATUS_EXITED = 3;
+    // Process was terminated by a signal
+    PROCESS_STATUS_SIGNALED = 4;
+}
+
+// Request to start the function executor process
+message StartProcessRequest {
+    // Command to execute (e.g., "python")
+    optional string command = 1;
+    // Arguments to pass to the command
+    repeated string args = 2;
+    // Environment variables in KEY=VALUE format
+    repeated string env = 3;
+    // Working directory for the process
+    optional string working_dir = 4;
+}
+
+// Response after starting the process
+message StartProcessResponse {
+    // Whether the process was started successfully
+    optional bool success = 1;
+    // Error message if start failed
+    optional string error = 2;
+    // PID of the started process
+    optional int32 pid = 3;
+}
+
+// Request to get the current status of the managed process
+message GetStatusRequest {
+}
+
+// Response with the current process status
+message GetStatusResponse {
+    // Current status of the process
+    optional ProcessStatus status = 1;
+    // PID of the process (if running or exited)
+    optional int32 pid = 2;
+    // Exit code (if status is EXITED)
+    optional int32 exit_code = 3;
+    // Signal number that terminated the process (if status is SIGNALED)
+    optional int32 signal = 4;
+}
+
+// Request to send a signal to the managed process
+message SendSignalRequest {
+    // Signal number to send (e.g., 15 for SIGTERM, 9 for SIGKILL)
+    optional int32 signal = 1;
+}
+
+// Response after sending a signal
+message SendSignalResponse {
+    // Whether the signal was sent successfully
+    optional bool success = 1;
+    // Error message if signal failed
+    optional string error = 2;
+}
+
+// Health check request
+message HealthRequest {
+}
+
+// Health check response
+message HealthResponse {
+    // Whether the daemon is healthy and ready
+    optional bool healthy = 1;
+    // Daemon version
+    optional string version = 2;
+    // Uptime in seconds
+    optional uint64 uptime_secs = 3;
+}
+
+// Container daemon service - runs as PID1 inside function executor containers
+// and provides an API for the dataplane agent to manage the function executor process.
+service ContainerDaemon {
+    // Start the function executor process
+    rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+
+    // Get the current status of the managed process
+    rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+    // Send a signal to the managed process
+    rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
+
+    // Health check to verify daemon is ready
+    rpc Health(HealthRequest) returns (HealthResponse);
+}

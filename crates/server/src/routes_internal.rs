@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 use axum::{
     Json,
@@ -268,24 +270,29 @@ async fn list_executors(
         .map_err(IndexifyAPIError::internal_error)?;
     let executor_server_metadata = state
         .indexify_state
-        .in_memory_state
+        .container_scheduler
         .read()
         .await
         .executor_states
         .clone();
 
+    let container_sched = state.indexify_state.container_scheduler.read().await;
+
     let mut http_executors = vec![];
     for executor in executors {
         if let Some(fe_server_metadata) = executor_server_metadata.get(&executor.id) {
+            let mut function_container_server_meta = HashMap::new();
+            for container_id in &fe_server_metadata.function_container_ids {
+                let Some(fe_metadata) = container_sched.function_containers.get(container_id)
+                else {
+                    continue;
+                };
+                function_container_server_meta.insert(container_id.clone(), fe_metadata.clone());
+            }
             http_executors.push(from_data_model_executor_metadata(
                 executor,
                 fe_server_metadata.free_resources.clone(),
-                fe_server_metadata
-                    .function_executors
-                    .clone()
-                    .into_iter()
-                    .map(|(k, v)| (k, v.clone()))
-                    .collect(),
+                function_container_server_meta,
             ));
         }
     }
