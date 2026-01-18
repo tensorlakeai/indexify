@@ -894,7 +894,6 @@ mod tests {
             FunctionRunBuilder,
             FunctionRunStatus,
         },
-        in_memory_state_bootstrap,
         state_store::in_memory_state::FunctionRunKey,
     };
 
