@@ -9,7 +9,12 @@ use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    data_model::{self, FunctionExecutorId, FunctionExecutorServerMetadata, FunctionExecutorState},
+    data_model::{
+        self,
+        FunctionContainerId,
+        FunctionContainerServerMetadata,
+        FunctionContainerState,
+    },
     http_objects_v1::{ApplicationState, EntryPointManifest, FunctionRun},
 };
 
@@ -344,6 +349,8 @@ pub struct ApplicationFunction {
     pub return_type: Option<serde_json::Value>,
     pub placement_constraints: PlacementConstraints,
     pub max_concurrency: u32,
+    pub min_containers: Option<u32>,
+    pub max_containers: Option<u32>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -352,7 +359,6 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
     fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
         Ok(data_model::Function {
             name: val.name.clone(),
-            fn_name: val.name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
             input_encoder: "not-needed".to_string(),
@@ -366,6 +372,8 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            min_containers: val.min_containers,
+            max_containers: val.max_containers,
         })
     }
 }
@@ -385,6 +393,8 @@ impl From<data_model::Function> for ApplicationFunction {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            max_containers: c.max_containers,
+            min_containers: c.min_containers,
         }
     }
 }
@@ -405,7 +415,6 @@ impl ApplicationFunction {
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct Function {
     pub name: String,
-    pub fn_name: String,
     pub description: String,
     #[serde(default = "default_encoder")]
     pub input_encoder: String,
@@ -431,6 +440,9 @@ pub struct Function {
     pub placement_constraints: PlacementConstraints,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+
+    pub min_containers: Option<u32>,
+    pub max_containers: Option<u32>,
 }
 
 impl TryFrom<Function> for data_model::Function {
@@ -439,7 +451,6 @@ impl TryFrom<Function> for data_model::Function {
     fn try_from(val: Function) -> Result<Self, Self::Error> {
         Ok(data_model::Function {
             name: val.name.clone(),
-            fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
             input_encoder: val.input_encoder.clone(),
@@ -453,6 +464,8 @@ impl TryFrom<Function> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
+            min_containers: val.min_containers,
+            max_containers: val.max_containers,
         })
     }
 }
@@ -461,7 +474,6 @@ impl From<data_model::Function> for Function {
     fn from(c: data_model::Function) -> Self {
         Self {
             name: c.name,
-            fn_name: c.fn_name,
             description: c.description,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
@@ -475,6 +487,8 @@ impl From<data_model::Function> for Function {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
+            max_containers: c.max_containers,
+            min_containers: c.min_containers,
         }
     }
 }
@@ -624,7 +638,6 @@ pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
     pub function: Option<String>,
-    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -665,8 +678,8 @@ pub struct FunctionExecutorMetadata {
 }
 
 pub fn from_data_model_function_executor(
-    fe: data_model::FunctionExecutor,
-    desired_state: FunctionExecutorState,
+    fe: data_model::FunctionContainer,
+    desired_state: FunctionContainerState,
 ) -> FunctionExecutorMetadata {
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
@@ -701,9 +714,9 @@ pub struct ExecutorMetadata {
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
-    function_executor_server_metadata: HashMap<
-        FunctionExecutorId,
-        Box<FunctionExecutorServerMetadata>,
+    function_container_server_metadata: HashMap<
+        FunctionContainerId,
+        Box<FunctionContainerServerMetadata>,
     >,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
@@ -713,28 +726,27 @@ pub fn from_data_model_executor_metadata(
                 namespace: fn_uri.namespace.clone(),
                 application: fn_uri.application.clone(),
                 function: fn_uri.function.clone(),
-                version: fn_uri.version.clone(),
             })
             .collect()
     });
     let mut function_executors = Vec::new();
     for (fe_id, fe) in executor.function_executors.iter() {
-        if let Some(fe_server_metadata) = function_executor_server_metadata.get(fe_id) {
+        if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
             let desired_state = fe_server_metadata.desired_state.clone();
             function_executors.push(from_data_model_function_executor(fe.clone(), desired_state));
         } else {
             function_executors.push(from_data_model_function_executor(
                 fe.clone(),
-                FunctionExecutorState::Unknown,
+                FunctionContainerState::Unknown,
             ));
         }
     }
-    let server_only_function_executors = function_executor_server_metadata
+    let server_only_function_executors = function_container_server_metadata
         .iter()
         .filter(|(fe_id, _fe)| !executor.function_executors.contains_key(fe_id))
         .map(|(_fe_id, fe)| {
             from_data_model_function_executor(
-                fe.function_executor.clone(),
+                fe.function_container.clone(),
                 fe.desired_state.clone(),
             )
         })
@@ -891,7 +903,6 @@ pub struct UnallocatedFunctionRuns {
 pub struct FnExecutor {
     pub count: usize,
     pub function_executor_id: String,
-    pub fn_uri: String,
     pub state: String,
     pub desired_state: String,
     pub allocations: Vec<Allocation>,

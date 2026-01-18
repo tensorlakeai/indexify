@@ -1,42 +1,35 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     fmt::Display,
     sync::Arc,
     time::Instant,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use opentelemetry::KeyValue;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::{
     data_model::{
         Allocation,
         AllocationId,
         Application,
-        ApplicationState,
         ApplicationVersion,
         DataPayload,
         ExecutorId,
-        ExecutorMetadata,
-        ExecutorServerMetadata,
         FunctionCallId,
-        FunctionExecutorId,
-        FunctionExecutorResources,
-        FunctionExecutorServerMetadata,
-        FunctionExecutorState,
-        FunctionResources,
+        FunctionContainerId,
+        FunctionContainerResources,
+        FunctionContainerServerMetadata,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
-        FunctionURI,
         Namespace,
         NamespaceBuilder,
         RequestCtx,
         RequestCtxKey,
     },
-    executor_api::executor_api_pb::DataPayloadEncoding,
     state_store::{
         ExecutorCatalog,
         executor_watches::ExecutorWatch,
@@ -48,60 +41,9 @@ use crate::{
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    ApplicationVersionNotFound {
-        version: String,
-        function_name: String,
-    },
-    FunctionNotFound {
-        version: String,
-        function_name: String,
-    },
-    ConstraintUnsatisfiable {
-        reason: String,
-        version: String,
-        function_name: String,
-    },
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::ApplicationVersionNotFound { version, .. } => {
-                write!(f, "Application version not found: {version}")
-            }
-            Error::FunctionNotFound { function_name, .. } => {
-                write!(f, "Function not found: {function_name}")
-            }
-            Error::ConstraintUnsatisfiable { reason, .. } => reason.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl Error {
-    pub fn version(&self) -> &str {
-        match self {
-            Error::ApplicationVersionNotFound { version, .. } => version,
-            Error::FunctionNotFound { version, .. } => version,
-            Error::ConstraintUnsatisfiable { version, .. } => version,
-        }
-    }
-
-    pub fn function_name(&self) -> &str {
-        match self {
-            Error::ApplicationVersionNotFound { function_name, .. } => function_name,
-            Error::FunctionNotFound { function_name, .. } => function_name,
-            Error::ConstraintUnsatisfiable { function_name, .. } => function_name,
-        }
-    }
-}
-
 pub struct DesiredStateFunctionExecutor {
-    pub function_executor: Box<FunctionExecutorServerMetadata>,
-    pub resources: FunctionExecutorResources,
+    pub function_executor: Box<FunctionContainerServerMetadata>,
+    pub resources: FunctionContainerResources,
     pub secret_names: Vec<String>,
     pub initialization_timeout_ms: u32,
     pub code_payload: DataPayload,
@@ -121,38 +63,9 @@ pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
-    pub function_run_allocations: std::collections::HashMap<FunctionExecutorId, Vec<Allocation>>,
+    pub function_run_allocations: std::collections::HashMap<FunctionContainerId, Vec<Allocation>>,
     pub function_call_outcomes: Vec<FunctionCallOutcome>,
     pub clock: u64,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CandidateFunctionExecutor {
-    pub executor_id: ExecutorId,
-    pub function_executor_id: FunctionExecutorId,
-    pub allocation_count: usize,
-}
-
-impl PartialOrd for CandidateFunctionExecutor {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CandidateFunctionExecutor {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Order by allocation count first (ascending - least loaded first)
-        // Then by executor_id and function_executor_id for consistent ordering
-        self.allocation_count
-            .cmp(&other.allocation_count)
-            .then_with(|| self.executor_id.cmp(&other.executor_id))
-            .then_with(|| self.function_executor_id.cmp(&other.function_executor_id))
-    }
-}
-
-pub struct CandidateFunctionExecutors {
-    pub function_executors: BTreeSet<CandidateFunctionExecutor>,
-    pub num_pending_function_executors: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -230,23 +143,10 @@ pub struct InMemoryState {
     // Namespace|CG Name|Version -> ComputeGraph
     pub application_versions: imbl::OrdMap<String, Box<ApplicationVersion>>,
 
-    // ExecutorId -> ExecutorMetadata
-    // This is the metadata that executor is sending us, not the **Desired** state
-    // from the perspective of the state store.
-    pub executors: imbl::HashMap<ExecutorId, Box<ExecutorMetadata>>,
-
-    // ExecutorId -> (FE ID -> List of Function Executors)
-    pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
-
-    pub function_executors_by_fn_uri: imbl::HashMap<
-        FunctionURI,
-        imbl::HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
-    >,
-
     // ExecutorId -> (FE ID -> Map of AllocationId -> Allocation)
     pub allocations_by_executor: imbl::HashMap<
         ExecutorId,
-        HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
+        HashMap<FunctionContainerId, HashMap<AllocationId, Box<Allocation>>>,
     >,
 
     // TaskKey -> Task
@@ -311,7 +211,7 @@ impl InMemoryState {
         // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
-            HashMap<FunctionExecutorId, HashMap<AllocationId, Box<Allocation>>>,
+            HashMap<FunctionContainerId, HashMap<AllocationId, Box<Allocation>>>,
         > = imbl::HashMap::new();
         {
             let (allocations, _) = reader
@@ -369,14 +269,10 @@ impl InMemoryState {
             namespaces,
             applications,
             application_versions,
-            executors: imbl::HashMap::new(),
             function_runs,
             unallocated_function_runs,
             request_ctx,
             allocations_by_executor,
-            // function executors by executor are not known at startup
-            executor_states: imbl::HashMap::new(),
-            function_executors_by_fn_uri: imbl::HashMap::new(),
             executor_catalog,
             function_runs_by_catalog_entry,
             metrics,
@@ -602,48 +498,6 @@ impl InMemoryState {
                         .scheduler_update_delete_requests
                         .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
-
-                {
-                    let start_time = Instant::now();
-                    for fe_meta in req.new_function_executors.clone() {
-                        let Some(executor_state) =
-                            self.executor_states.get_mut(&fe_meta.executor_id)
-                        else {
-                            error!(
-                                executor_id = fe_meta.executor_id.get(),
-                                "executor not found for new function executor"
-                            );
-                            continue;
-                        };
-                        executor_state.function_executors.insert(
-                            fe_meta.function_executor.id.clone(),
-                            Box::new(fe_meta.clone()),
-                        );
-
-                        executor_state.resource_claims.insert(
-                            fe_meta.function_executor.id.clone(),
-                            fe_meta.function_executor.resources.clone(),
-                        );
-
-                        let fn_uri = FunctionURI::from(&fe_meta);
-                        self.function_executors_by_fn_uri
-                            .entry(fn_uri)
-                            .or_default()
-                            .insert(
-                                fe_meta.function_executor.id.clone(),
-                                Box::new(fe_meta.clone()),
-                            );
-
-                        // Executor has a new function executor
-                        changed_executors.insert(fe_meta.executor_id.clone());
-                    }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_insert_function_executors
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
-                }
-
                 {
                     let start_time = Instant::now();
                     for allocation in &req.new_allocations {
@@ -687,53 +541,10 @@ impl InMemoryState {
                         .scheduler_update_insert_new_allocations
                         .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
-
-                {
-                    let start_time = Instant::now();
-                    for (executor_id, function_executors) in &req.remove_function_executors {
-                        if let Some(fe_allocations) =
-                            self.allocations_by_executor.get_mut(executor_id)
-                        {
-                            fe_allocations
-                                .retain(|fe_id, _allocations| !function_executors.contains(fe_id));
-                        }
-
-                        for function_executor_id in function_executors {
-                            let fe = self.executor_states.get_mut(executor_id).and_then(
-                                |executor_state| {
-                                    executor_state.resource_claims.remove(function_executor_id);
-                                    executor_state
-                                        .function_executors
-                                        .remove(function_executor_id)
-                                },
-                            );
-
-                            if let Some(fe) = fe {
-                                let fn_uri = FunctionURI::from(&fe);
-                                self.function_executors_by_fn_uri
-                                    .get_mut(&fn_uri)
-                                    .and_then(|fe_map| fe_map.remove(&fe.function_executor.id));
-                            }
-                            changed_executors.insert(executor_id.clone());
-                        }
-
-                        // record the time instead of using a timer because we cannot
-                        // borrow the metric as immutable and borrow self as mutable inside the
-                        // loop.
-                        self.metrics
-                            .scheduler_update_remove_function_executors
-                            .record(start_time.elapsed().as_secs_f64(), &[]);
-                    }
-                }
-
                 {
                     let start_time = Instant::now();
                     for executor_id in &req.remove_executors {
-                        self.executors.remove(executor_id);
                         self.allocations_by_executor.remove(executor_id);
-                        self.executor_states.remove(executor_id);
-
-                        // Executor is removed
                         changed_executors.insert(executor_id.clone());
                     }
                     // record the time instead of using a timer because we cannot
@@ -742,36 +553,8 @@ impl InMemoryState {
                         .scheduler_update_remove_executors
                         .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
-
-                {
-                    let start_time = Instant::now();
-                    for (executor_id, free_resources) in &req.updated_executor_resources {
-                        if let Some(executor) = self.executor_states.get_mut(executor_id) {
-                            executor.free_resources = free_resources.clone();
-                        }
-                    }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_free_executor_resources
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
-                }
             }
             RequestPayload::UpsertExecutor(req) => {
-                self.executors
-                    .insert(req.executor.id.clone(), Box::new(req.executor.clone()));
-                if self.executor_states.get(&req.executor.id).is_none() {
-                    self.executor_states.insert(
-                        req.executor.id.clone(),
-                        Box::new(ExecutorServerMetadata {
-                            executor_id: req.executor.id.clone(),
-                            function_executors: HashMap::new(),
-                            resource_claims: HashMap::new(),
-                            free_resources: req.executor.host_resources.clone(),
-                        }),
-                    );
-                }
-
                 for allocation_output in &req.allocation_outputs {
                     // Remove the allocation
                     {
@@ -818,159 +601,10 @@ impl InMemoryState {
                     );
                 }
             }
-            RequestPayload::DeregisterExecutor(req) => {
-                let executor = self.executors.get_mut(&req.executor_id);
-                if let Some(executor) = executor {
-                    executor.tombstoned = true;
-                }
-            }
             _ => {}
         }
 
         Ok(changed_executors)
-    }
-
-    pub fn fe_resource_for_function_run(
-        &self,
-        function_run: &FunctionRun,
-    ) -> Result<FunctionResources> {
-        let application = self
-            .application_versions
-            .get(&ApplicationVersion::key_from(
-                &function_run.namespace,
-                &function_run.application,
-                &function_run.version,
-            ))
-            .ok_or(anyhow!(
-                "application version: {} not found",
-                function_run.version
-            ))?;
-        let function = application
-            .functions
-            .get(&function_run.name)
-            .ok_or(anyhow!("function: {} not found", function_run.name))?;
-        Ok(function.resources.clone())
-    }
-
-    #[tracing::instrument(skip_all)]
-    pub fn candidate_executors(
-        &self,
-        function_run: &FunctionRun,
-    ) -> Result<Vec<ExecutorServerMetadata>> {
-        let application = self
-            .application_versions
-            .get(&ApplicationVersion::key_from(
-                &function_run.namespace,
-                &function_run.application,
-                &function_run.version,
-            ))
-            .ok_or_else(|| Error::ApplicationVersionNotFound {
-                version: function_run.version.clone(),
-                function_name: function_run.name.clone(),
-            })?;
-
-        // Check to see whether the app state is marked as
-        // active; if not, we do not schedule its tasks, even if there
-        // are executors that could handle this particular task.
-        if let ApplicationState::Disabled { reason } = &application.state {
-            return Err(Error::ConstraintUnsatisfiable {
-                version: application.version.to_string(),
-                function_name: function_run.name.clone(),
-                reason: reason.to_owned(),
-            }
-            .into());
-        }
-
-        let function = application
-            .functions
-            .get(&function_run.name)
-            .ok_or_else(|| Error::FunctionNotFound {
-                version: function_run.version.clone(),
-                function_name: function_run.name.clone(),
-            })?;
-
-        let mut candidates = Vec::new();
-
-        for (_, executor_state) in &self.executor_states {
-            let Some(executor) = self.executors.get(&executor_state.executor_id) else {
-                error!(
-                    executor_id = executor_state.executor_id.get(),
-                    "executor not found for candidate executors but was found in executor_states"
-                );
-                continue;
-            };
-            if executor.tombstoned || !executor.is_function_allowed(function_run) {
-                continue;
-            }
-
-            // Check if this executor's labels matches the function's
-            // placement constraints
-            if !function.placement_constraints.matches(&executor.labels) {
-                continue;
-            }
-
-            // TODO: Match functions to GPU models according to prioritized order in
-            // gpu_configs.
-            if executor_state
-                .free_resources
-                .can_handle_function_resources(&function.resources)
-                .is_ok()
-            {
-                candidates.push(*executor_state.clone());
-            }
-        }
-
-        Ok(candidates)
-    }
-
-    pub fn candidate_function_executors(
-        &self,
-        function_run: &FunctionRun,
-        capacity_threshold: u32,
-    ) -> Result<CandidateFunctionExecutors> {
-        let mut candidates = BTreeSet::new();
-
-        let fn_uri = FunctionURI::from(function_run);
-        let function_executors = self.function_executors_by_fn_uri.get(&fn_uri);
-        let mut num_pending_function_executors = 0;
-        if let Some(function_executors) = function_executors {
-            for (_, metadata) in function_executors.iter() {
-                if metadata.function_executor.state == FunctionExecutorState::Pending ||
-                    metadata.function_executor.state == FunctionExecutorState::Unknown
-                {
-                    num_pending_function_executors += 1;
-                }
-                if matches!(
-                    metadata.desired_state,
-                    FunctionExecutorState::Terminated { .. }
-                ) || matches!(
-                    metadata.function_executor.state,
-                    FunctionExecutorState::Terminated { .. }
-                ) {
-                    continue;
-                }
-                // FIXME - Create a reverse index of fe_id -> # active allocations
-                let allocation_count = self
-                    .allocations_by_executor
-                    .get(&metadata.executor_id)
-                    .and_then(|alloc_map| alloc_map.get(&metadata.function_executor.id))
-                    .map(|allocs| allocs.len())
-                    .unwrap_or(0);
-                if (allocation_count as u32) <
-                    capacity_threshold * metadata.function_executor.max_concurrency
-                {
-                    candidates.insert(CandidateFunctionExecutor {
-                        executor_id: metadata.executor_id.clone(),
-                        function_executor_id: metadata.function_executor.id.clone(),
-                        allocation_count,
-                    });
-                }
-            }
-        }
-        Ok(CandidateFunctionExecutors {
-            function_executors: candidates,
-            num_pending_function_executors,
-        })
     }
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
@@ -990,40 +624,6 @@ impl InMemoryState {
                 });
             }
         }
-    }
-
-    pub fn get_fe_resources_by_uri(
-        &self,
-        ns: &str,
-        cg: &str,
-        fn_name: &str,
-        version: &str,
-    ) -> Option<FunctionResources> {
-        let cg_version = self
-            .application_versions
-            .get(&ApplicationVersion::key_from(ns, cg, version))
-            .cloned()?;
-        cg_version
-            .functions
-            .get(fn_name)
-            .map(|node| node.resources.clone())
-    }
-
-    pub fn get_fe_max_concurrency_by_uri(
-        &self,
-        ns: &str,
-        cg: &str,
-        fn_name: &str,
-        version: &str,
-    ) -> Option<u32> {
-        let cg_version = self
-            .application_versions
-            .get(&ApplicationVersion::key_from(ns, cg, version))
-            .cloned()?;
-        cg_version
-            .functions
-            .get(fn_name)
-            .map(|node| node.max_concurrency)
     }
 
     pub fn delete_request(&mut self, namespace: &str, application: &str, request_id: &str) {
@@ -1063,263 +663,14 @@ impl InMemoryState {
         function_runs
     }
 
-    #[tracing::instrument(skip_all)]
-    pub fn vacuum_function_executors_candidates(
-        &self,
-        fe_resource: &FunctionResources,
-    ) -> Result<Vec<FunctionExecutorServerMetadata>> {
-        // For each executor in the system
-        for (executor_id, executor) in &self.executors {
-            if executor.tombstoned {
-                continue;
-            }
-
-            // Get function executors for this executor from our in-memory state
-            let function_executors = self
-                .executor_states
-                .get(executor_id)
-                .cloned()
-                .map(|executor_state| {
-                    executor_state
-                        .function_executors
-                        .values()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            // Start with the current free resources on this executor
-            let mut available_resources = self
-                .executor_states
-                .get(executor_id)
-                .map(|executor_state| executor_state.free_resources.clone())
-                .unwrap_or_default();
-
-            let mut function_executors_to_remove = Vec::new();
-            for fe_metadata in function_executors.iter() {
-                // Skip if the FE is already marked for termination
-                if matches!(
-                    fe_metadata.desired_state,
-                    FunctionExecutorState::Terminated { .. }
-                ) {
-                    continue;
-                }
-
-                let fe = &fe_metadata.function_executor;
-                let Some(executor) = self.executors.get(executor_id) else {
-                    function_executors_to_remove.push(*fe_metadata.clone());
-                    continue;
-                };
-
-                let Some(latest_cg_version) = self
-                    .applications
-                    .get(&Application::key_from(&fe.namespace, &fe.application_name))
-                    .map(|cg| cg.version.clone())
-                else {
-                    function_executors_to_remove.push(*fe_metadata.clone());
-                    continue;
-                };
-
-                let has_pending_tasks = self.has_pending_tasks(fe_metadata);
-
-                let mut can_be_removed = false;
-                if !has_pending_tasks {
-                    let mut found_allowlist_match = false;
-                    if let Some(allowlist) = executor.function_allowlist.as_ref() {
-                        for allowlist_entry in allowlist.iter() {
-                            if allowlist_entry.matches_function_executor(fe) &&
-                                fe.version == latest_cg_version
-                            {
-                                found_allowlist_match = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !found_allowlist_match {
-                        debug!(
-                            "Candidate for removal: outdated function executor {} from executor {} (version {} < latest {})",
-                            fe.id.get(),
-                            executor_id.get(),
-                            fe.version,
-                            latest_cg_version
-                        );
-                        can_be_removed = true;
-                    }
-                }
-
-                if can_be_removed {
-                    let mut simulated_resources = available_resources.clone();
-                    if simulated_resources
-                        .free(&fe_metadata.function_executor.resources)
-                        .is_err()
-                    {
-                        continue;
-                    }
-
-                    function_executors_to_remove.push(*fe_metadata.clone());
-                    available_resources = simulated_resources;
-
-                    if available_resources
-                        .can_handle_function_resources(fe_resource)
-                        .is_ok()
-                    {
-                        debug!(
-                            "Found sufficient space on executor {} by removing {} function executors",
-                            executor_id.get(),
-                            function_executors_to_remove.len()
-                        );
-                        return Ok(function_executors_to_remove);
-                    }
-                }
-            }
-            debug!(
-                "Could not find sufficient space on executor {} even after vacuuming",
-                executor_id.get()
-            );
-        }
-
-        Ok(Vec::new())
-    }
-
-    fn has_pending_tasks(&self, fe_meta: &FunctionExecutorServerMetadata) -> bool {
-        let task_prefixes_for_fe = format!(
-            "{}|{}|",
-            fe_meta.function_executor.namespace, fe_meta.function_executor.application_name
-        );
-        self.function_runs
-            .range(FunctionRunKey(task_prefixes_for_fe.clone())..)
-            .take_while(|(k, _v)| k.0.starts_with(&task_prefixes_for_fe))
-            .filter(|(_k, v)| {
-                v.name == fe_meta.function_executor.function_name &&
-                    v.version == fe_meta.function_executor.version
-            })
-            .any(|(_k, v)| !v.is_terminal())
-    }
-
-    pub fn desired_state(
-        &self,
-        executor_id: &ExecutorId,
-        executor_watches: HashSet<ExecutorWatch>,
-    ) -> Option<DesiredExecutorState> {
-        if let Some(executor) = self.executors.get(executor_id) {
-            if executor.tombstoned {
-                return None;
-            }
-        } else {
-            return None;
-        }
-        let mut function_call_outcomes = Vec::new();
-        for executor_watch in executor_watches.iter() {
-            let Some(function_run) = self.function_runs.get(&executor_watch.into()) else {
-                error!(
-                    namespace = %executor_watch.namespace,
-                    app = %executor_watch.application,
-                    request_id = %executor_watch.request_id,
-                    function_call_id = %executor_watch.function_call_id,
-                    "function run not found for executor watch",
-                );
-                continue;
-            };
-            let failure_reason = match &function_run.outcome {
-                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
-                _ => None,
-            };
-            function_call_outcomes.push(FunctionCallOutcome {
-                namespace: function_run.namespace.clone(),
-                request_id: function_run.request_id.clone(),
-                function_call_id: function_run.id.clone(),
-                outcome: function_run
-                    .outcome
-                    .clone()
-                    .unwrap_or(FunctionRunOutcome::Unknown),
-                failure_reason,
-                return_value: function_run.output.clone(),
-                request_error: function_run.request_error.clone(),
-            });
-        }
-        let active_function_executors = self
-            .executor_states
-            .get(executor_id)
-            .cloned()
-            .map(|executor_state| executor_state.function_executors.clone())
-            .unwrap_or_default()
-            .values()
-            .filter(|fe_meta| {
-                !matches!(
-                    fe_meta.desired_state,
-                    FunctionExecutorState::Terminated { .. }
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let mut function_executors = Vec::new();
-        let mut task_allocations = std::collections::HashMap::new();
-        for fe_meta in active_function_executors.iter() {
-            let fe = &fe_meta.function_executor;
-            let Some(cg_version) = self
-                .application_versions
-                .get(&ApplicationVersion::key_from(
-                    &fe.namespace,
-                    &fe.application_name,
-                    &fe.version,
-                ))
-                .cloned()
-            else {
-                continue;
-            };
-            let Some(cg_node) = cg_version.functions.get(&fe.function_name) else {
-                continue;
-            };
-            function_executors.push(Box::new(DesiredStateFunctionExecutor {
-                function_executor: fe_meta.clone(),
-                resources: fe.resources.clone(),
-                secret_names: cg_node.secret_names.clone().unwrap_or_default(),
-                initialization_timeout_ms: cg_node.initialization_timeout.0,
-                code_payload: DataPayload {
-                    id: cg_version.code.id.clone(),
-                    metadata_size: 0,
-                    path: cg_version.code.path.clone(),
-                    size: cg_version.code.size,
-                    sha256_hash: cg_version.code.sha256_hash.clone(),
-                    offset: 0, // Code always uses its full BLOB
-                    encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
-                },
-            }));
-
-            let allocations = self
-                .allocations_by_executor
-                .get(executor_id)
-                .and_then(|allocations| allocations.get(&fe_meta.function_executor.id.clone()))
-                .map(|allocations| {
-                    allocations
-                        .values()
-                        .map(|allocation| allocation.as_ref().clone())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            task_allocations.insert(fe_meta.function_executor.id.clone(), allocations);
-        }
-
-        Some(DesiredExecutorState {
-            function_executors,
-            function_run_allocations: task_allocations,
-            clock: self.clock,
-            function_call_outcomes,
-        })
-    }
-
     pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
         Arc::new(tokio::sync::RwLock::new(InMemoryState {
             clock: self.clock,
             namespaces: self.namespaces.clone(),
             applications: self.applications.clone(),
             application_versions: self.application_versions.clone(),
-            executors: self.executors.clone(),
             request_ctx: self.request_ctx.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
-            executor_states: self.executor_states.clone(),
-            function_executors_by_fn_uri: self.function_executors_by_fn_uri.clone(),
             executor_catalog: self.executor_catalog.clone(),
             function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
             metrics: self.metrics.clone(),
@@ -1482,9 +833,9 @@ impl InMemoryState {
     ///   re-registered)
     #[cfg(test)]
     pub fn simulate_server_restart_clear_executor_state(&mut self) {
-        self.executors.clear();
-        self.executor_states.clear();
-        self.function_executors_by_fn_uri.clear();
+        //self.executors.clear();
+        //self.executor_states.clear();
+        //self.function_executors_by_fn_uri.clear();
         // Note: allocations_by_executor is intentionally NOT cleared
         // as allocations are persisted and loaded from DB on restart
     }
@@ -1516,9 +867,9 @@ mod test_helpers {
                 namespaces: imbl::HashMap::new(),
                 applications: imbl::HashMap::new(),
                 application_versions: imbl::OrdMap::new(),
-                executors: imbl::HashMap::new(),
-                executor_states: imbl::HashMap::new(),
-                function_executors_by_fn_uri: imbl::HashMap::new(),
+                //executors: imbl::HashMap::new(),
+                //executor_states: imbl::HashMap::new(),
+                //function_executors_by_fn_uri: imbl::HashMap::new(),
                 allocations_by_executor: imbl::HashMap::new(),
                 request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
@@ -1533,24 +884,14 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
-
     use crate::{
         config::GpuModel,
         data_model::{
             ComputeOp,
-            ExecutorId,
             FunctionCall,
             FunctionCallId,
-            FunctionExecutorBuilder,
-            FunctionExecutorId,
-            FunctionExecutorResources,
-            FunctionExecutorServerMetadata,
-            FunctionExecutorState,
             FunctionRun,
             FunctionRunBuilder,
-            FunctionRunFailureReason,
-            FunctionRunOutcome,
             FunctionRunStatus,
         },
         in_memory_state_bootstrap,
@@ -1571,336 +912,6 @@ mod tests {
             assert!(fn_run_key3 < fn_run_key4);
             assert!(fn_run_key4 < fn_run_key5);
         }
-    }
-
-    #[test]
-    fn test_has_pending_function_runs() {
-        // Helper function to create a function run
-        fn create_function_run(
-            namespace: &str,
-            application: &str,
-            request_id: &str,
-            function: &str,
-            outcome: Option<FunctionRunOutcome>,
-        ) -> FunctionRun {
-            FunctionRunBuilder::default()
-                .id(FunctionCallId(format!(
-                    "{}-{}-{}-{}",
-                    namespace, application, request_id, function
-                )))
-                .request_id(request_id.to_string())
-                .namespace(namespace.to_string())
-                .application(application.to_string())
-                .name(function.to_string())
-                .version("1.0".to_string())
-                .compute_op(ComputeOp::FunctionCall(FunctionCall {
-                    inputs: vec![],
-                    function_call_id: FunctionCallId(format!(
-                        "{}-{}-{}-{}",
-                        namespace, application, request_id, function
-                    )),
-                    fn_name: function.to_string(),
-                    call_metadata: Bytes::new(),
-                    parent_function_call_id: None,
-                }))
-                .status(FunctionRunStatus::Pending)
-                .outcome(outcome)
-                .input_args(vec![])
-                .attempt_number(0)
-                .call_metadata(Bytes::new())
-                .build()
-                .unwrap()
-        }
-
-        // Create function executor metadata for testing
-        let executor_id = ExecutorId::new("test-executor".to_string());
-        let function_executor = FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new("test-fe".to_string()))
-            .namespace("test-namespace".to_string())
-            .application_name("test-graph".to_string())
-            .function_name("test-function".to_string())
-            .version("1.0".to_string())
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
-
-        let fe_metadata = FunctionExecutorServerMetadata {
-            executor_id: executor_id.clone(),
-            function_executor: function_executor.clone(),
-            desired_state: FunctionExecutorState::Running,
-        };
-
-        // Test case 1: No tasks - should return false
-        let mut state = in_memory_state_bootstrap! { clock: 1 };
-        assert!(!state.has_pending_tasks(&fe_metadata));
-
-        // Test case 2: Add a terminal function run (Success) - should return false
-        let terminal_run = create_function_run(
-            "test-namespace",
-            "test-graph",
-            "inv-1",
-            "test-function",
-            Some(FunctionRunOutcome::Success),
-        );
-        state
-            .function_runs
-            .insert(FunctionRunKey::from(&terminal_run), Box::new(terminal_run));
-        assert!(!state.has_pending_tasks(&fe_metadata));
-
-        // Test case 3: Add a terminal function run (Failure) - should return false
-        let terminal_run2 = create_function_run(
-            "test-namespace",
-            "test-graph",
-            "inv-2",
-            "test-function",
-            Some(FunctionRunOutcome::Failure(
-                FunctionRunFailureReason::FunctionError,
-            )),
-        );
-        state.function_runs.insert(
-            FunctionRunKey::from(&terminal_run2),
-            Box::new(terminal_run2),
-        );
-        assert!(!state.has_pending_tasks(&fe_metadata));
-
-        // Test case 4: Add a non-terminal function run (None outcome) - should return
-        // true
-        let pending_run = create_function_run(
-            "test-namespace",
-            "test-graph",
-            "inv-3",
-            "test-function",
-            None,
-        );
-        state
-            .function_runs
-            .insert(FunctionRunKey::from(&pending_run), Box::new(pending_run));
-        assert!(state.has_pending_tasks(&fe_metadata));
-
-        // Test case 5: Add tasks for different namespace/graph - should not affect
-        // result
-        let different_run = create_function_run(
-            "different-namespace",
-            "different-graph",
-            "inv-4",
-            "test-function",
-            None,
-        );
-        state.function_runs.insert(
-            FunctionRunKey::from(&different_run),
-            Box::new(different_run),
-        );
-        assert!(state.has_pending_tasks(&fe_metadata));
-
-        // Test case 6: Add tasks for same namespace/graph but different function -
-        // should not affect result
-        let different_fn_run = create_function_run(
-            "test-namespace",
-            "test-graph",
-            "inv-5",
-            "different-function",
-            None,
-        );
-        state.function_runs.insert(
-            FunctionRunKey::from(&different_fn_run),
-            Box::new(different_fn_run),
-        );
-        assert!(state.has_pending_tasks(&fe_metadata));
-
-        // Test case 7: Add multiple pending tasks - should still return true
-        let pending_run2 = create_function_run(
-            "test-namespace",
-            "test-graph",
-            "inv-6",
-            "test-function",
-            None,
-        );
-        state
-            .function_runs
-            .insert(FunctionRunKey::from(&pending_run2), Box::new(pending_run2));
-        assert!(state.has_pending_tasks(&fe_metadata));
-
-        // Test case 8: Change all pending tasks to terminal - should return false
-        let keys_to_update: Vec<FunctionRunKey> = state
-            .function_runs
-            .iter()
-            .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "test-function" &&
-                    function_run.outcome.is_none()
-            })
-            .map(|(key, _)| key.clone())
-            .collect();
-
-        for key in keys_to_update {
-            if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
-                function_run.outcome = Some(FunctionRunOutcome::Success);
-                state.function_runs.insert(key, function_run);
-            }
-        }
-        assert!(!state.has_pending_tasks(&fe_metadata));
-
-        let function_executor = FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new("test-fe-2".to_string()))
-            .namespace("test-namespace".to_string())
-            .application_name("test-graph".to_string())
-            .function_name("different-function".to_string())
-            .version("1.0".to_string())
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
-
-        // Test case 9: Test with different function executor metadata
-        let fe_metadata2 = FunctionExecutorServerMetadata {
-            executor_id: executor_id.clone(),
-            function_executor,
-            desired_state: FunctionExecutorState::Running,
-        };
-        assert!(state.has_pending_tasks(&fe_metadata2));
-
-        // Test case 10: Change the different function task to terminal - should return
-        // false
-        let keys_to_update2: Vec<FunctionRunKey> = state
-            .function_runs
-            .iter()
-            .filter(|(key, function_run)| {
-                key.0.starts_with("test-namespace|test-graph|") &&
-                    function_run.name == "different-function" &&
-                    function_run.outcome.is_none()
-            })
-            .map(|(key, _)| key.clone())
-            .collect();
-
-        for key in keys_to_update2 {
-            if let Some(mut function_run) = state.function_runs.get(&key).cloned() {
-                function_run.outcome = Some(FunctionRunOutcome::Success);
-                state.function_runs.insert(key, function_run);
-            }
-        }
-        assert!(!state.has_pending_tasks(&fe_metadata2));
-    }
-
-    #[test]
-    fn test_candidate_function_executor_ordering() {
-        use super::CandidateFunctionExecutor;
-
-        // Test that CandidateFunctionExecutor orders correctly by allocation count
-        // first, then by executor_id, then by function_executor_id
-
-        let executor_id_1 = ExecutorId::new("executor-1".to_string());
-        let executor_id_2 = ExecutorId::new("executor-2".to_string());
-        let fe_id_1 = FunctionExecutorId::new("fe-1".to_string());
-        let fe_id_2 = FunctionExecutorId::new("fe-2".to_string());
-
-        // Create function executors with different allocation counts
-        let fe_1 = FunctionExecutorBuilder::default()
-            .id(fe_id_1.clone())
-            .namespace("test-ns".to_string())
-            .application_name("test-app".to_string())
-            .function_name("test-fn".to_string())
-            .version("1.0".to_string())
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
-
-        let fe_2 = FunctionExecutorBuilder::default()
-            .id(fe_id_2.clone())
-            .namespace("test-ns".to_string())
-            .application_name("test-app".to_string())
-            .function_name("test-fn".to_string())
-            .version("1.0".to_string())
-            .state(FunctionExecutorState::Running)
-            .resources(FunctionExecutorResources {
-                cpu_ms_per_sec: 1000,
-                memory_mb: 512,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap();
-
-        // Test 1: Lower allocation count comes first
-        let candidate_1 = CandidateFunctionExecutor {
-            executor_id: executor_id_1.clone(),
-            function_executor_id: fe_1.id.clone(),
-            allocation_count: 5,
-        };
-
-        let candidate_2 = CandidateFunctionExecutor {
-            executor_id: executor_id_1.clone(),
-            function_executor_id: fe_1.id.clone(),
-            allocation_count: 10,
-        };
-
-        assert!(candidate_1 < candidate_2);
-        assert!(candidate_2 > candidate_1);
-
-        // Test 2: Same allocation count, executor_id determines order
-        let candidate_3 = CandidateFunctionExecutor {
-            executor_id: executor_id_1.clone(),
-            function_executor_id: fe_1.id.clone(),
-            allocation_count: 5,
-        };
-
-        let candidate_4 = CandidateFunctionExecutor {
-            executor_id: executor_id_2.clone(),
-            function_executor_id: fe_1.id.clone(),
-            allocation_count: 5,
-        };
-
-        assert!(candidate_3 < candidate_4);
-
-        // Test 3: Same allocation count and executor_id, function_executor_id
-        // determines order
-        let candidate_5 = CandidateFunctionExecutor {
-            executor_id: executor_id_1.clone(),
-            function_executor_id: fe_1.id.clone(),
-            allocation_count: 5,
-        };
-
-        let candidate_6 = CandidateFunctionExecutor {
-            executor_id: executor_id_1.clone(),
-            function_executor_id: fe_2.id.clone(),
-            allocation_count: 5,
-        };
-
-        assert!(candidate_5 < candidate_6);
-
-        // Test 4: BTreeSet maintains correct order
-        let mut candidates = std::collections::BTreeSet::new();
-        candidates.insert(candidate_2.clone()); // allocation_count: 10
-        candidates.insert(candidate_1.clone()); // allocation_count: 5
-        candidates.insert(candidate_6.clone()); // allocation_count: 5, executor_id_1, fe_id_2
-
-        let first = candidates.first().unwrap();
-        assert_eq!(first.allocation_count, 5);
-        assert_eq!(first.function_executor_id, fe_id_1);
-        assert_eq!(first.executor_id, executor_id_1);
-
-        let last = candidates.last().unwrap();
-        assert_eq!(last.allocation_count, 10);
     }
 
     #[test]
@@ -1970,52 +981,58 @@ mod tests {
 
         // Create functions with different resource requirements and placement
         // constraints
-        let mut function_light = Function::default();
-        function_light.name = "light".to_string();
-        function_light.placement_constraints = LabelsFilter::default(); // Matches all labels
-        function_light.resources = FunctionResources {
-            cpu_ms_per_sec: 1000, // 1 core
-            memory_mb: 2048,      // 2 GB
-            ephemeral_disk_mb: 5000,
-            gpu_configs: vec![],
+        let function_light = Function {
+            name: "light".to_string(),
+            placement_constraints: LabelsFilter::default(), // Matches all labels
+            resources: FunctionResources {
+                cpu_ms_per_sec: 1000, // 1 core
+                memory_mb: 2048,      // 2 GB
+                ephemeral_disk_mb: 5000,
+                gpu_configs: vec![],
+            },
+            ..Default::default()
         };
 
-        let mut function_heavy = Function::default();
-        function_heavy.name = "heavy".to_string();
-        function_heavy.placement_constraints = LabelsFilter(vec![
-            Expression {
+        let function_heavy = Function {
+            name: "heavy".to_string(),
+            placement_constraints: LabelsFilter(vec![
+                Expression {
+                    key: "region".to_string(),
+                    value: "us-west".to_string(),
+                    operator: Operator::Eq,
+                },
+                Expression {
+                    key: "tier".to_string(),
+                    value: "premium".to_string(),
+                    operator: Operator::Eq,
+                },
+            ]),
+            resources: FunctionResources {
+                cpu_ms_per_sec: 10000, // 10 cores - only fits on large
+                memory_mb: 32768,      // 32 GB
+                ephemeral_disk_mb: 100000,
+                gpu_configs: vec![],
+            },
+            ..Default::default()
+        };
+
+        let function_gpu = Function {
+            name: "gpu_task".to_string(),
+            placement_constraints: LabelsFilter(vec![Expression {
                 key: "region".to_string(),
-                value: "us-west".to_string(),
+                value: "us-east".to_string(),
                 operator: Operator::Eq,
+            }]),
+            resources: FunctionResources {
+                cpu_ms_per_sec: 2000,
+                memory_mb: 8192,
+                ephemeral_disk_mb: 10000,
+                gpu_configs: vec![GPUResources {
+                    count: 1,
+                    model: "nvidia-a100".to_string(),
+                }],
             },
-            Expression {
-                key: "tier".to_string(),
-                value: "premium".to_string(),
-                operator: Operator::Eq,
-            },
-        ]);
-        function_heavy.resources = FunctionResources {
-            cpu_ms_per_sec: 10000, // 10 cores - only fits on large
-            memory_mb: 32768,      // 32 GB
-            ephemeral_disk_mb: 100000,
-            gpu_configs: vec![],
-        };
-
-        let mut function_gpu = Function::default();
-        function_gpu.name = "gpu_task".to_string();
-        function_gpu.placement_constraints = LabelsFilter(vec![Expression {
-            key: "region".to_string(),
-            value: "us-east".to_string(),
-            operator: Operator::Eq,
-        }]);
-        function_gpu.resources = FunctionResources {
-            cpu_ms_per_sec: 2000,
-            memory_mb: 8192,
-            ephemeral_disk_mb: 10000,
-            gpu_configs: vec![GPUResources {
-                count: 1,
-                model: "nvidia-a100".to_string(),
-            }],
+            ..Default::default()
         };
 
         let mut functions = HashMap::new();

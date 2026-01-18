@@ -250,7 +250,7 @@ impl Service {
                 let instance_trace = TraceLayer::new_for_grpc().make_span_with(instance_span_clone);
                 let reflection_service = tonic_reflection::server::Builder::configure()
                     .register_encoded_file_descriptor_set(
-                        executor_api_descriptor::FILE_DESCRIPTOR_SET,
+                        executor_api_descriptor::EXECUTOR_API_FILE_DESCRIPTOR_SET,
                     )
                     .build_v1()
                     .unwrap();

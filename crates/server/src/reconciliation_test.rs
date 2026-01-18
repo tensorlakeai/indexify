@@ -8,7 +8,7 @@ mod tests {
         assert_function_run_counts,
         data_model::{
             FunctionAllowlist,
-            FunctionExecutorState,
+            FunctionContainerState,
             FunctionExecutorTerminationReason,
             FunctionRunFailureReason,
             FunctionRunOutcome,
@@ -84,7 +84,6 @@ mod tests {
             namespace: Some(TEST_NAMESPACE.to_string()),
             application: Some("graph_A".to_string()),
             function: Some("fn_a".to_string()),
-            version: Some("1".to_string()),
         }]);
 
         let executor = test_srv.create_executor(executor_meta).await?;
@@ -213,7 +212,7 @@ mod tests {
 
         // Remove fn_a from function executors
         {
-            let mut fes: Vec<crate::data_model::FunctionExecutor> = executor
+            let mut fes: Vec<crate::data_model::FunctionContainer> = executor
                 .get_executor_server_state()
                 .await?
                 .function_executors
@@ -221,7 +220,7 @@ mod tests {
                 .collect();
             for fe in fes.iter_mut() {
                 if fe.function_name == "fn_a" {
-                    fe.state = FunctionExecutorState::Terminated {
+                    fe.state = FunctionContainerState::Terminated {
                         reason: FunctionExecutorTerminationReason::FunctionCancelled,
                         failed_alloc_ids: Vec::new(),
                     };
@@ -292,7 +291,7 @@ mod tests {
                 .cloned()
                 .collect();
             executor
-                .set_function_executor_states(FunctionExecutorState::Terminated {
+                .set_function_executor_states(FunctionContainerState::Terminated {
                     reason,
                     failed_alloc_ids: allocs,
                 })
@@ -497,7 +496,7 @@ mod tests {
         // update the function executors with our retryable termination reason (not
         // using an attempt)
         executor
-            .set_function_executor_states(FunctionExecutorState::Terminated {
+            .set_function_executor_states(FunctionContainerState::Terminated {
                 reason,
                 failed_alloc_ids: vec![],
             })

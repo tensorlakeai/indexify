@@ -368,6 +368,7 @@ pub struct StateStoreMetrics {
     pub driver_commits_errors: Counter<u64>,
     pub state_write_persistent_storage: Histogram<f64>,
     pub state_write_in_memory: Histogram<f64>,
+    pub state_write_container_scheduler: Histogram<f64>,
     pub state_write_executor_notify: Histogram<f64>,
     pub state_write_request_state_change: Histogram<f64>,
     pub state_change_notify: Histogram<f64>,
@@ -442,6 +443,13 @@ impl StateStoreMetrics {
             .with_description("In-memory state update latency in seconds")
             .build();
 
+        let state_write_container_scheduler = meter
+            .f64_histogram("indexify.state_machine_write_container_scheduler_duration")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Container scheduler update latency in seconds")
+            .build();
+
         let state_write_executor_notify = meter
             .f64_histogram("indexify.state_machine_write_executor_notify_duration")
             .with_unit("s")
@@ -475,6 +483,7 @@ impl StateStoreMetrics {
             driver_commits_errors,
             state_write_persistent_storage,
             state_write_in_memory,
+            state_write_container_scheduler,
             state_write_executor_notify,
             state_write_request_state_change,
             state_change_notify,

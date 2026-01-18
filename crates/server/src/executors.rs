@@ -1,6 +1,6 @@
 use std::{
     cmp,
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::{
         Arc,
@@ -16,7 +16,7 @@ use tokio::{
     sync::{Mutex, RwLock, watch},
     time::Instant,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
@@ -27,6 +27,8 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorRemovedEvent,
+        FunctionContainerState,
+        FunctionRunOutcome,
         StateChange,
         StateChangeBuilder,
         StateChangeId,
@@ -34,7 +36,6 @@ use crate::{
     executor_api::executor_api_pb::{
         self,
         Allocation,
-        DataPayload,
         DataPayloadEncoding,
         DesiredExecutorState,
         FunctionExecutorDescription,
@@ -44,7 +45,8 @@ use crate::{
     pb_helpers::*,
     state_store::{
         IndexifyState,
-        in_memory_state::DesiredStateFunctionExecutor,
+        executor_watches::ExecutorWatch,
+        in_memory_state::{self, DesiredStateFunctionExecutor, FunctionCallOutcome},
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
@@ -169,12 +171,13 @@ impl ExecutorManager {
 
             // Get all executor IDs of executors that haven't registered.
             let missing_executor_ids: Vec<_> = {
+                let container_scheduler = indexify_state.container_scheduler.read().await;
                 let indexes = indexify_state.in_memory_state.read().await;
 
                 indexes
                     .allocations_by_executor
                     .keys()
-                    .filter(|id| !indexes.executors.contains_key(&**id))
+                    .filter(|id| !container_scheduler.executors.contains_key(&**id))
                     .cloned()
                     .collect()
             };
@@ -242,7 +245,7 @@ impl ExecutorManager {
             );
             let existing_executor = self
                 .indexify_state
-                .in_memory_state
+                .container_scheduler
                 .read()
                 .await
                 .executors
@@ -372,6 +375,156 @@ impl ExecutorManager {
             .map(|s| s.subscribe())
     }
 
+    pub async fn desired_state(
+        &self,
+        executor_id: &ExecutorId,
+        executor_watches: HashSet<ExecutorWatch>,
+    ) -> Option<in_memory_state::DesiredExecutorState> {
+        let indexes = self.indexify_state.in_memory_state.read().await;
+        let container_scheduler = self.indexify_state.container_scheduler.read().await;
+        if let Some(executor) = container_scheduler.executors.get(executor_id) {
+            if executor.tombstoned {
+                return None;
+            }
+        } else {
+            return None;
+        }
+        let mut function_call_outcomes = Vec::new();
+        for executor_watch in executor_watches.iter() {
+            let Some(function_run) = indexes.function_runs.get(&executor_watch.into()) else {
+                error!(
+                    namespace = %executor_watch.namespace,
+                    app = %executor_watch.application,
+                    request_id = %executor_watch.request_id,
+                    function_call_id = %executor_watch.function_call_id,
+                    "function run not found for executor watch",
+                );
+                continue;
+            };
+            info!(
+                function_call_id = %executor_watch.function_call_id,
+                request_id = %executor_watch.request_id,
+                fn_run_status = %function_run.status,
+                fn_run_outcome = ?function_run.outcome,
+                has_output = function_run.output.is_some(),
+                "found function run for executor watch"
+            );
+            let failure_reason = match &function_run.outcome {
+                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
+                _ => None,
+            };
+            function_call_outcomes.push(FunctionCallOutcome {
+                namespace: function_run.namespace.clone(),
+                request_id: function_run.request_id.clone(),
+                function_call_id: function_run.id.clone(),
+                outcome: function_run
+                    .outcome
+                    .clone()
+                    .unwrap_or(FunctionRunOutcome::Unknown),
+                failure_reason,
+                return_value: function_run.output.clone(),
+                request_error: function_run.request_error.clone(),
+            });
+        }
+        let fc_ids = container_scheduler
+            .executor_states
+            .get(executor_id)
+            .cloned()
+            .map(|executor_state| executor_state.function_container_ids)
+            .unwrap_or_default();
+
+        info!(
+            executor_id = executor_id.get(),
+            num_fc_ids = fc_ids.len(),
+            fc_ids = ?fc_ids.iter().map(|id| id.get().to_string()).collect::<Vec<_>>(),
+            "computing desired state: function container IDs from executor state"
+        );
+
+        let mut active_function_containers = Vec::new();
+        for container_id in fc_ids {
+            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
+                error!(
+                    executor_id = executor_id.get(),
+                    container_id = container_id.get(),
+                    "function container ID in executor state but NOT in function_containers map!"
+                );
+                continue;
+            };
+            if !matches!(fc.desired_state, FunctionContainerState::Terminated { .. }) {
+                active_function_containers.push(fc);
+            } else {
+                info!(
+                    executor_id = executor_id.get(),
+                    container_id = container_id.get(),
+                    fn_name = fc.function_container.function_name,
+                    desired_state = ?fc.desired_state,
+                    "excluding function container from desired state: terminated"
+                );
+            }
+        }
+
+        info!(
+            executor_id = executor_id.get(),
+            num_active_fcs = active_function_containers.len(),
+            active_fcs = ?active_function_containers.iter().map(|fc| format!("{}:{}", fc.function_container.id.get(), fc.function_container.function_name)).collect::<Vec<_>>(),
+            "active function containers for desired state"
+        );
+        let mut function_executors = Vec::new();
+        let mut task_allocations = std::collections::HashMap::new();
+        for fe_meta in active_function_containers {
+            let fe = &fe_meta.function_container;
+            let Some(cg_version) = indexes
+                .application_versions
+                .get(&ApplicationVersion::key_from(
+                    &fe.namespace,
+                    &fe.application_name,
+                    &fe.version,
+                ))
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(cg_node) = cg_version.functions.get(&fe.function_name) else {
+                continue;
+            };
+            function_executors.push(Box::new(DesiredStateFunctionExecutor {
+                function_executor: fe_meta.clone(),
+                resources: fe.resources.clone(),
+                secret_names: cg_node.secret_names.clone().unwrap_or_default(),
+                initialization_timeout_ms: cg_node.initialization_timeout.0,
+                code_payload: data_model::DataPayload {
+                    id: cg_version.code.id.clone(),
+                    metadata_size: 0,
+                    path: cg_version.code.path.clone(),
+                    size: cg_version.code.size,
+                    sha256_hash: cg_version.code.sha256_hash.clone(),
+                    offset: 0, // Code always uses its full BLOB
+                    encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
+                },
+            }));
+
+            let allocations = indexes
+                .allocations_by_executor
+                .get(executor_id)
+                .and_then(|allocations| allocations.get(&fe_meta.function_container.id.clone()))
+                .map(|allocations| {
+                    allocations
+                        .values()
+                        .map(|allocation| allocation.as_ref().clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            task_allocations.insert(fe_meta.function_container.id.clone(), allocations);
+        }
+
+        Some(in_memory_state::DesiredExecutorState {
+            function_executors,
+            function_run_allocations: task_allocations,
+            clock: indexes.clock,
+            function_call_outcomes,
+        })
+    }
+
     /// Get the desired state for an executor
     pub async fn get_executor_state(
         &self,
@@ -382,15 +535,27 @@ impl ExecutorManager {
             .executor_watches
             .get_watches(executor_id.get())
             .await;
-        let desired_executor_state = self
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .clone()
-            .read()
-            .await
-            .desired_state(executor_id, fn_call_watches)?;
+
+        if !fn_call_watches.is_empty() {
+            info!(
+                executor_id = executor_id.get(),
+                num_watches = fn_call_watches.len(),
+                watches = ?fn_call_watches.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
+                "computing desired state with watches"
+            );
+        }
+
+        let desired_executor_state = self.desired_state(executor_id, fn_call_watches).await?;
+
+        if !desired_executor_state.function_call_outcomes.is_empty() {
+            info!(
+                executor_id = executor_id.get(),
+                num_results = desired_executor_state.function_call_outcomes.len(),
+                results = ?desired_executor_state.function_call_outcomes.iter().map(|r| format!("{}:{:?}", r.function_call_id, r.outcome)).collect::<Vec<_>>(),
+                "sending function_call_results to executor"
+            );
+        }
+
         let mut function_call_results_pb = vec![];
         for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
             let blob_store_url_schema = self
@@ -417,7 +582,7 @@ impl ExecutorManager {
                 .get_blob_store(
                     &desired_state_fe
                         .function_executor
-                        .function_executor
+                        .function_container
                         .namespace,
                 )
                 .get_url_scheme();
@@ -426,11 +591,11 @@ impl ExecutorManager {
                 .get_blob_store(
                     &desired_state_fe
                         .function_executor
-                        .function_executor
+                        .function_container
                         .namespace,
                 )
                 .get_url();
-            let code_payload_pb = DataPayload {
+            let code_payload_pb = executor_api_pb::DataPayload {
                 id: Some(desired_state_fe.code_payload.id.clone()),
                 uri: Some(blob_store_path_to_url(
                     &desired_state_fe.code_payload.path,
@@ -446,7 +611,7 @@ impl ExecutorManager {
                 source_function_call_id: None,
                 content_type: Some("application/zip".to_string()),
             };
-            let fe = &desired_state_fe.function_executor.function_executor;
+            let fe = &desired_state_fe.function_executor.function_container;
             let Some(application_version) = self
                 .indexify_state
                 .in_memory_state
@@ -568,7 +733,7 @@ impl ExecutorManager {
         let mut executors = vec![];
         for executor in self
             .indexify_state
-            .in_memory_state
+            .container_scheduler
             .read()
             .await
             .executors
@@ -581,8 +746,9 @@ impl ExecutorManager {
 
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
         let state = self.indexify_state.in_memory_state.read().await;
+        let container_sched = self.indexify_state.container_scheduler.read().await;
         let allocations_by_executor = &state.allocations_by_executor;
-        let function_executors_by_executor = &state.executor_states;
+        let function_executors_by_executor = &container_sched.executor_states;
 
         let executors = function_executors_by_executor
             .iter()
@@ -591,15 +757,12 @@ impl ExecutorManager {
                 let mut function_executors: Vec<FnExecutor> = vec![];
 
                 // Process each function executor
-                for (_, fe_meta) in function_executor_metas.function_executors.iter() {
-                    // Get the function URI string
-                    let fn_uri = fe_meta.fn_uri_str();
-
+                for container_id in function_executor_metas.function_container_ids.iter() {
                     let allocations: Vec<http_objects::Allocation> = allocations_by_executor
                         .get(executor_id)
                         .map(|allocations| {
                             allocations
-                                .get(&fe_meta.function_executor.id)
+                                .get(container_id)
                                 .map(|allocations| {
                                     allocations
                                         .values()
@@ -610,17 +773,24 @@ impl ExecutorManager {
                         })
                         .unwrap_or_default();
 
+                    let Some(function_container_server_meta) =
+                        container_sched.function_containers.get(container_id)
+                    else {
+                        continue;
+                    };
+
                     function_executors.push(FnExecutor {
                         count: allocations.len(),
-                        function_executor_id: fe_meta
-                            .function_executor
-                            .id
-                            .clone()
-                            .get()
+                        function_executor_id: container_id.to_string(),
+                        state: function_container_server_meta
+                            .function_container
+                            .state
+                            .as_ref()
                             .to_string(),
-                        fn_uri,
-                        state: fe_meta.function_executor.state.as_ref().to_string(),
-                        desired_state: fe_meta.desired_state.as_ref().to_string(),
+                        desired_state: function_container_server_meta
+                            .desired_state
+                            .as_ref()
+                            .to_string(),
                         allocations,
                     });
                 }
@@ -647,16 +817,16 @@ fn compute_function_executors_hash(
     let mut sorted_executors = function_executors.iter().collect::<Vec<_>>();
     sorted_executors.sort_by(|a, b| {
         a.function_executor
-            .function_executor
+            .function_container
             .id
             .get()
-            .cmp(b.function_executor.function_executor.id.get())
+            .cmp(b.function_executor.function_container.id.get())
     });
 
     // Hash each function executor's ID and desired state
     for fe in sorted_executors {
         fe.function_executor
-            .function_executor
+            .function_container
             .id
             .get()
             .hash(&mut hasher);
@@ -798,7 +968,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .in_memory_state
+                .container_scheduler
                 .read()
                 .await
                 .executors
@@ -824,7 +994,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .in_memory_state
+                .container_scheduler
                 .read()
                 .await
                 .executors
@@ -847,7 +1017,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .in_memory_state
+                .container_scheduler
                 .read()
                 .await
                 .executors
@@ -875,7 +1045,7 @@ mod tests {
         // Ensure that the executor has been removed
         {
             let executors = indexify_state
-                .in_memory_state
+                .container_scheduler
                 .read()
                 .await
                 .executors

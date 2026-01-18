@@ -788,7 +788,7 @@ mod tests {
                     &kv.value,
                     Some(av) if matches!(&av.value, Some(Value::StringValue(_)))
                 )),
-                "data" => assert!(matches!(&kv.value, Some(_))),
+                "data" => assert!(kv.value.is_some()),
                 _ => {}
             }
         }

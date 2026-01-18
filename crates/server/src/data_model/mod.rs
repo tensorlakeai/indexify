@@ -68,11 +68,11 @@ impl From<String> for ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
-    pub function_executor_id: FunctionExecutorId,
+    pub function_executor_id: FunctionContainerId,
 }
 
 impl AllocationTarget {
-    pub fn new(executor_id: ExecutorId, function_executor_id: FunctionExecutorId) -> Self {
+    pub fn new(executor_id: ExecutorId, function_executor_id: FunctionContainerId) -> Self {
         Self {
             executor_id,
             function_executor_id,
@@ -290,13 +290,6 @@ impl FunctionRun {
         format!("{namespace}|{application}|{request_id}|")
     }
 
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self.outcome,
-            Some(FunctionRunOutcome::Success) | Some(FunctionRunOutcome::Failure(_))
-        )
-    }
-
     /// Returns true if this function run has never been persisted to the
     /// database.
     pub fn is_new(&self) -> bool {
@@ -426,7 +419,6 @@ pub struct Function {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
-    pub fn_name: String,
     #[serde(default = "default_data_encoder")]
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
@@ -447,6 +439,10 @@ pub struct Function {
     pub return_type: Option<serde_json::Value>,
     #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
+    #[serde(default)]
+    pub min_containers: Option<u32>,
+    #[serde(default)]
+    pub max_containers: Option<u32>,
 }
 
 impl Function {
@@ -1281,30 +1277,41 @@ pub struct FunctionURI {
     pub version: String,
 }
 
-impl From<&FunctionExecutorServerMetadata> for FunctionURI {
-    fn from(fe_meta: &FunctionExecutorServerMetadata) -> Self {
+impl From<&Allocation> for FunctionURI {
+    fn from(allocation: &Allocation) -> Self {
         FunctionURI {
-            namespace: fe_meta.function_executor.namespace.clone(),
-            application: fe_meta.function_executor.application_name.clone(),
-            function: fe_meta.function_executor.function_name.clone(),
-            version: fe_meta.function_executor.version.clone(),
+            namespace: allocation.namespace.clone(),
+            application: allocation.application.clone(),
+            function: allocation.function.clone(),
+            version: allocation.application_version.clone(),
         }
     }
 }
 
-impl From<&Box<FunctionExecutorServerMetadata>> for FunctionURI {
-    fn from(fe_meta: &Box<FunctionExecutorServerMetadata>) -> Self {
+impl From<&FunctionContainerServerMetadata> for FunctionURI {
+    fn from(fe_meta: &FunctionContainerServerMetadata) -> Self {
         FunctionURI {
-            namespace: fe_meta.function_executor.namespace.clone(),
-            application: fe_meta.function_executor.application_name.clone(),
-            function: fe_meta.function_executor.function_name.clone(),
-            version: fe_meta.function_executor.version.clone(),
+            namespace: fe_meta.function_container.namespace.clone(),
+            application: fe_meta.function_container.application_name.clone(),
+            function: fe_meta.function_container.function_name.clone(),
+            version: fe_meta.function_container.version.clone(),
         }
     }
 }
 
-impl From<&FunctionExecutor> for FunctionURI {
-    fn from(fe: &FunctionExecutor) -> Self {
+impl From<&Box<FunctionContainerServerMetadata>> for FunctionURI {
+    fn from(fe_meta: &Box<FunctionContainerServerMetadata>) -> Self {
+        FunctionURI {
+            namespace: fe_meta.function_container.namespace.clone(),
+            application: fe_meta.function_container.application_name.clone(),
+            function: fe_meta.function_container.function_name.clone(),
+            version: fe_meta.function_container.version.clone(),
+        }
+    }
+}
+
+impl From<&FunctionContainer> for FunctionURI {
+    fn from(fe: &FunctionContainer) -> Self {
         FunctionURI {
             namespace: fe.namespace.clone(),
             application: fe.application_name.clone(),
@@ -1397,7 +1404,7 @@ impl HostResources {
     }
 
     // If can't handle, returns error that describes the reason why.
-    pub fn can_handle_fe_resources(&self, request: &FunctionExecutorResources) -> Result<()> {
+    pub fn can_handle_fe_resources(&self, request: &FunctionContainerResources) -> Result<()> {
         let requested_memory_bytes = request.memory_mb * 1024 * 1024;
         let requested_disk_bytes = request.ephemeral_disk_mb * 1024 * 1024;
 
@@ -1430,7 +1437,7 @@ impl HostResources {
 
     // If can't handle, returns error that describes the reason why.
     pub fn can_handle_function_resources(&self, request: &FunctionResources) -> Result<()> {
-        let fe_resources_no_gpu = FunctionExecutorResources {
+        let fe_resources_no_gpu = FunctionContainerResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1451,7 +1458,7 @@ impl HostResources {
         result
     }
 
-    pub fn consume_fe_resources(&mut self, request: &FunctionExecutorResources) -> Result<()> {
+    pub fn consume_fe_resources(&mut self, request: &FunctionContainerResources) -> Result<()> {
         self.can_handle_fe_resources(request)?;
 
         // Allocate the resources only after all the checks passed to not leak anything
@@ -1471,8 +1478,8 @@ impl HostResources {
     pub fn consume_function_resources(
         &mut self,
         request: &FunctionResources,
-    ) -> Result<FunctionExecutorResources> {
-        let fe_resources_no_gpu = FunctionExecutorResources {
+    ) -> Result<FunctionContainerResources> {
+        let fe_resources_no_gpu = FunctionContainerResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1499,7 +1506,7 @@ impl HostResources {
         ))
     }
 
-    pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {
+    pub fn free(&mut self, allocated_resources: &FunctionContainerResources) -> Result<()> {
         self.cpu_ms_per_sec += allocated_resources.cpu_ms_per_sec;
         self.memory_bytes += allocated_resources.memory_mb * 1024 * 1024;
         self.disk_bytes += allocated_resources.ephemeral_disk_mb * 1024 * 1024;
@@ -1537,8 +1544,8 @@ pub enum ExecutorState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FunctionExecutorId(String);
-impl FunctionExecutorId {
+pub struct FunctionContainerId(String);
+impl FunctionContainerId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
@@ -1547,19 +1554,19 @@ impl FunctionExecutorId {
         &self.0
     }
 }
-impl Default for FunctionExecutorId {
+impl Default for FunctionContainerId {
     fn default() -> Self {
         Self::new(nanoid::nanoid!())
     }
 }
 
-impl From<&str> for FunctionExecutorId {
+impl From<&str> for FunctionContainerId {
     fn from(s: &str) -> Self {
         Self::new(s.to_string())
     }
 }
 
-impl fmt::Display for FunctionExecutorId {
+impl fmt::Display for FunctionContainerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", &self.0)
     }
@@ -1568,7 +1575,7 @@ impl fmt::Display for FunctionExecutorId {
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
-pub enum FunctionExecutorState {
+pub enum FunctionContainerState {
     #[default]
     Unknown,
     // Function Executor is being created.
@@ -1657,11 +1664,10 @@ pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
     pub function: Option<String>,
-    pub version: Option<String>,
 }
 
 impl FunctionAllowlist {
-    pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
+    pub fn matches_function_executor(&self, function_executor: &FunctionContainer) -> bool {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
@@ -1670,30 +1676,24 @@ impl FunctionAllowlist {
                 .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
             self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
-            self.version
-                .as_ref()
-                .is_none_or(|version| version == &function_executor.version)
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
     }
 
-    pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
+    pub fn matches_function(&self, ns: &str, app: &str, function: &Function) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|ns| ns == &function_run.namespace) &&
+            .is_none_or(|namespace| namespace == ns) &&
             self.application
                 .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_run.application) &&
+                .is_none_or(|application| application == app) &&
             self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_run.name) &&
-            self.version
-                .as_ref()
-                .is_none_or(|version| version == &function_run.version)
+                .is_none_or(|function_name| function_name == &function.name)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
-pub struct FunctionExecutorResources {
+pub struct FunctionContainerResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
@@ -1727,15 +1727,15 @@ impl GcUrl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct FunctionExecutor {
+pub struct FunctionContainer {
     #[builder(default)]
-    pub id: FunctionExecutorId,
+    pub id: FunctionContainerId,
     pub namespace: String,
     pub application_name: String,
     pub function_name: String,
     pub version: String,
-    pub state: FunctionExecutorState,
-    pub resources: FunctionExecutorResources,
+    pub state: FunctionContainerState,
+    pub resources: FunctionContainerResources,
     pub max_concurrency: u32,
     #[builder(default)]
     #[serde(default)]
@@ -1749,29 +1749,22 @@ pub struct FunctionExecutor {
 // so created_at_clock and updated_at_clock are currently unused but kept
 // for future use if ExecutorMetadata becomes persisted.
 
-impl PartialEq for FunctionExecutor {
+impl PartialEq for FunctionContainer {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for FunctionExecutor {}
+impl Eq for FunctionContainer {}
 
-impl Hash for FunctionExecutor {
+impl Hash for FunctionContainer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl FunctionExecutor {
-    pub fn fn_uri_str(&self) -> String {
-        format!(
-            "{}|{}|{}|{}",
-            self.namespace, self.application_name, self.function_name, self.version,
-        )
-    }
-
-    pub fn update(&mut self, other: &FunctionExecutor) {
+impl FunctionContainer {
+    pub fn update(&mut self, other: &FunctionContainer) {
         // Only update fields that change after self FE was created.
         // Other FE mush represent the same FE.
         self.state = other.state.clone();
@@ -1781,9 +1774,25 @@ impl FunctionExecutor {
 #[derive(Debug, Clone, Builder)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
+    pub function_container_ids: HashSet<FunctionContainerId>,
     pub free_resources: HostResources,
-    pub resource_claims: HashMap<FunctionExecutorId, FunctionExecutorResources>,
+    pub resource_claims: HashMap<FunctionContainerId, FunctionContainerResources>,
+}
+
+impl ExecutorServerMetadata {
+    pub fn remove_container(&mut self, container: &FunctionContainer) -> Result<()> {
+        self.function_container_ids.remove(&container.id);
+        self.resource_claims.remove(&container.id);
+        self.free_resources.free(&container.resources)
+    }
+
+    pub fn add_container(&mut self, container: &FunctionContainer) -> Result<()> {
+        self.function_container_ids.insert(container.id.clone());
+        self.resource_claims
+            .insert(container.id.clone(), container.resources.clone());
+        self.free_resources
+            .consume_fe_resources(&container.resources)
+    }
 }
 
 impl Eq for ExecutorServerMetadata {}
@@ -1800,44 +1809,61 @@ impl Hash for ExecutorServerMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct FunctionExecutorServerMetadata {
-    pub executor_id: ExecutorId,
-    pub function_executor: FunctionExecutor,
-    pub desired_state: FunctionExecutorState,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub enum FunctionContainerType {
+    Sandbox,
+    #[default]
+    Function,
 }
 
-impl Eq for FunctionExecutorServerMetadata {}
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct FunctionContainerServerMetadata {
+    pub executor_id: ExecutorId,
+    pub function_container: FunctionContainer,
+    pub desired_state: FunctionContainerState,
+    #[builder(default)]
+    pub container_type: FunctionContainerType,
+    #[builder(default)]
+    #[serde(default)]
+    pub num_allocations: u32,
+}
 
-impl PartialEq for FunctionExecutorServerMetadata {
+impl Eq for FunctionContainerServerMetadata {}
+
+impl PartialEq for FunctionContainerServerMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.executor_id == other.executor_id &&
-            self.function_executor.id == other.function_executor.id
+            self.function_container.id == other.function_container.id
     }
 }
 
-impl Hash for FunctionExecutorServerMetadata {
+impl Hash for FunctionContainerServerMetadata {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.executor_id.hash(state);
-        self.function_executor.id.hash(state);
+        self.function_container.id.hash(state);
     }
 }
 
-impl FunctionExecutorServerMetadata {
+impl FunctionContainerServerMetadata {
     pub fn new(
         executor_id: ExecutorId,
-        function_executor: FunctionExecutor,
-        desired_state: FunctionExecutorState,
+        function_executor: FunctionContainer,
+        desired_state: FunctionContainerState,
     ) -> Self {
         Self {
             executor_id,
-            function_executor,
+            function_container: function_executor,
             desired_state,
+            container_type: FunctionContainerType::Function,
+            num_allocations: 0,
         }
     }
 
-    pub fn fn_uri_str(&self) -> String {
-        self.function_executor.fn_uri_str()
+    pub fn can_be_removed(&self) -> bool {
+        // A container can only be vacuumed if:
+        // 1. It's a Function container (not a Sandbox)
+        // 2. AND it has no running allocations
+        self.container_type == FunctionContainerType::Function && self.num_allocations == 0
     }
 }
 
@@ -1849,7 +1875,7 @@ pub struct ExecutorMetadata {
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, String>,
-    pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
+    pub function_executors: HashMap<FunctionContainerId, FunctionContainer>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     #[builder(default)]
@@ -1872,11 +1898,16 @@ pub struct ExecutorMetadata {
 // for future use if ExecutorMetadata becomes persisted.
 
 impl ExecutorMetadata {
-    pub fn is_function_allowed(&self, function_run: &FunctionRun) -> bool {
+    pub fn is_function_allowed(
+        &self,
+        namespace: &str,
+        application: &str,
+        function: &Function,
+    ) -> bool {
         if let Some(function_allowlist) = &self.function_allowlist {
             function_allowlist
                 .iter()
-                .any(|allowlist| allowlist.matches_function(function_run))
+                .any(|allowlist| allowlist.matches_function(namespace, application, function))
         } else {
             true
         }
@@ -2618,13 +2649,13 @@ mod tests {
 
     #[test]
     fn test_function_executor_builder_build_success() {
-        let id: FunctionExecutorId = "fe-123".into();
+        let id: FunctionContainerId = "fe-123".into();
         let namespace = "test-ns".to_string();
         let application_name = "graph".to_string();
         let function_name = "fn".to_string();
         let version = "1".to_string();
-        let state = FunctionExecutorState::Running;
-        let resources = FunctionExecutorResources {
+        let state = FunctionContainerState::Running;
+        let resources = FunctionContainerResources {
             cpu_ms_per_sec: 2000,
             memory_mb: 4096,
             ephemeral_disk_mb: 2048,
@@ -2635,7 +2666,7 @@ mod tests {
         };
         let max_concurrency = 4;
 
-        let mut builder = FunctionExecutorBuilder::default();
+        let mut builder = FunctionContainerBuilder::default();
         builder
             .id(id.clone())
             .namespace(namespace.clone())
@@ -2695,21 +2726,20 @@ mod tests {
             namespace: Some("ns".to_string()),
             application: Some("graph".to_string()),
             function: Some("fn".to_string()),
-            version: Some("1".to_string()),
         }]);
         let addr = "127.0.0.1:8080".to_string();
         let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
-        let fe_id = FunctionExecutorId::from("fe-1");
+        let fe_id = FunctionContainerId::from("fe-1");
         let function_executors = HashMap::from([(
             fe_id.clone(),
-            FunctionExecutorBuilder::default()
+            FunctionContainerBuilder::default()
                 .id(fe_id.clone())
                 .namespace("ns".to_string())
                 .application_name("graph".to_string())
                 .function_name("fn".to_string())
                 .version("1".to_string())
-                .state(FunctionExecutorState::Running)
-                .resources(FunctionExecutorResources {
+                .state(FunctionContainerState::Running)
+                .resources(FunctionContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,

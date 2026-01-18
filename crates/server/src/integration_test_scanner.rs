@@ -46,7 +46,7 @@ mod tests {
             .reader()
             .all_unprocessed_state_changes()
             .await?;
-        assert!(changes.len() > 0);
+        assert!(!changes.is_empty());
 
         Ok(())
     }
@@ -64,7 +64,7 @@ mod tests {
             .reader()
             .unprocessed_state_changes(&None, &None)
             .await?;
-        assert!(unprocessed.changes.len() > 0);
+        assert!(!unprocessed.changes.is_empty());
 
         // Process them
         test_srv.process_all_state_changes().await?;
@@ -118,7 +118,7 @@ mod tests {
 
         // Should have allocation usage now
         let (usage, cursor) = indexify_state.reader().allocation_usage(None).await?;
-        assert!(usage.len() > 0);
+        assert!(!usage.is_empty());
         assert!(cursor.is_none());
 
         Ok(())
@@ -330,7 +330,7 @@ mod tests {
                 Some(1),
             )
             .await?;
-        assert!(allocations.len() > 0);
+        assert!(!allocations.is_empty());
 
         let allocation_key = allocations[0].key();
         let allocation = indexify_state
@@ -364,7 +364,7 @@ mod tests {
             .reader()
             .get_allocations_by_request_id(TEST_NAMESPACE, "graph_A", &request_id)
             .await?;
-        assert!(allocations.len() > 0);
+        assert!(!allocations.is_empty());
 
         Ok(())
     }
@@ -601,7 +601,7 @@ mod tests {
             .reader()
             .get_all_rows_from_cf(IndexifyObjectsColumns::Namespaces)
             .await?;
-        assert!(rows.len() > 0);
+        assert!(!rows.is_empty());
         assert!(rows.iter().any(|(_, ns)| ns.name == "test_ns"));
 
         Ok(())
