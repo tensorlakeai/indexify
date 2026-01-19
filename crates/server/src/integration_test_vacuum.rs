@@ -1177,10 +1177,11 @@ mod tests {
             tracing::info!(
                 "app_a container {} has num_allocations={}",
                 id.get(),
-                fc.num_allocations
+                fc.allocations.len(),
             );
             assert_eq!(
-                fc.num_allocations, 1,
+                fc.allocations.len(),
+                1,
                 "Container should have 1 active allocation"
             );
         }
@@ -1209,7 +1210,7 @@ mod tests {
                     "app_a container {} desired_state={:?}, num_allocations={}",
                     id.get(),
                     fc.desired_state,
-                    fc.num_allocations
+                    fc.allocations.len(),
                 );
                 assert!(
                     !matches!(
@@ -1388,7 +1389,8 @@ mod tests {
     ///
     /// Scenario:
     /// 1. Create executor with 2 cores
-    /// 2. Create app_a using 1 core, complete allocation (container becomes idle)
+    /// 2. Create app_a using 1 core, complete allocation (container becomes
+    ///    idle)
     /// 3. Invoke app_b requiring 2 cores (triggers vacuum of app_a's container)
     /// 4. Then invoke app_a again - it should NOT use the vacuumed container
     #[tokio::test]
@@ -1397,7 +1399,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 2 CPU cores
-        let mut executor = test_srv
+        let executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 2000,                    // 2 cores
@@ -1463,7 +1465,8 @@ mod tests {
                 .get(&container_id_before)
                 .expect("Container should exist");
             assert_eq!(
-                fc.num_allocations, 0,
+                fc.allocations.len(),
+                0,
                 "Container should be idle after completion"
             );
             tracing::info!(
@@ -1484,7 +1487,10 @@ mod tests {
         // Now app_a's container should be terminated
         {
             let container_scheduler = indexify_state.container_scheduler.read().await;
-            if let Some(fc) = container_scheduler.function_containers.get(&container_id_before) {
+            if let Some(fc) = container_scheduler
+                .function_containers
+                .get(&container_id_before)
+            {
                 tracing::info!(
                     "After vacuum: app_a container {} desired_state: {:?}",
                     container_id_before.get(),

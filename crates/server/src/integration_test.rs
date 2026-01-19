@@ -356,7 +356,7 @@ mod tests {
                     fc.function_container.function_name,
                     fc.function_container.state,
                     fc.desired_state,
-                    fc.num_allocations
+                    fc.allocations.len(),
                 );
             }
 

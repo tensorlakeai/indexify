@@ -43,11 +43,6 @@ impl ContainerReconciler {
         executor: &ExecutorMetadata,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        // Clone the executor_server_metadata instead of getting a mutable reference.
-        // This is important because we need the original state in container_scheduler
-        // to remain unchanged so that update_scheduler_update can detect the difference
-        // and properly remove containers from function_containers and
-        // containers_by_function_uri.
         let Some(mut executor_server_metadata) = container_scheduler
             .executor_states
             .get(&executor.id)
@@ -55,35 +50,37 @@ impl ContainerReconciler {
         else {
             return Ok(update);
         };
-        let server_function_container_ids = executor_server_metadata.function_container_ids.clone();
-        let mut function_executors_to_remove = Vec::new();
-        let mut new_function_executors = Vec::new();
+        let mut function_containers_to_remove = Vec::new();
 
-        let fes_exist_only_in_executor = executor
+        let containers_only_in_executor = executor
             .function_executors
             .iter()
-            .filter(|(fe_id, _fe)| !server_function_container_ids.contains(fe_id))
+            .filter(|(fe_id, _fe)| {
+                !executor_server_metadata
+                    .function_container_ids
+                    .contains(fe_id)
+            })
             .map(|(_fe_id, fe)| fe.clone())
             .collect::<Vec<_>>();
-        let container_exist_only_in_server = server_function_container_ids
+        let containers_only_in_server = executor_server_metadata
+            .function_container_ids
             .iter()
             .filter(|fe_id| !executor.function_executors.contains_key(fe_id))
             .collect::<Vec<_>>();
-        let mut server_only_containers = Vec::new();
-        for container_id in container_exist_only_in_server {
+        for container_id in containers_only_in_server {
             let Some(function_container) =
                 container_scheduler.function_containers.get(container_id)
             else {
                 continue;
             };
-            server_only_containers.push(function_container);
-        }
-        for fe in server_only_containers {
-            if matches!(fe.desired_state, FunctionContainerState::Terminated { .. }) {
-                function_executors_to_remove.push(fe.function_container.clone());
+            if matches!(
+                function_container.desired_state,
+                FunctionContainerState::Terminated { .. }
+            ) {
+                function_containers_to_remove.push(function_container.function_container.clone());
             }
         }
-        for fe in fes_exist_only_in_executor {
+        for fe in containers_only_in_executor {
             if !matches!(fe.state, FunctionContainerState::Terminated { .. }) &&
                 executor_server_metadata
                     .free_resources
@@ -100,15 +97,23 @@ impl ContainerReconciler {
                     executor_server_metadata.executor_id.clone(),
                     executor_server_metadata.clone(),
                 );
-                update.new_function_containers.push(existing_fe);
+                update.function_containers.insert(
+                    existing_fe.function_container.id.clone(),
+                    Box::new(existing_fe.clone()),
+                );
             }
         }
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
         for (executor_fe_id, executor_fe) in &executor.function_executors {
             // If the Executor FE is also in the server's tracked FE lets sync them.
             if let Some(server_fe) = container_scheduler.function_containers.get(executor_fe_id) {
                 // If the executor's FE state is Terminated lets remove it from the server.
                 if matches!(executor_fe.state, FunctionContainerState::Terminated { .. }) {
-                    function_executors_to_remove.push(executor_fe.clone());
+                    function_containers_to_remove.push(executor_fe.clone());
+                    executor_server_metadata.remove_container(executor_fe)?;
                     continue;
                 }
 
@@ -122,18 +127,22 @@ impl ContainerReconciler {
                 if executor_fe.state != server_fe.function_container.state {
                     let mut server_fe_clone = server_fe.clone();
                     server_fe_clone.function_container.update(executor_fe);
-                    new_function_executors.push(*server_fe_clone);
+                    update.function_containers.insert(
+                        server_fe_clone.function_container.id.clone(),
+                        server_fe_clone.clone(),
+                    );
                 }
             }
         }
-        update
-            .new_function_containers
-            .extend(new_function_executors);
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
 
         update.extend(self.remove_function_containers(
             in_memory_state,
             &mut executor_server_metadata,
-            function_executors_to_remove,
+            function_containers_to_remove,
         )?);
 
         // Apply update to container_scheduler so removed containers are no longer
@@ -434,11 +443,21 @@ impl ContainerReconciler {
                 function_containers_to_remove.push(fec);
             }
         }
-        self.remove_function_containers(
+        let scheduler_update = self.remove_function_containers(
             in_memory_state,
             &mut executor_server_metadata,
             function_containers_to_remove,
-        )
+        )?;
+        in_memory_state.update_state(
+            self.clock,
+            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            "container_reconciler",
+        )?;
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(scheduler_update.clone()),
+            vec![],
+        )))?;
+        Ok(scheduler_update)
     }
 
     /// Completely deregisters an executor and handles all associated cleanup
@@ -512,8 +531,6 @@ impl ContainerReconciler {
             update
                 .updated_executor_states
                 .insert(executor_id.clone(), Box::new(executor_server_metadata));
-            // Apply update to container_scheduler so the new executor state is visible
-            // for the subsequent reconcile_function_executors call
             container_scheduler.update(
                 &crate::state_store::requests::RequestPayload::SchedulerUpdate((
                     Box::new(update.clone()),
