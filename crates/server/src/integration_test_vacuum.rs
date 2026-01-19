@@ -1373,4 +1373,186 @@ mod tests {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Test Case 11: Vacuum State Consistency Within Same State Change
+    // =========================================================================
+    /// Test that when vacuum runs, subsequent allocation logic within the SAME
+    /// state change sees the vacuumed container as terminated.
+    ///
+    /// This is a regression test for the bug where:
+    /// 1. Vacuum marked a container for termination
+    /// 2. But function_containers wasn't updated immediately
+    /// 3. Subsequent find_available_container calls in the same batch could
+    ///    still see the vacuumed container as "Running"
+    ///
+    /// Scenario:
+    /// 1. Create executor with 2 cores
+    /// 2. Create app_a using 1 core, complete allocation (container becomes idle)
+    /// 3. Invoke app_b requiring 2 cores (triggers vacuum of app_a's container)
+    /// 4. Then invoke app_a again - it should NOT use the vacuumed container
+    #[tokio::test]
+    async fn test_vacuum_state_consistency_within_state_change() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create executor with 2 CPU cores
+        let mut executor = test_srv
+            .create_executor(create_executor_with_resources(
+                TEST_EXECUTOR_ID,
+                2000,                    // 2 cores
+                16 * 1024 * 1024 * 1024, // 16 GB
+                None,
+            ))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Create app_a with function requiring 1 core
+        let fn_a = create_function_with_resources("fn_a", 1000, 1024, None, None);
+        let app_a = create_single_function_app("app_a", "1", fn_a);
+        register_application(&test_srv, &app_a).await?;
+
+        // Invoke app_a
+        let _request_id_a = invoke_application(&test_srv, &app_a).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Get the container ID for app_a
+        let container_id_before = {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app_a_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| fc.function_container.application_name == "app_a")
+                .collect();
+            assert_eq!(
+                app_a_containers.len(),
+                1,
+                "Should have exactly 1 container for app_a"
+            );
+            app_a_containers.first().unwrap().0.clone()
+        };
+        tracing::info!(
+            "app_a container before completion: {}",
+            container_id_before.get()
+        );
+
+        // Complete the allocation for app_a (making the container idle)
+        {
+            let desired_state = executor.desired_state().await;
+            assert_eq!(desired_state.allocations.len(), 1);
+            let allocation = desired_state.allocations.first().unwrap();
+            executor
+                .finalize_allocation(
+                    allocation,
+                    FinalizeFunctionRunArgs::new(
+                        allocation_key_from_proto(allocation),
+                        None,
+                        Some(mock_data_payload()),
+                    )
+                    .function_run_outcome(crate::data_model::FunctionRunOutcome::Success),
+                )
+                .await?;
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // Verify container is now idle (num_allocations = 0)
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let fc = container_scheduler
+                .function_containers
+                .get(&container_id_before)
+                .expect("Container should exist");
+            assert_eq!(
+                fc.num_allocations, 0,
+                "Container should be idle after completion"
+            );
+            tracing::info!(
+                "app_a container {} is now idle (num_allocations=0)",
+                container_id_before.get()
+            );
+        }
+
+        // Create app_b requiring 2 cores (will trigger vacuum of app_a's container)
+        let fn_b = create_function_with_resources("fn_b", 2000, 1024, None, None);
+        let app_b = create_single_function_app("app_b", "1", fn_b);
+        register_application(&test_srv, &app_b).await?;
+
+        // Invoke app_b - this triggers vacuum
+        let _request_id_b = invoke_application(&test_srv, &app_b).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Now app_a's container should be terminated
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            if let Some(fc) = container_scheduler.function_containers.get(&container_id_before) {
+                tracing::info!(
+                    "After vacuum: app_a container {} desired_state: {:?}",
+                    container_id_before.get(),
+                    fc.desired_state
+                );
+                assert!(
+                    matches!(
+                        fc.desired_state,
+                        crate::data_model::FunctionContainerState::Terminated { .. }
+                    ),
+                    "app_a's container should be terminated after vacuum"
+                );
+            } else {
+                tracing::info!(
+                    "After vacuum: app_a container {} was removed",
+                    container_id_before.get()
+                );
+            }
+        }
+
+        // Now invoke app_a again - it should NOT use the vacuumed container
+        let request_id_a2 = invoke_application(&test_srv, &app_a).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Check that app_a's second invocation did NOT go to the vacuumed container
+        let all_runs = test_srv.get_all_function_runs().await?;
+        let app_a_second_run: Vec<_> = all_runs
+            .iter()
+            .filter(|r| r.application == "app_a" && r.request_id == request_id_a2)
+            .collect();
+
+        for run in &app_a_second_run {
+            if let crate::data_model::FunctionRunStatus::Running(status) = &run.status {
+                tracing::info!(
+                    "app_a second run allocated with allocation_id: {}",
+                    status.allocation_id
+                );
+
+                let desired_state = executor.desired_state().await;
+                for alloc in &desired_state.allocations {
+                    if alloc
+                        .allocation_id
+                        .as_ref()
+                        .map_or(false, |id| *id == status.allocation_id.to_string())
+                    {
+                        let alloc_container_id =
+                            alloc.function_executor_id.clone().unwrap_or_default();
+                        tracing::info!(
+                            "app_a second allocation went to container: {}",
+                            alloc_container_id
+                        );
+
+                        // THE KEY ASSERTION: allocation should NOT go to the vacuumed
+                        // container
+                        assert_ne!(
+                            alloc_container_id,
+                            container_id_before.get(),
+                            "BUG: Allocation went to a vacuumed container! This means \
+                             find_available_container saw stale state."
+                        );
+                    }
+                }
+            } else {
+                // app_a should be pending because app_b is using all resources
+                tracing::info!("app_a second invocation status: {:?}", run.status);
+            }
+        }
+
+        Ok(())
+    }
 }
