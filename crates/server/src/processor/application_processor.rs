@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, StateChange},
+    data_model::{Application, ApplicationState, ChangeType, FunctionRunOutcome, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         container_reconciler,
@@ -23,6 +23,7 @@ use crate::{
             DeleteApplicationRequest,
             DeleteRequestRequest,
             RequestPayload,
+            SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
     },
@@ -348,10 +349,42 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
-                // Update container_scheduler with allocation outcomes BEFORE allocating new
-                // runs. This ensures num_allocations is decremented for
-                // completed allocations, freeing up capacity for retry
-                // allocations.
+                // Decrement num_allocations for completed allocations. Apply each decrement
+                // immediately so subsequent decrements for the same container see the updated
+                // count.
+                for allocation in &scheduler_update.updated_allocations {
+                    let is_terminal = matches!(
+                        allocation.outcome,
+                        FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
+                    );
+                    if !is_terminal {
+                        continue;
+                    }
+                    if let Some(fc) = container_scheduler_guard
+                        .function_containers
+                        .get(&allocation.target.function_executor_id)
+                    {
+                        let mut updated_fc = *fc.clone();
+                        updated_fc.num_allocations = updated_fc.num_allocations.saturating_sub(1);
+                        scheduler_update
+                            .updated_function_containers
+                            .push(updated_fc.clone());
+
+                        // Apply immediately to the cloned scheduler so subsequent decrements
+                        // for the same container see the updated num_allocations.
+                        let decrement_update = {
+                            let mut u = SchedulerUpdateRequest::default();
+                            u.updated_function_containers.push(updated_fc);
+                            u
+                        };
+                        container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                            Box::new(decrement_update),
+                            vec![],
+                        )))?;
+                    }
+                }
+                // Update container_scheduler BEFORE allocating new runs with the full update
+                // (including new_allocations, updated_allocations, etc.).
                 container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
                     Box::new(scheduler_update.clone()),
                     vec![],
@@ -376,6 +409,44 @@ impl ApplicationProcessor {
                     &mut container_scheduler_guard,
                     &ev.executor_id,
                 )?;
+                // Decrement num_allocations for failed allocations. Apply each decrement
+                // immediately so subsequent decrements for the same container see the updated
+                // count.
+                for allocation in &scheduler_update.updated_allocations {
+                    let is_terminal = matches!(
+                        allocation.outcome,
+                        FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
+                    );
+                    if !is_terminal {
+                        continue;
+                    }
+                    if let Some(fc) = container_scheduler_guard
+                        .function_containers
+                        .get(&allocation.target.function_executor_id)
+                    {
+                        let mut updated_fc = *fc.clone();
+                        updated_fc.num_allocations = updated_fc.num_allocations.saturating_sub(1);
+                        scheduler_update
+                            .updated_function_containers
+                            .push(updated_fc.clone());
+
+                        // Apply immediately to the cloned scheduler
+                        let decrement_update = {
+                            let mut u = SchedulerUpdateRequest::default();
+                            u.updated_function_containers.push(updated_fc);
+                            u
+                        };
+                        container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                            Box::new(decrement_update),
+                            vec![],
+                        )))?;
+                    }
+                }
+                // Update container_scheduler with the full update BEFORE allocating new runs.
+                container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update.clone()),
+                    vec![],
+                )))?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
@@ -397,6 +468,44 @@ impl ApplicationProcessor {
                     &mut container_scheduler_guard,
                     &ev.executor_id,
                 )?;
+                // Decrement num_allocations for failed allocations. Apply each decrement
+                // immediately so subsequent decrements for the same container see the updated
+                // count.
+                for allocation in &scheduler_update.updated_allocations {
+                    let is_terminal = matches!(
+                        allocation.outcome,
+                        FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
+                    );
+                    if !is_terminal {
+                        continue;
+                    }
+                    if let Some(fc) = container_scheduler_guard
+                        .function_containers
+                        .get(&allocation.target.function_executor_id)
+                    {
+                        let mut updated_fc = *fc.clone();
+                        updated_fc.num_allocations = updated_fc.num_allocations.saturating_sub(1);
+                        scheduler_update
+                            .updated_function_containers
+                            .push(updated_fc.clone());
+
+                        // Apply immediately to the cloned scheduler
+                        let decrement_update = {
+                            let mut u = SchedulerUpdateRequest::default();
+                            u.updated_function_containers.push(updated_fc);
+                            u
+                        };
+                        container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                            Box::new(decrement_update),
+                            vec![],
+                        )))?;
+                    }
+                }
+                // Update container_scheduler with the full update.
+                container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update.clone()),
+                    vec![],
+                )))?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,

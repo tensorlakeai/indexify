@@ -175,58 +175,80 @@ impl FunctionRunProcessor {
         // 1. Build FunctionURI from function_run
         let fn_uri = FunctionURI::from(function_run);
 
-        // 2. Look up existing containers from container_scheduler
-        let container_ids = container_scheduler.containers_by_function_uri.get(&fn_uri);
+        // Helper: find best container below capacity
+        let find_available_container = |container_scheduler: &ContainerScheduler,
+                                        fn_uri: &FunctionURI,
+                                        queue_size: u32|
+         -> Option<AllocationTarget> {
+            container_scheduler
+                .containers_by_function_uri
+                .get(fn_uri)
+                .and_then(|ids| {
+                    ids.iter()
+                        .filter_map(|id| container_scheduler.function_containers.get(id))
+                        .filter(|c| {
+                            // Filter out terminated containers
+                            if matches!(c.desired_state, FunctionContainerState::Terminated { .. })
+                            {
+                                return false;
+                            }
+                            // Filter out containers at or above capacity
+                            // Capacity = queue_size * max_concurrency
+                            let capacity = queue_size * c.function_container.max_concurrency;
+                            c.num_allocations < capacity
+                        })
+                        .min_by_key(|c| c.num_allocations)
+                        .map(|c| {
+                            AllocationTarget::new(
+                                c.executor_id.clone(),
+                                c.function_container.id.clone(),
+                            )
+                        })
+                })
+        };
 
-        // 3. If no containers exist, create one
-        if container_ids.is_none_or(|ids| ids.is_empty()) {
-            // Get the Function from application_version
+        // Helper: try to create a new container
+        let try_create_container = |in_memory_state: &InMemoryState,
+                                    container_scheduler: &mut ContainerScheduler,
+                                    function_run: &FunctionRun|
+         -> Result<Option<SchedulerUpdateRequest>> {
             let Some(app_version) = in_memory_state.get_existing_application_version(function_run)
             else {
-                return Ok(update);
+                return Ok(None);
             };
             let Some(function) = app_version.functions.get(&function_run.name) else {
-                return Ok(update);
+                return Ok(None);
             };
-
-            // Create container
-            if let Some(create_update) = container_scheduler.create_container_for_function(
+            container_scheduler.create_container_for_function(
                 &function_run.namespace,
                 &function_run.application,
                 &function_run.version,
                 function,
                 &app_version.state,
-            )? {
-                // Apply update to container_scheduler so the new container is visible
-                // for the subsequent lookup
-                container_scheduler.update(&RequestPayload::SchedulerUpdate((
-                    Box::new(create_update.clone()),
-                    vec![],
-                )))?;
-                update.extend(create_update);
-            }
-        }
+            )
+        };
 
-        // 4. Select least-loaded container (by num_allocations) that is below capacity
-        let container_ids = container_scheduler.containers_by_function_uri.get(&fn_uri);
-        let selected_target = container_ids.and_then(|ids| {
-            ids.iter()
-                .filter_map(|id| container_scheduler.function_containers.get(id))
-                .filter(|c| {
-                    // Filter out terminated containers
-                    if matches!(c.desired_state, FunctionContainerState::Terminated { .. }) {
-                        return false;
-                    }
-                    // Filter out containers at or above capacity
-                    // Capacity = queue_size * max_concurrency
-                    let capacity = self.queue_size * c.function_container.max_concurrency;
-                    c.num_allocations < capacity
-                })
-                .min_by_key(|c| c.num_allocations)
-                .map(|c| {
-                    AllocationTarget::new(c.executor_id.clone(), c.function_container.id.clone())
-                })
-        });
+        // 2. Try to find an available container
+        let mut selected_target =
+            find_available_container(container_scheduler, &fn_uri, self.queue_size);
+
+        // 3. If no container available (none exist or all at capacity), try to create
+        //    one
+        if selected_target.is_none() &&
+            let Some(create_update) =
+                try_create_container(in_memory_state, container_scheduler, function_run)?
+        {
+            // Apply update to container_scheduler so the new container is visible
+            container_scheduler.update(&RequestPayload::SchedulerUpdate((
+                Box::new(create_update.clone()),
+                vec![],
+            )))?;
+            update.extend(create_update);
+
+            // Try again to find an available container
+            selected_target =
+                find_available_container(container_scheduler, &fn_uri, self.queue_size);
+        }
 
         let Some(target) = selected_target else {
             return Ok(update);
@@ -241,10 +263,41 @@ impl FunctionRunProcessor {
             .function_call_id(function_run.id.clone())
             .call_metadata(function_run.call_metadata.clone())
             .input_args(function_run.input_args.clone())
-            .target(target)
+            .target(target.clone())
             .attempt_number(function_run.attempt_number)
             .outcome(FunctionRunOutcome::Unknown)
             .build()?;
+
+        let mut updated_function_run = function_run.clone();
+        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
+            allocation_id: allocation.id.clone(),
+        });
+
+        update.add_function_run(updated_function_run.clone(), ctx);
+        update.new_allocations.push(allocation.clone());
+
+        // Increment num_allocations via updated_function_containers so
+        // container_scheduler sees the updated count BEFORE any subsequent
+        // vacuum or allocation logic runs.
+        if let Some(fc) = container_scheduler
+            .function_containers
+            .get(&allocation.target.function_executor_id)
+        {
+            let mut updated_fc = *fc.clone();
+            updated_fc.num_allocations += 1;
+            update.updated_function_containers.push(updated_fc.clone());
+
+            // Apply immediately to the cloned scheduler
+            let allocation_update = {
+                let mut u = SchedulerUpdateRequest::default();
+                u.updated_function_containers.push(updated_fc);
+                u
+            };
+            container_scheduler.update(&RequestPayload::SchedulerUpdate((
+                Box::new(allocation_update),
+                vec![],
+            )))?;
+        }
 
         info!(
             allocation_id = %allocation.id,
@@ -256,13 +309,6 @@ impl FunctionRunProcessor {
             "created allocation",
         );
 
-        let mut updated_function_run = function_run.clone();
-        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
-            allocation_id: allocation.id.clone(),
-        });
-
-        update.add_function_run(updated_function_run.clone(), ctx);
-        update.new_allocations.push(allocation);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),

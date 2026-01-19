@@ -4,7 +4,7 @@ use anyhow::Result;
 use opentelemetry::metrics::ObservableGauge;
 use rand::seq::IndexedRandom;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::{
     data_model::{
@@ -20,7 +20,6 @@ use crate::{
         FunctionContainerState,
         FunctionExecutorTerminationReason,
         FunctionResources,
-        FunctionRunOutcome,
         FunctionURI,
     },
     state_store::{
@@ -280,27 +279,16 @@ impl ContainerScheduler {
             let _ = self.executors.remove(removed_executor_id);
         }
 
-        // Increment num_allocations for new allocations
-        for allocation in &scheduler_update.new_allocations {
+        // Apply updated function containers (num_allocations changes, desired_state
+        // changes for vacuum, etc.)
+        for updated_fc in &scheduler_update.updated_function_containers {
             if let Some(fc) = self
                 .function_containers
-                .get_mut(&allocation.target.function_executor_id)
+                .get_mut(&updated_fc.function_container.id)
             {
-                fc.num_allocations += 1;
-            }
-        }
-
-        // Decrement num_allocations for updated allocations that have completed
-        // (e.g., cancelled allocations from reconciler)
-        for allocation in &scheduler_update.updated_allocations {
-            if matches!(
-                allocation.outcome,
-                FunctionRunOutcome::Success | FunctionRunOutcome::Failure(_)
-            ) && let Some(fc) = self
-                .function_containers
-                .get_mut(&allocation.target.function_executor_id)
-            {
-                fc.num_allocations = fc.num_allocations.saturating_sub(1);
+                // Replace the entire container state to capture all changes
+                // (num_allocations, desired_state for vacuum, etc.)
+                **fc = updated_fc.clone();
             }
         }
     }
@@ -343,6 +331,17 @@ impl ContainerScheduler {
                     executor_server_state.executor_id.clone(),
                     executor_server_state.clone(),
                 );
+                // Update the function container to reflect termination in function_containers
+                update.updated_function_containers.push(update_fe.clone());
+
+                // Apply immediately to self so subsequent reads within this state change
+                // see the terminated container (e.g., find_available_container won't select it)
+                if let Some(fc) = self
+                    .function_containers
+                    .get_mut(&update_fe.function_container.id)
+                {
+                    **fc = update_fe;
+                }
             }
             candidates = self.candidate_hosts(namespace, application, function);
         }
@@ -472,6 +471,18 @@ impl ContainerScheduler {
                 };
 
                 if self.fe_can_be_removed(fe_server_metadata) {
+                    if fe_server_metadata.num_allocations > 0 {
+                        error!(
+                            container_id = %fe_server_metadata.function_container.id,
+                            namespace = %fe_server_metadata.function_container.namespace,
+                            app = %fe_server_metadata.function_container.application_name,
+                            function = %fe_server_metadata.function_container.function_name,
+                            num_allocations = fe_server_metadata.num_allocations,
+                            "BUG: fe_can_be_removed returned true but num_allocations > 0, skipping vacuum"
+                        );
+                        continue;
+                    }
+
                     let mut simulated_resources = available_resources.clone();
                     if simulated_resources
                         .free(&fe_server_metadata.function_container.resources)
@@ -487,49 +498,47 @@ impl ContainerScheduler {
                         .can_handle_function_resources(fe_resource)
                         .is_ok()
                     {
-                        debug!(
-                            "Found sufficient space on executor {} by removing {} function executors",
-                            executor_id.get(),
-                            function_executors_to_remove.len()
-                        );
                         return function_executors_to_remove;
                     }
                 }
             }
-            debug!(
-                "Could not find sufficient space on executor {} even after vacuuming",
-                executor_id.get()
-            );
         }
 
         Vec::new()
     }
 
     fn fe_can_be_removed(&self, fe_meta: &FunctionContainerServerMetadata) -> bool {
-        // Check if this container matches the executor's allowlist - if so, don't
-        // remove it
+        // Check if this container matches the executor's allowlist
         if let Some(executor) = self.executors.get(&fe_meta.executor_id) &&
             let Some(allowlist) = &executor.function_allowlist
         {
             for allowlist_entry in allowlist {
                 if allowlist_entry.matches_function_executor(&fe_meta.function_container) {
-                    // Container matches allowlist, don't remove it
                     return false;
                 }
             }
         }
 
+        // Check if container has active allocations or is a sandbox
+        if !fe_meta.can_be_removed() {
+            return false;
+        }
+
         let function_uri = FunctionURI::from(&fe_meta.function_container);
+
+        // Check if function is in desired_containers
+        let Some(desired_containers) = self.desired_containers.get(&function_uri) else {
+            return false;
+        };
+
+        // Check min/max container constraints
         let num_containers = self
             .containers_by_function_uri
             .get(&function_uri)
             .map_or(0, |containers| containers.len() as u32);
-        fe_meta.can_be_removed() &&
-            self.desired_containers
-                .get(&function_uri)
-                .is_some_and(|desired_containers| {
-                    desired_containers.min_count.unwrap_or(0) <= num_containers &&
-                        num_containers <= desired_containers.max_count.unwrap_or(u32::MAX)
-                })
+        let min_count = desired_containers.min_count.unwrap_or(0);
+        let max_count = desired_containers.max_count.unwrap_or(u32::MAX);
+
+        min_count < num_containers && num_containers <= max_count
     }
 }
