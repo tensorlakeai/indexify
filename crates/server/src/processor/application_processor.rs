@@ -348,6 +348,13 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(&mut indexes_guard, req)
                     .await?;
+                // Update container_scheduler with allocation outcomes BEFORE allocating new runs.
+                // This ensures num_allocations is decremented for completed allocations,
+                // freeing up capacity for retry allocations.
+                container_scheduler_guard.update(&RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update.clone()),
+                    vec![],
+                )))?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
