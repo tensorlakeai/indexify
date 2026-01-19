@@ -99,7 +99,7 @@ pub struct ContainerScheduler {
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
     pub executors: imbl::HashMap<ExecutorId, Box<ExecutorMetadata>>,
-    pub containers_by_function_uri: imbl::HashMap<FunctionURI, Vec<FunctionContainerId>>,
+    pub containers_by_function_uri: imbl::HashMap<FunctionURI, imbl::HashSet<FunctionContainerId>>,
     pub function_containers:
         imbl::HashMap<FunctionContainerId, Box<FunctionContainerServerMetadata>>,
     // ExecutorId -> (FE ID -> List of Function Executors)
@@ -260,36 +260,22 @@ impl ContainerScheduler {
             self.executor_states
                 .insert(executor_id.clone(), new_executor_server_metadata.clone());
         }
-        for new_function_container in &scheduler_update.new_function_containers {
-            let container_id = new_function_container.function_container.id.clone();
+        for (container_id, new_function_container) in &scheduler_update.function_containers {
             let fn_uri = FunctionURI::from(&new_function_container.function_container);
 
             self.function_containers
-                .insert(container_id.clone(), new_function_container.clone().into());
+                .insert(container_id.clone(), new_function_container.clone());
 
             // Also update the containers_by_function_uri index
             self.containers_by_function_uri
                 .entry(fn_uri)
                 .or_default()
-                .push(container_id);
+                .insert(container_id.clone());
         }
 
         for removed_executor_id in &scheduler_update.remove_executors {
             let _ = self.executor_states.remove(removed_executor_id);
             let _ = self.executors.remove(removed_executor_id);
-        }
-
-        // Apply updated function containers (num_allocations changes, desired_state
-        // changes for vacuum, etc.)
-        for updated_fc in &scheduler_update.updated_function_containers {
-            if let Some(fc) = self
-                .function_containers
-                .get_mut(&updated_fc.function_container.id)
-            {
-                // Replace the entire container state to capture all changes
-                // (num_allocations, desired_state for vacuum, etc.)
-                **fc = updated_fc.clone();
-            }
         }
     }
 
@@ -332,19 +318,17 @@ impl ContainerScheduler {
                     executor_server_state.clone(),
                 );
                 // Update the function container to reflect termination in function_containers
-                update.updated_function_containers.push(update_fe.clone());
-
-                // Apply immediately to self so subsequent reads within this state change
-                // see the terminated container (e.g., find_available_container won't select it)
-                if let Some(fc) = self
-                    .function_containers
-                    .get_mut(&update_fe.function_container.id)
-                {
-                    **fc = update_fe;
-                }
+                update.function_containers.insert(
+                    update_fe.function_container.id.clone(),
+                    Box::new(update_fe.clone()),
+                );
             }
-            candidates = self.candidate_hosts(namespace, application, function);
         }
+        self.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
+        candidates = self.candidate_hosts(namespace, application, function);
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
             return Ok(Some(update));
         };
@@ -386,7 +370,10 @@ impl ContainerScheduler {
         update
             .updated_executor_states
             .insert(executor_id, executor_server_metadata.clone());
-        update.new_function_containers.push(fe_server_metadata);
+        update.function_containers.insert(
+            fe_server_metadata.function_container.id.clone(),
+            Box::new(fe_server_metadata.clone()),
+        );
         Ok(Some(update))
     }
 
@@ -471,18 +458,6 @@ impl ContainerScheduler {
                 };
 
                 if self.fe_can_be_removed(fe_server_metadata) {
-                    if fe_server_metadata.num_allocations > 0 {
-                        error!(
-                            container_id = %fe_server_metadata.function_container.id,
-                            namespace = %fe_server_metadata.function_container.namespace,
-                            app = %fe_server_metadata.function_container.application_name,
-                            function = %fe_server_metadata.function_container.function_name,
-                            num_allocations = fe_server_metadata.num_allocations,
-                            "BUG: fe_can_be_removed returned true but num_allocations > 0, skipping vacuum"
-                        );
-                        continue;
-                    }
-
                     let mut simulated_resources = available_resources.clone();
                     if simulated_resources
                         .free(&fe_server_metadata.function_container.resources)

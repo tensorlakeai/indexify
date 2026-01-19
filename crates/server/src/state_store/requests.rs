@@ -17,6 +17,7 @@ use crate::{
         ExecutorServerMetadata,
         FunctionCall,
         FunctionCallId,
+        FunctionContainerId,
         FunctionContainerServerMetadata,
         FunctionRun,
         FunctionRunFailureReason,
@@ -103,10 +104,7 @@ pub struct SchedulerUpdateRequest {
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
-    pub new_function_containers: Vec<FunctionContainerServerMetadata>,
-    /// Updated function containers (e.g., with decremented num_allocations
-    /// after allocation completion)
-    pub updated_function_containers: Vec<FunctionContainerServerMetadata>,
+    pub function_containers: HashMap<FunctionContainerId, Box<FunctionContainerServerMetadata>>,
     pub state_changes: Vec<StateChange>,
 }
 
@@ -130,10 +128,7 @@ impl SchedulerUpdateRequest {
             self.updated_executor_states
                 .insert(executor_id, executor_server_metadata);
         }
-        self.new_function_containers
-            .extend(other.new_function_containers);
-        self.updated_function_containers
-            .extend(other.updated_function_containers);
+        self.function_containers.extend(other.function_containers);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {

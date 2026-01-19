@@ -736,11 +736,10 @@ pub fn from_data_model_executor_metadata(
     for (fe_id, fe) in executor.function_executors.iter() {
         if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
             let desired_state = fe_server_metadata.desired_state.clone();
-            let num_allocations = fe_server_metadata.num_allocations;
             function_executors.push(from_data_model_function_executor(
                 fe.clone(),
                 desired_state,
-                num_allocations,
+                fe_server_metadata.allocations.len() as u32,
             ));
         } else {
             function_executors.push(from_data_model_function_executor(
@@ -757,7 +756,7 @@ pub fn from_data_model_executor_metadata(
             from_data_model_function_executor(
                 fe.function_container.clone(),
                 fe.desired_state.clone(),
-                fe.num_allocations,
+                fe.allocations.len() as u32,
             )
         })
         .collect();

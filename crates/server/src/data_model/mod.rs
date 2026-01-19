@@ -1788,12 +1788,18 @@ pub struct ExecutorServerMetadata {
 impl ExecutorServerMetadata {
     pub fn remove_container(&mut self, container: &FunctionContainer) -> Result<()> {
         self.function_container_ids.remove(&container.id);
+        if let Some(existing_claim) = self.resource_claims.get(&container.id) {
+            self.free_resources.free(existing_claim)?;
+        }
         self.resource_claims.remove(&container.id);
-        self.free_resources.free(&container.resources)
+        Ok(())
     }
 
     pub fn add_container(&mut self, container: &FunctionContainer) -> Result<()> {
         self.function_container_ids.insert(container.id.clone());
+        if let Some(_existing_claim) = self.resource_claims.get(&container.id) {
+            return Ok(());
+        }
         self.resource_claims
             .insert(container.id.clone(), container.resources.clone());
         self.free_resources
@@ -1831,7 +1837,7 @@ pub struct FunctionContainerServerMetadata {
     pub container_type: FunctionContainerType,
     #[builder(default)]
     #[serde(default)]
-    pub num_allocations: u32,
+    pub allocations: HashSet<AllocationId>,
 }
 
 impl Eq for FunctionContainerServerMetadata {}
@@ -1861,7 +1867,7 @@ impl FunctionContainerServerMetadata {
             function_container: function_executor,
             desired_state,
             container_type: FunctionContainerType::Function,
-            num_allocations: 0,
+            allocations: HashSet::new(),
         }
     }
 
@@ -1869,7 +1875,7 @@ impl FunctionContainerServerMetadata {
         // A container can only be vacuumed if:
         // 1. It's a Function container (not a Sandbox)
         // 2. AND it has no running allocations
-        self.container_type == FunctionContainerType::Function && self.num_allocations == 0
+        self.container_type == FunctionContainerType::Function && self.allocations.is_empty()
     }
 }
 

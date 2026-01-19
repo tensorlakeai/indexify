@@ -195,9 +195,9 @@ impl FunctionRunProcessor {
                             // Filter out containers at or above capacity
                             // Capacity = queue_size * max_concurrency
                             let capacity = queue_size * c.function_container.max_concurrency;
-                            c.num_allocations < capacity
+                            c.allocations.len() < capacity as usize
                         })
-                        .min_by_key(|c| c.num_allocations)
+                        .min_by_key(|c| c.allocations.len())
                         .map(|c| {
                             AllocationTarget::new(
                                 c.executor_id.clone(),
@@ -284,19 +284,11 @@ impl FunctionRunProcessor {
             .get(&allocation.target.function_executor_id)
         {
             let mut updated_fc = *fc.clone();
-            updated_fc.num_allocations += 1;
-            update.updated_function_containers.push(updated_fc.clone());
-
-            // Apply immediately to the cloned scheduler
-            let allocation_update = {
-                let mut u = SchedulerUpdateRequest::default();
-                u.updated_function_containers.push(updated_fc);
-                u
-            };
-            container_scheduler.update(&RequestPayload::SchedulerUpdate((
-                Box::new(allocation_update),
-                vec![],
-            )))?;
+            updated_fc.allocations.insert(allocation.id.clone());
+            update.function_containers.insert(
+                updated_fc.function_container.id.clone(),
+                Box::new(updated_fc.clone()),
+            );
         }
 
         info!(
@@ -314,6 +306,10 @@ impl FunctionRunProcessor {
             &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "task_allocator",
         )?;
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
         Ok(update)
     }
 }
