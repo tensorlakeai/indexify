@@ -48,10 +48,10 @@ console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter" }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-object_store = { version = "0.13.0", features = ["aws"] }
+object_store = { version = "0.13.1", features = ["aws"] }
 rocksdb = "0.24.0"
 anyhow = "1.0.100"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 clap = { version = "4.5.54", features = ["derive"] }
 sha2 = "0.10.9"
 base64 = "0.22.1"
@@ -71,4 +71,4 @@ proto-api = { path = "crates/proto-api" }
 tempfile = "3.24.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8", features = ["html_reports"] }
-vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }
+vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
