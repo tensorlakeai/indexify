@@ -162,23 +162,44 @@ async fn index() -> impl IntoResponse {
 
 #[axum::debug_handler]
 async fn ui_index_handler() -> impl IntoResponse {
-    let content = UiAssets::get("index.html").unwrap();
-    (
-        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
-        content.data,
-    )
-        .into_response()
+    match UiAssets::get("index.html") {
+        Some(content) => (
+            StatusCode::OK,
+            [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+            content.data,
+        )
+            .into_response(),
+        None => {
+            error!("UI assets not found: index.html - UI may not be built");
+            (
+                StatusCode::NOT_FOUND,
+                "UI assets not found. Please build the UI first.",
+            )
+                .into_response()
+        }
+    }
 }
 
 #[axum::debug_handler]
 async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
-    let content = UiAssets::get(url.trim_start_matches('/'))
-        .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
-    (
-        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
-        content.data,
-    )
-        .into_response()
+    let path = url.trim_start_matches('/');
+    let content = UiAssets::get(path).or_else(|| UiAssets::get("index.html"));
+    match content {
+        Some(content) => (
+            StatusCode::OK,
+            [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+            content.data,
+        )
+            .into_response(),
+        None => {
+            error!(path = %path, "UI asset not found");
+            (
+                StatusCode::NOT_FOUND,
+                "UI assets not found. Please build the UI first.",
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Create a new namespace

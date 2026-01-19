@@ -141,6 +141,7 @@ export type FunctionExecutorMetadata = {
   id: string
   max_concurrency: number
   namespace: string
+  num_allocations: number
   state: string
   version: string
 }

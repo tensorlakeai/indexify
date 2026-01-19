@@ -1119,7 +1119,133 @@ mod tests {
     }
 
     // =========================================================================
-    // Test Case 9: Vacuum Across Multiple Executors
+    // Test Case 9: Vacuum Does NOT Remove Containers With Active Allocations
+    // =========================================================================
+    /// Test that vacuum does NOT remove containers that have active
+    /// allocations. This is a regression test for the bug where containers
+    /// with running allocations were incorrectly vacuumed.
+    ///
+    /// Scenario:
+    /// 1. Create executor with 3 cores
+    /// 2. Create app_a using 1 core, invoke and DO NOT complete (active
+    ///    allocation)
+    /// 3. Create app_b using 3 cores (would require vacuuming app_a)
+    /// 4. app_a's container should NOT be vacuumed because it has an active
+    ///    allocation
+    #[tokio::test]
+    async fn test_vacuum_does_not_remove_active_allocation_containers() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create executor with 3 CPU cores
+        let _executor = test_srv
+            .create_executor(create_executor_with_resources(
+                TEST_EXECUTOR_ID,
+                3000,                    // 3 cores
+                16 * 1024 * 1024 * 1024, // 16 GB
+                None,
+            ))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Create app_a with function requiring 1 core
+        let fn_a = create_function_with_resources("fn_a", 1000, 1024, None, None);
+        let app_a = create_single_function_app("app_a", "1", fn_a);
+        register_application(&test_srv, &app_a).await?;
+
+        // Invoke app_a - DO NOT complete the allocation
+        let _request_id_a = invoke_application(&test_srv, &app_a).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify app_a has an allocation running
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Verify container has num_allocations = 1
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app_a_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| fc.function_container.application_name == "app_a")
+                .collect();
+
+            assert!(
+                !app_a_containers.is_empty(),
+                "app_a should have a container"
+            );
+            let (id, fc) = app_a_containers.first().unwrap();
+            tracing::info!(
+                "app_a container {} has num_allocations={}",
+                id.get(),
+                fc.num_allocations
+            );
+            assert_eq!(
+                fc.num_allocations, 1,
+                "Container should have 1 active allocation"
+            );
+        }
+
+        // Now create app_b requiring 3 cores - would need to vacuum app_a to fit
+        let fn_b = create_function_with_resources("fn_b", 3000, 1024, None, None);
+        let app_b = create_single_function_app("app_b", "1", fn_b);
+        register_application(&test_srv, &app_b).await?;
+
+        // Invoke app_b - vacuum should NOT remove app_a's container because it has
+        // an active allocation
+        let _request_id_b = invoke_application(&test_srv, &app_b).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify app_a's container is NOT marked for termination
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app_a_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| fc.function_container.application_name == "app_a")
+                .collect();
+
+            for (id, fc) in &app_a_containers {
+                tracing::info!(
+                    "app_a container {} desired_state={:?}, num_allocations={}",
+                    id.get(),
+                    fc.desired_state,
+                    fc.num_allocations
+                );
+                assert!(
+                    !matches!(
+                        fc.desired_state,
+                        crate::data_model::FunctionContainerState::Terminated { .. }
+                    ),
+                    "Container with active allocations should NOT be vacuumed"
+                );
+            }
+        }
+
+        // app_b's function run should be pending (no resources available because
+        // app_a's container cannot be vacuumed)
+        let all_runs = test_srv.get_all_function_runs().await?;
+        let app_b_runs: Vec<_> = all_runs
+            .iter()
+            .filter(|r| r.application == "app_b")
+            .collect();
+        assert_eq!(app_b_runs.len(), 1, "Should have 1 function run for app_b");
+
+        // The function run should be pending since app_a's container can't be vacuumed
+        let pending_runs = test_srv.get_pending_function_runs().await?;
+        let app_b_pending: Vec<_> = pending_runs
+            .iter()
+            .filter(|r| r.application == "app_b")
+            .collect();
+        tracing::info!(
+            "app_b pending function runs: {} (expected: 1 because app_a container can't be vacuumed)",
+            app_b_pending.len()
+        );
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Test Case 10: Vacuum Across Multiple Executors
     // =========================================================================
     /// Test that vacuum can find resources across multiple executors.
     #[tokio::test]

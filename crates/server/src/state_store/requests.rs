@@ -104,6 +104,9 @@ pub struct SchedulerUpdateRequest {
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
     pub new_function_containers: Vec<FunctionContainerServerMetadata>,
+    /// Updated function containers (e.g., with decremented num_allocations
+    /// after allocation completion)
+    pub updated_function_containers: Vec<FunctionContainerServerMetadata>,
     pub state_changes: Vec<StateChange>,
 }
 
@@ -129,6 +132,8 @@ impl SchedulerUpdateRequest {
         }
         self.new_function_containers
             .extend(other.new_function_containers);
+        self.updated_function_containers
+            .extend(other.updated_function_containers);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {

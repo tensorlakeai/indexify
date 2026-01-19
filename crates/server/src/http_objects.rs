@@ -675,11 +675,13 @@ pub struct FunctionExecutorMetadata {
     pub max_concurrency: u32,
     pub state: String,
     pub desired_state: String,
+    pub num_allocations: u32,
 }
 
 pub fn from_data_model_function_executor(
     fe: data_model::FunctionContainer,
     desired_state: FunctionContainerState,
+    num_allocations: u32,
 ) -> FunctionExecutorMetadata {
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
@@ -690,6 +692,7 @@ pub fn from_data_model_function_executor(
         max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
         desired_state: desired_state.to_string(),
+        num_allocations,
     }
 }
 
@@ -733,11 +736,17 @@ pub fn from_data_model_executor_metadata(
     for (fe_id, fe) in executor.function_executors.iter() {
         if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
             let desired_state = fe_server_metadata.desired_state.clone();
-            function_executors.push(from_data_model_function_executor(fe.clone(), desired_state));
+            let num_allocations = fe_server_metadata.num_allocations;
+            function_executors.push(from_data_model_function_executor(
+                fe.clone(),
+                desired_state,
+                num_allocations,
+            ));
         } else {
             function_executors.push(from_data_model_function_executor(
                 fe.clone(),
                 FunctionContainerState::Unknown,
+                0,
             ));
         }
     }
@@ -748,6 +757,7 @@ pub fn from_data_model_executor_metadata(
             from_data_model_function_executor(
                 fe.function_container.clone(),
                 fe.desired_state.clone(),
+                fe.num_allocations,
             )
         })
         .collect();
