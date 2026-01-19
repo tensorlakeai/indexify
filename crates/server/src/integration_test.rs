@@ -825,6 +825,9 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
+        // make sure the task is allocated
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
         // track the attempt number
         let mut attempt_number: u32 = 0;
 
