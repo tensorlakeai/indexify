@@ -4,7 +4,7 @@ use std::{
 };
 
 use tokio::sync::{RwLock, broadcast};
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 use super::request_events::RequestStateChangeEvent;
 
@@ -94,7 +94,7 @@ impl RequestEventBuffers {
         let mut subscriptions = self.subscriptions.write().await;
         let state = subscriptions.entry(key.clone()).or_insert_with(|| {
             self.subscription_count.fetch_add(1, Ordering::Relaxed);
-            debug!(
+            info!(
                 namespace,
                 application, request_id, "new subscription created"
             );
@@ -115,7 +115,20 @@ impl RequestEventBuffers {
 
         let subscriptions = self.subscriptions.read().await;
         if let Some(state) = subscriptions.get(&key) {
+            info!(
+                namespace = event.namespace(),
+                application = event.application_name(),
+                request_id = event.request_id(),
+                "subscription found"
+            );
             state.send(event);
+        } else {
+            warn!(
+                namespace = event.namespace(),
+                application = event.application_name(),
+                request_id = event.request_id(),
+                "subscription not found"
+            );
         }
     }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use super::{
     request_events::PersistedRequestStateChangeEvent,
@@ -274,7 +274,7 @@ impl StateReader {
 
         let cursor = cursor.map(|c| c.as_slice());
 
-        let (events, cursor) = self
+        let (events, new_cursor) = self
             .get_rows_from_cf_with_limits::<PersistedRequestStateChangeEvent>(
                 &[],
                 cursor,
@@ -283,7 +283,9 @@ impl StateReader {
             )
             .await?;
 
-        Ok((events, cursor))
+        info!(initial_cursor = ?cursor, new_cursor = ?new_cursor, events_len = events.len(), "fetched request state change events");
+
+        Ok((events, new_cursor))
     }
 
     pub async fn get_all_rows_from_cf<V>(

@@ -140,11 +140,19 @@ impl RequestStateChangeProcessor {
         }
 
         if !processed_events.is_empty() {
+            info!(
+                processed_events_len = processed_events.len(),
+                "removing processed events"
+            );
             self.remove_and_commit_with_backoff(processed_events)
                 .await?;
         }
 
         if let Some(failed_cursor) = failed_submission_cursor {
+            info!(
+                ?failed_cursor,
+                "resetting cursor because there was a failed submission"
+            );
             cursor.replace(failed_cursor);
         }
 
@@ -206,10 +214,12 @@ impl RequestStateChangeProcessor {
         cloud_events_exporter: &mut Option<OtlpLogsExporter>,
     ) -> Result<()> {
         // Send to cloud events exporter if configured
-        if let Some(exporter) = cloud_events_exporter &&
-            let Err(err) = export_progress_update(exporter, &event.event).await
-        {
-            error!(?err, "Failed to send request state change event to OTLP");
+        if let Some(exporter) = cloud_events_exporter {
+            export_progress_update(exporter, &event.event)
+                .await
+                .inspect_err(|err| {
+                    error!(?err, "Failed to send request state change event to OTLP");
+                })?;
         }
 
         self.indexify_state
