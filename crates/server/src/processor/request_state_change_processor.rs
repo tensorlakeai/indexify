@@ -145,15 +145,15 @@ impl RequestStateChangeProcessor {
             }
         }
 
+        if let Some(c) = new_cursor {
+            cursor.replace(c);
+        };
+
         info!(
             processed_events_len = events.len(),
             "removing processed events"
         );
         self.remove_and_commit_with_backoff(events).await?;
-
-        if let Some(c) = new_cursor {
-            cursor.replace(c);
-        };
 
         notify.notify_one();
 
