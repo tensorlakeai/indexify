@@ -58,6 +58,7 @@ pub enum RequestStateChangeEvent {
     FunctionRunCreated(FunctionRunCreated),
     FunctionRunCompleted(FunctionRunCompleted),
     FunctionRunMatchedCache(FunctionRunMatchedCache),
+    FunctionRunAssigned(AllocationCreated),
     AllocationCreated(AllocationCreated),
     AllocationCompleted(AllocationCompleted),
     RequestFinished(RequestFinishedEvent),
@@ -97,6 +98,7 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.namespace(),
             RequestStateChangeEvent::AllocationCreated(event) => event.namespace(),
             RequestStateChangeEvent::AllocationCompleted(event) => event.namespace(),
+            RequestStateChangeEvent::FunctionRunAssigned(event) => event.namespace(),
         }
     }
 
@@ -109,6 +111,7 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.application_name(),
             RequestStateChangeEvent::AllocationCreated(event) => event.application_name(),
             RequestStateChangeEvent::AllocationCompleted(event) => event.application_name(),
+            RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_name(),
         }
     }
 
@@ -121,6 +124,7 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.application_version(),
             RequestStateChangeEvent::AllocationCreated(event) => event.application_version(),
             RequestStateChangeEvent::AllocationCompleted(event) => event.application_version(),
+            RequestStateChangeEvent::FunctionRunAssigned(event) => event.application_version(),
         }
     }
 
@@ -133,6 +137,7 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.request_id(),
             RequestStateChangeEvent::AllocationCreated(event) => event.request_id(),
             RequestStateChangeEvent::AllocationCompleted(event) => event.request_id(),
+            RequestStateChangeEvent::FunctionRunAssigned(event) => event.request_id(),
         }
     }
 
@@ -145,7 +150,8 @@ impl RequestStateChangeEvent {
             RequestStateChangeEvent::FunctionRunMatchedCache(_) => {
                 "Function Run Matched a Cached output"
             }
-            RequestStateChangeEvent::AllocationCreated(_) => "Allocation Created",
+            RequestStateChangeEvent::AllocationCreated(_) |
+            RequestStateChangeEvent::FunctionRunAssigned(_) => "Allocation Created",
             RequestStateChangeEvent::AllocationCompleted(_) => "Allocation Completed",
         }
     }
