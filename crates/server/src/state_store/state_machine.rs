@@ -693,26 +693,18 @@ pub(crate) async fn remove_request_state_change_events(
     txn: &Transaction,
     events: &[PersistedRequestStateChangeEvent],
 ) -> Result<()> {
-    if events.is_empty() {
-        return Ok(());
-    }
-
-    if let (Some(first), Some(last)) = (events.first(), events.last()) {
-        // Get the start and end keys for the range delete
-        let start_key = first.key();
-        let end_key = last.key();
-
+    for event in events {
         trace!(
-            event_count = events.len(),
-            ?start_key,
-            ?end_key,
-            "removing request state change events in range"
+            event_id = %event.id,
+            namespace = %event.event.namespace(),
+            application = %event.event.application_name(),
+            request_id = %event.event.request_id(),
+            "removing request state change event"
         );
-
-        txn.delete_range(
+        let key = event.key();
+        txn.delete(
             IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            &start_key,
-            &end_key,
+            &key,
         )
         .await?;
     }

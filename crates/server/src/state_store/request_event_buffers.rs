@@ -4,7 +4,7 @@ use std::{
 };
 
 use tokio::sync::{RwLock, broadcast};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::request_events::RequestStateChangeEvent;
 

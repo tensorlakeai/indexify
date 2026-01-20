@@ -510,7 +510,10 @@ impl super::InnerTransaction for RocksDBTransaction {
     }
 
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
-        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let attrs = &[
+            KeyValue::new("driver", "rocksdb"),
+            KeyValue::new("column_family", table.to_string()),
+        ];
         let _inc = Increment::inc(&self.db.metrics.driver_reads, attrs);
 
         let cf = self.db.column_family(table);
@@ -522,7 +525,10 @@ impl super::InnerTransaction for RocksDBTransaction {
     }
 
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
-        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let attrs = &[
+            KeyValue::new("driver", "rocksdb"),
+            KeyValue::new("column_family", cf.to_string()),
+        ];
         let _inc = Increment::inc(&self.db.metrics.driver_writes, attrs);
 
         let cf = self.db.column_family(cf);
@@ -533,7 +539,10 @@ impl super::InnerTransaction for RocksDBTransaction {
     }
 
     async fn delete(&self, cf: &str, key: &[u8]) -> Result<(), DriverError> {
-        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let attrs = &[
+            KeyValue::new("driver", "rocksdb"),
+            KeyValue::new("column_family", cf.to_string()),
+        ];
         let _inc = Increment::inc(&self.db.metrics.driver_deletes, attrs);
 
         let cf = self.db.column_family(cf);
@@ -543,25 +552,11 @@ impl super::InnerTransaction for RocksDBTransaction {
         tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
-    async fn delete_range(
-        &self,
-        cf: &str,
-        start_key: &[u8],
-        end_key: &[u8],
-    ) -> Result<(), DriverError> {
-        let attrs = &[KeyValue::new("driver", "rocksdb")];
-        let _inc = Increment::inc(&self.db.metrics.driver_deletes, attrs);
-
-        let cf = self.db.column_family(cf);
-
-        let guard = self.tx.lock().await;
-        let tx = guard.as_ref().expect("Transaction not initialized");
-        tx.delete_range_cf(cf, start_key, end_key)
-            .map_err(Error::into_generic)
-    }
-
     async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<super::KVBytes, DriverError>> {
-        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let attrs = &[
+            KeyValue::new("driver", "rocksdb"),
+            KeyValue::new("column_family", cf.to_string()),
+        ];
         let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);
 
         let guard = self.tx.lock().await;
