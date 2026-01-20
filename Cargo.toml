@@ -56,7 +56,7 @@ clap = { version = "4.5.54", features = ["derive"] }
 sha2 = "0.10.9"
 base64 = "0.22.1"
 nanoid = "0.4.0"
-uuid = { version = "1.19.0", features = ["v4"] }
+uuid = { version = "1.19.0", features = ["v4", "v7"] }
 bytes = { version = "1.10.1", features = ["serde"] }
 priority-queue = "2.6.0"
 imbl = "6.1.0"

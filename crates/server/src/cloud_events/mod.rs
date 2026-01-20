@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use chrono::Utc;
 use otlp_logs_exporter::{
@@ -29,9 +31,42 @@ pub async fn export_progress_update(
     exporter.send_request(request).await.map_err(Into::into)
 }
 
-fn create_export_request(
-    update: &RequestStateChangeEvent,
-) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+pub fn create_batch_export_request(
+    updates: &[&RequestStateChangeEvent],
+) -> Result<Vec<ExportLogsServiceRequest>, anyhow::Error> {
+    let mut grouped: HashMap<&str, Vec<&RequestStateChangeEvent>> = HashMap::new();
+    for update in updates {
+        grouped.entry(update.request_id()).or_default().push(update);
+    }
+
+    let mut requests = Vec::with_capacity(grouped.len());
+    for (request_id, group) in grouped {
+        let first = group[0];
+        let resource = create_resource(first);
+        let scope = create_scope(request_id);
+
+        let mut log_records = Vec::with_capacity(group.len());
+        for update in group {
+            log_records.push(create_log_record(update)?);
+        }
+
+        requests.push(ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(resource),
+                scope_logs: vec![ScopeLogs {
+                    scope: Some(scope),
+                    log_records,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        });
+    }
+
+    Ok(requests)
+}
+
+fn create_resource(update: &RequestStateChangeEvent) -> Resource {
     let attributes = vec![
         key_value_string("ai.tensorlake.namespace", update.namespace()),
         key_value_string("ai.tensorlake.application.name", update.application_name()),
@@ -40,11 +75,20 @@ fn create_export_request(
             update.application_version(),
         ),
     ];
-    let resource = Resource {
+    Resource {
         attributes,
         ..Default::default()
-    };
+    }
+}
 
+fn create_scope(request_id: &str) -> InstrumentationScope {
+    InstrumentationScope {
+        name: format!("ai.tensorlake.request.id:{}", request_id),
+        ..Default::default()
+    }
+}
+
+fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyhow::Error> {
     let message = update.message();
     let data = update_to_any_value(update)?;
 
@@ -53,7 +97,7 @@ fn create_export_request(
 
     let attributes = vec![
         key_value_string("specversion", "1.0"),
-        key_value_string("id", &Uuid::new_v4().to_string()),
+        key_value_string("id", &Uuid::now_v7().to_string()),
         key_value_string("type", "ai.tensorlake.progress_update"),
         key_value_string("source", "/tensorlake/indexify_server"),
         key_value_string("timestamp", &now.to_rfc3339()),
@@ -63,7 +107,7 @@ fn create_export_request(
         },
     ];
 
-    let log_record = LogRecord {
+    Ok(LogRecord {
         time_unix_nano: timestamp,
         observed_time_unix_nano: timestamp,
         body: Some(AnyValue {
@@ -71,12 +115,15 @@ fn create_export_request(
         }),
         attributes,
         ..Default::default()
-    };
+    })
+}
 
-    let scope = InstrumentationScope {
-        name: format!("ai.tensorlake.request.id:{}", update.request_id()),
-        ..Default::default()
-    };
+pub fn create_export_request(
+    update: &RequestStateChangeEvent,
+) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    let resource = create_resource(update);
+    let scope = create_scope(update.request_id());
+    let log_record = create_log_record(update)?;
 
     let request = ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
@@ -873,5 +920,90 @@ mod tests {
         } else {
             panic!("Expected KvlistValue in data");
         }
+    }
+
+    #[test]
+    fn test_create_batch_export_request_groups_by_request_id() {
+        let now = Utc::now();
+        let event1 = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-A".to_string(),
+            created_at: now,
+        });
+        let event2 = RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-A".to_string(),
+            function_name: "fn1".to_string(),
+            function_run_id: "run-1".to_string(),
+            created_at: now,
+        });
+        let event3 = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-B".to_string(),
+            created_at: now,
+        });
+
+        let updates: Vec<&RequestStateChangeEvent> = vec![&event1, &event2, &event3];
+        let result = super::create_batch_export_request(&updates);
+        assert!(result.is_ok());
+
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 2);
+
+        let mut req_a_count = 0;
+        let mut req_b_count = 0;
+        for req in &requests {
+            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
+            let log_count = req.resource_logs[0].scope_logs[0].log_records.len();
+            if scope.name == "ai.tensorlake.request.id:req-A" {
+                req_a_count = log_count;
+            } else if scope.name == "ai.tensorlake.request.id:req-B" {
+                req_b_count = log_count;
+            }
+        }
+        assert_eq!(req_a_count, 2);
+        assert_eq!(req_b_count, 1);
+    }
+
+    #[test]
+    fn test_create_batch_export_request_empty_input() {
+        let updates: Vec<&RequestStateChangeEvent> = vec![];
+        let result = super::create_batch_export_request(&updates);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_create_batch_export_request_single_event() {
+        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-single".to_string(),
+            created_at: Utc::now(),
+        });
+
+        let updates: Vec<&RequestStateChangeEvent> = vec![&event];
+        let result = super::create_batch_export_request(&updates);
+        assert!(result.is_ok());
+
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].resource_logs[0].scope_logs[0].log_records.len(),
+            1
+        );
+
+        let scope = requests[0].resource_logs[0].scope_logs[0]
+            .scope
+            .as_ref()
+            .unwrap();
+        assert_eq!(scope.name, "ai.tensorlake.request.id:req-single");
     }
 }

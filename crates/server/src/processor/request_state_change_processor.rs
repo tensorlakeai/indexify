@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 use tracing::{error, info, instrument};
 
 use crate::{
-    cloud_events::export_progress_update,
+    cloud_events::create_batch_export_request,
     metrics::{Timer, low_latency_boundaries},
     state_store::{
         IndexifyState,
@@ -108,53 +108,52 @@ impl RequestStateChangeProcessor {
         if events.is_empty() {
             return Ok(());
         }
-        // self.events_counter
+
         self.events_counter.record(events.len() as u64, &[]);
 
-        if let Some(c) = new_cursor {
-            cursor.replace(c);
-        };
+        // Send batch of events to OTLP exporter if configured
+        if let Some(exporter) = cloud_events_exporter {
+            if let Err(error) = self
+                .send_batched_events_to_exporter(exporter, &events)
+                .await
+            {
+                error!(
+                    %error,
+                    event_count = events.len(),
+                    "error sending batched events to OTLP exporter"
+                );
+                return Err(error);
+            }
+        }
 
-        let mut failed_submission_cursor: Option<Vec<u8>> = None;
-        let mut processed_events = Vec::new();
-
-        for event in events {
-            if let Err(error) = self.send_event(&event, cloud_events_exporter).await {
+        // Push all events through the state
+        for event in &events {
+            if let Err(error) = self
+                .indexify_state
+                .push_request_event(event.event.clone())
+                .await
+            {
                 error!(
                     %error,
                     event_id = %event.id,
                     namespace = %event.event.namespace(),
                     application = %event.event.application_name(),
                     request_id = %event.event.request_id(),
-                    "error processing request state change event"
+                    "error pushing request event to state"
                 );
-
-                if failed_submission_cursor.is_none() {
-                    failed_submission_cursor = Some(event.key());
-                }
-
-                break;
-            } else {
-                processed_events.push(event);
+                return Err(error);
             }
         }
 
-        if !processed_events.is_empty() {
-            info!(
-                processed_events_len = processed_events.len(),
-                "removing processed events"
-            );
-            self.remove_and_commit_with_backoff(processed_events)
-                .await?;
-        }
+        info!(
+            processed_events_len = events.len(),
+            "removing processed events"
+        );
+        self.remove_and_commit_with_backoff(events).await?;
 
-        if let Some(failed_cursor) = failed_submission_cursor {
-            info!(
-                ?failed_cursor,
-                "resetting cursor because there was a failed submission"
-            );
-            cursor.replace(failed_cursor);
-        }
+        if let Some(c) = new_cursor {
+            cursor.replace(c);
+        };
 
         notify.notify_one();
 
@@ -208,32 +207,32 @@ impl RequestStateChangeProcessor {
         Err(anyhow::anyhow!("Failed to remove and commit events"))
     }
 
-    async fn send_event(
+    async fn send_batched_events_to_exporter(
         &self,
-        event: &PersistedRequestStateChangeEvent,
-        cloud_events_exporter: &mut Option<OtlpLogsExporter>,
+        exporter: &mut OtlpLogsExporter,
+        events: &[PersistedRequestStateChangeEvent],
     ) -> Result<()> {
-        info!(
-            request_id = &event.event.request_id(),
-            "sending event to OTLP and subscribers"
-        );
-
-        // Send to cloud events exporter if configured
-        if let Some(exporter) = cloud_events_exporter {
-            info!(
-                request_id = &event.event.request_id(),
-                "sending request state change event to OTLP"
-            );
-            export_progress_update(exporter, &event.event)
-                .await
-                .inspect_err(|err| {
-                    error!(?err, "Failed to send request state change event to OTLP");
-                })?;
+        if events.is_empty() {
+            return Ok(());
         }
 
-        self.indexify_state
-            .push_request_event(event.event.clone())
-            .await?;
+        info!(
+            event_count = events.len(),
+            "sending batched events to OTLP exporter"
+        );
+
+        let updates: Vec<_> = events.iter().map(|e| &e.event).collect();
+        let requests = create_batch_export_request(&updates)?;
+        let request_count = requests.len();
+
+        for request in requests {
+            exporter.send_request(request).await?;
+        }
+
+        info!(
+            event_count = events.len(),
+            request_count, "successfully sent batched events to OTLP exporter"
+        );
 
         Ok(())
     }
@@ -243,7 +242,6 @@ impl RequestStateChangeProcessor {
     #[allow(dead_code)]
     pub async fn drain_all_events(&self) -> Result<()> {
         let mut cursor: Option<Vec<u8>> = None;
-        let mut no_exporter: Option<OtlpLogsExporter> = None;
 
         loop {
             let (events, new_cursor) = self
@@ -263,8 +261,11 @@ impl RequestStateChangeProcessor {
             // Process and delete all events
             let mut processed_events = Vec::new();
             for event in events {
-                // Best effort send - always delete regardless of send result
-                let _ = self.send_event(&event, &mut no_exporter).await;
+                // Best effort push - always delete regardless of result
+                let _ = self
+                    .indexify_state
+                    .push_request_event(event.event.clone())
+                    .await;
                 processed_events.push(event);
             }
 

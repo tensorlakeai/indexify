@@ -114,29 +114,15 @@ impl RequestEventBuffers {
             event.request_id(),
         );
 
-        info!(
-            namespace = event.namespace(),
-            application = event.application_name(),
-            request_id = event.request_id(),
-            "pushing event to subscribers"
-        );
-
         let subscriptions = self.subscriptions.read().await;
         if let Some(state) = subscriptions.get(&key) {
             info!(
                 namespace = event.namespace(),
                 application = event.application_name(),
                 request_id = event.request_id(),
-                "subscription found"
+                "SSE active subscription found"
             );
             state.send(event)?;
-        } else {
-            warn!(
-                namespace = event.namespace(),
-                application = event.application_name(),
-                request_id = event.request_id(),
-                "subscription not found"
-            );
         }
 
         Ok(())
