@@ -519,8 +519,8 @@ impl IndexifyState {
             .await
     }
 
-    pub async fn push_request_event(&self, event: RequestStateChangeEvent) {
-        self.request_event_buffers.push_event(event).await;
+    pub async fn push_request_event(&self, event: RequestStateChangeEvent) -> Result<()> {
+        self.request_event_buffers.push_event(event).await
     }
 }
 

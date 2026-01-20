@@ -44,8 +44,9 @@ impl SubscriptionState {
         }
     }
 
-    fn send(&self, event: RequestStateChangeEvent) {
-        let _ = self.tx.send(event);
+    fn send(&self, event: RequestStateChangeEvent) -> anyhow::Result<()> {
+        self.tx.send(event)?;
+        Ok(())
     }
 
     fn subscribe(&self) -> broadcast::Receiver<RequestStateChangeEvent> {
@@ -106,11 +107,18 @@ impl RequestEventBuffers {
 
     /// Push an event to the matching subscription's broadcast channel.
     /// Called when a request state change event occurs.
-    pub async fn push_event(&self, event: RequestStateChangeEvent) {
+    pub async fn push_event(&self, event: RequestStateChangeEvent) -> anyhow::Result<()> {
         let key = SubscriptionKey::new(
             event.namespace(),
             event.application_name(),
             event.request_id(),
+        );
+
+        info!(
+            namespace = event.namespace(),
+            application = event.application_name(),
+            request_id = event.request_id(),
+            "pushing event to subscribers"
         );
 
         let subscriptions = self.subscriptions.read().await;
@@ -121,7 +129,7 @@ impl RequestEventBuffers {
                 request_id = event.request_id(),
                 "subscription found"
             );
-            state.send(event);
+            state.send(event)?;
         } else {
             warn!(
                 namespace = event.namespace(),
@@ -130,6 +138,8 @@ impl RequestEventBuffers {
                 "subscription not found"
             );
         }
+
+        Ok(())
     }
 
     /// Release a subscription. Only removes when the last client disconnects.
@@ -192,7 +202,7 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        buffers.push_event(event.clone()).await;
+        buffers.push_event(event.clone()).await.unwrap();
 
         // Should receive the event
         let received = rx.recv().await.unwrap();
@@ -215,7 +225,7 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        buffers.push_event(event).await;
+        buffers.push_event(event).await.unwrap();
         // No assertion needed - just verify it doesn't panic
     }
 
@@ -249,7 +259,7 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        buffers.push_event(event).await;
+        buffers.push_event(event).await.unwrap();
 
         // Both should receive
         assert!(rx1.recv().await.is_ok());
@@ -277,7 +287,7 @@ mod tests {
             request_id: "req1".to_string(),
             created_at: Utc::now(),
         });
-        buffers.push_event(event).await;
+        buffers.push_event(event).await.unwrap();
         assert!(rx2.recv().await.is_ok());
 
         // rx1 was unsubscribed, but the channel is still alive
@@ -305,7 +315,7 @@ mod tests {
                 request_id: "req1".to_string(),
                 created_at: Utc::now(),
             });
-            buffers.push_event(event).await;
+            buffers.push_event(event).await.unwrap();
         }
 
         // Receiver should get a Lagged error

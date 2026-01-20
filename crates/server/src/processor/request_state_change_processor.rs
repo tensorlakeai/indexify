@@ -89,7 +89,7 @@ impl RequestStateChangeProcessor {
         }
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip(self, notify), fields(calling_cursor = ?cursor))]
     async fn process_request_state_change_events(
         &self,
         cursor: &mut Option<Vec<u8>>,
@@ -213,8 +213,17 @@ impl RequestStateChangeProcessor {
         event: &PersistedRequestStateChangeEvent,
         cloud_events_exporter: &mut Option<OtlpLogsExporter>,
     ) -> Result<()> {
+        info!(
+            request_id = &event.event.request_id(),
+            "sending event to OTLP and subscribers"
+        );
+
         // Send to cloud events exporter if configured
         if let Some(exporter) = cloud_events_exporter {
+            info!(
+                request_id = &event.event.request_id(),
+                "sending request state change event to OTLP"
+            );
             export_progress_update(exporter, &event.event)
                 .await
                 .inspect_err(|err| {
@@ -224,7 +233,7 @@ impl RequestStateChangeProcessor {
 
         self.indexify_state
             .push_request_event(event.event.clone())
-            .await;
+            .await?;
 
         Ok(())
     }
