@@ -543,6 +543,23 @@ impl super::InnerTransaction for RocksDBTransaction {
         tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
+    async fn delete_range(
+        &self,
+        cf: &str,
+        start_key: &[u8],
+        end_key: &[u8],
+    ) -> Result<(), DriverError> {
+        let attrs = &[KeyValue::new("driver", "rocksdb")];
+        let _inc = Increment::inc(&self.db.metrics.driver_deletes, attrs);
+
+        let cf = self.db.column_family(cf);
+
+        let guard = self.tx.lock().await;
+        let tx = guard.as_ref().expect("Transaction not initialized");
+        tx.delete_range_cf(cf, start_key, end_key)
+            .map_err(Error::into_generic)
+    }
+
     async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<super::KVBytes, DriverError>> {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);

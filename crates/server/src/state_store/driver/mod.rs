@@ -248,6 +248,7 @@ pub trait InnerTransaction: Send + Sync {
     async fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
     async fn delete(&self, cf: &str, key: &[u8]) -> Result<(), Error>;
+    async fn delete_range(&self, cf: &str, start_key: &[u8], end_key: &[u8]) -> Result<(), Error>;
 
     async fn iter(&self, cf: &str, prefix: Vec<u8>) -> Vec<Result<KVBytes, Error>>;
 }
