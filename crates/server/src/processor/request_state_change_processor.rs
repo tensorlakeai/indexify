@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    metrics::{Counter, Histogram},
+    metrics::{Gauge, Histogram},
 };
 use otlp_logs_exporter::OtlpLogsExporter;
 use tokio::sync::Notify;
@@ -23,7 +23,7 @@ use crate::{
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
     processing_latency: Histogram<f64>,
-    events_counter: Counter<u64>,
+    events_counter: Gauge<u64>,
     max_attempts: u8,
 }
 
@@ -39,7 +39,7 @@ impl RequestStateChangeProcessor {
             .build();
 
         let events_counter = meter
-            .u64_counter("indexify.request_state_change.events_total")
+            .u64_gauge("indexify.request_state_change.events_processed_total")
             .with_description("total number of processed request state change events")
             .build();
 
@@ -108,8 +108,8 @@ impl RequestStateChangeProcessor {
         if events.is_empty() {
             return Ok(());
         }
-
-        self.events_counter.add(events.len() as u64, &[]);
+        // self.events_counter
+        self.events_counter.record(events.len() as u64, &[]);
 
         if let Some(c) = new_cursor {
             cursor.replace(c);
