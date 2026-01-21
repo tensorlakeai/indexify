@@ -5,12 +5,7 @@ use chrono::Utc;
 use otlp_logs_exporter::opentelemetry_proto::tonic::{
     collector::logs::v1::ExportLogsServiceRequest,
     common::v1::{
-        AnyValue,
-        ArrayValue,
-        InstrumentationScope,
-        KeyValue,
-        KeyValueList,
-        any_value::Value,
+        AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList, any_value::Value,
     },
     logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
     resource::v1::Resource,
@@ -18,28 +13,41 @@ use otlp_logs_exporter::opentelemetry_proto::tonic::{
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-use crate::state_store::request_events::RequestStateChangeEvent;
+use crate::state_store::request_events::{
+    PersistedRequestStateChangeEvent, RequestStateChangeEvent,
+};
+
+pub struct CloudEventBatch {
+    pub export_request: ExportLogsServiceRequest,
+    pub event_keys: Vec<Vec<u8>>,
+}
 
 pub fn create_batch_export_request(
-    updates: &[&RequestStateChangeEvent],
-) -> Result<Vec<ExportLogsServiceRequest>, anyhow::Error> {
-    let mut grouped: HashMap<&str, Vec<&RequestStateChangeEvent>> = HashMap::new();
+    updates: &[PersistedRequestStateChangeEvent],
+) -> Result<Vec<CloudEventBatch>, anyhow::Error> {
+    let mut grouped: HashMap<&str, Vec<&PersistedRequestStateChangeEvent>> = HashMap::new();
     for update in updates {
-        grouped.entry(update.request_id()).or_default().push(update);
+        grouped
+            .entry(update.event.request_id())
+            .or_default()
+            .push(update);
     }
 
     let mut requests = Vec::with_capacity(grouped.len());
     for (request_id, group) in grouped {
-        let first = group[0];
-        let resource = create_resource(first);
+        let Some(first) = group.first() else { continue };
+
+        let resource = create_resource(&first.event);
         let scope = create_scope(request_id);
 
+        let mut keys = Vec::with_capacity(group.len());
         let mut log_records = Vec::with_capacity(group.len());
         for update in group {
-            log_records.push(create_log_record(update)?);
+            keys.push(update.key());
+            log_records.push(create_log_record(&update.event)?);
         }
 
-        requests.push(ExportLogsServiceRequest {
+        let request = ExportLogsServiceRequest {
             resource_logs: vec![ResourceLogs {
                 resource: Some(resource),
                 scope_logs: vec![ScopeLogs {
@@ -49,7 +57,14 @@ pub fn create_batch_export_request(
                 }],
                 ..Default::default()
             }],
-        });
+        };
+
+        let batch = CloudEventBatch {
+            export_request: request,
+            event_keys: keys,
+        };
+
+        requests.push(batch);
     }
 
     Ok(requests)
@@ -174,13 +189,9 @@ mod tests {
     use crate::{
         data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
-            AllocationCompleted,
-            AllocationCreated,
-            FunctionRunCompleted,
-            FunctionRunCreated,
-            FunctionRunMatchedCache,
-            FunctionRunOutcomeSummary,
-            RequestStartedEvent,
+            AllocationCompleted, AllocationCreated, FunctionRunCompleted, FunctionRunCreated,
+            FunctionRunMatchedCache, FunctionRunOutcomeSummary, PersistedRequestStateChangeEvent,
+            RequestStartedEvent, RequestStateChangeEventId,
         },
     };
 
@@ -716,14 +727,16 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_batch_export_request(&[&event]);
+        let persisted =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event);
+        let result = super::create_batch_export_request(&[persisted]);
         assert!(result.is_ok());
 
         let requests = result.unwrap();
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
 
-        let resource_logs = &request.resource_logs[0];
+        let resource_logs = &request.export_request.resource_logs[0];
         let Some(resource) = &resource_logs.resource else {
             panic!("Expected Resource");
         };
@@ -759,14 +772,16 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_batch_export_request(&[&event]);
+        let persisted =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event);
+        let result = super::create_batch_export_request(&[persisted]);
         assert!(result.is_ok());
 
         let requests = result.unwrap();
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
 
-        let resource_logs = &request.resource_logs[0];
+        let resource_logs = &request.export_request.resource_logs[0];
         assert_eq!(resource_logs.scope_logs.len(), 1);
 
         let scope_logs = &resource_logs.scope_logs[0];
@@ -822,14 +837,16 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_batch_export_request(&[&event]);
+        let persisted =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event);
+        let result = super::create_batch_export_request(&[persisted]);
         assert!(result.is_ok());
 
         let requests = result.unwrap();
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
 
-        let resource_logs = &request.resource_logs[0];
+        let resource_logs = &request.export_request.resource_logs[0];
         let scope_logs = &resource_logs.scope_logs[0];
 
         let Some(scope) = &scope_logs.scope else {
@@ -851,14 +868,16 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_batch_export_request(&[&event]);
+        let persisted =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event);
+        let result = super::create_batch_export_request(&[persisted]);
         assert!(result.is_ok());
 
         let requests = result.unwrap();
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
 
-        let log_record = &request.resource_logs[0].scope_logs[0].log_records[0];
+        let log_record = &request.export_request.resource_logs[0].scope_logs[0].log_records[0];
 
         // Find data attribute
         let data_attr = log_record
@@ -926,7 +945,15 @@ mod tests {
             created_at: now,
         });
 
-        let updates: Vec<&RequestStateChangeEvent> = vec![&event1, &event2, &event3];
+        let persisted1 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event1);
+        let persisted2 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(2), event2);
+        let persisted3 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(3), event3);
+
+        let updates: Vec<PersistedRequestStateChangeEvent> =
+            vec![persisted1, persisted2, persisted3];
         let result = super::create_batch_export_request(&updates);
         assert!(result.is_ok());
 
@@ -936,8 +963,13 @@ mod tests {
         let mut req_a_count = 0;
         let mut req_b_count = 0;
         for req in &requests {
-            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
-            let log_count = req.resource_logs[0].scope_logs[0].log_records.len();
+            let scope = req.export_request.resource_logs[0].scope_logs[0]
+                .scope
+                .as_ref()
+                .unwrap();
+            let log_count = req.export_request.resource_logs[0].scope_logs[0]
+                .log_records
+                .len();
             if scope.name == "ai.tensorlake.request.id:req-A" {
                 req_a_count = log_count;
             } else if scope.name == "ai.tensorlake.request.id:req-B" {
@@ -950,7 +982,7 @@ mod tests {
 
     #[test]
     fn test_create_batch_export_request_empty_input() {
-        let updates: Vec<&RequestStateChangeEvent> = vec![];
+        let updates: Vec<PersistedRequestStateChangeEvent> = vec![];
         let result = super::create_batch_export_request(&updates);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
@@ -966,18 +998,22 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let updates: Vec<&RequestStateChangeEvent> = vec![&event];
+        let persisted =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event);
+        let updates = vec![persisted];
         let result = super::create_batch_export_request(&updates);
         assert!(result.is_ok());
 
         let requests = result.unwrap();
         assert_eq!(requests.len(), 1);
         assert_eq!(
-            requests[0].resource_logs[0].scope_logs[0].log_records.len(),
+            requests[0].export_request.resource_logs[0].scope_logs[0]
+                .log_records
+                .len(),
             1
         );
 
-        let scope = requests[0].resource_logs[0].scope_logs[0]
+        let scope = requests[0].export_request.resource_logs[0].scope_logs[0]
             .scope
             .as_ref()
             .unwrap();
@@ -1047,8 +1083,26 @@ mod tests {
             created_at: now,
         });
 
+        let persisted_a1 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(1), event_a1);
+        let persisted_a2 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(2), event_a2);
+        let persisted_a3 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(3), event_a3);
+        let persisted_b1 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(4), event_b1);
+        let persisted_b2 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(5), event_b2);
+        let persisted_c1 =
+            PersistedRequestStateChangeEvent::new(RequestStateChangeEventId::new(6), event_c1);
+
         let updates = vec![
-            &event_a1, &event_a2, &event_a3, &event_b1, &event_b2, &event_c1,
+            persisted_a1,
+            persisted_a2,
+            persisted_a3,
+            persisted_b1,
+            persisted_b2,
+            persisted_c1,
         ];
         let result = super::create_batch_export_request(&updates);
         assert!(result.is_ok());
@@ -1061,9 +1115,14 @@ mod tests {
         let mut request_data: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for req in &requests {
-            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
+            let scope = req.export_request.resource_logs[0].scope_logs[0]
+                .scope
+                .as_ref()
+                .unwrap();
             let scope_name = scope.name.clone();
-            let log_count = req.resource_logs[0].scope_logs[0].log_records.len();
+            let log_count = req.export_request.resource_logs[0].scope_logs[0]
+                .log_records
+                .len();
 
             // Extract request ID from scope name
             if let Some(req_id) = scope_name.strip_prefix("ai.tensorlake.request.id:") {
@@ -1080,9 +1139,15 @@ mod tests {
         let mut ns_data: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for req in &requests {
-            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
+            let scope = req.export_request.resource_logs[0].scope_logs[0]
+                .scope
+                .as_ref()
+                .unwrap();
             if let Some(req_id) = scope.name.strip_prefix("ai.tensorlake.request.id:") {
-                let resource = req.resource_logs[0].resource.as_ref().unwrap();
+                let resource = req.export_request.resource_logs[0]
+                    .resource
+                    .as_ref()
+                    .unwrap();
                 let namespace = resource
                     .attributes
                     .iter()

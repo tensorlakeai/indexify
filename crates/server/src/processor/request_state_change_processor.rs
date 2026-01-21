@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use opentelemetry::{
@@ -216,9 +216,9 @@ impl RequestStateChangeProcessor {
         &self,
         exporter: &mut OtlpLogsExporter,
         events: &[PersistedRequestStateChangeEvent],
-    ) -> Result<()> {
+    ) -> BatchExportResult {
         if events.is_empty() {
-            return Ok(());
+            return BatchExportResult::default();
         }
 
         info!(
@@ -226,12 +226,34 @@ impl RequestStateChangeProcessor {
             "sending batched events to OTLP exporter"
         );
 
-        let updates: Vec<_> = events.iter().map(|e| &e.event).collect();
-        let requests = create_batch_export_request(&updates)?;
+        let requests = match create_batch_export_request(&events) {
+            Ok(requests) => requests,
+            Err(err) => {
+                return BatchExportResult {
+                    successful_requests: Vec::new(),
+                    failed_requests: Vec::new(),
+                    error: Some(err),
+                };
+            }
+        };
         let request_count = requests.len();
 
+        let mut successful_requests = Vec::new();
+        let mut failed_requests = Vec::new();
         for request in requests {
-            exporter.send_request(request).await?;
+            match exporter.send_request(request.export_request).await {
+                Ok(_) => {
+                    successful_requests.extend(request.event_keys);
+                }
+                Err(err) => {
+                    failed_requests.extend(request.event_keys);
+                    return BatchExportResult {
+                        successful_requests,
+                        failed_requests,
+                        error: Some(err.into()),
+                    };
+                }
+            }
         }
 
         info!(
@@ -239,7 +261,11 @@ impl RequestStateChangeProcessor {
             request_count, "successfully sent batched events to OTLP exporter"
         );
 
-        Ok(())
+        BatchExportResult {
+            successful_requests,
+            failed_requests,
+            error: None,
+        }
     }
 
     /// Process and remove all pending request state change events.
@@ -282,4 +308,11 @@ impl RequestStateChangeProcessor {
 
         Ok(())
     }
+}
+
+#[derive(Default)]
+struct BatchExportResult {
+    successful_requests: Vec<Vec<u8>>,
+    failed_requests: Vec<Vec<u8>>,
+    error: Option<anyhow::Error>,
 }
