@@ -3,11 +3,11 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    metrics::{Gauge, Histogram},
+    metrics::{Counter, Histogram},
 };
 use otlp_logs_exporter::OtlpLogsExporter;
 use tokio::sync::Notify;
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     cloud_events::create_batch_export_request,
@@ -23,7 +23,7 @@ use crate::{
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
     processing_latency: Histogram<f64>,
-    events_counter: Gauge<u64>,
+    events_counter: Counter<u64>,
     max_attempts: u8,
 }
 
@@ -39,7 +39,7 @@ impl RequestStateChangeProcessor {
             .build();
 
         let events_counter = meter
-            .u64_gauge("indexify.request_state_change.events_processed_total")
+            .u64_counter("indexify.request_state_change.events_processed_total")
             .with_description("total number of processed request state change events")
             .build();
 
@@ -109,7 +109,7 @@ impl RequestStateChangeProcessor {
             return Ok(());
         }
 
-        self.events_counter.record(events.len() as u64, &[]);
+        self.events_counter.add(events.len() as u64, &[]);
 
         // Send batch of events to OTLP exporter if configured
         if let Some(exporter) = cloud_events_exporter {
@@ -133,15 +133,23 @@ impl RequestStateChangeProcessor {
                 .push_request_event(event.event.clone())
                 .await
             {
-                error!(
+                // An error here doesn't mean the event failed to be processed,
+                // it just means we couldn't send it to the SSE stream.
+                //
+                // This could happen if all receivers are dropped while the broadcast
+                // channel is being written to, which could happen if a client disconnects.
+                //
+                // We accept this error as not critical because missing a SSE event is not
+                // critical. If a client comes back online, it can receive
+                // future events and still complete the request.
+                warn!(
                     %error,
                     event_id = %event.id,
                     namespace = %event.event.namespace(),
                     application = %event.event.application_name(),
                     request_id = %event.event.request_id(),
-                    "error pushing request event to state"
+                    "error pushing request event to SSE stream"
                 );
-                return Err(error);
             }
         }
 
