@@ -210,7 +210,7 @@ async fn create_request_progress_stream(
                     let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
 
                     if is_finished && let Ok(Some(context)) = reader.request_ctx(&namespace, &application, &request_id).await
-                            && let Some(outcome) = &context.outcome {
+                        && let Some(outcome) = &context.outcome && outcome.is_success() {
                         yield Event::default().json_data(
                             build_finished_event_with_output(&state, &context, outcome).await
                         );
