@@ -245,6 +245,10 @@ impl ContainerReconciler {
             else {
                 info!(
                     allocation_id = %alloc.id,
+                    request_id = %alloc.request_id,
+                    namespace = %alloc.namespace,
+                    app = %alloc.application,
+                    fn_name = %alloc.function,
                     "function run not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -258,6 +262,10 @@ impl ContainerReconciler {
             else {
                 info!(
                     allocation_id = %alloc.id,
+                    request_id = %alloc.request_id,
+                    namespace = %alloc.namespace,
+                    app = %alloc.application,
+                    fn_name = %alloc.function,
                     "request context not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -281,6 +289,10 @@ impl ContainerReconciler {
             else {
                 info!(
                     allocation_id = %alloc.id,
+                    request_id = %alloc.request_id,
+                    namespace = %alloc.namespace,
+                    app = %alloc.application,
+                    fn_name = %alloc.function,
                     "application version not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
