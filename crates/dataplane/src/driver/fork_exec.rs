@@ -185,6 +185,7 @@ mod tests {
             env: vec![],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -209,6 +210,7 @@ mod tests {
             env: vec![],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -231,6 +233,7 @@ mod tests {
             env: vec![],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -256,6 +259,7 @@ mod tests {
             env: vec![("TEST_VAR".to_string(), "test_value".to_string())],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -278,6 +282,7 @@ mod tests {
             env: vec![],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let result = driver.start(config).await;
@@ -296,6 +301,7 @@ mod tests {
             env: vec![],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver.start(config).await.unwrap();

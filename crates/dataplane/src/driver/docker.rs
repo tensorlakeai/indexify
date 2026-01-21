@@ -116,6 +116,11 @@ impl ProcessDriver for DockerDriver {
             cmd.arg("-e").arg(format!("{}={}", key, value));
         }
 
+        // Set labels for container identification
+        for (key, value) in &config.labels {
+            cmd.arg("--label").arg(format!("{}={}", key, value));
+        }
+
         // Set working directory if specified
         if let Some(dir) = &config.working_dir {
             cmd.arg("-w").arg(dir);

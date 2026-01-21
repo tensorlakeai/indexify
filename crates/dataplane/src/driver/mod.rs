@@ -29,6 +29,8 @@ pub struct ProcessConfig {
     pub working_dir: Option<String>,
     /// Resource limits (CPU, memory).
     pub resources: Option<ResourceLimits>,
+    /// Labels to attach to the container (for Docker driver).
+    pub labels: Vec<(String, String)>,
 }
 
 /// Handle to a running process.

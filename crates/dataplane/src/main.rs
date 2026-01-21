@@ -8,13 +8,14 @@ mod daemon_binary;
 mod daemon_client;
 mod driver;
 mod function_container_manager;
+mod otel_tracing;
 mod resources;
 mod service;
-mod tracing;
 
 use config::DataplaneConfig;
+use otel_tracing::setup_tracing;
 use service::Service;
-use tracing::setup_tracing;
+use tracing::{info, instrument};
 
 #[derive(Parser)]
 #[command(name = "indexify-dataplane")]
@@ -38,18 +39,17 @@ async fn main() -> anyhow::Result<()> {
     start_dataplane(config).await
 }
 
-#[::tracing::instrument(skip(config), fields(env = config.env, instance_id = config.instance_id()))]
+#[instrument(skip(config), fields(env = config.env, instance_id = config.instance_id()))]
 async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
-    ::tracing::info!(
+    info!(
         server_addr = %config.server_addr,
         tls_enabled = config.tls.enabled,
         "Starting Indexify Dataplane"
     );
 
-    // Extract the embedded daemon binary for container injection
     let daemon_path =
         daemon_binary::extract_daemon_binary().context("Failed to extract daemon binary")?;
-    ::tracing::info!(daemon_path = %daemon_path.display(), "Daemon binary ready");
+    info!(daemon_path = %daemon_path.display(), "Daemon binary ready");
 
     let service = Service::new(config)
         .await

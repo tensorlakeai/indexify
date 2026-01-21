@@ -9,6 +9,7 @@ use proto_api::executor_api_pb::{
     FunctionExecutorState,
     FunctionExecutorStatus,
     FunctionExecutorTerminationReason,
+    FunctionExecutorType,
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -614,6 +615,22 @@ async fn start_container_with_daemon(
         (String::new(), vec![])
     };
 
+    // Build labels for container identification
+    let container_type = match desc.container_type() {
+        FunctionExecutorType::Unknown => "unknown",
+        FunctionExecutorType::Function => "function",
+        FunctionExecutorType::Sandbox => "sandbox",
+    };
+    let labels = vec![
+        ("indexify.managed".to_string(), "true".to_string()),
+        ("indexify.type".to_string(), container_type.to_string()),
+        ("indexify.namespace".to_string(), info.namespace.to_string()),
+        ("indexify.application".to_string(), info.app.to_string()),
+        ("indexify.function".to_string(), info.fn_name.to_string()),
+        ("indexify.version".to_string(), info.app_version.to_string()),
+        ("indexify.fe_id".to_string(), info.fe_id.to_string()),
+    ];
+
     let config = ProcessConfig {
         image: Some(image),
         command,
@@ -621,6 +638,7 @@ async fn start_container_with_daemon(
         env: vec![],
         working_dir: None,
         resources,
+        labels,
     };
 
     // Start the container (daemon will be PID 1)

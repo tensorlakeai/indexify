@@ -106,6 +106,7 @@ async fn test_docker_daemon_binary_mounted() {
         env: vec![],
         working_dir: None,
         resources: None,
+        labels: vec![],
     };
 
     let handle = match driver.start(config).await {
@@ -184,6 +185,7 @@ async fn test_docker_daemon_accessible() {
         env: vec![],
         working_dir: None,
         resources: None,
+        labels: vec![],
     };
 
     let handle = driver
@@ -259,6 +261,7 @@ async fn test_docker_grpc_health_check() {
         env: vec![],
         working_dir: None,
         resources: None,
+        labels: vec![],
     };
 
     let handle = driver
@@ -345,6 +348,7 @@ async fn test_docker_multiple_containers() {
             env: vec![("CONTAINER_NUM".to_string(), i.to_string())],
             working_dir: None,
             resources: None,
+            labels: vec![],
         };
 
         let handle = driver
@@ -418,6 +422,7 @@ async fn test_docker_env_vars_passed() {
         ],
         working_dir: None,
         resources: None,
+        labels: vec![],
     };
 
     let handle = driver
@@ -479,6 +484,7 @@ async fn test_docker_resource_limits() {
             memory_mb: Some(256),      // 256 MB
             cpu_millicores: Some(500), // 0.5 CPU cores
         }),
+        labels: vec![],
     };
 
     let handle = driver
