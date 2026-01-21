@@ -20,7 +20,7 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 // Import from the crate being tested
-use indexify_dataplane::driver::{ProcessConfig, ProcessDriver, ProcessHandle};
+use indexify_dataplane::driver::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
 use indexify_dataplane::{
     DataplaneMetrics,
     function_container_manager::{FunctionContainerManager, ImageResolver},
@@ -208,6 +208,27 @@ impl ProcessDriver for DaemonTestDriver {
         }
 
         Ok(false) // Not found
+    }
+
+    async fn get_exit_status(&self, handle: &ProcessHandle) -> Result<Option<ExitStatus>> {
+        let mut daemons = self.daemons.lock().await;
+
+        for (id, child, _port) in daemons.iter_mut() {
+            if id == &handle.id {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Ok(Some(ExitStatus {
+                            exit_code: status.code().map(|c| c as i64),
+                            oom_killed: false,
+                        }));
+                    }
+                    Ok(None) => return Ok(None), // Still running
+                    Err(_) => return Ok(None),
+                }
+            }
+        }
+
+        Ok(None) // Not found
     }
 }
 

@@ -374,9 +374,9 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
 
         let container_type = match function_executor_state.container_type() {
-            FunctionExecutorTypePb::Unknown => ContainerType::Function, /* Default to Function
-                                                                          * for backwards
-                                                                          * compatibility */
+            FunctionExecutorTypePb::Unknown => ContainerType::Function, /* Default to Function */
+            // for backwards
+            // compatibility
             FunctionExecutorTypePb::Function => ContainerType::Function,
             FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
         };

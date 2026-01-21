@@ -47,6 +47,15 @@ pub struct ProcessHandle {
     pub http_addr: Option<String>,
 }
 
+/// Exit status information for a terminated process.
+#[derive(Debug, Clone, Default)]
+pub struct ExitStatus {
+    /// Exit code of the process (0 = success).
+    pub exit_code: Option<i64>,
+    /// Whether the process was killed due to out-of-memory.
+    pub oom_killed: bool,
+}
+
 /// Trait for process drivers that can start and manage processes.
 #[async_trait]
 pub trait ProcessDriver: Send + Sync {
@@ -61,4 +70,9 @@ pub trait ProcessDriver: Send + Sync {
 
     /// Check if a process is still alive.
     async fn alive(&self, handle: &ProcessHandle) -> Result<bool>;
+
+    /// Get exit status for a terminated process.
+    /// Returns None if the process is still running or status cannot be
+    /// determined.
+    async fn get_exit_status(&self, handle: &ProcessHandle) -> Result<Option<ExitStatus>>;
 }

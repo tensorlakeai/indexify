@@ -16,13 +16,28 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     daemon_client::DaemonClient,
-    driver::{ProcessConfig, ProcessDriver, ProcessHandle},
+    driver::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::{ContainerCounts, DataplaneMetrics},
 };
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const KILL_GRACE_PERIOD: Duration = Duration::from_secs(10);
 const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn termination_reason_from_exit_status(
+    exit_status: Option<ExitStatus>,
+) -> FunctionExecutorTerminationReason {
+    match exit_status {
+        Some(status) if status.oom_killed => FunctionExecutorTerminationReason::Oom,
+        Some(status) => match status.exit_code {
+            Some(0) => FunctionExecutorTerminationReason::FunctionTimeout,
+            Some(137) => FunctionExecutorTerminationReason::Oom,
+            Some(143) => FunctionExecutorTerminationReason::FunctionCancelled,
+            _ => FunctionExecutorTerminationReason::Unknown,
+        },
+        None => FunctionExecutorTerminationReason::Unknown,
+    }
+}
 
 /// Helper struct for structured logging of function executor info.
 struct FunctionInfo<'a> {
@@ -72,6 +87,8 @@ enum ContainerState {
         handle: ProcessHandle,
         #[allow(dead_code)] // Reserved for future graceful shutdown via daemon
         daemon_client: Option<DaemonClient>,
+        /// The reason for stopping (used when container terminates)
+        reason: FunctionExecutorTerminationReason,
     },
     /// Container has terminated.
     Terminated {
@@ -207,7 +224,11 @@ impl FunctionContainerManager {
                     timeout_secs = timeout_secs,
                     "Sandbox container timed out, terminating"
                 );
-                self.initiate_stop(container).await;
+                self.initiate_stop(
+                    container,
+                    FunctionExecutorTerminationReason::FunctionTimeout,
+                )
+                .await;
             }
         }
 
@@ -235,8 +256,12 @@ impl FunctionContainerManager {
                         // Already stopping, let it continue
                     }
                     ContainerState::Pending | ContainerState::Running { .. } => {
-                        // Need to stop this container
-                        self.initiate_stop(container).await;
+                        // Need to stop this container (removed from desired state)
+                        self.initiate_stop(
+                            container,
+                            FunctionExecutorTerminationReason::FunctionCancelled,
+                        )
+                        .await;
                     }
                 }
             }
@@ -357,7 +382,11 @@ impl FunctionContainerManager {
 
     /// Initiate stopping a container (signal first, then kill after grace
     /// period).
-    async fn initiate_stop(&self, container: &mut ManagedContainer) {
+    async fn initiate_stop(
+        &self,
+        container: &mut ManagedContainer,
+        reason: FunctionExecutorTerminationReason,
+    ) {
         let id = container.description.id.clone().unwrap_or_default();
         let container_type = container_type_str(&container.description);
 
@@ -371,9 +400,7 @@ impl FunctionContainerManager {
                 self.metrics
                     .counters
                     .record_container_terminated(container_type, "cancelled_pending");
-                container.state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::Unknown,
-                };
+                container.state = ContainerState::Terminated { reason };
                 return;
             }
             _ => return,
@@ -416,10 +443,11 @@ impl FunctionContainerManager {
             );
         }
 
-        // Move to stopping state
+        // Move to stopping state with the reason
         container.state = ContainerState::Stopping {
             handle: handle.clone(),
             daemon_client,
+            reason,
         };
 
         // Schedule kill after grace period
@@ -538,7 +566,11 @@ impl FunctionContainerManager {
                     elapsed_secs = elapsed,
                     "Sandbox container timed out, terminating"
                 );
-                self.initiate_stop(container).await;
+                self.initiate_stop(
+                    container,
+                    FunctionExecutorTerminationReason::FunctionTimeout,
+                )
+                .await;
             }
         }
     }
@@ -558,32 +590,32 @@ impl FunctionContainerManager {
                     } => {
                         let handle = handle.clone();
                         let client = daemon_client.clone();
-                        Some((handle, Some(client), false))
+                        Some((handle, Some(client), None)) // None = running, no predetermined reason
                     }
-                    ContainerState::Stopping { handle, .. } => {
+                    ContainerState::Stopping { handle, reason, .. } => {
                         let handle = handle.clone();
-                        Some((handle, None, true))
+                        Some((handle, None, Some(*reason))) // Reason from initiate_stop
                     }
                     _ => None,
                 };
 
-                if let Some((handle, daemon_client, is_stopping)) = check_result {
+                if let Some((handle, daemon_client, stopping_reason)) = check_result {
                     let info = container.info();
 
-                    if is_stopping {
-                        // Just check if container is still alive
+                    if let Some(reason) = stopping_reason {
+                        // Container is stopping - check if it's dead yet
                         if let Ok(false) = self.driver.alive(&handle).await {
+                            // Use the reason from initiate_stop (not exit code)
                             tracing::info!(
                                 fe_id = %info.fe_id,
                                 namespace = %info.namespace,
                                 app = %info.app,
                                 fn_name = %info.fn_name,
                                 app_version = %info.app_version,
+                                reason = ?reason,
                                 "Container stopped"
                             );
-                            container.state = ContainerState::Terminated {
-                                reason: FunctionExecutorTerminationReason::Unknown,
-                            };
+                            container.state = ContainerState::Terminated { reason };
                         }
                     } else {
                         // Running state - check container and daemon health
@@ -608,7 +640,7 @@ impl FunctionContainerManager {
                                                 let _ = self.driver.kill(&handle).await;
                                                 container.state = ContainerState::Terminated {
                                                     reason:
-                                                        FunctionExecutorTerminationReason::Unknown,
+                                                        FunctionExecutorTerminationReason::Unhealthy,
                                                 };
                                             }
                                         }
@@ -623,17 +655,23 @@ impl FunctionContainerManager {
                                 }
                             }
                             Ok(false) => {
+                                // Get exit status to determine termination reason
+                                let exit_status =
+                                    self.driver.get_exit_status(&handle).await.ok().flatten();
+                                let reason =
+                                    termination_reason_from_exit_status(exit_status.clone());
                                 tracing::info!(
                                     fe_id = %info.fe_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    exit_code = ?exit_status.as_ref().and_then(|s| s.exit_code),
+                                    oom_killed = ?exit_status.as_ref().map(|s| s.oom_killed),
+                                    reason = ?reason,
                                     "Container is no longer alive"
                                 );
-                                container.state = ContainerState::Terminated {
-                                    reason: FunctionExecutorTerminationReason::Unknown,
-                                };
+                                container.state = ContainerState::Terminated { reason };
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -866,6 +904,16 @@ mod tests {
 
         async fn alive(&self, _handle: &ProcessHandle) -> anyhow::Result<bool> {
             Ok(self.alive_result.load(Ordering::SeqCst))
+        }
+
+        async fn get_exit_status(
+            &self,
+            _handle: &ProcessHandle,
+        ) -> anyhow::Result<Option<ExitStatus>> {
+            Ok(Some(ExitStatus {
+                exit_code: Some(0),
+                oom_killed: false,
+            }))
         }
     }
 

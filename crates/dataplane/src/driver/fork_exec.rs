@@ -8,7 +8,7 @@ use tokio::{
 };
 use tracing::info;
 
-use super::{ProcessConfig, ProcessDriver, ProcessHandle};
+use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
 use crate::daemon_binary;
 
 pub struct ForkExecDriver {
@@ -166,6 +166,26 @@ impl ProcessDriver for ForkExecDriver {
             }
         } else {
             Ok(false)
+        }
+    }
+
+    async fn get_exit_status(&self, handle: &ProcessHandle) -> Result<Option<ExitStatus>> {
+        let mut processes = self.processes.lock().await;
+
+        if let Some(child) = processes.get_mut(&handle.id) {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let exit_code = status.code().map(|c| c as i64);
+                    Ok(Some(ExitStatus {
+                        exit_code,
+                        oom_killed: false, // Can't detect OOM for local processes easily
+                    }))
+                }
+                Ok(None) => Ok(None), // Still running
+                Err(e) => Err(e).context("Failed to get exit status"),
+            }
+        } else {
+            Ok(None)
         }
     }
 }

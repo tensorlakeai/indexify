@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use tokio::process::Command;
 use tracing::info;
 
-use super::{ProcessConfig, ProcessDriver, ProcessHandle};
+use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
 use crate::daemon_binary;
 
 /// Container path for the daemon binary.
@@ -249,5 +249,43 @@ impl ProcessDriver for DockerDriver {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         Ok(stdout.trim() == "true")
+    }
+
+    async fn get_exit_status(&self, handle: &ProcessHandle) -> Result<Option<ExitStatus>> {
+        let mut cmd = self.docker_cmd();
+        cmd.arg("inspect");
+        cmd.arg("-f")
+            .arg("{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Running}}");
+        cmd.arg(&handle.id);
+
+        let output = cmd
+            .output()
+            .await
+            .context("Failed to execute docker inspect for exit status")?;
+
+        if !output.status.success() {
+            // Container may have been removed
+            return Ok(None);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = stdout.trim().split('|').collect();
+
+        if parts.len() < 3 {
+            return Ok(None);
+        }
+
+        // If container is still running, no exit status yet
+        if parts[2] == "true" {
+            return Ok(None);
+        }
+
+        let exit_code = parts[0].parse::<i64>().ok();
+        let oom_killed = parts[1] == "true";
+
+        Ok(Some(ExitStatus {
+            exit_code,
+            oom_killed,
+        }))
     }
 }
