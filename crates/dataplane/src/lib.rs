@@ -2,10 +2,12 @@
 //!
 //! This module exposes the dataplane components for testing and reuse.
 
+pub mod config;
 pub mod daemon_binary;
 pub mod daemon_client;
 pub mod driver;
 pub mod function_container_manager;
+pub mod metrics;
 
 // Re-export key types for convenience
 pub use daemon_client::DaemonClient;
@@ -15,3 +17,4 @@ pub use function_container_manager::{
     FunctionContainerManager,
     ImageResolver,
 };
+pub use metrics::{ContainerCounts, DataplaneMetrics, ResourceAvailability};

@@ -27,7 +27,8 @@ use crate::{
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
-    resources::probe_host_resources,
+    metrics::DataplaneMetrics,
+    resources::{probe_host_resources, probe_free_resources},
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -39,6 +40,7 @@ pub struct Service {
     channel: Channel,
     host_resources: HostResources,
     container_manager: Arc<FunctionContainerManager>,
+    metrics: Arc<DataplaneMetrics>,
 }
 
 impl Service {
@@ -55,13 +57,19 @@ impl Service {
         };
 
         let image_resolver = Arc::new(DefaultImageResolver);
-        let container_manager = Arc::new(FunctionContainerManager::new(driver, image_resolver));
+        let metrics = Arc::new(DataplaneMetrics::new());
+        let container_manager = Arc::new(FunctionContainerManager::new(
+            driver,
+            image_resolver,
+            metrics.clone(),
+        ));
 
         Ok(Self {
             config,
             channel,
             host_resources,
             container_manager,
+            metrics,
         })
     }
 
@@ -81,6 +89,7 @@ impl Service {
             let host_resources = self.host_resources;
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
+            let metrics = self.metrics.clone();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -90,6 +99,7 @@ impl Service {
                     heartbeat_healthy,
                     stream_notify,
                     cancel_token,
+                    metrics,
                 )
                 .await
             }
@@ -102,6 +112,7 @@ impl Service {
             let stream_notify = stream_notify.clone();
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
+            let metrics = self.metrics.clone();
             async move {
                 run_desired_stream_loop(
                     channel,
@@ -110,6 +121,7 @@ impl Service {
                     heartbeat_healthy,
                     stream_notify,
                     cancel_token,
+                    metrics,
                 )
                 .await
             }
@@ -120,6 +132,15 @@ impl Service {
             let cancel_token = cancel_token.clone();
             async move {
                 container_manager.run_health_checks(cancel_token).await;
+            }
+        });
+
+        // Metrics update loop for resource availability
+        let metrics_update_handle = tokio::spawn({
+            let metrics = self.metrics.clone();
+            let cancel_token = cancel_token.clone();
+            async move {
+                run_metrics_update_loop(metrics, cancel_token).await;
             }
         });
 
@@ -143,9 +164,34 @@ impl Service {
                     tracing::error!(error = %e, "Health check task panicked");
                 }
             }
+            result = metrics_update_handle => {
+                if let Err(e) = result {
+                    tracing::error!(error = %e, "Metrics update task panicked");
+                }
+            }
         }
 
         Ok(())
+    }
+}
+
+const METRICS_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Periodically update resource availability metrics.
+async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: CancellationToken) {
+    let mut interval = tokio::time::interval(METRICS_UPDATE_INTERVAL);
+
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                tracing::info!("Metrics update loop cancelled");
+                return;
+            }
+            _ = interval.tick() => {
+                let resources = probe_free_resources();
+                metrics.update_resources(resources).await;
+            }
+        }
     }
 }
 
@@ -157,6 +203,7 @@ async fn run_heartbeat_loop(
     heartbeat_healthy: Arc<AtomicBool>,
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
+    metrics: Arc<DataplaneMetrics>,
 ) {
     let mut client = ExecutorApiClient::new(channel);
 
@@ -197,6 +244,7 @@ async fn run_heartbeat_loop(
 
         match client.report_executor_state(request).await {
             Ok(_) => {
+                metrics.counters.record_heartbeat(true);
                 let was_healthy = heartbeat_healthy.swap(true, Ordering::SeqCst);
                 if !was_healthy {
                     tracing::info!("Heartbeat succeeded, notifying stream to start");
@@ -211,6 +259,7 @@ async fn run_heartbeat_loop(
                 }
             }
             Err(e) => {
+                metrics.counters.record_heartbeat(false);
                 tracing::warn!(error = %e, "Heartbeat failed, retrying");
                 heartbeat_healthy.store(false, Ordering::SeqCst);
                 tokio::select! {
@@ -232,6 +281,7 @@ async fn run_desired_stream_loop(
     heartbeat_healthy: Arc<AtomicBool>,
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
+    metrics: Arc<DataplaneMetrics>,
 ) {
     loop {
         if cancel_token.is_cancelled() {
@@ -258,9 +308,11 @@ async fn run_desired_stream_loop(
             &container_manager,
             &heartbeat_healthy,
             &cancel_token,
+            &metrics,
         )
         .await
         {
+            metrics.counters.record_stream_disconnection("error");
             tracing::warn!(error = %e, "Desired stream ended");
         }
 
@@ -281,6 +333,7 @@ async fn run_desired_stream(
     container_manager: &FunctionContainerManager,
     heartbeat_healthy: &AtomicBool,
     cancel_token: &CancellationToken,
+    metrics: &DataplaneMetrics,
 ) -> Result<()> {
     let mut client = ExecutorApiClient::new(channel.clone());
 
@@ -304,6 +357,7 @@ async fn run_desired_stream(
 
         // Check if heartbeat is still healthy
         if !heartbeat_healthy.load(Ordering::SeqCst) {
+            metrics.counters.record_stream_disconnection("heartbeat_unhealthy");
             tracing::warn!("Heartbeat unhealthy, disconnecting stream");
             return Ok(());
         }
@@ -318,9 +372,10 @@ async fn run_desired_stream(
 
         match message {
             Ok(Ok(Some(state))) => {
-                handle_desired_state(state, container_manager).await;
+                handle_desired_state(state, container_manager, metrics).await;
             }
             Ok(Ok(None)) => {
+                metrics.counters.record_stream_disconnection("server_closed");
                 tracing::info!("Stream closed by server");
                 return Ok(());
             }
@@ -328,6 +383,7 @@ async fn run_desired_stream(
                 return Err(e).context("Stream error");
             }
             Err(_) => {
+                metrics.counters.record_stream_disconnection("idle_timeout");
                 tracing::warn!("Stream idle timeout, reconnecting");
                 return Ok(());
             }
@@ -338,10 +394,16 @@ async fn run_desired_stream(
 async fn handle_desired_state(
     state: DesiredExecutorState,
     container_manager: &FunctionContainerManager,
+    metrics: &DataplaneMetrics,
 ) {
     let num_fes = state.function_executors.len();
     let num_allocs = state.allocations.len();
     let clock = state.clock.unwrap_or(0);
+
+    // Record metrics for desired state received
+    metrics
+        .counters
+        .record_desired_state(num_fes as u64, num_allocs as u64);
 
     tracing::info!(
         clock,

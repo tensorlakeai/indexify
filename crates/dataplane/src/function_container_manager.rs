@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use proto_api::executor_api_pb::{
@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     daemon_client::DaemonClient,
     driver::{ProcessConfig, ProcessDriver, ProcessHandle},
+    metrics::{ContainerCounts, DataplaneMetrics},
 };
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -82,8 +83,10 @@ enum ContainerState {
 struct ManagedContainer {
     description: FunctionExecutorDescription,
     state: ContainerState,
+    /// When the container was created (for latency tracking)
+    created_at: Instant,
     /// When the container started running (set when state becomes Running)
-    started_at: Option<std::time::Instant>,
+    started_at: Option<Instant>,
     /// HTTP address of the daemon (for sandbox containers).
     /// Set when the container becomes Running.
     daemon_http_address: Option<String>,
@@ -161,14 +164,20 @@ pub struct FunctionContainerManager {
     driver: Arc<dyn ProcessDriver>,
     image_resolver: Arc<dyn ImageResolver>,
     containers: Arc<Mutex<HashMap<String, ManagedContainer>>>,
+    metrics: Arc<DataplaneMetrics>,
 }
 
 impl FunctionContainerManager {
-    pub fn new(driver: Arc<dyn ProcessDriver>, image_resolver: Arc<dyn ImageResolver>) -> Self {
+    pub fn new(
+        driver: Arc<dyn ProcessDriver>,
+        image_resolver: Arc<dyn ImageResolver>,
+        metrics: Arc<DataplaneMetrics>,
+    ) -> Self {
         Self {
             driver,
             image_resolver,
             containers: Arc::new(Mutex::new(HashMap::new())),
+            metrics,
         }
     }
 
@@ -242,18 +251,23 @@ impl FunctionContainerManager {
 
             if !containers.contains_key(&id) {
                 let info = FunctionInfo::from_description(&desc);
+                let container_type = container_type_str(&desc);
+
                 tracing::info!(
                     fe_id = %info.fe_id,
                     namespace = %info.namespace,
                     app = %info.app,
                     fn_name = %info.fn_name,
                     app_version = %info.app_version,
+                    container_type = %container_type,
+                    event = "container_creating",
                     "Creating new container"
                 );
 
                 let container = ManagedContainer {
                     description: desc.clone(),
                     state: ContainerState::Pending,
+                    created_at: Instant::now(),
                     started_at: None,
                     daemon_http_address: None,
                 };
@@ -263,6 +277,7 @@ impl FunctionContainerManager {
                 let driver = self.driver.clone();
                 let image_resolver = self.image_resolver.clone();
                 let containers_ref = self.containers.clone();
+                let metrics = self.metrics.clone();
                 let desc_clone = desc.clone();
 
                 tokio::spawn(async move {
@@ -271,9 +286,16 @@ impl FunctionContainerManager {
 
                     let mut containers = containers_ref.lock().await;
                     if let Some(container) = containers.get_mut(&id) {
+                        let startup_duration_ms = container.created_at.elapsed().as_millis();
+                        let info = container.info();
+                        let container_type = container_type_str(&container.description);
+
                         match result {
                             Ok((handle, daemon_client)) => {
-                                let info = container.info();
+                                // Record container started metric
+                                metrics.counters.record_container_started(container_type);
+
+                                // Structured log with latency
                                 tracing::info!(
                                     fe_id = %info.fe_id,
                                     namespace = %info.namespace,
@@ -282,6 +304,9 @@ impl FunctionContainerManager {
                                     app_version = %info.app_version,
                                     container_id = %handle.id,
                                     http_addr = ?handle.http_addr,
+                                    container_type = %container_type,
+                                    startup_duration_ms = %startup_duration_ms,
+                                    event = "container_started",
                                     "Container started with daemon"
                                 );
                                 container.daemon_http_address = handle.http_addr.clone();
@@ -289,35 +314,53 @@ impl FunctionContainerManager {
                                     handle,
                                     daemon_client,
                                 };
-                                container.started_at = Some(std::time::Instant::now());
+                                container.started_at = Some(Instant::now());
+
+                                // Update container counts
+                                update_container_counts(&containers, &metrics).await;
                             }
                             Err(e) => {
-                                let info = container.info();
+                                // Record container terminated (startup failure)
+                                metrics.counters.record_container_terminated(
+                                    container_type,
+                                    "startup_failed",
+                                );
+
                                 tracing::error!(
                                     fe_id = %info.fe_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    container_type = %container_type,
+                                    startup_duration_ms = %startup_duration_ms,
                                     error = %e,
+                                    event = "container_startup_failed",
                                     "Failed to start container"
                                 );
                                 container.state = ContainerState::Terminated {
                                     reason:
                                         FunctionExecutorTerminationReason::StartupFailedInternalError,
                                 };
+
+                                // Update container counts
+                                update_container_counts(&containers, &metrics).await;
                             }
                         }
                     }
                 });
             }
         }
+
+        // Update container counts after sync
+        update_container_counts(&containers, &self.metrics).await;
     }
 
     /// Initiate stopping a container (signal first, then kill after grace
     /// period).
     async fn initiate_stop(&self, container: &mut ManagedContainer) {
         let id = container.description.id.clone().unwrap_or_default();
+        let container_type = container_type_str(&container.description);
 
         // Extract what we need from the current state
         let (handle, daemon_client) = match &container.state {
@@ -326,6 +369,9 @@ impl FunctionContainerManager {
                 daemon_client,
             } => (handle.clone(), Some(daemon_client.clone())),
             ContainerState::Pending => {
+                self.metrics
+                    .counters
+                    .record_container_terminated(container_type, "cancelled_pending");
                 container.state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::Unknown,
                 };
@@ -341,6 +387,8 @@ impl FunctionContainerManager {
             app = %info.app,
             fn_name = %info.fn_name,
             app_version = %info.app_version,
+            container_type = %container_type,
+            event = "container_stopping",
             "Signaling container to stop via daemon"
         );
 
@@ -378,7 +426,9 @@ impl FunctionContainerManager {
         // Schedule kill after grace period
         let driver = self.driver.clone();
         let containers_ref = self.containers.clone();
+        let metrics = self.metrics.clone();
         let container_id = id.clone();
+        let container_type_owned = container_type.to_string();
 
         tokio::spawn(async move {
             tokio::time::sleep(KILL_GRACE_PERIOD).await;
@@ -389,12 +439,20 @@ impl FunctionContainerManager {
             {
                 let handle = handle.clone();
                 let info = container.info();
+                let run_duration_ms = container
+                    .started_at
+                    .map(|s| s.elapsed().as_millis())
+                    .unwrap_or(0);
+
                 tracing::info!(
                     fe_id = %info.fe_id,
                     namespace = %info.namespace,
                     app = %info.app,
                     fn_name = %info.fn_name,
                     app_version = %info.app_version,
+                    container_type = %container_type_owned,
+                    run_duration_ms = %run_duration_ms,
+                    event = "container_killing",
                     "Killing container after grace period"
                 );
                 if let Err(e) = driver.kill(&handle).await {
@@ -408,9 +466,28 @@ impl FunctionContainerManager {
                         "Failed to kill container"
                     );
                 }
+
+                metrics
+                    .counters
+                    .record_container_terminated(&container_type_owned, "grace_period_kill");
+
+                tracing::info!(
+                    fe_id = %info.fe_id,
+                    namespace = %info.namespace,
+                    app = %info.app,
+                    fn_name = %info.fn_name,
+                    app_version = %info.app_version,
+                    container_type = %container_type_owned,
+                    run_duration_ms = %run_duration_ms,
+                    event = "container_terminated",
+                    "Container terminated"
+                );
+
                 container.state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::Unknown,
                 };
+
+                update_container_counts(&containers, &metrics).await;
             }
         });
     }
@@ -672,6 +749,60 @@ async fn start_container_with_daemon(
     Ok((handle, daemon_client))
 }
 
+/// Get the container type as a string for metrics/logging.
+fn container_type_str(desc: &FunctionExecutorDescription) -> &'static str {
+    match desc.container_type() {
+        FunctionExecutorType::Unknown => "unknown",
+        FunctionExecutorType::Function => "function",
+        FunctionExecutorType::Sandbox => "sandbox",
+    }
+}
+
+/// Update container counts in the metrics state.
+async fn update_container_counts(
+    containers: &HashMap<String, ManagedContainer>,
+    metrics: &DataplaneMetrics,
+) {
+    let mut counts = ContainerCounts::default();
+
+    for container in containers.values() {
+        let is_sandbox = matches!(
+            container.description.container_type(),
+            FunctionExecutorType::Sandbox
+        );
+
+        match &container.state {
+            ContainerState::Pending => {
+                if is_sandbox {
+                    counts.pending_sandboxes += 1;
+                } else {
+                    counts.pending_functions += 1;
+                }
+            }
+            ContainerState::Running { .. } => {
+                if is_sandbox {
+                    counts.running_sandboxes += 1;
+                } else {
+                    counts.running_functions += 1;
+                }
+            }
+            ContainerState::Stopping { .. } => {
+                // Count stopping as still running for metrics purposes
+                if is_sandbox {
+                    counts.running_sandboxes += 1;
+                } else {
+                    counts.running_functions += 1;
+                }
+            }
+            ContainerState::Terminated { .. } => {
+                // Don't count terminated containers
+            }
+        }
+    }
+
+    metrics.update_container_counts(counts).await;
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -822,6 +953,7 @@ mod tests {
         let container = ManagedContainer {
             description: create_test_fe_description("fe-123"),
             state: ContainerState::Pending,
+            created_at: Instant::now(),
             started_at: None,
             daemon_http_address: None,
         };
@@ -842,6 +974,7 @@ mod tests {
             state: ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
             },
+            created_at: Instant::now(),
             started_at: None,
             daemon_http_address: None,
         };
@@ -857,12 +990,17 @@ mod tests {
         );
     }
 
+    fn create_test_metrics() -> Arc<DataplaneMetrics> {
+        Arc::new(DataplaneMetrics::new())
+    }
+
     #[tokio::test]
     async fn test_manager_new() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
+        let metrics = create_test_metrics();
 
-        let manager = FunctionContainerManager::new(driver, resolver);
+        let manager = FunctionContainerManager::new(driver, resolver, metrics);
         let states = manager.get_states().await;
 
         assert!(states.is_empty());
@@ -872,7 +1010,8 @@ mod tests {
     async fn test_sync_creates_containers() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Sync with one desired FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -903,7 +1042,8 @@ mod tests {
     async fn test_sync_removes_containers_not_in_desired() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // First sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -924,7 +1064,8 @@ mod tests {
     async fn test_sync_ignores_already_tracked_containers() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -943,7 +1084,8 @@ mod tests {
     async fn test_sync_skips_fe_without_id() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Sync with FE that has no ID
         let mut desc = create_test_fe_description("fe-123");
@@ -985,7 +1127,8 @@ mod tests {
         let container = ManagedContainer {
             description: create_test_fe_description("fe-123"),
             state: ContainerState::Pending,
-            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(1000)),
+            created_at: Instant::now(),
+            started_at: Some(Instant::now() - Duration::from_secs(1000)),
             daemon_http_address: None,
         };
 
@@ -998,7 +1141,8 @@ mod tests {
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 10),
             state: ContainerState::Pending,
-            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(100)),
+            created_at: Instant::now(),
+            started_at: Some(Instant::now() - Duration::from_secs(100)),
             daemon_http_address: None,
         };
 
@@ -1013,6 +1157,7 @@ mod tests {
             state: ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::Unknown,
             },
+            created_at: Instant::now(),
             started_at: None,
             daemon_http_address: None,
         };
@@ -1028,7 +1173,8 @@ mod tests {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
             },
-            started_at: Some(std::time::Instant::now()), // Just started
+            created_at: Instant::now(),
+            started_at: Some(Instant::now()), // Just started
             daemon_http_address: None,
         };
 
@@ -1043,8 +1189,9 @@ mod tests {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
             },
+            created_at: Instant::now(),
             // Started 15 seconds ago, so 10 second timeout is exceeded
-            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(15)),
+            started_at: Some(Instant::now() - Duration::from_secs(15)),
             daemon_http_address: None,
         };
 
@@ -1059,8 +1206,9 @@ mod tests {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
             },
+            created_at: Instant::now(),
             // Started exactly 10 seconds ago - should be timed out (>= comparison)
-            started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(10)),
+            started_at: Some(Instant::now() - Duration::from_secs(10)),
             daemon_http_address: None,
         };
 
@@ -1073,7 +1221,8 @@ mod tests {
         // exceeded their timeout
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Insert a container that started 10 seconds ago with a 5 second timeout
         // (already timed out)
@@ -1085,8 +1234,9 @@ mod tests {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
                 },
+                created_at: Instant::now(),
                 // Set started_at to 10 seconds ago - well past the 5 second timeout
-                started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(10)),
+                started_at: Some(Instant::now() - Duration::from_secs(10)),
                 daemon_http_address: None,
             };
             containers.insert("fe-timeout-test".to_string(), container);
@@ -1124,7 +1274,8 @@ mod tests {
         // Test that check_timeouts() does NOT stop containers still within timeout
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Insert a container that just started with a 600 second timeout
         {
@@ -1135,7 +1286,8 @@ mod tests {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
                 },
-                started_at: Some(std::time::Instant::now()), // Just started
+                created_at: Instant::now(),
+                started_at: Some(Instant::now()), // Just started
                 daemon_http_address: None,
             };
             containers.insert("fe-not-expired".to_string(), container);
@@ -1159,7 +1311,8 @@ mod tests {
     async fn test_check_timeouts_does_not_affect_no_timeout_containers() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
-        let manager = FunctionContainerManager::new(driver.clone(), resolver);
+        let metrics = create_test_metrics();
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
 
         // Insert a container with no timeout that started a long time ago
         {
@@ -1170,8 +1323,9 @@ mod tests {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
                 },
+                created_at: Instant::now(),
                 // Started 1 hour ago, but has no timeout so shouldn't be stopped
-                started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(3600)),
+                started_at: Some(Instant::now() - Duration::from_secs(3600)),
                 daemon_http_address: None,
             };
             containers.insert("fe-no-timeout".to_string(), container);

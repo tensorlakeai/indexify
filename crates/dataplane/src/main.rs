@@ -8,6 +8,7 @@ mod daemon_binary;
 mod daemon_client;
 mod driver;
 mod function_container_manager;
+mod metrics;
 mod otel_tracing;
 mod resources;
 mod service;
@@ -35,6 +36,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     setup_tracing(&config)?;
+
+    metrics::init_provider(
+        &config.telemetry,
+        &config.instance_id(),
+        &config.executor_id,
+    )?;
 
     start_dataplane(config).await
 }

@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use uuid::Uuid;
 
 const LOCAL_ENV: &str = "local";
+const DEFAULT_METRICS_INTERVAL_SECS: u64 = 5;
 
 /// TLS configuration for authenticating with the gRPC server.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -66,9 +69,12 @@ pub enum DriverConfig {
 }
 
 #[serde_inline_default]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
-    /// OpenTelemetry collector grpc endpoint for traces.
+    /// Enable metrics export.
+    #[serde(default)]
+    pub enable_metrics: bool,
+    /// OpenTelemetry collector grpc endpoint for traces and metrics.
     /// Defaults to using OTEL_EXPORTER_OTLP_ENDPOINT env var or to
     /// localhost:4317 if empty.
     #[serde(default)]
@@ -77,9 +83,46 @@ pub struct TelemetryConfig {
     /// If not specified, we won't export traces anywhere.
     #[serde(default)]
     pub tracing_exporter: Option<TracingExporter>,
+    /// Metrics export interval in seconds. Defaults to 10 seconds.
+    #[serde_inline_default(Duration::from_secs(DEFAULT_METRICS_INTERVAL_SECS))]
+    #[serde(with = "duration_serde")]
+    pub metrics_interval: Duration,
     /// Instance ID for this dataplane instance.
     #[serde(default)]
     pub instance_id: Option<String>,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enable_metrics: false,
+            endpoint: None,
+            tracing_exporter: None,
+            metrics_interval: Duration::from_secs(DEFAULT_METRICS_INTERVAL_SECS),
+            instance_id: None,
+        }
+    }
+}
+
+mod duration_serde {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(duration.as_secs())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let seconds = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(seconds))
+    }
 }
 
 /// Configuration for the dataplane service.
