@@ -691,17 +691,9 @@ pub(crate) async fn remove_allocation_usage_events(
 
 pub(crate) async fn remove_request_state_change_events(
     txn: &Transaction,
-    events: &[PersistedRequestStateChangeEvent],
+    event_keys: &[Vec<u8>],
 ) -> Result<()> {
-    for event in events {
-        trace!(
-            event_id = %event.id,
-            namespace = %event.event.namespace(),
-            application = %event.event.application_name(),
-            request_id = %event.event.request_id(),
-            "removing request state change event"
-        );
-        let key = event.key();
+    for key in event_keys {
         txn.delete(
             IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
             &key,

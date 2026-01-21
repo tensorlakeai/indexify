@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use opentelemetry::{
@@ -13,7 +13,9 @@ use crate::{
     cloud_events::create_batch_export_request,
     metrics::{Timer, low_latency_boundaries},
     state_store::{
-        IndexifyState, driver::Writer, request_events::PersistedRequestStateChangeEvent,
+        IndexifyState,
+        driver::Writer,
+        request_events::PersistedRequestStateChangeEvent,
         state_machine,
     },
 };
@@ -110,17 +112,22 @@ impl RequestStateChangeProcessor {
         self.events_counter.add(events.len() as u64, &[]);
 
         // Send batch of events to OTLP exporter if configured
-        if let Some(exporter) = cloud_events_exporter
-            && let Err(error) = self
+        let mut processed_keys = Vec::new();
+        if let Some(exporter) = cloud_events_exporter {
+            let result = self
                 .send_batched_events_to_exporter(exporter, &events)
-                .await
-        {
-            error!(
-                %error,
-                event_count = events.len(),
-                "error sending batched events to OTLP exporter"
-            );
-            return Err(error);
+                .await;
+
+            if let Some(error) = result.error {
+                error!(
+                    %error,
+                    event_count = events.len(),
+                    "error sending batched events to OTLP exporter"
+                );
+                return Err(error);
+            }
+
+            processed_keys.extend(result.successful_requests);
         }
 
         // Push all events through the state
@@ -155,26 +162,22 @@ impl RequestStateChangeProcessor {
         };
 
         info!(
-            processed_events_len = events.len(),
+            processed_events_len = processed_keys.len(),
             "removing processed events"
         );
-        self.remove_and_commit_with_backoff(events).await?;
+        self.remove_and_commit_with_backoff(&processed_keys).await?;
 
         notify.notify_one();
 
         Ok(())
     }
 
-    async fn remove_and_commit_with_backoff(
-        &self,
-        processed_events: Vec<PersistedRequestStateChangeEvent>,
-    ) -> Result<()> {
+    async fn remove_and_commit_with_backoff(&self, processed_keys: &[Vec<u8>]) -> Result<()> {
         for attempt in 1..=self.max_attempts {
             let txn = self.indexify_state.db.transaction();
 
             if let Err(error) =
-                state_machine::remove_request_state_change_events(&txn, processed_events.as_slice())
-                    .await
+                state_machine::remove_request_state_change_events(&txn, processed_keys).await
             {
                 error!(
                     %error,
@@ -297,11 +300,11 @@ impl RequestStateChangeProcessor {
                     .indexify_state
                     .push_request_event(event.event.clone())
                     .await;
-                processed_events.push(event);
+                processed_events.push(event.key());
             }
 
             if !processed_events.is_empty() {
-                self.remove_and_commit_with_backoff(processed_events)
+                self.remove_and_commit_with_backoff(&processed_events)
                     .await?;
             }
         }
