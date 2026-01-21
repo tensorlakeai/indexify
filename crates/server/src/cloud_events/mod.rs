@@ -2,34 +2,23 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use chrono::Utc;
-use otlp_logs_exporter::{
-    OtlpLogsExporter,
-    opentelemetry_proto::tonic::{
-        collector::logs::v1::ExportLogsServiceRequest,
-        common::v1::{
-            AnyValue,
-            ArrayValue,
-            InstrumentationScope,
-            KeyValue,
-            KeyValueList,
-            any_value::Value,
-        },
-        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
-        resource::v1::Resource,
+use otlp_logs_exporter::opentelemetry_proto::tonic::{
+    collector::logs::v1::ExportLogsServiceRequest,
+    common::v1::{
+        AnyValue,
+        ArrayValue,
+        InstrumentationScope,
+        KeyValue,
+        KeyValueList,
+        any_value::Value,
     },
+    logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
+    resource::v1::Resource,
 };
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::state_store::request_events::RequestStateChangeEvent;
-
-pub async fn export_progress_update(
-    exporter: &mut OtlpLogsExporter,
-    update: &RequestStateChangeEvent,
-) -> Result<(), anyhow::Error> {
-    let request = create_export_request(update)?;
-    exporter.send_request(request).await.map_err(Into::into)
-}
 
 pub fn create_batch_export_request(
     updates: &[&RequestStateChangeEvent],
@@ -116,28 +105,6 @@ fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyh
         attributes,
         ..Default::default()
     })
-}
-
-pub fn create_export_request(
-    update: &RequestStateChangeEvent,
-) -> Result<ExportLogsServiceRequest, anyhow::Error> {
-    let resource = create_resource(update);
-    let scope = create_scope(update.request_id());
-    let log_record = create_log_record(update)?;
-
-    let request = ExportLogsServiceRequest {
-        resource_logs: vec![ResourceLogs {
-            resource: Some(resource),
-            scope_logs: vec![ScopeLogs {
-                scope: Some(scope),
-                log_records: vec![log_record],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }],
-    };
-
-    Ok(request)
 }
 
 fn update_to_any_value(update: &RequestStateChangeEvent) -> Result<AnyValue, anyhow::Error> {
@@ -749,11 +716,12 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_export_request(&event);
+        let result = super::create_batch_export_request(&[&event]);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
-        assert_eq!(request.resource_logs.len(), 1);
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
 
         let resource_logs = &request.resource_logs[0];
         let Some(resource) = &resource_logs.resource else {
@@ -791,10 +759,13 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_export_request(&event);
+        let result = super::create_batch_export_request(&[&event]);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+
         let resource_logs = &request.resource_logs[0];
         assert_eq!(resource_logs.scope_logs.len(), 1);
 
@@ -851,10 +822,13 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_export_request(&event);
+        let result = super::create_batch_export_request(&[&event]);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+
         let resource_logs = &request.resource_logs[0];
         let scope_logs = &resource_logs.scope_logs[0];
 
@@ -877,10 +851,13 @@ mod tests {
             created_at: Utc::now(),
         });
 
-        let result = super::create_export_request(&event);
+        let result = super::create_batch_export_request(&[&event]);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let requests = result.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+
         let log_record = &request.resource_logs[0].scope_logs[0].log_records[0];
 
         // Find data attribute
@@ -1005,5 +982,129 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(scope.name, "ai.tensorlake.request.id:req-single");
+    }
+
+    #[test]
+    fn test_create_batch_export_request_multiple_events_multiple_request_ids() {
+        let now = Utc::now();
+
+        // Request A: 3 events
+        let event_a1 = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-A".to_string(),
+            created_at: now,
+        });
+
+        let event_a2 = RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-A".to_string(),
+            function_name: "func-1".to_string(),
+            function_run_id: "run-1".to_string(),
+            created_at: now,
+        });
+
+        let event_a3 = RequestStateChangeEvent::AllocationCreated(AllocationCreated {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-A".to_string(),
+            function_name: "func-1".to_string(),
+            function_run_id: "run-1".to_string(),
+            allocation_id: "alloc-1".to_string(),
+            executor_id: "executor-1".to_string(),
+            created_at: now,
+        });
+
+        // Request B: 2 events
+        let event_b1 = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-B".to_string(),
+            created_at: now,
+        });
+
+        let event_b2 = RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
+            namespace: "ns1".to_string(),
+            application_name: "app1".to_string(),
+            application_version: "1.0.0".to_string(),
+            request_id: "req-B".to_string(),
+            function_name: "func-2".to_string(),
+            function_run_id: "run-2".to_string(),
+            created_at: now,
+        });
+
+        // Request C: 1 event
+        let event_c1 = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
+            namespace: "ns2".to_string(),
+            application_name: "app2".to_string(),
+            application_version: "2.0.0".to_string(),
+            request_id: "req-C".to_string(),
+            created_at: now,
+        });
+
+        let updates = vec![
+            &event_a1, &event_a2, &event_a3, &event_b1, &event_b2, &event_c1,
+        ];
+        let result = super::create_batch_export_request(&updates);
+        assert!(result.is_ok());
+
+        let requests = result.unwrap();
+        // Should produce 3 export requests (one per request ID)
+        assert_eq!(requests.len(), 3);
+
+        // Collect results by request ID
+        let mut request_data: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for req in &requests {
+            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
+            let scope_name = scope.name.clone();
+            let log_count = req.resource_logs[0].scope_logs[0].log_records.len();
+
+            // Extract request ID from scope name
+            if let Some(req_id) = scope_name.strip_prefix("ai.tensorlake.request.id:") {
+                request_data.insert(req_id.to_string(), log_count);
+            }
+        }
+
+        // Verify event counts for each request ID
+        assert_eq!(request_data.get("req-A"), Some(&3));
+        assert_eq!(request_data.get("req-B"), Some(&2));
+        assert_eq!(request_data.get("req-C"), Some(&1));
+
+        // Verify that req-A and req-B have the same namespace but req-C is different
+        let mut ns_data: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for req in &requests {
+            let scope = req.resource_logs[0].scope_logs[0].scope.as_ref().unwrap();
+            if let Some(req_id) = scope.name.strip_prefix("ai.tensorlake.request.id:") {
+                let resource = req.resource_logs[0].resource.as_ref().unwrap();
+                let namespace = resource
+                    .attributes
+                    .iter()
+                    .find(|kv| kv.key == "ai.tensorlake.namespace")
+                    .and_then(|kv| {
+                        if let Some(av) = &kv.value {
+                            if let Some(Value::StringValue(s)) = &av.value {
+                                Some(s.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                ns_data.insert(req_id.to_string(), namespace);
+            }
+        }
+
+        assert_eq!(ns_data.get("req-A"), Some(&"ns1".to_string()));
+        assert_eq!(ns_data.get("req-B"), Some(&"ns1".to_string()));
+        assert_eq!(ns_data.get("req-C"), Some(&"ns2".to_string()));
     }
 }

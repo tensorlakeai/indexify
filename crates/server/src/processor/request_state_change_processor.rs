@@ -13,9 +13,7 @@ use crate::{
     cloud_events::create_batch_export_request,
     metrics::{Timer, low_latency_boundaries},
     state_store::{
-        IndexifyState,
-        driver::Writer,
-        request_events::PersistedRequestStateChangeEvent,
+        IndexifyState, driver::Writer, request_events::PersistedRequestStateChangeEvent,
         state_machine,
     },
 };
@@ -112,18 +110,17 @@ impl RequestStateChangeProcessor {
         self.events_counter.add(events.len() as u64, &[]);
 
         // Send batch of events to OTLP exporter if configured
-        if let Some(exporter) = cloud_events_exporter {
-            if let Err(error) = self
+        if let Some(exporter) = cloud_events_exporter
+            && let Err(error) = self
                 .send_batched_events_to_exporter(exporter, &events)
                 .await
-            {
-                error!(
-                    %error,
-                    event_count = events.len(),
-                    "error sending batched events to OTLP exporter"
-                );
-                return Err(error);
-            }
+        {
+            error!(
+                %error,
+                event_count = events.len(),
+                "error sending batched events to OTLP exporter"
+            );
+            return Err(error);
         }
 
         // Push all events through the state
