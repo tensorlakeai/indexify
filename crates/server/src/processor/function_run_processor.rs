@@ -8,7 +8,7 @@ use crate::{
     data_model::{
         AllocationBuilder,
         AllocationTarget,
-        FunctionContainerState,
+        ContainerState,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -188,8 +188,7 @@ impl FunctionRunProcessor {
                         .filter_map(|id| container_scheduler.function_containers.get(id))
                         .filter(|c| {
                             // Filter out terminated containers
-                            if matches!(c.desired_state, FunctionContainerState::Terminated { .. })
-                            {
+                            if matches!(c.desired_state, ContainerState::Terminated { .. }) {
                                 return false;
                             }
                             // Filter out containers at or above capacity
@@ -285,7 +284,7 @@ impl FunctionRunProcessor {
         {
             let mut updated_fc = *fc.clone();
             updated_fc.allocations.insert(allocation.id.clone());
-            update.function_containers.insert(
+            update.containers.insert(
                 updated_fc.function_container.id.clone(),
                 Box::new(updated_fc.clone()),
             );

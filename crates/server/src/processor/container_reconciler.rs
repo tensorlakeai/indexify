@@ -5,14 +5,14 @@ use tracing::{info, warn};
 
 use crate::{
     data_model::{
+        Container,
+        ContainerId,
+        ContainerServerMetadata,
+        ContainerState,
+        ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
-        FunctionContainer,
-        FunctionContainerId,
-        FunctionContainerServerMetadata,
-        FunctionContainerState,
-        FunctionContainerType,
         FunctionExecutorTerminationReason,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -66,7 +66,7 @@ impl ContainerReconciler {
         let mut function_containers_to_remove = Vec::new();
 
         let containers_only_in_executor = executor
-            .function_executors
+            .containers
             .iter()
             .filter(|(fe_id, _fe)| {
                 !executor_server_metadata
@@ -78,7 +78,7 @@ impl ContainerReconciler {
         let containers_only_in_server = executor_server_metadata
             .function_container_ids
             .iter()
-            .filter(|fe_id| !executor.function_executors.contains_key(fe_id))
+            .filter(|fe_id| !executor.containers.contains_key(fe_id))
             .collect::<Vec<_>>();
         for container_id in containers_only_in_server {
             let Some(function_container) =
@@ -88,31 +88,28 @@ impl ContainerReconciler {
             };
             if matches!(
                 function_container.desired_state,
-                FunctionContainerState::Terminated { .. }
+                ContainerState::Terminated { .. }
             ) {
                 function_containers_to_remove.push(function_container.function_container.clone());
             }
         }
         for fe in containers_only_in_executor {
-            if !matches!(fe.state, FunctionContainerState::Terminated { .. }) &&
+            if !matches!(fe.state, ContainerState::Terminated { .. }) &&
                 executor_server_metadata
                     .free_resources
                     .can_handle_fe_resources(&fe.resources)
                     .is_ok()
             {
-                // Check if this is a sandbox container and if the sandbox has been terminated.
-                // Use container_type from FunctionContainer to determine if it's a sandbox.
-                // For sandbox containers, function_name is the sandbox ID.
-                if fe.container_type == FunctionContainerType::Sandbox {
+                if fe.container_type == ContainerType::Sandbox {
+                    // For sandbox containers, container ID == sandbox ID
                     let reader = self.indexify_state.reader();
                     if let Ok(Some(sandbox)) = reader
-                        .get_sandbox(&fe.namespace, &fe.application_name, &fe.function_name)
+                        .get_sandbox(&fe.namespace, &fe.application_name, fe.id.get())
                         .await &&
                         sandbox.status == SandboxStatus::Terminated
                     {
                         warn!(
                             container_id = %fe.id,
-                            sandbox_id = %fe.function_name,
                             namespace = %fe.namespace,
                             app = %fe.application_name,
                             "Ignoring container from executor - associated sandbox is terminated"
@@ -121,17 +118,14 @@ impl ContainerReconciler {
                     }
                 }
 
-                let existing_fe = FunctionContainerServerMetadata::new(
-                    executor.id.clone(),
-                    fe.clone(),
-                    fe.state.clone(),
-                );
+                let existing_fe =
+                    ContainerServerMetadata::new(executor.id.clone(), fe.clone(), fe.state.clone());
                 executor_server_metadata.add_container(&fe)?;
                 update.updated_executor_states.insert(
                     executor_server_metadata.executor_id.clone(),
                     executor_server_metadata.clone(),
                 );
-                update.function_containers.insert(
+                update.containers.insert(
                     existing_fe.function_container.id.clone(),
                     Box::new(existing_fe.clone()),
                 );
@@ -141,40 +135,38 @@ impl ContainerReconciler {
             Box::new(update.clone()),
             vec![],
         )))?;
-        for (executor_fe_id, executor_fe) in &executor.function_executors {
+        for (executor_c_id, executor_c) in &executor.containers {
             // If the Executor FE is also in the server's tracked FE lets sync them.
-            if let Some(server_fe) = container_scheduler.function_containers.get(executor_fe_id) {
-                // If the executor's FE state is Terminated lets remove it from the server.
-                if matches!(executor_fe.state, FunctionContainerState::Terminated { .. }) {
-                    function_containers_to_remove.push(executor_fe.clone());
-                    executor_server_metadata.remove_container(executor_fe)?;
+            if let Some(server_c) = container_scheduler.function_containers.get(executor_c_id) {
+                // If the executor's container state is Terminated lets remove it from the
+                // server.
+                if matches!(executor_c.state, ContainerState::Terminated { .. }) {
+                    function_containers_to_remove.push(executor_c.clone());
+                    executor_server_metadata.remove_container(executor_c)?;
                     continue;
                 }
 
                 // If the server's FE state is terminated we don't need to do anything heres
-                if matches!(
-                    server_fe.desired_state,
-                    FunctionContainerState::Terminated { .. }
-                ) {
+                if matches!(server_c.desired_state, ContainerState::Terminated { .. }) {
                     continue;
                 }
                 // Check if state changed or if daemon_http_address is newly available
-                let state_changed = executor_fe.state != server_fe.function_container.state;
-                let http_addr_changed = executor_fe.daemon_http_address.is_some() &&
-                    server_fe.function_container.daemon_http_address.is_none();
+                let state_changed = executor_c.state != server_c.function_container.state;
+                let http_addr_changed = executor_c.daemon_http_address.is_some() &&
+                    server_c.function_container.daemon_http_address.is_none();
 
                 if state_changed || http_addr_changed {
-                    let mut server_fe_clone = server_fe.clone();
-                    server_fe_clone.function_container.update(executor_fe);
-                    update.function_containers.insert(
-                        server_fe_clone.function_container.id.clone(),
-                        server_fe_clone.clone(),
+                    let mut server_c_clone = server_c.clone();
+                    server_c_clone.function_container.update(executor_c);
+                    update.containers.insert(
+                        server_c_clone.function_container.id.clone(),
+                        server_c_clone.clone(),
                     );
 
                     // Propagate daemon_http_address to associated sandbox
                     // For sandbox containers, function_name is the sandbox_id
-                    if let Some(ref new_http_addr) = executor_fe.daemon_http_address {
-                        let fc = &server_fe.function_container;
+                    if let Some(ref new_http_addr) = executor_c.daemon_http_address {
+                        let fc = &server_c.function_container;
                         let sandbox_key =
                             SandboxKey::new(&fc.namespace, &fc.application_name, &fc.function_name);
                         if let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) &&
@@ -222,7 +214,7 @@ impl ContainerReconciler {
         &self,
         in_memory_state: &InMemoryState,
         executor_id: &ExecutorId,
-        container_id: &FunctionContainerId,
+        container_id: &ContainerId,
         termination_reason: FunctionExecutorTerminationReason,
         blamed_alloc_ids: &[String],
     ) -> Result<SchedulerUpdateRequest> {
@@ -361,7 +353,7 @@ impl ContainerReconciler {
         &self,
         in_memory_state: &InMemoryState,
         executor_server_metadata: &mut ExecutorServerMetadata,
-        function_containers: Vec<FunctionContainer>,
+        function_containers: Vec<Container>,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -380,7 +372,7 @@ impl ContainerReconciler {
                 "removing function container from executor",
             );
 
-            if let FunctionContainerState::Terminated {
+            if let ContainerState::Terminated {
                 reason,
                 failed_alloc_ids,
             } = &fe.state
@@ -400,7 +392,7 @@ impl ContainerReconciler {
         for fc in &function_containers {
             update.extend(self.terminate_sandbox_for_container(
                 in_memory_state,
-                &FunctionContainerId::new(fc.id.get().to_string()),
+                &ContainerId::new(fc.id.get().to_string()),
                 &fc.state,
             )?);
         }
@@ -420,17 +412,16 @@ impl ContainerReconciler {
     fn terminate_sandbox_for_container(
         &self,
         in_memory_state: &InMemoryState,
-        container_id: &FunctionContainerId,
-        container_state: &FunctionContainerState,
+        container_id: &ContainerId,
+        container_state: &ContainerState,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Find sandbox with this container_id
+        // Find sandbox with this container_id (sandbox ID == container ID for
+        // sandboxes)
         for (sandbox_key, sandbox) in in_memory_state.sandboxes.iter() {
-            if let Some(ref sandbox_container_id) = sandbox.container_id &&
-                sandbox_container_id == container_id &&
-                sandbox.status == SandboxStatus::Running
-            {
+            let sandbox_container_id = ContainerId::from(&sandbox.id);
+            if sandbox_container_id == *container_id && sandbox.status == SandboxStatus::Running {
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
@@ -444,9 +435,9 @@ impl ContainerReconciler {
 
                 // Determine outcome based on container termination reason
                 terminated_sandbox.outcome = match container_state {
-                    FunctionContainerState::Terminated { reason, .. } => Some(
-                        SandboxOutcome::Failure(SandboxFailureReason::ContainerTerminated(*reason)),
-                    ),
+                    ContainerState::Terminated { reason, .. } => Some(SandboxOutcome::Failure(
+                        SandboxFailureReason::ContainerTerminated(*reason),
+                    )),
                     _ => Some(SandboxOutcome::Failure(SandboxFailureReason::Unknown)),
                 };
 
@@ -507,7 +498,7 @@ impl ContainerReconciler {
             )?);
 
             // Terminate associated sandbox
-            let terminated_state = FunctionContainerState::Terminated {
+            let terminated_state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::ExecutorRemoved,
                 failed_alloc_ids: vec![],
             };

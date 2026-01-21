@@ -215,7 +215,7 @@ pub mod tests {
                 gpu: None,
             })
             .state(Default::default())
-            .function_executors(Default::default())
+            .containers(Default::default())
             .tombstoned(false)
             .state_hash("state_hash".to_string())
             .clock(0)

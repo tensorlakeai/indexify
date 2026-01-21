@@ -68,11 +68,11 @@ impl From<String> for ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
-    pub function_executor_id: FunctionContainerId,
+    pub function_executor_id: ContainerId,
 }
 
 impl AllocationTarget {
-    pub fn new(executor_id: ExecutorId, function_executor_id: FunctionContainerId) -> Self {
+    pub fn new(executor_id: ExecutorId, function_executor_id: ContainerId) -> Self {
         Self {
             executor_id,
             function_executor_id,
@@ -1307,8 +1307,8 @@ impl From<&Allocation> for FunctionURI {
     }
 }
 
-impl From<&FunctionContainerServerMetadata> for FunctionURI {
-    fn from(fe_meta: &FunctionContainerServerMetadata) -> Self {
+impl From<&ContainerServerMetadata> for FunctionURI {
+    fn from(fe_meta: &ContainerServerMetadata) -> Self {
         FunctionURI {
             namespace: fe_meta.function_container.namespace.clone(),
             application: fe_meta.function_container.application_name.clone(),
@@ -1318,8 +1318,8 @@ impl From<&FunctionContainerServerMetadata> for FunctionURI {
     }
 }
 
-impl From<&Box<FunctionContainerServerMetadata>> for FunctionURI {
-    fn from(fe_meta: &Box<FunctionContainerServerMetadata>) -> Self {
+impl From<&Box<ContainerServerMetadata>> for FunctionURI {
+    fn from(fe_meta: &Box<ContainerServerMetadata>) -> Self {
         FunctionURI {
             namespace: fe_meta.function_container.namespace.clone(),
             application: fe_meta.function_container.application_name.clone(),
@@ -1329,8 +1329,8 @@ impl From<&Box<FunctionContainerServerMetadata>> for FunctionURI {
     }
 }
 
-impl From<&FunctionContainer> for FunctionURI {
-    fn from(fe: &FunctionContainer) -> Self {
+impl From<&Container> for FunctionURI {
+    fn from(fe: &Container) -> Self {
         FunctionURI {
             namespace: fe.namespace.clone(),
             application: fe.application_name.clone(),
@@ -1423,7 +1423,7 @@ impl HostResources {
     }
 
     // If can't handle, returns error that describes the reason why.
-    pub fn can_handle_fe_resources(&self, request: &FunctionContainerResources) -> Result<()> {
+    pub fn can_handle_fe_resources(&self, request: &ContainerResources) -> Result<()> {
         let requested_memory_bytes = request.memory_mb * 1024 * 1024;
         let requested_disk_bytes = request.ephemeral_disk_mb * 1024 * 1024;
 
@@ -1456,7 +1456,7 @@ impl HostResources {
 
     // If can't handle, returns error that describes the reason why.
     pub fn can_handle_function_resources(&self, request: &FunctionResources) -> Result<()> {
-        let fe_resources_no_gpu = FunctionContainerResources {
+        let fe_resources_no_gpu = ContainerResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1477,7 +1477,7 @@ impl HostResources {
         result
     }
 
-    pub fn consume_fe_resources(&mut self, request: &FunctionContainerResources) -> Result<()> {
+    pub fn consume_fe_resources(&mut self, request: &ContainerResources) -> Result<()> {
         self.can_handle_fe_resources(request)?;
 
         // Allocate the resources only after all the checks passed to not leak anything
@@ -1497,8 +1497,8 @@ impl HostResources {
     pub fn consume_function_resources(
         &mut self,
         request: &FunctionResources,
-    ) -> Result<FunctionContainerResources> {
-        let fe_resources_no_gpu = FunctionContainerResources {
+    ) -> Result<ContainerResources> {
+        let fe_resources_no_gpu = ContainerResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1525,7 +1525,7 @@ impl HostResources {
         ))
     }
 
-    pub fn free(&mut self, allocated_resources: &FunctionContainerResources) -> Result<()> {
+    pub fn free(&mut self, allocated_resources: &ContainerResources) -> Result<()> {
         self.cpu_ms_per_sec += allocated_resources.cpu_ms_per_sec;
         self.memory_bytes += allocated_resources.memory_mb * 1024 * 1024;
         self.disk_bytes += allocated_resources.ephemeral_disk_mb * 1024 * 1024;
@@ -1563,8 +1563,8 @@ pub enum ExecutorState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FunctionContainerId(String);
-impl FunctionContainerId {
+pub struct ContainerId(String);
+impl ContainerId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
@@ -1573,19 +1573,31 @@ impl FunctionContainerId {
         &self.0
     }
 }
-impl Default for FunctionContainerId {
+impl Default for ContainerId {
     fn default() -> Self {
         Self::new(nanoid::nanoid!())
     }
 }
 
-impl From<&str> for FunctionContainerId {
+impl From<&str> for ContainerId {
     fn from(s: &str) -> Self {
         Self::new(s.to_string())
     }
 }
 
-impl fmt::Display for FunctionContainerId {
+impl From<SandboxId> for ContainerId {
+    fn from(id: SandboxId) -> Self {
+        Self::new(id.0)
+    }
+}
+
+impl From<&SandboxId> for ContainerId {
+    fn from(id: &SandboxId) -> Self {
+        Self::new(id.0.clone())
+    }
+}
+
+impl fmt::Display for ContainerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", &self.0)
     }
@@ -1594,7 +1606,7 @@ impl fmt::Display for FunctionContainerId {
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
-pub enum FunctionContainerState {
+pub enum ContainerState {
     #[default]
     Unknown,
     // Function Executor is being created.
@@ -1686,7 +1698,7 @@ pub struct FunctionAllowlist {
 }
 
 impl FunctionAllowlist {
-    pub fn matches_function_executor(&self, function_executor: &FunctionContainer) -> bool {
+    pub fn matches_function_executor(&self, function_executor: &Container) -> bool {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
@@ -1723,7 +1735,7 @@ impl FunctionAllowlist {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
-pub struct FunctionContainerResources {
+pub struct ContainerResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
@@ -1756,26 +1768,31 @@ impl GcUrl {
     }
 }
 
+fn default_sandbox_timeout() -> u64 {
+    300
+}
+
+fn default_sandbox_image() -> Option<String> {
+    Some("python:3.13-slim".into())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct FunctionContainer {
+pub struct Container {
     #[builder(default)]
-    pub id: FunctionContainerId,
+    pub id: ContainerId,
     pub namespace: String,
     pub application_name: String,
     pub function_name: String,
     pub version: String,
-    pub state: FunctionContainerState,
-    pub resources: FunctionContainerResources,
+    pub state: ContainerState,
+    pub resources: ContainerResources,
     pub max_concurrency: u32,
-    /// Type of container - Function or Sandbox.
     #[builder(default)]
     #[serde(default)]
-    pub container_type: FunctionContainerType,
-    /// Docker image to use for this container.
-    /// For sandboxes, this is required. For functions, this is optional
-    /// (executor determines image from code payload).
+    pub container_type: ContainerType,
+    /// docker image to use for the sandbox
     #[builder(default)]
-    #[serde(default)]
+    #[serde(default = "default_sandbox_image")]
     pub image: Option<String>,
     #[builder(default)]
     #[serde(default)]
@@ -1783,15 +1800,13 @@ pub struct FunctionContainer {
     /// Timeout in seconds for sandbox containers. 0 means no timeout.
     /// Only applicable to sandbox-type containers.
     #[builder(default)]
-    #[serde(default)]
+    #[serde(default = "default_sandbox_timeout")]
     pub timeout_secs: u64,
     /// Optional entrypoint command for sandbox containers.
     #[builder(default)]
     #[serde(default)]
     pub entrypoint: Vec<String>,
-    /// HTTP address of the daemon running inside the container (for sandboxes).
-    /// Format: "host:port" (e.g., "127.0.0.1:64759")
-    /// Only set when the container is running and daemon is ready.
+    // The HTTP Address for sandboxes
     #[builder(default)]
     #[serde(default)]
     pub daemon_http_address: Option<String>,
@@ -1807,22 +1822,22 @@ pub struct FunctionContainer {
 // so created_at_clock and updated_at_clock are currently unused but kept
 // for future use if ExecutorMetadata becomes persisted.
 
-impl PartialEq for FunctionContainer {
+impl PartialEq for Container {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for FunctionContainer {}
+impl Eq for Container {}
 
-impl Hash for FunctionContainer {
+impl Hash for Container {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl FunctionContainer {
-    pub fn update(&mut self, other: &FunctionContainer) {
+impl Container {
+    pub fn update(&mut self, other: &Container) {
         // Only update fields that change after self FE was created.
         // Other FE must represent the same FE.
         self.state = other.state.clone();
@@ -1836,13 +1851,13 @@ impl FunctionContainer {
 #[derive(Debug, Clone, Builder)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container_ids: HashSet<FunctionContainerId>,
+    pub function_container_ids: HashSet<ContainerId>,
     pub free_resources: HostResources,
-    pub resource_claims: HashMap<FunctionContainerId, FunctionContainerResources>,
+    pub resource_claims: HashMap<ContainerId, ContainerResources>,
 }
 
 impl ExecutorServerMetadata {
-    pub fn remove_container(&mut self, container: &FunctionContainer) -> Result<()> {
+    pub fn remove_container(&mut self, container: &Container) -> Result<()> {
         self.function_container_ids.remove(&container.id);
         if let Some(existing_claim) = self.resource_claims.get(&container.id) {
             self.free_resources.free(existing_claim)?;
@@ -1851,7 +1866,7 @@ impl ExecutorServerMetadata {
         Ok(())
     }
 
-    pub fn add_container(&mut self, container: &FunctionContainer) -> Result<()> {
+    pub fn add_container(&mut self, container: &Container) -> Result<()> {
         self.function_container_ids.insert(container.id.clone());
         if let Some(_existing_claim) = self.resource_claims.get(&container.id) {
             return Ok(());
@@ -1878,48 +1893,46 @@ impl Hash for ExecutorServerMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
-pub enum FunctionContainerType {
+pub enum ContainerType {
     Sandbox,
     #[default]
     Function,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct FunctionContainerServerMetadata {
+pub struct ContainerServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container: FunctionContainer,
-    pub desired_state: FunctionContainerState,
+    pub function_container: Container,
+    pub desired_state: ContainerState,
     #[builder(default)]
-    pub container_type: FunctionContainerType,
+    pub container_type: ContainerType,
     #[builder(default)]
     #[serde(default)]
     pub allocations: HashSet<AllocationId>,
 }
 
-impl Eq for FunctionContainerServerMetadata {}
+impl Eq for ContainerServerMetadata {}
 
-impl PartialEq for FunctionContainerServerMetadata {
+impl PartialEq for ContainerServerMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.executor_id == other.executor_id &&
             self.function_container.id == other.function_container.id
     }
 }
 
-impl Hash for FunctionContainerServerMetadata {
+impl Hash for ContainerServerMetadata {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.executor_id.hash(state);
         self.function_container.id.hash(state);
     }
 }
 
-impl FunctionContainerServerMetadata {
+impl ContainerServerMetadata {
     pub fn new(
         executor_id: ExecutorId,
-        function_executor: FunctionContainer,
-        desired_state: FunctionContainerState,
+        function_executor: Container,
+        desired_state: ContainerState,
     ) -> Self {
-        // Use container_type from FunctionContainer - this preserves the type
-        // when executor reports containers after server restart
         let container_type = function_executor.container_type.clone();
         Self {
             executor_id,
@@ -1934,7 +1947,7 @@ impl FunctionContainerServerMetadata {
         // A container can only be vacuumed if:
         // 1. It's a Function container (not a Sandbox)
         // 2. AND it has no running allocations
-        self.container_type == FunctionContainerType::Function && self.allocations.is_empty()
+        self.container_type == ContainerType::Function && self.allocations.is_empty()
     }
 }
 
@@ -1946,7 +1959,7 @@ pub struct ExecutorMetadata {
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, String>,
-    pub function_executors: HashMap<FunctionContainerId, FunctionContainer>,
+    pub containers: HashMap<ContainerId, Container>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     #[builder(default)]
@@ -1998,7 +2011,7 @@ impl ExecutorMetadata {
 
     pub fn update(&mut self, update: ExecutorMetadata) {
         self.function_allowlist = update.function_allowlist;
-        self.function_executors = update.function_executors;
+        self.containers = update.containers;
         self.state = update.state;
         self.state_hash = update.state_hash;
         self.clock = update.clock;
@@ -2477,14 +2490,11 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
-    pub resources: FunctionContainerResources,
+    pub resources: ContainerResources,
     #[builder(default)]
     pub secret_names: Vec<String>,
     #[builder(default)]
     pub timeout_secs: u64,
-    /// The FunctionContainer ID once allocated
-    #[builder(default)]
-    pub container_id: Option<FunctionContainerId>,
     /// The Executor ID where the sandbox is running
     #[builder(default)]
     pub executor_id: Option<ExecutorId>,
@@ -2987,13 +2997,13 @@ mod tests {
 
     #[test]
     fn test_function_executor_builder_build_success() {
-        let id: FunctionContainerId = "fe-123".into();
+        let id: ContainerId = "fe-123".into();
         let namespace = "test-ns".to_string();
         let application_name = "graph".to_string();
         let function_name = "fn".to_string();
         let version = "1".to_string();
-        let state = FunctionContainerState::Running;
-        let resources = FunctionContainerResources {
+        let state = ContainerState::Running;
+        let resources = ContainerResources {
             cpu_ms_per_sec: 2000,
             memory_mb: 4096,
             ephemeral_disk_mb: 2048,
@@ -3004,7 +3014,7 @@ mod tests {
         };
         let max_concurrency = 4;
 
-        let mut builder = FunctionContainerBuilder::default();
+        let mut builder = ContainerBuilder::default();
         builder
             .id(id.clone())
             .namespace(namespace.clone())
@@ -3067,17 +3077,17 @@ mod tests {
         }]);
         let addr = "127.0.0.1:8080".to_string();
         let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
-        let fe_id = FunctionContainerId::from("fe-1");
+        let fe_id = ContainerId::from("fe-1");
         let function_executors = HashMap::from([(
             fe_id.clone(),
-            FunctionContainerBuilder::default()
+            ContainerBuilder::default()
                 .id(fe_id.clone())
                 .namespace("ns".to_string())
                 .application_name("graph".to_string())
                 .function_name("fn".to_string())
                 .version("1".to_string())
-                .state(FunctionContainerState::Running)
-                .resources(FunctionContainerResources {
+                .state(ContainerState::Running)
+                .resources(ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -3105,7 +3115,7 @@ mod tests {
             .function_allowlist(function_allowlist.clone())
             .addr(addr.clone())
             .labels(labels.clone())
-            .function_executors(function_executors.clone())
+            .containers(function_executors.clone())
             .host_resources(host_resources.clone())
             .state(state.clone())
             .tombstoned(tombstoned)
@@ -3119,7 +3129,7 @@ mod tests {
         assert_eq!(metadata.function_allowlist, function_allowlist);
         assert_eq!(metadata.addr, addr);
         assert_eq!(metadata.labels, labels);
-        assert_eq!(metadata.function_executors, function_executors);
+        assert_eq!(metadata.containers, function_executors);
         assert_eq!(metadata.host_resources, host_resources);
         assert_eq!(metadata.state, state);
         assert_eq!(metadata.tombstoned, tombstoned);

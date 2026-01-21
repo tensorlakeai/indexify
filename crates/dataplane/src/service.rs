@@ -28,7 +28,7 @@ use crate::{
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
     metrics::DataplaneMetrics,
-    resources::{probe_host_resources, probe_free_resources},
+    resources::{probe_free_resources, probe_host_resources},
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -195,6 +195,7 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_heartbeat_loop(
     channel: Channel,
     executor_id: String,
@@ -357,7 +358,9 @@ async fn run_desired_stream(
 
         // Check if heartbeat is still healthy
         if !heartbeat_healthy.load(Ordering::SeqCst) {
-            metrics.counters.record_stream_disconnection("heartbeat_unhealthy");
+            metrics
+                .counters
+                .record_stream_disconnection("heartbeat_unhealthy");
             tracing::warn!("Heartbeat unhealthy, disconnecting stream");
             return Ok(());
         }
@@ -375,7 +378,9 @@ async fn run_desired_stream(
                 handle_desired_state(state, container_manager, metrics).await;
             }
             Ok(Ok(None)) => {
-                metrics.counters.record_stream_disconnection("server_closed");
+                metrics
+                    .counters
+                    .record_stream_disconnection("server_closed");
                 tracing::info!("Stream closed by server");
                 return Ok(());
             }

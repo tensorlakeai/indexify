@@ -321,10 +321,9 @@ impl FunctionContainerManager {
                             }
                             Err(e) => {
                                 // Record container terminated (startup failure)
-                                metrics.counters.record_container_terminated(
-                                    container_type,
-                                    "startup_failed",
-                                );
+                                metrics
+                                    .counters
+                                    .record_container_terminated(container_type, "startup_failed");
 
                                 tracing::error!(
                                     fe_id = %info.fe_id,

@@ -2,7 +2,14 @@ use anyhow::Result;
 use tracing::{info, warn};
 
 use crate::{
-    data_model::{Sandbox, SandboxFailureReason, SandboxKey, SandboxOutcome, SandboxStatus},
+    data_model::{
+        ContainerId,
+        Sandbox,
+        SandboxFailureReason,
+        SandboxKey,
+        SandboxOutcome,
+        SandboxStatus,
+    },
     processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
         in_memory_state::InMemoryState,
@@ -102,10 +109,9 @@ impl SandboxProcessor {
         match container_scheduler.create_container_for_sandbox(sandbox) {
             Ok(Some(container_update)) => {
                 // Check if a container was actually created (has function_containers)
-                if let Some(fc_metadata) = container_update.function_containers.values().next() {
+                if let Some(fc_metadata) = container_update.containers.values().next() {
                     // Container created successfully, update sandbox status to Running
                     let mut updated_sandbox = sandbox.clone();
-                    updated_sandbox.container_id = Some(fc_metadata.function_container.id.clone());
                     updated_sandbox.executor_id = Some(fc_metadata.executor_id.clone());
                     updated_sandbox.status = SandboxStatus::Running;
 
@@ -130,7 +136,7 @@ impl SandboxProcessor {
                 } else {
                     // No container created (vacuum may have run but no host available)
                     // Apply any vacuum updates
-                    if !container_update.function_containers.is_empty() ||
+                    if !container_update.containers.is_empty() ||
                         !container_update.updated_executor_states.is_empty()
                     {
                         let payload = RequestPayload::SchedulerUpdate((
@@ -212,11 +218,13 @@ impl SandboxProcessor {
             return Ok(update);
         };
 
-        if sandbox.status == SandboxStatus::Running &&
-            let Some(ref container_id) = sandbox.container_id &&
-            let Some(container_update) = container_scheduler.terminate_container(container_id)?
-        {
-            update.extend(container_update);
+        if sandbox.status == SandboxStatus::Running {
+            let container_id = ContainerId::from(&sandbox.id);
+            if let Some(container_update) =
+                container_scheduler.terminate_container(&container_id)?
+            {
+                update.extend(container_update);
+            }
         }
 
         let mut terminated_sandbox = sandbox.as_ref().clone();

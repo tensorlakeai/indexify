@@ -35,6 +35,9 @@ use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
         self,
+        ContainerBuilder,
+        ContainerId,
+        ContainerType,
         DataPayload,
         DataPayloadBuilder,
         ExecutorId,
@@ -42,9 +45,6 @@ use crate::{
         ExecutorMetadataBuilder,
         FunctionAllowlist,
         FunctionCallId,
-        FunctionContainerBuilder,
-        FunctionContainerId,
-        FunctionContainerType,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         GPUResources,
@@ -177,7 +177,7 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl TryFrom<FunctionExecutorResources> for data_model::FunctionContainerResources {
+impl TryFrom<FunctionExecutorResources> for data_model::ContainerResources {
     type Error = anyhow::Error;
 
     fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
@@ -190,7 +190,7 @@ impl TryFrom<FunctionExecutorResources> for data_model::FunctionContainerResourc
         let ephemeral_disk_bytes = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-        Ok(data_model::FunctionContainerResources {
+        Ok(data_model::ContainerResources {
             cpu_ms_per_sec,
             // int division is okay because all the values were initially in MB and GB.
             memory_mb: (memory_bytes / 1024 / 1024) as u64,
@@ -200,10 +200,10 @@ impl TryFrom<FunctionExecutorResources> for data_model::FunctionContainerResourc
     }
 }
 
-impl TryFrom<data_model::FunctionContainerResources> for FunctionExecutorResources {
+impl TryFrom<data_model::ContainerResources> for FunctionExecutorResources {
     type Error = anyhow::Error;
 
-    fn try_from(from: data_model::FunctionContainerResources) -> Result<Self, Self::Error> {
+    fn try_from(from: data_model::ContainerResources) -> Result<Self, Self::Error> {
         Ok(FunctionExecutorResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
             memory_bytes: Some(from.memory_mb * 1024 * 1024),
@@ -253,11 +253,10 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         executor_metadata.labels(executor_state.labels);
         let mut function_executors = HashMap::new();
         for function_executor_state in executor_state.function_executor_states {
-            let function_executor =
-                data_model::FunctionContainer::try_from(function_executor_state)?;
+            let function_executor = data_model::Container::try_from(function_executor_state)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
-        executor_metadata.function_executors(function_executors);
+        executor_metadata.containers(function_executors);
         if let Some(host_resources) = executor_state.total_function_executor_resources {
             let cpu = host_resources
                 .cpu_count
@@ -327,7 +326,7 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
     }
 }
 
-impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
+impl TryFrom<FunctionExecutorState> for data_model::Container {
     type Error = anyhow::Error;
 
     fn try_from(function_executor_state: FunctionExecutorState) -> Result<Self, Self::Error> {
@@ -365,7 +364,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
             .as_ref()
             .and_then(|description| description.resources)
             .ok_or(anyhow::anyhow!("resources is required"))?;
-        let resources = data_model::FunctionContainerResources::try_from(resources)?;
+        let resources = data_model::ContainerResources::try_from(resources)?;
         let max_concurrency = function_executor_state
             .description
             .as_ref()
@@ -375,9 +374,11 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
 
         let container_type = match function_executor_state.container_type() {
-            FunctionExecutorTypePb::Unknown => FunctionContainerType::Function, /* Default to Function for backwards compatibility */
-            FunctionExecutorTypePb::Function => FunctionContainerType::Function,
-            FunctionExecutorTypePb::Sandbox => FunctionContainerType::Sandbox,
+            FunctionExecutorTypePb::Unknown => ContainerType::Function, /* Default to Function
+                                                                          * for backwards
+                                                                          * compatibility */
+            FunctionExecutorTypePb::Function => ContainerType::Function,
+            FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
         };
 
         let description = function_executor_state.description.as_ref();
@@ -394,17 +395,17 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
         let daemon_http_address = function_executor_state.daemon_http_address.clone();
 
         let state = match function_executor_state.status() {
-            FunctionExecutorStatus::Unknown => data_model::FunctionContainerState::Unknown,
-            FunctionExecutorStatus::Pending => data_model::FunctionContainerState::Pending,
-            FunctionExecutorStatus::Running => data_model::FunctionContainerState::Running,
-            FunctionExecutorStatus::Terminated => data_model::FunctionContainerState::Terminated {
+            FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
+            FunctionExecutorStatus::Pending => data_model::ContainerState::Pending,
+            FunctionExecutorStatus::Running => data_model::ContainerState::Running,
+            FunctionExecutorStatus::Terminated => data_model::ContainerState::Terminated {
                 reason: termination_reason,
                 failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
             },
         };
 
-        FunctionContainerBuilder::default()
-            .id(FunctionContainerId::new(id.clone()))
+        ContainerBuilder::default()
+            .id(ContainerId::new(id.clone()))
             .namespace(namespace.clone())
             .application_name(application_name.clone())
             .function_name(function_name.clone())

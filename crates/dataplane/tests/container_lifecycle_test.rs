@@ -21,8 +21,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 // Import from the crate being tested
 use indexify_dataplane::driver::{ProcessConfig, ProcessDriver, ProcessHandle};
-use indexify_dataplane::function_container_manager::{FunctionContainerManager, ImageResolver};
-use indexify_dataplane::DataplaneMetrics;
+use indexify_dataplane::{
+    DataplaneMetrics,
+    function_container_manager::{FunctionContainerManager, ImageResolver},
+};
 use proto_api::executor_api_pb::{
     FunctionExecutorDescription,
     FunctionExecutorStatus,

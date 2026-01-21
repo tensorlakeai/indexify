@@ -13,12 +13,12 @@ use crate::{
     config::{ExecutorCatalogEntry, ServerConfig},
     data_model::{
         Allocation,
+        Container,
+        ContainerState,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
         FunctionCallId,
-        FunctionContainer,
-        FunctionContainerState,
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
@@ -384,16 +384,13 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn update_function_executors(
-        &mut self,
-        functions: Vec<FunctionContainer>,
-    ) -> Result<()> {
+    pub async fn update_function_executors(&mut self, functions: Vec<Container>) -> Result<()> {
         // First, get current executor state
         let mut executor = self.get_executor_server_state().await?;
 
         // Update function executors, preserving the status (important for unhealthy
         // function executor tests)
-        executor.function_executors = functions.into_iter().map(|f| (f.id.clone(), f)).collect();
+        executor.containers = functions.into_iter().map(|f| (f.id.clone(), f)).collect();
 
         // Update state hash and send heartbeat
         executor.state_hash = nanoid!();
@@ -402,14 +399,11 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn set_function_executor_states(
-        &mut self,
-        state: FunctionContainerState,
-    ) -> Result<()> {
+    pub async fn set_function_executor_states(&mut self, state: ContainerState) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
-            .function_executors
+            .containers
             .into_values()
             .map(|mut fe| {
                 fe.state = state.clone();
@@ -426,7 +420,7 @@ impl TestExecutor<'_> {
     }
 
     pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
-        self.set_function_executor_states(FunctionContainerState::Running)
+        self.set_function_executor_states(ContainerState::Running)
             .await
     }
 
@@ -464,7 +458,7 @@ impl TestExecutor<'_> {
             };
             function_containers.insert(container_id, fc.function_container.clone());
         }
-        executor.function_executors = function_containers;
+        executor.containers = function_containers;
 
         Ok(executor)
     }

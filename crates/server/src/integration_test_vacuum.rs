@@ -124,7 +124,7 @@ mod tests {
                 gpu: None,
             })
             .state(Default::default())
-            .function_executors(Default::default())
+            .containers(Default::default())
             .tombstoned(false)
             .state_hash("state_hash".to_string())
             .clock(0)
@@ -314,7 +314,7 @@ mod tests {
                 assert!(
                     matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "app_a container should be marked for termination, got {:?}",
                     fc.desired_state
@@ -431,7 +431,7 @@ mod tests {
                 .filter(|(_, fc)| {
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     )
                 })
                 .count()
@@ -461,7 +461,7 @@ mod tests {
                 .filter(|(_, fc)| {
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     )
                 })
                 .collect();
@@ -583,7 +583,7 @@ mod tests {
                 assert!(
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "Allowlisted container should NOT be marked for termination"
                 );
@@ -744,7 +744,7 @@ mod tests {
                 .filter(|(_, fc)| {
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     )
                 })
                 .count()
@@ -769,7 +769,7 @@ mod tests {
                 .filter(|(_, fc)| {
                     matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     )
                 })
                 .count();
@@ -950,7 +950,7 @@ mod tests {
                 .filter(|(_, fc)| {
                     matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     )
                 })
                 .map(|(id, fc)| {
@@ -967,9 +967,9 @@ mod tests {
         // Simulate executor reporting terminated containers
         {
             let mut executor_state = executor.get_executor_server_state().await?;
-            for (_, fe) in executor_state.function_executors.iter_mut() {
+            for (_, fe) in executor_state.containers.iter_mut() {
                 // Mark all as terminated to simulate executor response
-                fe.state = crate::data_model::FunctionContainerState::Terminated {
+                fe.state = crate::data_model::ContainerState::Terminated {
                     reason:
                         crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: vec![],
@@ -1079,7 +1079,7 @@ mod tests {
                 assert!(
                     matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "app_1 container should be terminated after app deletion"
                 );
@@ -1215,7 +1215,7 @@ mod tests {
                 assert!(
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "Container with active allocations should NOT be vacuumed"
                 );
@@ -1365,7 +1365,7 @@ mod tests {
                 assert!(
                     !matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "Protected container should NOT be marked for termination"
                 );
@@ -1499,7 +1499,7 @@ mod tests {
                 assert!(
                     matches!(
                         fc.desired_state,
-                        crate::data_model::FunctionContainerState::Terminated { .. }
+                        crate::data_model::ContainerState::Terminated { .. }
                     ),
                     "app_a's container should be terminated after vacuum"
                 );

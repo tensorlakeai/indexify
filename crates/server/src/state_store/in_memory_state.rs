@@ -15,13 +15,13 @@ use crate::{
         AllocationId,
         Application,
         ApplicationVersion,
+        ContainerId,
+        ContainerResources,
+        ContainerServerMetadata,
+        ContainerState,
         DataPayload,
         ExecutorId,
         FunctionCallId,
-        FunctionContainerId,
-        FunctionContainerResources,
-        FunctionContainerServerMetadata,
-        FunctionContainerState,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -46,8 +46,8 @@ use crate::{
 };
 
 pub struct DesiredStateFunctionExecutor {
-    pub function_executor: Box<FunctionContainerServerMetadata>,
-    pub resources: FunctionContainerResources,
+    pub function_executor: Box<ContainerServerMetadata>,
+    pub resources: ContainerResources,
     pub secret_names: Vec<String>,
     pub initialization_timeout_ms: u32,
     pub code_payload: Option<DataPayload>,
@@ -71,7 +71,7 @@ pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
-    pub function_run_allocations: std::collections::HashMap<FunctionContainerId, Vec<Allocation>>,
+    pub function_run_allocations: std::collections::HashMap<ContainerId, Vec<Allocation>>,
     pub function_call_outcomes: Vec<FunctionCallOutcome>,
     pub clock: u64,
 }
@@ -152,10 +152,8 @@ pub struct InMemoryState {
     pub application_versions: imbl::OrdMap<String, Box<ApplicationVersion>>,
 
     // ExecutorId -> (FE ID -> Map of AllocationId -> Allocation)
-    pub allocations_by_executor: imbl::HashMap<
-        ExecutorId,
-        HashMap<FunctionContainerId, HashMap<AllocationId, Box<Allocation>>>,
-    >,
+    pub allocations_by_executor:
+        imbl::HashMap<ExecutorId, HashMap<ContainerId, HashMap<AllocationId, Box<Allocation>>>>,
 
     // TaskKey -> Task
     pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
@@ -225,7 +223,7 @@ impl InMemoryState {
         // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
-            HashMap<FunctionContainerId, HashMap<AllocationId, Box<Allocation>>>,
+            HashMap<ContainerId, HashMap<AllocationId, Box<Allocation>>>,
         > = imbl::HashMap::new();
         {
             let (allocations, _) = reader
@@ -607,10 +605,10 @@ impl InMemoryState {
                     }
                 }
 
-                for fc_metadata in req.function_containers.values() {
+                for fc_metadata in req.containers.values() {
                     if matches!(
                         fc_metadata.function_container.state,
-                        FunctionContainerState::Pending
+                        ContainerState::Pending
                     ) {
                         changed_executors.insert(fc_metadata.executor_id.clone());
                     }

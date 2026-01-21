@@ -9,12 +9,7 @@ use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    data_model::{
-        self,
-        FunctionContainerId,
-        FunctionContainerServerMetadata,
-        FunctionContainerState,
-    },
+    data_model::{self, ContainerId, ContainerServerMetadata, ContainerState},
     http_objects_v1::{ApplicationState, EntryPointManifest, FunctionRun},
 };
 
@@ -603,8 +598,8 @@ pub struct FunctionExecutorMetadata {
 }
 
 pub fn from_data_model_function_executor(
-    fe: data_model::FunctionContainer,
-    desired_state: FunctionContainerState,
+    fe: data_model::Container,
+    desired_state: ContainerState,
     num_allocations: u32,
 ) -> FunctionExecutorMetadata {
     FunctionExecutorMetadata {
@@ -641,10 +636,7 @@ pub struct ExecutorMetadata {
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
-    function_container_server_metadata: HashMap<
-        FunctionContainerId,
-        Box<FunctionContainerServerMetadata>,
-    >,
+    function_container_server_metadata: HashMap<ContainerId, Box<ContainerServerMetadata>>,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
         allowlist
@@ -657,7 +649,7 @@ pub fn from_data_model_executor_metadata(
             .collect()
     });
     let mut function_executors = Vec::new();
-    for (fe_id, fe) in executor.function_executors.iter() {
+    for (fe_id, fe) in executor.containers.iter() {
         if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
             let desired_state = fe_server_metadata.desired_state.clone();
             function_executors.push(from_data_model_function_executor(
@@ -668,14 +660,14 @@ pub fn from_data_model_executor_metadata(
         } else {
             function_executors.push(from_data_model_function_executor(
                 fe.clone(),
-                FunctionContainerState::Unknown,
+                ContainerState::Unknown,
                 0,
             ));
         }
     }
     let server_only_function_executors = function_container_server_metadata
         .iter()
-        .filter(|(fe_id, _fe)| !executor.function_executors.contains_key(fe_id))
+        .filter(|(fe_id, _fe)| !executor.containers.contains_key(fe_id))
         .map(|(_fe_id, fe)| {
             from_data_model_function_executor(
                 fe.function_container.clone(),

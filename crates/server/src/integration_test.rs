@@ -501,12 +501,12 @@ mod tests {
             let mut executor_state = executor.get_executor_server_state().await?;
             tracing::info!(
                 "Executor state before heartbeat: {} function_executors",
-                executor_state.function_executors.len()
+                executor_state.containers.len()
             );
 
             // Mark all function executors as terminated (mimicking executor response)
-            for (_, fe) in executor_state.function_executors.iter_mut() {
-                fe.state = crate::data_model::FunctionContainerState::Terminated {
+            for (_, fe) in executor_state.containers.iter_mut() {
+                fe.state = crate::data_model::ContainerState::Terminated {
                     reason:
                         crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: vec![],

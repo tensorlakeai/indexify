@@ -6,14 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{
-        self,
-        FunctionContainerResources,
-        Sandbox,
-        SandboxBuilder,
-        SandboxId,
-        SandboxStatus,
-    },
+    data_model::{self, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
     http_objects::{ContainerResources, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
@@ -80,7 +73,6 @@ pub struct SandboxInfo {
     pub timeout_secs: u64,
     /// HTTP address of the daemon running inside the container.
     /// Format: "host:port" (e.g., "127.0.0.1:64759")
-    /// Only set when the container is running and daemon is ready.
     pub daemon_http_address: Option<String>,
 }
 
@@ -94,7 +86,7 @@ impl From<&Sandbox> for SandboxInfo {
             status: sandbox.status.to_string(),
             outcome: sandbox.outcome.as_ref().map(|o| o.to_string()),
             created_at: (sandbox.creation_time_ns / 1_000_000) as u64, // Convert ns to ms
-            container_id: sandbox.container_id.as_ref().map(|c| c.get().to_string()),
+            container_id: Some(sandbox.id.get().to_string()),
             executor_id: sandbox.executor_id.as_ref().map(|e| e.get().to_string()),
             resources: ContainerResourcesInfo {
                 cpus: sandbox.resources.cpu_ms_per_sec as f64 / 1000.0,
@@ -130,7 +122,6 @@ pub async fn create_sandbox(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, IndexifyAPIError> {
-    // Create a new Sandbox with Pending status using inline spec from request
     let sandbox_id = SandboxId::default();
     let sandbox = SandboxBuilder::default()
         .id(sandbox_id.clone())
@@ -140,7 +131,7 @@ pub async fn create_sandbox(
         .image(request.image.clone())
         .status(SandboxStatus::Pending)
         .creation_time_ns(get_epoch_time_in_ns())
-        .resources(FunctionContainerResources {
+        .resources(data_model::ContainerResources {
             cpu_ms_per_sec: (request.resources.cpus * 1000.0).ceil() as u32,
             memory_mb: request.resources.memory_mb,
             ephemeral_disk_mb: request.resources.ephemeral_disk_mb,
@@ -222,7 +213,6 @@ pub async fn get_sandbox(
     Path((namespace, application, sandbox_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<SandboxInfo>, IndexifyAPIError> {
-    // Read sandbox from database (includes terminated sandboxes)
     let reader = state.indexify_state.reader();
     let sandbox = reader
         .get_sandbox(&namespace, &application, &sandbox_id)

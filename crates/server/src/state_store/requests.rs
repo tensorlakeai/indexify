@@ -11,14 +11,14 @@ use crate::{
         Allocation,
         Application,
         ComputeOp,
+        ContainerId,
+        ContainerServerMetadata,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
         FunctionCall,
         FunctionCallId,
-        FunctionContainerId,
-        FunctionContainerServerMetadata,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -115,7 +115,7 @@ pub struct SchedulerUpdateRequest {
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
-    pub function_containers: HashMap<FunctionContainerId, Box<FunctionContainerServerMetadata>>,
+    pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
     pub state_changes: Vec<StateChange>,
     pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
 }
@@ -140,7 +140,7 @@ impl SchedulerUpdateRequest {
             self.updated_executor_states
                 .insert(executor_id, executor_server_metadata);
         }
-        self.function_containers.extend(other.function_containers);
+        self.containers.extend(other.containers);
         self.updated_sandboxes.extend(other.updated_sandboxes);
     }
 

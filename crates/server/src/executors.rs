@@ -24,10 +24,10 @@ use crate::{
         self,
         ApplicationVersion,
         ChangeType,
+        ContainerState,
         ExecutorId,
         ExecutorMetadata,
         ExecutorRemovedEvent,
-        FunctionContainerState,
         FunctionRunOutcome,
         SandboxStatus,
         StateChange,
@@ -481,7 +481,7 @@ impl ExecutorManager {
                 );
                 continue;
             };
-            if !matches!(fc.desired_state, FunctionContainerState::Terminated { .. }) {
+            if !matches!(fc.desired_state, ContainerState::Terminated { .. }) {
                 active_function_containers.push(fc);
             } else {
                 info!(
@@ -654,8 +654,8 @@ impl ExecutorManager {
 
             // Convert container type to proto enum
             let fe_type_pb = match fe.container_type {
-                data_model::FunctionContainerType::Function => FunctionExecutorTypePb::Function,
-                data_model::FunctionContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
+                data_model::ContainerType::Function => FunctionExecutorTypePb::Function,
+                data_model::ContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
             };
 
             let fe_description_pb = FunctionExecutorDescription {
@@ -939,7 +939,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .function_executors(Default::default())
+            .containers(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)
@@ -954,7 +954,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .function_executors(Default::default())
+            .containers(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)
@@ -969,7 +969,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .function_executors(Default::default())
+            .containers(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)

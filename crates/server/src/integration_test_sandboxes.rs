@@ -4,8 +4,8 @@ mod tests {
 
     use crate::{
         data_model::{
-            FunctionContainerResources,
-            FunctionContainerState,
+            ContainerResources,
+            ContainerState,
             FunctionExecutorTerminationReason,
             Sandbox,
             SandboxBuilder,
@@ -46,7 +46,7 @@ mod tests {
             .image(TEST_IMAGE.to_string())
             .status(SandboxStatus::Pending)
             .creation_time_ns(get_epoch_time_in_ns())
-            .resources(FunctionContainerResources {
+            .resources(ContainerResources {
                 cpu_ms_per_sec: 100,
                 memory_mb: 256,
                 ephemeral_disk_mb: 1024,
@@ -110,7 +110,6 @@ mod tests {
         .expect("Sandbox should exist");
 
         assert_eq!(sandbox.status, SandboxStatus::Pending);
-        assert!(sandbox.container_id.is_none());
         assert!(sandbox.executor_id.is_none());
 
         // Verify it's in pending_sandboxes set
@@ -162,10 +161,6 @@ mod tests {
             "Sandbox should transition to Running after executor registers"
         );
         assert!(
-            sandbox.container_id.is_some(),
-            "Sandbox should have a container ID"
-        );
-        assert!(
             sandbox.executor_id.is_some(),
             "Sandbox should have an executor ID"
         );
@@ -207,7 +202,6 @@ mod tests {
             SandboxStatus::Running,
             "Sandbox should be Running when executor already exists"
         );
-        assert!(sandbox.container_id.is_some());
         assert!(sandbox.executor_id.is_some());
 
         // Verify no pending sandboxes
@@ -437,14 +431,12 @@ mod tests {
         let fe = &desired_state.function_executors[0];
         assert!(fe.id.is_some(), "Function executor should have an ID");
 
-        // Verify the function executor ID matches the sandbox's container_id
-        let sandbox_container_id = sandbox
-            .container_id
-            .expect("Sandbox should have container_id");
+        // Verify the function executor ID matches the sandbox ID (sandbox ID ==
+        // container ID)
         assert_eq!(
             fe.id.as_ref().unwrap(),
-            sandbox_container_id.get(),
-            "Function executor ID should match sandbox container_id"
+            sandbox.id.get(),
+            "Function executor ID should match sandbox ID"
         );
 
         Ok(())
@@ -596,8 +588,8 @@ mod tests {
         let mut executor_state = executor.get_executor_server_state().await?;
 
         // Mark all function executors as terminated
-        for (_, fe) in executor_state.function_executors.iter_mut() {
-            fe.state = FunctionContainerState::Terminated {
+        for (_, fe) in executor_state.containers.iter_mut() {
+            fe.state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                 failed_alloc_ids: vec![],
             };

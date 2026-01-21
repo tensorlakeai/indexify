@@ -141,7 +141,7 @@ impl FunctionRunCreator {
             .get_mut(&alloc_finished_event.allocation.target.function_executor_id)
         {
             fc.allocations.remove(&alloc_finished_event.allocation.id);
-            scheduler_update.function_containers.insert(
+            scheduler_update.containers.insert(
                 alloc_finished_event
                     .allocation
                     .target

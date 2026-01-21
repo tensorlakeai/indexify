@@ -22,13 +22,10 @@ use crate::config::TelemetryConfig;
 
 /// Initialize the OpenTelemetry metrics provider.
 ///
-/// This sets up the global meter provider with OTLP export if metrics are enabled.
-/// Must be called early in the application lifecycle before any metrics are recorded.
-pub fn init_provider(
-    config: &TelemetryConfig,
-    instance_id: &str,
-    executor_id: &str,
-) -> Result<()> {
+/// This sets up the global meter provider with OTLP export if metrics are
+/// enabled. Must be called early in the application lifecycle before any
+/// metrics are recorded.
+pub fn init_provider(config: &TelemetryConfig, instance_id: &str, executor_id: &str) -> Result<()> {
     if !config.enable_metrics {
         return Ok(());
     }
@@ -37,8 +34,14 @@ pub fn init_provider(
         .with_attribute(KeyValue::new("service.namespace", "indexify"))
         .with_attribute(KeyValue::new("service.name", "indexify-dataplane"))
         .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
-        .with_attribute(KeyValue::new("indexify.instance.id", instance_id.to_string()))
-        .with_attribute(KeyValue::new("indexify.executor.id", executor_id.to_string()))
+        .with_attribute(KeyValue::new(
+            "indexify.instance.id",
+            instance_id.to_string(),
+        ))
+        .with_attribute(KeyValue::new(
+            "indexify.executor.id",
+            executor_id.to_string(),
+        ))
         .build();
 
     let mut exporter_builder = MetricExporter::builder().with_tonic();
@@ -94,7 +97,8 @@ pub struct MetricsState {
 /// Counters for tracking events.
 #[derive(Clone)]
 pub struct DataplaneCounters {
-    /// Counter for containers started, labeled by container_type (function/sandbox)
+    /// Counter for containers started, labeled by container_type
+    /// (function/sandbox)
     pub containers_started: Counter<u64>,
     /// Counter for containers terminated
     pub containers_terminated: Counter<u64>,
@@ -170,8 +174,10 @@ impl DataplaneCounters {
 
     /// Record a container started event.
     pub fn record_container_started(&self, container_type: &str) {
-        self.containers_started
-            .add(1, &[KeyValue::new("container_type", container_type.to_string())]);
+        self.containers_started.add(
+            1,
+            &[KeyValue::new("container_type", container_type.to_string())],
+        );
     }
 
     /// Record a container terminated event.

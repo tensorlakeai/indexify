@@ -10,17 +10,17 @@ use crate::{
     data_model::{
         Application,
         ApplicationState,
+        Container,
+        ContainerBuilder,
+        ContainerId,
+        ContainerResources,
+        ContainerServerMetadata,
+        ContainerState,
+        ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
         Function,
-        FunctionContainer,
-        FunctionContainerBuilder,
-        FunctionContainerId,
-        FunctionContainerResources,
-        FunctionContainerServerMetadata,
-        FunctionContainerState,
-        FunctionContainerType,
         FunctionExecutorTerminationReason,
         FunctionResources,
         FunctionURI,
@@ -103,9 +103,8 @@ pub struct ContainerScheduler {
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
     pub executors: imbl::HashMap<ExecutorId, Box<ExecutorMetadata>>,
-    pub containers_by_function_uri: imbl::HashMap<FunctionURI, imbl::HashSet<FunctionContainerId>>,
-    pub function_containers:
-        imbl::HashMap<FunctionContainerId, Box<FunctionContainerServerMetadata>>,
+    pub containers_by_function_uri: imbl::HashMap<FunctionURI, imbl::HashSet<ContainerId>>,
+    pub function_containers: imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
 }
@@ -226,7 +225,7 @@ impl ContainerScheduler {
             if fc.function_container.namespace == namespace &&
                 fc.function_container.application_name == name
             {
-                fc.desired_state = FunctionContainerState::Terminated {
+                fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: vec![],
                 };
@@ -264,7 +263,7 @@ impl ContainerScheduler {
             self.executor_states
                 .insert(executor_id.clone(), new_executor_server_metadata.clone());
         }
-        for (container_id, new_function_container) in &scheduler_update.function_containers {
+        for (container_id, new_function_container) in &scheduler_update.containers {
             let fn_uri = FunctionURI::from(&new_function_container.function_container);
 
             self.function_containers
@@ -301,22 +300,22 @@ impl ContainerScheduler {
             .into());
         }
 
-        let container_resources = FunctionContainerResources {
+        let container_resources = ContainerResources {
             cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
             memory_mb: function.resources.memory_mb,
             ephemeral_disk_mb: function.resources.ephemeral_disk_mb,
             gpu: function.resources.gpu_configs.first().cloned(),
         };
 
-        let function_container = FunctionContainerBuilder::default()
+        let function_container = ContainerBuilder::default()
             .namespace(namespace.to_string())
             .application_name(application.to_string())
             .function_name(function.name.clone())
             .version(version.to_string())
-            .state(FunctionContainerState::Pending)
+            .state(ContainerState::Pending)
             .resources(container_resources)
             .max_concurrency(function.max_concurrency)
-            .container_type(FunctionContainerType::Function)
+            .container_type(ContainerType::Function)
             .secret_names(function.secret_names.clone().unwrap_or_default())
             .timeout_secs(function.timeout.0 as u64 / 1000) // Convert ms to secs
             .build()?;
@@ -327,7 +326,7 @@ impl ContainerScheduler {
             Some(function),
             &function.resources,
             function_container,
-            FunctionContainerType::Function,
+            ContainerType::Function,
         )
     }
 
@@ -347,15 +346,18 @@ impl ContainerScheduler {
                 .unwrap_or_default(),
         };
 
-        let function_container = FunctionContainerBuilder::default()
+        // Use sandbox ID as the container ID (1:1 relationship)
+        let container_id = ContainerId::from(&sandbox.id);
+        let function_container = ContainerBuilder::default()
+            .id(container_id)
             .namespace(sandbox.namespace.clone())
             .application_name(sandbox.application.clone())
             .function_name(sandbox.id.get().to_string())
             .version(sandbox.application_version.clone())
-            .state(FunctionContainerState::Pending)
+            .state(ContainerState::Pending)
             .resources(sandbox.resources.clone())
             .max_concurrency(1u32)
-            .container_type(FunctionContainerType::Sandbox)
+            .container_type(ContainerType::Sandbox)
             .image(Some(sandbox.image.clone()))
             .secret_names(sandbox.secret_names.clone())
             .timeout_secs(sandbox.timeout_secs)
@@ -368,7 +370,7 @@ impl ContainerScheduler {
             None, // No function for sandboxes
             &resources,
             function_container,
-            FunctionContainerType::Sandbox,
+            ContainerType::Sandbox,
         )
     }
 
@@ -378,8 +380,8 @@ impl ContainerScheduler {
         application: &str,
         function: Option<&Function>,
         resources: &FunctionResources,
-        function_container: FunctionContainer,
-        container_type: FunctionContainerType,
+        function_container: Container,
+        container_type: ContainerType,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let mut candidates = self.candidate_hosts(namespace, application, function, resources);
         let mut update = SchedulerUpdateRequest::default();
@@ -389,7 +391,7 @@ impl ContainerScheduler {
             let function_executors_to_remove = self.vacuum_function_container_candidates(resources);
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
-                update_fe.desired_state = FunctionContainerState::Terminated {
+                update_fe.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: Vec::new(),
                 };
@@ -402,7 +404,7 @@ impl ContainerScheduler {
                     executor_server_state.executor_id.clone(),
                     executor_server_state.clone(),
                 );
-                update.function_containers.insert(
+                update.containers.insert(
                     update_fe.function_container.id.clone(),
                     Box::new(update_fe.clone()),
                 );
@@ -495,8 +497,8 @@ impl ContainerScheduler {
     fn register_container(
         &mut self,
         executor_id: ExecutorId,
-        function_container: FunctionContainer,
-        container_type: FunctionContainerType,
+        function_container: Container,
+        container_type: ContainerType,
     ) -> Result<SchedulerUpdateRequest> {
         let Some(executor_server_metadata) = self.executor_states.get_mut(&executor_id) else {
             return Err(anyhow::anyhow!(
@@ -514,10 +516,10 @@ impl ContainerScheduler {
 
         executor_server_metadata.add_container(&function_container)?;
 
-        let fe_server_metadata = FunctionContainerServerMetadata {
+        let fe_server_metadata = ContainerServerMetadata {
             executor_id: executor_id.clone(),
             function_container,
-            desired_state: FunctionContainerState::Running,
+            desired_state: ContainerState::Running,
             container_type,
             allocations: std::collections::HashSet::new(),
         };
@@ -526,7 +528,7 @@ impl ContainerScheduler {
         update
             .updated_executor_states
             .insert(executor_id, executor_server_metadata.clone());
-        update.function_containers.insert(
+        update.containers.insert(
             fe_server_metadata.function_container.id.clone(),
             Box::new(fe_server_metadata),
         );
@@ -538,7 +540,7 @@ impl ContainerScheduler {
     pub fn vacuum_function_container_candidates(
         &self,
         fe_resource: &FunctionResources,
-    ) -> Vec<FunctionContainerServerMetadata> {
+    ) -> Vec<ContainerServerMetadata> {
         // For each executor in the system
         for (executor_id, executor) in &self.executors {
             if executor.tombstoned {
@@ -562,7 +564,7 @@ impl ContainerScheduler {
                 };
                 if matches!(
                     fe_server_metadata.desired_state,
-                    FunctionContainerState::Terminated { .. }
+                    ContainerState::Terminated { .. }
                 ) {
                     continue;
                 }
@@ -597,7 +599,7 @@ impl ContainerScheduler {
         Vec::new()
     }
 
-    fn fe_can_be_removed(&self, fe_meta: &FunctionContainerServerMetadata) -> bool {
+    fn fe_can_be_removed(&self, fe_meta: &ContainerServerMetadata) -> bool {
         // Check if this container matches the executor's allowlist
         if let Some(executor) = self.executors.get(&fe_meta.executor_id) &&
             let Some(allowlist) = &executor.function_allowlist
@@ -635,22 +637,20 @@ impl ContainerScheduler {
     /// Terminate a container by its ID
     pub fn terminate_container(
         &mut self,
-        container_id: &FunctionContainerId,
+        container_id: &ContainerId,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let Some(fc) = self.function_containers.get_mut(container_id) else {
             return Ok(None); // Container not found, nothing to terminate
         };
 
         // Mark for termination
-        fc.desired_state = FunctionContainerState::Terminated {
+        fc.desired_state = ContainerState::Terminated {
             reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
             failed_alloc_ids: vec![],
         };
 
         let mut update = SchedulerUpdateRequest::default();
-        update
-            .function_containers
-            .insert(container_id.clone(), fc.clone());
+        update.containers.insert(container_id.clone(), fc.clone());
 
         Ok(Some(update))
     }
