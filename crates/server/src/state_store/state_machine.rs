@@ -696,7 +696,7 @@ pub(crate) async fn remove_request_state_change_events(
     for key in event_keys {
         txn.delete(
             IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            &key,
+            key,
         )
         .await?;
     }
