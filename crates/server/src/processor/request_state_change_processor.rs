@@ -121,7 +121,8 @@ impl RequestStateChangeProcessor {
             if let Some(error) = result.error {
                 error!(
                     %error,
-                    event_count = events.len(),
+                    successful_processed_keys = result.successful_requests.len(),
+                    failed_processed_keys = result.failed_requests.len(),
                     "error sending batched events to OTLP exporter"
                 );
                 return Err(error);
