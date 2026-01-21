@@ -14,13 +14,17 @@ use crate::{
         ExecutorMetadata,
         ExecutorServerMetadata,
         Function,
+        FunctionContainer,
         FunctionContainerBuilder,
         FunctionContainerId,
+        FunctionContainerResources,
         FunctionContainerServerMetadata,
         FunctionContainerState,
+        FunctionContainerType,
         FunctionExecutorTerminationReason,
         FunctionResources,
         FunctionURI,
+        Sandbox,
     },
     state_store::{
         in_memory_state::InMemoryState,
@@ -297,11 +301,92 @@ impl ContainerScheduler {
             .into());
         }
 
-        let mut candidates = self.candidate_hosts(namespace, application, function);
+        let container_resources = FunctionContainerResources {
+            cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
+            memory_mb: function.resources.memory_mb,
+            ephemeral_disk_mb: function.resources.ephemeral_disk_mb,
+            gpu: function.resources.gpu_configs.first().cloned(),
+        };
+
+        let function_container = FunctionContainerBuilder::default()
+            .namespace(namespace.to_string())
+            .application_name(application.to_string())
+            .function_name(function.name.clone())
+            .version(version.to_string())
+            .state(FunctionContainerState::Pending)
+            .resources(container_resources)
+            .max_concurrency(function.max_concurrency)
+            .container_type(FunctionContainerType::Function)
+            .secret_names(function.secret_names.clone().unwrap_or_default())
+            .timeout_secs(function.timeout.0 as u64 / 1000) // Convert ms to secs
+            .build()?;
+
+        self.create_container(
+            namespace,
+            application,
+            Some(function),
+            &function.resources,
+            function_container,
+            FunctionContainerType::Function,
+        )
+    }
+
+    pub fn create_container_for_sandbox(
+        &mut self,
+        sandbox: &Sandbox,
+    ) -> Result<Option<SchedulerUpdateRequest>> {
+        let resources = FunctionResources {
+            cpu_ms_per_sec: sandbox.resources.cpu_ms_per_sec,
+            memory_mb: sandbox.resources.memory_mb,
+            ephemeral_disk_mb: sandbox.resources.ephemeral_disk_mb,
+            gpu_configs: sandbox
+                .resources
+                .gpu
+                .clone()
+                .map(|g| vec![g])
+                .unwrap_or_default(),
+        };
+
+        let function_container = FunctionContainerBuilder::default()
+            .namespace(sandbox.namespace.clone())
+            .application_name(sandbox.application.clone())
+            .function_name(sandbox.id.get().to_string())
+            .version(sandbox.application_version.clone())
+            .state(FunctionContainerState::Pending)
+            .resources(sandbox.resources.clone())
+            .max_concurrency(1u32)
+            .container_type(FunctionContainerType::Sandbox)
+            .image(Some(sandbox.image.clone()))
+            .secret_names(sandbox.secret_names.clone())
+            .timeout_secs(sandbox.timeout_secs)
+            .entrypoint(sandbox.entrypoint.clone().unwrap_or_default())
+            .build()?;
+
+        self.create_container(
+            &sandbox.namespace,
+            &sandbox.application,
+            None, // No function for sandboxes
+            &resources,
+            function_container,
+            FunctionContainerType::Sandbox,
+        )
+    }
+
+    fn create_container(
+        &mut self,
+        namespace: &str,
+        application: &str,
+        function: Option<&Function>,
+        resources: &FunctionResources,
+        function_container: FunctionContainer,
+        container_type: FunctionContainerType,
+    ) -> Result<Option<SchedulerUpdateRequest>> {
+        let mut candidates = self.candidate_hosts(namespace, application, function, resources);
         let mut update = SchedulerUpdateRequest::default();
+
+        // If no candidates, try vacuuming to free up resources
         if candidates.is_empty() {
-            let function_executors_to_remove =
-                self.vacuum_function_container_candidates(&function.resources);
+            let function_executors_to_remove = self.vacuum_function_container_candidates(resources);
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = FunctionContainerState::Terminated {
@@ -317,71 +402,50 @@ impl ContainerScheduler {
                     executor_server_state.executor_id.clone(),
                     executor_server_state.clone(),
                 );
-                // Update the function container to reflect termination in function_containers
                 update.function_containers.insert(
                     update_fe.function_container.id.clone(),
                     Box::new(update_fe.clone()),
                 );
             }
         }
+
+        // Apply vacuum updates
         self.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
             vec![],
         )))?;
-        candidates = self.candidate_hosts(namespace, application, function);
+
+        // Try again after vacuum
+        candidates = self.candidate_hosts(namespace, application, function, resources);
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
+            // No host available, return vacuum update (container stays pending)
             return Ok(Some(update));
         };
+
         let executor_id = candidate.executor_id.clone();
-
-        let Some(executor_server_metadata) = self.executor_states.get_mut(&executor_id) else {
+        if !self.executor_states.contains_key(&executor_id) {
             return Ok(Some(update));
-        };
+        }
 
-        let fe_resources = candidate
+        // Consume resources
+        let _ = candidate
             .free_resources
-            .consume_function_resources(&function.resources)?;
+            .consume_function_resources(resources)?;
 
-        // Create a new function executor
-        let function_container = FunctionContainerBuilder::default()
-            .namespace(namespace.to_string())
-            .application_name(application.to_string())
-            .function_name(function.name.clone())
-            .version(version.to_string())
-            .state(FunctionContainerState::Unknown)
-            .resources(fe_resources.clone())
-            .max_concurrency(function.max_concurrency)
-            .build()?;
+        // Register the container
+        let container_update =
+            self.register_container(executor_id, function_container, container_type)?;
+        update.extend(container_update);
 
-        info!(
-            executor_id = executor_id.get(),
-            fn_executor_id = function_container.id.get(),
-            "created function executor"
-        );
-
-        executor_server_metadata.add_container(&function_container)?;
-
-        // Create with current timestamp for last_allocation_at
-        let fe_server_metadata = FunctionContainerServerMetadata::new(
-            executor_id.clone(),
-            function_container,
-            FunctionContainerState::Running, // Start with Running state
-        );
-        update
-            .updated_executor_states
-            .insert(executor_id, executor_server_metadata.clone());
-        update.function_containers.insert(
-            fe_server_metadata.function_container.id.clone(),
-            Box::new(fe_server_metadata.clone()),
-        );
         Ok(Some(update))
     }
 
     pub fn candidate_hosts(
-        &mut self,
+        &self,
         namespace: &str,
         application: &str,
-        function: &Function,
+        function: Option<&Function>,
+        resources: &FunctionResources,
     ) -> Vec<ExecutorServerMetadata> {
         let mut candidates = Vec::new();
 
@@ -393,23 +457,32 @@ impl ContainerScheduler {
                 );
                 continue;
             };
-            if executor.tombstoned ||
-                !executor.is_function_allowed(namespace, application, function)
-            {
+
+            if executor.tombstoned {
                 continue;
             }
 
-            // Check if this executor's labels matches the function's
-            // placement constraints
-            if !function.placement_constraints.matches(&executor.labels) {
-                continue;
+            // Check allowlist based on whether this is a function or sandbox
+            if let Some(func) = function {
+                // Function: check full allowlist including function name
+                if !executor.is_function_allowed(namespace, application, func) {
+                    continue;
+                }
+                // Check placement constraints for functions
+                if !func.placement_constraints.matches(&executor.labels) {
+                    continue;
+                }
+            } else {
+                // Sandbox: check allowlist for namespace/app only
+                if !executor.is_app_allowed(namespace, application) {
+                    continue;
+                }
             }
 
-            // TODO: Match functions to GPU models according to prioritized order in
-            // gpu_configs.
+            // Check resources
             if executor_state
                 .free_resources
-                .can_handle_function_resources(&function.resources)
+                .can_handle_function_resources(resources)
                 .is_ok()
             {
                 candidates.push(*executor_state.clone());
@@ -417,6 +490,48 @@ impl ContainerScheduler {
         }
 
         candidates
+    }
+
+    fn register_container(
+        &mut self,
+        executor_id: ExecutorId,
+        function_container: FunctionContainer,
+        container_type: FunctionContainerType,
+    ) -> Result<SchedulerUpdateRequest> {
+        let Some(executor_server_metadata) = self.executor_states.get_mut(&executor_id) else {
+            return Err(anyhow::anyhow!(
+                "Executor state not found for {}",
+                executor_id.get()
+            ));
+        };
+
+        info!(
+            executor_id = executor_id.get(),
+            container_id = function_container.id.get(),
+            container_type = ?container_type,
+            "registering container"
+        );
+
+        executor_server_metadata.add_container(&function_container)?;
+
+        let fe_server_metadata = FunctionContainerServerMetadata {
+            executor_id: executor_id.clone(),
+            function_container,
+            desired_state: FunctionContainerState::Running,
+            container_type,
+            allocations: std::collections::HashSet::new(),
+        };
+
+        let mut update = SchedulerUpdateRequest::default();
+        update
+            .updated_executor_states
+            .insert(executor_id, executor_server_metadata.clone());
+        update.function_containers.insert(
+            fe_server_metadata.function_container.id.clone(),
+            Box::new(fe_server_metadata),
+        );
+
+        Ok(update)
     }
 
     #[tracing::instrument(skip_all)]
@@ -515,5 +630,28 @@ impl ContainerScheduler {
         let max_count = desired_containers.max_count.unwrap_or(u32::MAX);
 
         min_count < num_containers && num_containers <= max_count
+    }
+
+    /// Terminate a container by its ID
+    pub fn terminate_container(
+        &mut self,
+        container_id: &FunctionContainerId,
+    ) -> Result<Option<SchedulerUpdateRequest>> {
+        let Some(fc) = self.function_containers.get_mut(container_id) else {
+            return Ok(None); // Container not found, nothing to terminate
+        };
+
+        // Mark for termination
+        fc.desired_state = FunctionContainerState::Terminated {
+            reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+            failed_alloc_ids: vec![],
+        };
+
+        let mut update = SchedulerUpdateRequest::default();
+        update
+            .function_containers
+            .insert(container_id.clone(), fc.clone());
+
+        Ok(Some(update))
     }
 }

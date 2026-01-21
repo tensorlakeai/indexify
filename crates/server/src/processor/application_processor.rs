@@ -15,6 +15,7 @@ use crate::{
         container_reconciler,
         function_run_creator,
         function_run_processor::FunctionRunProcessor,
+        sandbox_processor::SandboxProcessor,
     },
     state_store::{
         IndexifyState,
@@ -304,8 +305,10 @@ impl ApplicationProcessor {
         let clock = indexes_guard.clock;
         let task_creator =
             function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
-        let container_reconciler = container_reconciler::ContainerReconciler::new(clock);
+        let container_reconciler =
+            container_reconciler::ContainerReconciler::new(clock, self.indexify_state.clone());
         let task_allocator = FunctionRunProcessor::new(clock, self.queue_size);
+        let sandbox_processor = SandboxProcessor::new(clock);
 
         let req = match &state_change.change_type {
             ChangeType::CreateFunctionCall(req) => {
@@ -367,11 +370,13 @@ impl ApplicationProcessor {
                 }
             }
             ChangeType::ExecutorUpserted(ev) => {
-                let mut scheduler_update = container_reconciler.reconcile_executor_state(
-                    &mut indexes_guard,
-                    &mut container_scheduler_guard,
-                    &ev.executor_id,
-                )?;
+                let mut scheduler_update = container_reconciler
+                    .reconcile_executor_state(
+                        &mut indexes_guard,
+                        &mut container_scheduler_guard,
+                        &ev.executor_id,
+                    )
+                    .await?;
                 let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
@@ -379,6 +384,11 @@ impl ApplicationProcessor {
                     unallocated_function_runs,
                     &self.allocate_function_runs_latency,
                 )?);
+
+                scheduler_update.extend(
+                    sandbox_processor
+                        .allocate_sandboxes(&mut indexes_guard, &mut container_scheduler_guard)?,
+                );
 
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate((
@@ -427,6 +437,36 @@ impl ApplicationProcessor {
                     vec![state_change.clone()],
                 )),
             },
+            ChangeType::CreateSandbox(ev) => {
+                let scheduler_update = sandbox_processor.allocate_sandbox_by_key(
+                    &mut indexes_guard,
+                    &mut container_scheduler_guard,
+                    &ev.namespace,
+                    &ev.application,
+                    ev.sandbox_id.get(),
+                )?;
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
+                }
+            }
+            ChangeType::TerminateSandbox(ev) => {
+                let scheduler_update = sandbox_processor.terminate_sandbox(
+                    &indexes_guard,
+                    &mut container_scheduler_guard,
+                    &ev.namespace,
+                    &ev.application,
+                    ev.sandbox_id.get(),
+                )?;
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate((
+                        Box::new(scheduler_update),
+                        vec![state_change.clone()],
+                    )),
+                }
+            }
         };
         Ok(req)
     }

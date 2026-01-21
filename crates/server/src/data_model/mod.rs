@@ -510,7 +510,11 @@ pub struct Application {
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: String,
-    pub code: DataPayload,
+    #[serde(default)]
+    #[builder(default)]
+    pub code: Option<DataPayload>,
+    #[serde(default)]
+    #[builder(default)]
     pub functions: HashMap<String, Function>,
     #[serde(default)]
     #[builder(default)]
@@ -521,7 +525,9 @@ pub struct Application {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
-    pub entrypoint: ApplicationEntryPoint,
+    #[serde(default)]
+    #[builder(default)]
+    pub entrypoint: Option<ApplicationEntryPoint>,
 }
 
 impl ApplicationBuilder {
@@ -704,8 +710,15 @@ pub struct ApplicationVersion {
     pub name: String,
     pub created_at: u64,
     pub version: String,
-    pub code: DataPayload,
-    pub entrypoint: ApplicationEntryPoint,
+    /// Code payload - required if functions exist
+    #[serde(default)]
+    #[builder(default)]
+    pub code: Option<DataPayload>,
+    /// Entrypoint - required if functions exist
+    #[serde(default)]
+    #[builder(default)]
+    pub entrypoint: Option<ApplicationEntryPoint>,
+    #[serde(default)]
     #[builder(default)]
     pub functions: HashMap<String, Function>,
     #[builder(default)]
@@ -1696,6 +1709,17 @@ impl FunctionAllowlist {
                 .as_ref()
                 .is_none_or(|function_name| function_name == &function.name)
     }
+
+    /// Check if allowlist permits a namespace/application (ignoring function).
+    /// Used for sandboxes which don't have a specific function.
+    pub fn matches_app(&self, ns: &str, app: &str) -> bool {
+        self.namespace
+            .as_ref()
+            .is_none_or(|namespace| namespace == ns) &&
+            self.application
+                .as_ref()
+                .is_none_or(|application| application == app)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
@@ -1743,6 +1767,34 @@ pub struct FunctionContainer {
     pub state: FunctionContainerState,
     pub resources: FunctionContainerResources,
     pub max_concurrency: u32,
+    /// Type of container - Function or Sandbox.
+    #[builder(default)]
+    #[serde(default)]
+    pub container_type: FunctionContainerType,
+    /// Docker image to use for this container.
+    /// For sandboxes, this is required. For functions, this is optional
+    /// (executor determines image from code payload).
+    #[builder(default)]
+    #[serde(default)]
+    pub image: Option<String>,
+    #[builder(default)]
+    #[serde(default)]
+    pub secret_names: Vec<String>,
+    /// Timeout in seconds for sandbox containers. 0 means no timeout.
+    /// Only applicable to sandbox-type containers.
+    #[builder(default)]
+    #[serde(default)]
+    pub timeout_secs: u64,
+    /// Optional entrypoint command for sandbox containers.
+    #[builder(default)]
+    #[serde(default)]
+    pub entrypoint: Vec<String>,
+    /// HTTP address of the daemon running inside the container (for sandboxes).
+    /// Format: "host:port" (e.g., "127.0.0.1:64759")
+    /// Only set when the container is running and daemon is ready.
+    #[builder(default)]
+    #[serde(default)]
+    pub daemon_http_address: Option<String>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -1772,8 +1824,12 @@ impl Hash for FunctionContainer {
 impl FunctionContainer {
     pub fn update(&mut self, other: &FunctionContainer) {
         // Only update fields that change after self FE was created.
-        // Other FE mush represent the same FE.
+        // Other FE must represent the same FE.
         self.state = other.state.clone();
+        // Update daemon_http_address if reported by executor
+        if other.daemon_http_address.is_some() {
+            self.daemon_http_address = other.daemon_http_address.clone();
+        }
     }
 }
 
@@ -1862,11 +1918,14 @@ impl FunctionContainerServerMetadata {
         function_executor: FunctionContainer,
         desired_state: FunctionContainerState,
     ) -> Self {
+        // Use container_type from FunctionContainer - this preserves the type
+        // when executor reports containers after server restart
+        let container_type = function_executor.container_type.clone();
         Self {
             executor_id,
             function_container: function_executor,
             desired_state,
-            container_type: FunctionContainerType::Function,
+            container_type,
             allocations: HashSet::new(),
         }
     }
@@ -1920,6 +1979,18 @@ impl ExecutorMetadata {
             function_allowlist
                 .iter()
                 .any(|allowlist| allowlist.matches_function(namespace, application, function))
+        } else {
+            true
+        }
+    }
+
+    /// Check if executor's allowlist permits a namespace/application.
+    /// Used for sandboxes which don't have a specific function.
+    pub fn is_app_allowed(&self, namespace: &str, application: &str) -> bool {
+        if let Some(function_allowlist) = &self.function_allowlist {
+            function_allowlist
+                .iter()
+                .any(|allowlist| allowlist.matches_app(namespace, application))
         } else {
             true
         }
@@ -2003,6 +2074,8 @@ pub enum ChangeType {
     TombstoneRequest(TombstoneRequestEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
+    CreateSandbox(CreateSandboxEvent),
+    TerminateSandbox(TerminateSandboxEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2042,6 +2115,16 @@ impl fmt::Display for ChangeType {
                 f,
                 "TombstoneRequest, namespace: {}, app: {}, request_id: {}",
                 ev.namespace, ev.application, ev.request_id
+            ),
+            ChangeType::CreateSandbox(ev) => write!(
+                f,
+                "CreateSandbox, namespace: {}, app: {}, sandbox_id: {}",
+                ev.namespace, ev.application, ev.sandbox_id
+            ),
+            ChangeType::TerminateSandbox(ev) => write!(
+                f,
+                "TerminateSandbox, namespace: {}, app: {}, sandbox_id: {}",
+                ev.namespace, ev.application, ev.sandbox_id
             ),
         }
     }
@@ -2209,6 +2292,249 @@ impl AllocationUsageEvent {
     }
 }
 
+// ================================
+// Sandbox Types
+// ================================
+
+/// Unique identifier for a sandbox instance
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SandboxId(pub String);
+
+impl SandboxId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for SandboxId {
+    fn default() -> Self {
+        Self(nanoid!())
+    }
+}
+
+impl Display for SandboxId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for SandboxId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for SandboxId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+/// Status of a sandbox instance
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxStatus {
+    /// Sandbox is waiting for executor allocation
+    #[default]
+    Pending,
+    /// Sandbox container is running
+    Running,
+    /// Sandbox container has terminated
+    Terminated,
+}
+
+impl Display for SandboxStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SandboxStatus::Pending => write!(f, "Pending"),
+            SandboxStatus::Running => write!(f, "Running"),
+            SandboxStatus::Terminated => write!(f, "Terminated"),
+        }
+    }
+}
+
+/// Outcome of a terminated sandbox
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxOutcome {
+    #[default]
+    Unknown,
+    /// Sandbox completed successfully (user terminated)
+    Success,
+    /// Sandbox failed due to an error
+    Failure(SandboxFailureReason),
+}
+
+impl Display for SandboxOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SandboxOutcome::Unknown => write!(f, "Unknown"),
+            SandboxOutcome::Success => write!(f, "Success"),
+            SandboxOutcome::Failure(reason) => write!(f, "Failure({reason})"),
+        }
+    }
+}
+
+/// Reason for sandbox failure
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxFailureReason {
+    #[default]
+    Unknown,
+    /// Internal platform error
+    InternalError,
+    /// Sandbox timed out
+    Timeout,
+    /// No executor could satisfy placement constraints
+    ConstraintUnsatisfiable,
+    /// Executor was removed
+    ExecutorRemoved,
+    /// Out of memory
+    OutOfMemory,
+    /// Container startup failed
+    ContainerStartupFailed,
+    /// Container terminated (with reason from executor)
+    ContainerTerminated(FunctionExecutorTerminationReason),
+}
+
+impl Display for SandboxFailureReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SandboxFailureReason::Unknown => write!(f, "Unknown"),
+            SandboxFailureReason::InternalError => write!(f, "InternalError"),
+            SandboxFailureReason::Timeout => write!(f, "Timeout"),
+            SandboxFailureReason::ConstraintUnsatisfiable => write!(f, "ConstraintUnsatisfiable"),
+            SandboxFailureReason::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            SandboxFailureReason::OutOfMemory => write!(f, "OutOfMemory"),
+            SandboxFailureReason::ContainerStartupFailed => write!(f, "ContainerStartupFailed"),
+            SandboxFailureReason::ContainerTerminated(reason) => {
+                write!(f, "ContainerTerminated({reason})")
+            }
+        }
+    }
+}
+
+/// Key for sandbox storage: namespace|application|sandbox_id
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SandboxKey(pub String);
+
+impl SandboxKey {
+    pub fn new(namespace: &str, application: &str, sandbox_id: &str) -> Self {
+        Self(format!("{namespace}|{application}|{sandbox_id}"))
+    }
+
+    pub fn from_sandbox(sandbox: &Sandbox) -> Self {
+        Self::new(&sandbox.namespace, &sandbox.application, sandbox.id.get())
+    }
+}
+
+impl Display for SandboxKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&Sandbox> for SandboxKey {
+    fn from(sandbox: &Sandbox) -> Self {
+        SandboxKey::from_sandbox(sandbox)
+    }
+}
+
+impl From<String> for SandboxKey {
+    fn from(s: String) -> Self {
+        SandboxKey(s)
+    }
+}
+
+impl From<&String> for SandboxKey {
+    fn from(s: &String) -> Self {
+        SandboxKey(s.clone())
+    }
+}
+
+/// A sandbox instance that provides an interactive container environment
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+pub struct Sandbox {
+    pub id: SandboxId,
+    pub namespace: String,
+    pub application: String,
+    pub application_version: String,
+    /// Docker image to use
+    pub image: String,
+    #[builder(default)]
+    pub status: SandboxStatus,
+    #[builder(default)]
+    pub outcome: Option<SandboxOutcome>,
+    #[builder(default = "self.default_creation_time_ns()")]
+    pub creation_time_ns: u128,
+    #[builder(default)]
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+    pub resources: FunctionContainerResources,
+    #[builder(default)]
+    pub secret_names: Vec<String>,
+    #[builder(default)]
+    pub timeout_secs: u64,
+    /// The FunctionContainer ID once allocated
+    #[builder(default)]
+    pub container_id: Option<FunctionContainerId>,
+    /// The Executor ID where the sandbox is running
+    #[builder(default)]
+    pub executor_id: Option<ExecutorId>,
+    /// Optional entrypoint command to run when sandbox starts
+    #[builder(default)]
+    pub entrypoint: Option<Vec<String>>,
+    /// HTTP address of the daemon running inside the container.
+    /// Format: "host:port" (e.g., "127.0.0.1:64759")
+    /// Only set when the container is running and daemon is ready.
+    #[builder(default)]
+    pub daemon_http_address: Option<String>,
+}
+
+impl SandboxBuilder {
+    fn default_creation_time_ns(&self) -> u128 {
+        get_epoch_time_in_ns()
+    }
+}
+
+impl Sandbox {
+    /// Returns the storage key for this sandbox
+    pub fn key(&self) -> String {
+        format!("{}|{}|{}", self.namespace, self.application, self.id.0)
+    }
+
+    /// Prepares the sandbox for persistence by setting the server clock
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
+}
+
+/// Event for creating a sandbox
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct CreateSandboxEvent {
+    pub namespace: String,
+    pub application: String,
+    pub sandbox_id: SandboxId,
+}
+
+/// Event for terminating a sandbox
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct TerminateSandboxEvent {
+    pub namespace: String,
+    pub application: String,
+    pub sandbox_id: SandboxId,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time::Duration};
@@ -2239,7 +2565,7 @@ mod tests {
                 ("fn_c".to_string(), fn_c.clone()),
             ]))
             .version("1".to_string())
-            .code(DataPayload {
+            .code(Some(DataPayload {
                 id: "code_id".to_string(),
                 path: "cgc_path".to_string(),
                 size: 23,
@@ -2247,14 +2573,14 @@ mod tests {
                 encoding: "application/octet-stream".to_string(),
                 metadata_size: 0,
                 offset: 0,
-            })
+            }))
             .created_at(5)
-            .entrypoint(ApplicationEntryPoint {
+            .entrypoint(Some(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            })
+            }))
             .build()
             .unwrap();
 
@@ -2311,26 +2637,26 @@ mod tests {
                 description: "changing code with version change should change code",
                 update: Application {
                     version: "2".to_string(), // different
-                    code: DataPayload {
+                    code: Some(DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone()
-                    },
+                        ..original_application.code.clone().unwrap()
+                    }),
                     ..original_application.clone()
                 },
                 expected_graph: Application {
                     version: "2".to_string(), // different
-                    code: DataPayload {
+                    code: Some(DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone()
-                    },
+                        ..original_application.code.clone().unwrap()
+                    }),
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
                     version: "2".to_string(),
-                    code: DataPayload {
+                    code: Some(DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone()
-                    },
+                        ..original_application.code.clone().unwrap()
+                    }),
                     ..original_version.clone()
                 },
             },
@@ -2355,32 +2681,32 @@ mod tests {
                 description: "changing start function with entrypoint change should change start function",
                 update: Application {
                     version: "2".to_string(), // different
-                    entrypoint: ApplicationEntryPoint {
+                    entrypoint: Some(ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    },
+                    }),
                     ..original_application.clone()
                 },
                 expected_graph: Application {
                     version: "2".to_string(),
-                    entrypoint: ApplicationEntryPoint {
+                    entrypoint: Some(ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    },
+                    }),
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
                     version: "2".to_string(),
-                    entrypoint: ApplicationEntryPoint {
+                    entrypoint: Some(ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    },
+                    }),
                     ..original_version.clone()
                 },
             },
@@ -2591,7 +2917,7 @@ mod tests {
             .state(ApplicationState::Active)
             .functions(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
             .version(application_version.clone())
-            .code(DataPayload {
+            .code(Some(DataPayload {
                 id: "code_id".to_string(),
                 encoding: "application/octet-stream".to_string(),
                 metadata_size: 0,
@@ -2599,14 +2925,14 @@ mod tests {
                 path: "path".to_string(),
                 size: 1,
                 sha256_hash: "hash".to_string(),
-            })
+            }))
             .created_at(123)
-            .entrypoint(ApplicationEntryPoint {
+            .entrypoint(Some(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            })
+            }))
             .build()
             .unwrap();
 

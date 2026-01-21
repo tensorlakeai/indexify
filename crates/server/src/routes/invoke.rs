@@ -399,7 +399,12 @@ pub async fn invoke_application_with_object_v1(
 
     let function_call_id = FunctionCallId(request_id.clone()); // This clone is necessary here as we reuse request_id later
 
-    let entrypoint_fn_name = &application.entrypoint.function_name;
+    let Some(ref entrypoint) = application.entrypoint else {
+        return Err(IndexifyAPIError::bad_request(
+            "application has no entrypoint - cannot invoke sandbox-only applications",
+        ));
+    };
+    let entrypoint_fn_name = &entrypoint.function_name;
     let Some(entrypoint_fn) = application.functions.get(entrypoint_fn_name) else {
         return Err(IndexifyAPIError::not_found(&format!(
             "application entrypoint function {entrypoint_fn_name} is not in the application function list",

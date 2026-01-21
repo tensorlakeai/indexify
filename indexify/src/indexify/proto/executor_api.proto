@@ -91,6 +91,12 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
+enum FunctionExecutorType {
+    FUNCTION_EXECUTOR_TYPE_UNKNOWN = 0;
+    FUNCTION_EXECUTOR_TYPE_FUNCTION = 1;
+    FUNCTION_EXECUTOR_TYPE_SANDBOX = 2;
+}
+
 // The reasons why an Executor decided to terminate a Function Executor.
 enum FunctionExecutorTerminationReason {
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
@@ -146,6 +152,17 @@ message FunctionExecutorDescription {
     optional uint32 max_concurrency = 8;
     // Timeout for running allocations on FE.
     optional uint32 allocation_timeout_ms = 9;
+    // Docker image to use for this function executor.
+    // Required for sandboxes, optional for functions.
+    optional string image = 10;
+    // Timeout in seconds for sandbox containers. 0 means no timeout.
+    // Only applicable to sandbox-type function executors.
+    optional uint64 sandbox_timeout_secs = 11;
+    // Optional entrypoint command for sandbox containers.
+    // If provided, daemon will start this as a child process on startup.
+    repeated string entrypoint = 12;
+    // Type of this function executor (function or sandbox).
+    optional FunctionExecutorType container_type = 13;
 }
 
 message FunctionExecutorState {
@@ -153,6 +170,13 @@ message FunctionExecutorState {
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
     repeated string allocation_ids_caused_termination = 4;
+    // HTTP address of the daemon running inside the container (for sandboxes).
+    // Format: "host:port" (e.g., "192.168.1.100:64759")
+    // Only set for sandbox-type function executors when the daemon is ready.
+    optional string daemon_http_address = 5;
+    // Type of this function executor (function or sandbox).
+    // Executor echoes back the type from FunctionExecutorDescription.
+    optional FunctionExecutorType container_type = 6;
 }
 
 enum ExecutorStatus {

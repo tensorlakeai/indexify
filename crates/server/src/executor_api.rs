@@ -18,6 +18,7 @@ use executor_api_pb::{
     ExecutorStatus,
     FunctionExecutorResources,
     FunctionExecutorStatus,
+    FunctionExecutorType as FunctionExecutorTypePb,
     GetDesiredExecutorStatesRequest,
     HostResources,
     ReportExecutorStateRequest,
@@ -43,6 +44,7 @@ use crate::{
         FunctionCallId,
         FunctionContainerBuilder,
         FunctionContainerId,
+        FunctionContainerType,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         GPUResources,
@@ -372,6 +374,25 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
 
+        let container_type = match function_executor_state.container_type() {
+            FunctionExecutorTypePb::Unknown => FunctionContainerType::Function, /* Default to Function for backwards compatibility */
+            FunctionExecutorTypePb::Function => FunctionContainerType::Function,
+            FunctionExecutorTypePb::Sandbox => FunctionContainerType::Sandbox,
+        };
+
+        let description = function_executor_state.description.as_ref();
+        let secret_names = description
+            .map(|d| d.secret_names.clone())
+            .unwrap_or_default();
+        let timeout_secs = description
+            .and_then(|d| d.sandbox_timeout_secs)
+            .unwrap_or(0);
+        let entrypoint = description
+            .map(|d| d.entrypoint.clone())
+            .unwrap_or_default();
+        let image = description.and_then(|d| d.image.clone());
+        let daemon_http_address = function_executor_state.daemon_http_address.clone();
+
         let state = match function_executor_state.status() {
             FunctionExecutorStatus::Unknown => data_model::FunctionContainerState::Unknown,
             FunctionExecutorStatus::Pending => data_model::FunctionContainerState::Pending,
@@ -391,6 +412,12 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionContainer {
             .state(state)
             .resources(resources)
             .max_concurrency(max_concurrency)
+            .container_type(container_type)
+            .secret_names(secret_names)
+            .timeout_secs(timeout_secs)
+            .entrypoint(entrypoint)
+            .image(image)
+            .daemon_http_address(daemon_http_address)
             .build()
             .map_err(Into::into)
     }

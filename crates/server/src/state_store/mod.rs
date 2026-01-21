@@ -507,6 +507,9 @@ impl IndexifyState {
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;
             }
+            RequestPayload::CreateSandbox(request) => {
+                state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
+            }
             _ => {} // Handle other request types as needed
         };
 
@@ -817,6 +820,7 @@ mod tests {
             "ExecutorStateChanges",
             "ApplicationStateChanges",
             "RequestStateChangeEvents",
+            "Sandboxes",
         ];
 
         let columns_iter = columns

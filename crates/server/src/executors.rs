@@ -29,6 +29,7 @@ use crate::{
         ExecutorRemovedEvent,
         FunctionContainerState,
         FunctionRunOutcome,
+        SandboxStatus,
         StateChange,
         StateChangeBuilder,
         StateChangeId,
@@ -39,6 +40,7 @@ use crate::{
         DataPayloadEncoding,
         DesiredExecutorState,
         FunctionExecutorDescription,
+        FunctionExecutorType as FunctionExecutorTypePb,
         FunctionRef,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -169,26 +171,55 @@ impl ExecutorManager {
         tokio::spawn(async move {
             tokio::time::sleep(STARTUP_EXECUTOR_TIMEOUT).await;
 
-            // Get all executor IDs of executors that haven't registered.
-            let missing_executor_ids: Vec<_> = {
+            // Get all executor IDs that haven't registered but have allocations or
+            // running sandboxes assigned to them. We combine both sources into a
+            // single set and call deregister_lapsed_executor on each, which will
+            // handle sandbox termination through the DeregisterExecutor event.
+            let missing_executor_ids: HashSet<ExecutorId> = {
                 let container_scheduler = indexify_state.container_scheduler.read().await;
                 let indexes = indexify_state.in_memory_state.read().await;
 
-                indexes
+                // Find executors with allocations that haven't registered
+                let executors_with_allocations: HashSet<_> = indexes
                     .allocations_by_executor
                     .keys()
                     .filter(|id| !container_scheduler.executors.contains_key(&**id))
                     .cloned()
+                    .collect();
+
+                // Find executors with running sandboxes that haven't registered
+                let executors_with_sandboxes: HashSet<_> = indexes
+                    .sandboxes
+                    .iter()
+                    .filter_map(|(_, sandbox)| {
+                        if sandbox.status != SandboxStatus::Running {
+                            return None;
+                        }
+                        let executor_id = sandbox.executor_id.as_ref()?;
+                        if container_scheduler.executors.contains_key(executor_id) {
+                            return None;
+                        }
+                        Some(executor_id.clone())
+                    })
+                    .collect();
+
+                // Combine both sets
+                executors_with_allocations
+                    .union(&executors_with_sandboxes)
+                    .cloned()
                     .collect()
             };
 
-            // Deregister all executors that haven't registered.
             for executor_id in missing_executor_ids {
+                info!(
+                    executor_id = executor_id.get(),
+                    "deregistering lapsed executor"
+                );
                 let executor_id_clone = executor_id.clone();
                 if let Err(err) = self.deregister_lapsed_executor(executor_id).await {
                     error!(
                         executor_id = executor_id_clone.get(),
-                        "Failed to deregister lapsed executor: {:?}", err
+                        "failed to deregister lapsed executor: {:?}", err
                     );
                 }
             }
@@ -473,35 +504,49 @@ impl ExecutorManager {
         let mut task_allocations = std::collections::HashMap::new();
         for fe_meta in active_function_containers {
             let fe = &fe_meta.function_container;
-            let Some(cg_version) = indexes
+
+            let cg_version = indexes
                 .application_versions
                 .get(&ApplicationVersion::key_from(
                     &fe.namespace,
                     &fe.application_name,
                     &fe.version,
                 ))
-                .cloned()
-            else {
-                continue;
-            };
-            let Some(cg_node) = cg_version.functions.get(&fe.function_name) else {
-                continue;
-            };
-            function_executors.push(Box::new(DesiredStateFunctionExecutor {
+                .cloned();
+            let cg_node = cg_version
+                .as_ref()
+                .and_then(|cg_version| cg_version.functions.get(&fe.function_name).cloned());
+            let desired_fc = DesiredStateFunctionExecutor {
                 function_executor: fe_meta.clone(),
                 resources: fe.resources.clone(),
-                secret_names: cg_node.secret_names.clone().unwrap_or_default(),
-                initialization_timeout_ms: cg_node.initialization_timeout.0,
-                code_payload: data_model::DataPayload {
-                    id: cg_version.code.id.clone(),
-                    metadata_size: 0,
-                    path: cg_version.code.path.clone(),
-                    size: cg_version.code.size,
-                    sha256_hash: cg_version.code.sha256_hash.clone(),
-                    offset: 0, // Code always uses its full BLOB
-                    encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
-                },
-            }));
+                secret_names: cg_node
+                    .as_ref()
+                    .and_then(|cg_node| cg_node.secret_names.clone())
+                    .unwrap_or_default(),
+                initialization_timeout_ms: cg_node
+                    .as_ref()
+                    .map(|cg_node| cg_node.initialization_timeout.0)
+                    .unwrap_or((fe.timeout_secs * 1000) as u32),
+                code_payload: cg_version
+                    .and_then(|cg_version| cg_version.code)
+                    .map(|code| data_model::DataPayload {
+                        id: code.id.clone(),
+                        metadata_size: 0,
+                        path: code.path.clone(),
+                        size: code.size,
+                        sha256_hash: code.sha256_hash.clone(),
+                        offset: 0, // Code always uses its full BLOB
+                        encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
+                    }),
+                image: fe.image.clone(),
+                allocation_timeout_ms: cg_node
+                    .map(|cg_node| cg_node.timeout.0)
+                    .unwrap_or((fe.timeout_secs * 1000) as u32),
+                sandbox_timeout_secs: fe.timeout_secs,
+                entrypoint: fe.entrypoint.clone(),
+            };
+
+            function_executors.push(Box::new(desired_fc));
 
             let allocations = indexes
                 .allocations_by_executor
@@ -577,56 +622,42 @@ impl ExecutorManager {
         let mut function_executors_pb = vec![];
         let mut allocations_pb = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
-            let blob_store_url_schema = self
-                .blob_store_registry
-                .get_blob_store(
-                    &desired_state_fe
-                        .function_executor
-                        .function_container
-                        .namespace,
-                )
-                .get_url_scheme();
-            let blob_store_url = self
-                .blob_store_registry
-                .get_blob_store(
-                    &desired_state_fe
-                        .function_executor
-                        .function_container
-                        .namespace,
-                )
-                .get_url();
-            let code_payload_pb = executor_api_pb::DataPayload {
-                id: Some(desired_state_fe.code_payload.id.clone()),
-                uri: Some(blob_store_path_to_url(
-                    &desired_state_fe.code_payload.path,
-                    &blob_store_url_schema,
-                    &blob_store_url,
-                )),
-                size: Some(desired_state_fe.code_payload.size),
-                sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
-                encoding: Some(DataPayloadEncoding::BinaryZip.into()),
-                encoding_version: Some(0),
-                offset: Some(desired_state_fe.code_payload.offset),
-                metadata_size: Some(desired_state_fe.code_payload.metadata_size),
-                source_function_call_id: None,
-                content_type: Some("application/zip".to_string()),
-            };
             let fe = &desired_state_fe.function_executor.function_container;
-            let Some(application_version) = self
-                .indexify_state
-                .in_memory_state
-                .read()
-                .await
-                .application_versions
-                .get(&ApplicationVersion::key_from(
-                    &fe.namespace,
-                    &fe.application_name,
-                    &fe.version,
-                ))
-                .cloned()
-            else {
-                continue;
+
+            // Build code_payload_pb only if code_payload exists (not for sandboxes)
+            let code_payload_pb = desired_state_fe.code_payload.as_ref().map(|code_payload| {
+                let blob_store_url_schema = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url_scheme();
+                let blob_store_url = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url();
+                executor_api_pb::DataPayload {
+                    id: Some(code_payload.id.clone()),
+                    uri: Some(blob_store_path_to_url(
+                        &code_payload.path,
+                        &blob_store_url_schema,
+                        &blob_store_url,
+                    )),
+                    size: Some(code_payload.size),
+                    sha256_hash: Some(code_payload.sha256_hash.clone()),
+                    encoding: Some(DataPayloadEncoding::BinaryZip.into()),
+                    encoding_version: Some(0),
+                    offset: Some(code_payload.offset),
+                    metadata_size: Some(code_payload.metadata_size),
+                    source_function_call_id: None,
+                    content_type: Some("application/zip".to_string()),
+                }
+            });
+
+            // Convert container type to proto enum
+            let fe_type_pb = match fe.container_type {
+                data_model::FunctionContainerType::Function => FunctionExecutorTypePb::Function,
+                data_model::FunctionContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
             };
+
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -637,17 +668,18 @@ impl ExecutorManager {
                 }),
                 secret_names: desired_state_fe.secret_names.clone(),
                 initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
-                application: Some(code_payload_pb),
-                allocation_timeout_ms: Some(
-                    application_version
-                        .functions
-                        .get(&fe.function_name)
-                        .unwrap()
-                        .timeout
-                        .0,
-                ),
+                application: code_payload_pb, // None for sandboxes
+                allocation_timeout_ms: Some(desired_state_fe.allocation_timeout_ms),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 max_concurrency: Some(fe.max_concurrency),
+                image: desired_state_fe.image.clone(),
+                sandbox_timeout_secs: if desired_state_fe.sandbox_timeout_secs > 0 {
+                    Some(desired_state_fe.sandbox_timeout_secs)
+                } else {
+                    None
+                },
+                entrypoint: desired_state_fe.entrypoint.clone(),
+                container_type: Some(fe_type_pb.into()),
             };
             function_executors_pb.push(fe_description_pb);
         }

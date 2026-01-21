@@ -5,4 +5,5 @@ pub mod function_run_creator;
 pub mod function_run_processor;
 pub mod request_state_change_processor;
 pub mod retry_policy;
+pub mod sandbox_processor;
 pub mod usage_processor;

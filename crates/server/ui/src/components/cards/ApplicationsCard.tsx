@@ -104,7 +104,7 @@ export function ApplicationsCard({
 
             <Typography variant="subtitle2" color="text.secondary">
               <Typography sx={{ mb: 0 }}>Tags:</Typography>
-              {Object.keys(application.tags).length > 0 ? (
+              {application.tags && Object.keys(application.tags).length > 0 ? (
                 <>
                   <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
                     {Object.values(application.tags).map((tag, index) => (
@@ -121,7 +121,7 @@ export function ApplicationsCard({
 
             <Typography variant="subtitle2" color="text.secondary">
               <Typography sx={{ mb: 0 }}>Entrypoint:</Typography>
-              {Object.keys(application.entrypoint).length > 0 ? (
+              {application.entrypoint && Object.keys(application.entrypoint).length > 0 ? (
                 <>
                   <ul style={{ margin: '0 0 6px 0', paddingLeft: '20px' }}>
                     {Object.values(application.entrypoint).map(

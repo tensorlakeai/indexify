@@ -1,0 +1,41 @@
+# Indexify Dataplane Configuration
+
+# Environment name (e.g., "local", "staging", "production")
+# When set to anything other than "local", structured JSON logging is enabled
+env: local
+
+# Unique identifier for this executor (auto-generated UUID if not specified)
+# executor_id: "executor-1"
+
+# The gRPC server address to connect to
+server_addr: "http://localhost:8901"
+
+# TLS configuration for authenticating with the gRPC server
+tls:
+  # Enable TLS for gRPC connections
+  enabled: false
+  # Path to the CA certificate file (PEM format) - used to verify the server's certificate
+  # ca_cert_path: "/etc/certs/ca.pem"
+  # Path to the client certificate file (PEM format) - required for mTLS
+  # client_cert_path: "/etc/certs/client.pem"
+  # Path to the client private key file (PEM format) - required for mTLS
+  # client_key_path: "/etc/certs/client-key.pem"
+  # Domain name to use for TLS verification (optional)
+  # domain_name: "indexify.example.com"
+
+# Telemetry configuration
+telemetry:
+  # OpenTelemetry tracing exporter: "stdout" or "otlp"
+  # tracing_exporter: otlp
+  # OpenTelemetry collector endpoint (defaults to OTEL_EXPORTER_OTLP_ENDPOINT or localhost:4317)
+  # endpoint: "http://otel-collector:4317"
+  # Instance ID for this dataplane instance (auto-generated if not specified)
+  # instance_id: "dataplane-1"
+
+# Process driver configuration
+# Options: "fork_exec" (default) or "docker"
+driver:
+  type: fork_exec
+  # For docker driver:
+  # type: docker
+  # socket_path: "/var/run/docker.sock"

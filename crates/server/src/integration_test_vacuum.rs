@@ -84,7 +84,7 @@ mod tests {
             .functions(HashMap::from([(fn_name.clone(), function)]))
             .version(version.to_string())
             .description(format!("Test app {}", app_name))
-            .code(DataPayload {
+            .code(Some(DataPayload {
                 id: "code_id".to_string(),
                 metadata_size: 0,
                 offset: 0,
@@ -92,14 +92,14 @@ mod tests {
                 path: "app_path".to_string(),
                 size: 23,
                 sha256_hash: "hash123".to_string(),
-            })
+            }))
             .created_at(5)
-            .entrypoint(ApplicationEntryPoint {
+            .entrypoint(Some(ApplicationEntryPoint {
                 function_name: fn_name,
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            })
+            }))
             .build()
             .unwrap()
     }
@@ -169,7 +169,7 @@ mod tests {
         app: &crate::data_model::Application,
     ) -> crate::data_model::RequestCtx {
         let request_id = nanoid!();
-        let fn_name = &app.entrypoint.function_name;
+        let fn_name = &app.entrypoint.as_ref().unwrap().function_name;
         let fn_call = create_function_call(fn_name);
         let input_args = vec![InputArgs {
             function_call_id: None,

@@ -21,6 +21,7 @@ use crate::{
         FunctionContainerId,
         FunctionContainerResources,
         FunctionContainerServerMetadata,
+        FunctionContainerState,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -29,6 +30,9 @@ use crate::{
         NamespaceBuilder,
         RequestCtx,
         RequestCtxKey,
+        Sandbox,
+        SandboxKey,
+        SandboxStatus,
     },
     state_store::{
         ExecutorCatalog,
@@ -46,7 +50,11 @@ pub struct DesiredStateFunctionExecutor {
     pub resources: FunctionContainerResources,
     pub secret_names: Vec<String>,
     pub initialization_timeout_ms: u32,
-    pub code_payload: DataPayload,
+    pub code_payload: Option<DataPayload>,
+    pub image: Option<String>,
+    pub allocation_timeout_ms: u32,
+    pub sandbox_timeout_secs: u64,
+    pub entrypoint: Vec<String>,
 }
 
 pub struct FunctionCallOutcome {
@@ -165,6 +173,12 @@ pub struct InMemoryState {
     // Maps executor catalog entry names to function runs that match those catalog entry labels
     pub function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>>,
 
+    // Sandboxes - SandboxKey -> Sandbox
+    pub sandboxes: imbl::OrdMap<SandboxKey, Box<Sandbox>>,
+
+    // Pending sandboxes waiting for executor allocation
+    pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
+
     // Histogram metrics for task latency measurements for direct recording
     metrics: InMemoryStoreMetrics,
 }
@@ -264,6 +278,24 @@ impl InMemoryState {
         let function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>> =
             imbl::HashMap::new();
 
+        let mut sandboxes = imbl::OrdMap::new();
+        let mut pending_sandboxes = imbl::OrdSet::new();
+        {
+            let all_sandboxes: Vec<(String, Sandbox)> = reader
+                .get_all_rows_from_cf(IndexifyObjectsColumns::Sandboxes)
+                .await?;
+            for (_key, sandbox) in all_sandboxes {
+                if sandbox.status == SandboxStatus::Terminated {
+                    continue;
+                }
+                let sandbox_key = SandboxKey::from(&sandbox);
+                if sandbox.status == SandboxStatus::Pending {
+                    pending_sandboxes.insert(sandbox_key.clone());
+                }
+                sandboxes.insert(sandbox_key, Box::new(sandbox));
+            }
+        }
+
         let mut in_memory_state = Self {
             clock,
             namespaces,
@@ -275,6 +307,8 @@ impl InMemoryState {
             allocations_by_executor,
             executor_catalog,
             function_runs_by_catalog_entry,
+            sandboxes,
+            pending_sandboxes,
             metrics,
         };
 
@@ -553,6 +587,34 @@ impl InMemoryState {
                         .scheduler_update_remove_executors
                         .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
+
+                for (sandbox_key, sandbox) in &req.updated_sandboxes {
+                    match sandbox.status {
+                        SandboxStatus::Pending => {
+                            self.sandboxes
+                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                            self.pending_sandboxes.insert(sandbox_key.clone());
+                        }
+                        SandboxStatus::Running => {
+                            self.sandboxes
+                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                            self.pending_sandboxes.remove(sandbox_key);
+                        }
+                        SandboxStatus::Terminated => {
+                            self.sandboxes.remove(sandbox_key);
+                            self.pending_sandboxes.remove(sandbox_key);
+                        }
+                    }
+                }
+
+                for fc_metadata in req.function_containers.values() {
+                    if matches!(
+                        fc_metadata.function_container.state,
+                        FunctionContainerState::Pending
+                    ) {
+                        changed_executors.insert(fc_metadata.executor_id.clone());
+                    }
+                }
             }
             RequestPayload::UpsertExecutor(req) => {
                 for allocation_output in &req.allocation_outputs {
@@ -599,6 +661,14 @@ impl InMemoryState {
                             allocation_output.allocation.outcome.to_string(),
                         )],
                     );
+                }
+            }
+            RequestPayload::CreateSandbox(req) => {
+                let sandbox_key = SandboxKey::from(&req.sandbox);
+                self.sandboxes
+                    .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
+                if req.sandbox.status == SandboxStatus::Pending {
+                    self.pending_sandboxes.insert(sandbox_key);
                 }
             }
             _ => {}
@@ -676,6 +746,8 @@ impl InMemoryState {
             metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
+            sandboxes: self.sandboxes.clone(),
+            pending_sandboxes: self.pending_sandboxes.clone(),
         }))
     }
 
@@ -877,6 +949,8 @@ mod test_helpers {
                 metrics: InMemoryStoreMetrics::new(),
                 function_runs: imbl::OrdMap::new(),
                 unallocated_function_runs: imbl::OrdSet::new(),
+                sandboxes: imbl::OrdMap::new(),
+                pending_sandboxes: imbl::OrdSet::new(),
             }
         }
     }
@@ -1046,13 +1120,13 @@ mod tests {
             .version("1.0".to_string())
             .functions(functions)
             .edges(HashMap::new())
-            .code(mock_data_payload())
-            .entrypoint(ApplicationEntryPoint {
+            .code(Some(mock_data_payload()))
+            .entrypoint(Some(ApplicationEntryPoint {
                 function_name: "light".to_string(),
                 input_serializer: "cloudpickle".to_string(),
                 output_serializer: "cloudpickle".to_string(),
                 output_type_hints_base64: String::new(),
-            })
+            }))
             .state(ApplicationState::Active)
             .build()
             .unwrap();

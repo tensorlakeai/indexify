@@ -17,6 +17,7 @@ use crate::{
         ApplicationVersion,
         Namespace,
         RequestCtx,
+        Sandbox,
         StateChange,
         UnprocessedStateChanges,
     },
@@ -519,6 +520,38 @@ impl StateReader {
         let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
             .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
         Ok(Some(request_ctx))
+    }
+
+    pub async fn get_sandbox(
+        &self,
+        namespace: &str,
+        application: &str,
+        sandbox_id: &str,
+    ) -> Result<Option<Sandbox>> {
+        let kvs = &[KeyValue::new("op", "get_sandbox")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = format!("{namespace}|{application}|{sandbox_id}");
+        let sandbox = self
+            .get_from_cf(&IndexifyObjectsColumns::Sandboxes, key.as_bytes())
+            .await?;
+        Ok(sandbox)
+    }
+
+    pub async fn list_sandboxes(&self, namespace: &str, application: &str) -> Result<Vec<Sandbox>> {
+        let kvs = &[KeyValue::new("op", "list_sandboxes")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|{application}|");
+        let (sandboxes, _) = self
+            .get_rows_from_cf_with_limits::<Sandbox>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::Sandboxes,
+                None,
+            )
+            .await?;
+        Ok(sandboxes)
     }
 }
 #[cfg(test)]

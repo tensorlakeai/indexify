@@ -2,6 +2,8 @@
 members = [
     "crates/proto-api",
     "crates/server",
+    "crates/dataplane",
+    "crates/container-daemon",
 ]
 resolver = "2"
 

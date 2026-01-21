@@ -155,7 +155,7 @@ pub mod tests {
             ]))
             .version(version.to_string())
             .description(format!("description {}", app_name))
-            .code(DataPayload {
+            .code(Some(DataPayload {
                 id: "code_id".to_string(),
                 metadata_size: 0,
                 offset: 0,
@@ -163,14 +163,14 @@ pub mod tests {
                 path: "cg_path".to_string(),
                 size: 23,
                 sha256_hash: "hash123".to_string(),
-            })
+            }))
             .created_at(5)
-            .entrypoint(ApplicationEntryPoint {
+            .entrypoint(Some(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            })
+            }))
             .build()
             .unwrap()
     }
