@@ -58,7 +58,6 @@ impl<'a> FunctionInfo<'a> {
     }
 }
 
-/// Internal state of a managed container.
 enum ContainerState {
     /// Container is starting up (daemon not yet ready).
     Pending,
