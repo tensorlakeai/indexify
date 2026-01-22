@@ -2,6 +2,7 @@
 mod tests {
     use std::sync::Arc;
 
+    use axum::response::IntoResponse;
     use serde_json::json;
 
     use crate::{
@@ -315,5 +316,134 @@ mod tests {
             Some("test"),
             "environment tag should match"
         );
+    }
+
+    // Integration tests for progress_stream endpoint
+
+    #[tokio::test]
+    async fn test_progress_stream_basic() {
+        let route_state = create_test_route_state().await;
+        let namespace = "test-namespace";
+        let app_name = "test-app-progress";
+        let version = "1.0.0";
+
+        // Create application
+        let metadata = create_test_application_metadata(namespace, app_name, version);
+        let result = crate::routes_internal::create_or_update_application_with_metadata(
+            axum::extract::Path(namespace.to_string()),
+            axum::extract::State(route_state.clone()),
+            axum::Json(metadata),
+        )
+        .await;
+        assert!(result.is_ok(), "Should create application");
+
+        // Invoke the application
+        let invoke_result = crate::routes::invoke::invoke_application_with_object_v1(
+            axum::extract::Path((namespace.to_string(), app_name.to_string())),
+            axum::extract::State(route_state.clone()),
+            axum::http::HeaderMap::new(),
+            axum::body::Body::from(r#"{"test": "data"}"#),
+        )
+        .await;
+
+        assert!(invoke_result.is_ok(), "Should invoke application");
+
+        // Get the request_id from the response
+        // The response is already IntoResponse, we need to convert it
+        use axum::response::Response;
+        let response: Response = invoke_result.unwrap().into_response();
+        let (_parts, body) = response.into_parts();
+        let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        let response_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let request_id = response_json["request_id"].as_str().unwrap();
+
+        // Test progress stream
+        let progress_result = crate::routes::invoke::progress_stream(
+            axum::extract::Path((
+                namespace.to_string(),
+                app_name.to_string(),
+                request_id.to_string(),
+            )),
+            axum::extract::State(route_state),
+        )
+        .await;
+
+        assert!(progress_result.is_ok(), "Should get progress stream");
+    }
+
+    #[tokio::test]
+    async fn test_progress_stream_already_finished() {
+        let route_state = create_test_route_state().await;
+        let namespace = "test-namespace";
+        let app_name = "test-app-finished";
+        let version = "1.0.0";
+
+        // Create application
+        let metadata = create_test_application_metadata(namespace, app_name, version);
+        let result = crate::routes_internal::create_or_update_application_with_metadata(
+            axum::extract::Path(namespace.to_string()),
+            axum::extract::State(route_state.clone()),
+            axum::Json(metadata),
+        )
+        .await;
+        assert!(result.is_ok(), "Should create application");
+
+        // Invoke the application
+        let invoke_result = crate::routes::invoke::invoke_application_with_object_v1(
+            axum::extract::Path((namespace.to_string(), app_name.to_string())),
+            axum::extract::State(route_state.clone()),
+            axum::http::HeaderMap::new(),
+            axum::body::Body::from(r#"{"test": "data"}"#),
+        )
+        .await;
+
+        assert!(invoke_result.is_ok(), "Should invoke application");
+
+        // Get the request_id
+        let response = invoke_result.unwrap().into_response();
+        let (_parts, body) = response.into_parts();
+        let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        let response_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let request_id = response_json["request_id"].as_str().unwrap();
+
+        // Manually set the request to finished state
+        let mut ctx = route_state
+            .indexify_state
+            .reader()
+            .request_ctx(namespace, app_name, request_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Update context with outcome
+        ctx.outcome = Some(crate::data_model::RequestOutcome::Success);
+
+        // Write updated context back using SchedulerUpdateRequest
+        let mut scheduler_update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        scheduler_update.add_request_state(&ctx);
+
+        route_state
+            .indexify_state
+            .write(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update),
+                    vec![],
+                )),
+            })
+            .await
+            .unwrap();
+
+        // Test progress stream - should return finished event immediately
+        let progress_result = crate::routes::invoke::progress_stream(
+            axum::extract::Path((
+                namespace.to_string(),
+                app_name.to_string(),
+                request_id.to_string(),
+            )),
+            axum::extract::State(route_state),
+        )
+        .await;
+
+        assert!(progress_result.is_ok(), "Should get progress stream");
     }
 }

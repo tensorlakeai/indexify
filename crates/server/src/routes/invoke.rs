@@ -18,13 +18,20 @@ use tracing::{debug, error, info, warn};
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self, ApplicationState, DataPayload, FunctionCallId, InputArgs, RequestCtx,
-        RequestCtxBuilder, RequestOutcome,
+        self,
+        ApplicationState,
+        DataPayload,
+        FunctionCallId,
+        InputArgs,
+        RequestCtx,
+        RequestCtxBuilder,
+        RequestOutcome,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        IndexifyState, driver,
+        IndexifyState,
+        driver,
         request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
         scanner::StateReader,
@@ -224,7 +231,7 @@ impl Stream for StreamWithGuard {
 }
 
 #[tracing::instrument(skip(rx, state))]
-async fn create_request_progress_stream(
+pub(crate) async fn create_request_progress_stream(
     mut rx: broadcast::Receiver<RequestStateChangeEvent>,
     state: RouteState,
     namespace: String,
@@ -465,8 +472,8 @@ pub async fn invoke_application_with_object_v1(
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if let Some(driver_error) = e.downcast_ref::<driver::Error>()
-                && driver_error.is_request_already_exists()
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
+                driver_error.is_request_already_exists()
             {
                 IndexifyAPIError::conflict(&driver_error.to_string())
             } else {
