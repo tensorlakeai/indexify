@@ -16,6 +16,7 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use strum::Display;
 use tracing::info;
 
@@ -385,10 +386,6 @@ impl Default for FunctionRetryPolicy {
     }
 }
 
-fn default_data_encoder() -> String {
-    "cloudpickle".to_string()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
 pub struct CacheKey(String);
 
@@ -410,18 +407,15 @@ impl fmt::Display for CacheKey {
     }
 }
 
-fn default_max_concurrency() -> u32 {
-    1
-}
-
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Function {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
-    #[serde(default = "default_data_encoder")]
+    #[serde_inline_default("cloudpickle".to_string())]
     pub input_encoder: String,
-    #[serde(default = "default_data_encoder")]
+    #[serde_inline_default("cloudpickle".to_string())]
     pub output_encoder: String,
     pub secret_names: Option<Vec<String>>,
     #[serde(default)]
@@ -437,7 +431,7 @@ pub struct Function {
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
     pub return_type: Option<serde_json::Value>,
-    #[serde(default = "default_max_concurrency")]
+    #[serde_inline_default(1)]
     pub max_concurrency: u32,
     #[serde(default)]
     pub min_containers: Option<u32>,
@@ -1283,11 +1277,6 @@ impl Display for FunctionRunStatus {
     }
 }
 
-// FIXME Remove in next release
-fn default_executor_ver() -> String {
-    "0.2.17".to_string()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FunctionURI {
     pub namespace: String,
@@ -1768,14 +1757,7 @@ impl GcUrl {
     }
 }
 
-fn default_sandbox_timeout() -> u64 {
-    300
-}
-
-fn default_sandbox_image() -> Option<String> {
-    Some("python:3.13-slim".into())
-}
-
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct Container {
     #[builder(default)]
@@ -1792,7 +1774,7 @@ pub struct Container {
     pub container_type: ContainerType,
     /// docker image to use for the sandbox
     #[builder(default)]
-    #[serde(default = "default_sandbox_image")]
+    #[serde_inline_default(Some("python:3.13-slim".into()))]
     pub image: Option<String>,
     #[builder(default)]
     #[serde(default)]
@@ -1800,7 +1782,7 @@ pub struct Container {
     /// Timeout in seconds for sandbox containers. 0 means no timeout.
     /// Only applicable to sandbox-type containers.
     #[builder(default)]
-    #[serde(default = "default_sandbox_timeout")]
+    #[serde_inline_default(300)]
     pub timeout_secs: u64,
     /// Optional entrypoint command for sandbox containers.
     #[builder(default)]
@@ -1951,10 +1933,12 @@ impl ContainerServerMetadata {
     }
 }
 
+#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
-    #[serde(default = "default_executor_ver")]
+    // FIXME Remove in next release
+    #[serde_inline_default("0.2.17".to_string())]
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,

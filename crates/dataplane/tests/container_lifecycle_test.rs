@@ -54,8 +54,8 @@ async fn create_test_state_file() -> Arc<StateFile> {
 struct TestImageResolver;
 
 impl ImageResolver for TestImageResolver {
-    fn resolve_image(&self, _description: &FunctionExecutorDescription) -> String {
-        "test-image:latest".to_string()
+    fn resolve_image(&self, _description: &FunctionExecutorDescription) -> anyhow::Result<String> {
+        Ok("test-image:latest".to_string())
     }
 }
 

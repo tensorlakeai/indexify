@@ -18,24 +18,23 @@ use crate::{
     utils::get_epoch_time_in_ns,
 };
 
-fn default_timeout() -> u64 {
-    600
-}
-
 /// Request to create a new sandbox
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSandboxRequest {
-    /// Docker image for the sandbox
-    pub image: String,
+    /// Docker image for the sandbox (optional, uses server default if not
+    /// provided)
+    #[serde(default)]
+    pub image: Option<String>,
     /// Resource requirements (optional, has defaults)
     #[serde(default)]
     pub resources: ContainerResources,
     /// Secret names to inject (optional)
     #[serde(default)]
     pub secret_names: Vec<String>,
-    /// Timeout in seconds, 0 = no timeout (optional, default 600)
-    #[serde(default = "default_timeout")]
-    pub timeout_secs: u64,
+    /// Timeout in seconds, 0 = no timeout (optional, uses server default if not
+    /// provided)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
     /// Optional entrypoint command to run when sandbox starts.
     /// If not provided, sandbox waits for commands via HTTP API.
     #[serde(default)]
@@ -121,13 +120,21 @@ pub async fn create_sandbox(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, IndexifyAPIError> {
+    // Apply config defaults for image and timeout
+    let image = request
+        .image
+        .unwrap_or_else(|| state.config.default_sandbox_image.clone());
+    let timeout_secs = request
+        .timeout_secs
+        .unwrap_or(state.config.default_sandbox_timeout_secs);
+
     let sandbox_id = SandboxId::default();
     let sandbox = SandboxBuilder::default()
         .id(sandbox_id.clone())
         .namespace(namespace.clone())
         .application(application.clone())
         .application_version("inline".to_string()) // No app version needed for inline spec
-        .image(request.image.clone())
+        .image(image)
         .status(SandboxStatus::Pending)
         .creation_time_ns(get_epoch_time_in_ns())
         .resources(data_model::ContainerResources {
@@ -144,7 +151,7 @@ pub async fn create_sandbox(
                 }),
         })
         .secret_names(request.secret_names.clone())
-        .timeout_secs(request.timeout_secs)
+        .timeout_secs(timeout_secs)
         .entrypoint(request.entrypoint.clone())
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;

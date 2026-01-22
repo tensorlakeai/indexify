@@ -162,23 +162,35 @@ impl ManagedContainer {
 
 /// Resolves container images for function executors.
 pub trait ImageResolver: Send + Sync {
-    fn resolve_image(&self, description: &FunctionExecutorDescription) -> String;
+    fn resolve_image(&self, description: &FunctionExecutorDescription) -> anyhow::Result<String>;
 }
 
-/// Default image resolver that uses the image from FunctionExecutorDescription
-/// if present, otherwise falls back to a default image.
+/// Default image resolver that extracts the image from
+/// FunctionExecutorDescription. Returns an error if no image is specified.
 pub struct DefaultImageResolver;
 
+impl DefaultImageResolver {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DefaultImageResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImageResolver for DefaultImageResolver {
-    fn resolve_image(&self, description: &FunctionExecutorDescription) -> String {
-        // Use image from sandbox_metadata if provided (for sandboxes)
+    fn resolve_image(&self, description: &FunctionExecutorDescription) -> anyhow::Result<String> {
+        // Use image from sandbox_metadata if provided
         if let Some(ref sandbox_metadata) = description.sandbox_metadata &&
             let Some(ref image) = sandbox_metadata.image
         {
-            return image.clone();
+            return Ok(image.clone());
         }
-        // Fall back to default Python image for functions
-        "python:3.11-slim".to_string()
+        // No image specified - return error
+        anyhow::bail!("No image specified in sandbox metadata")
     }
 }
 
@@ -863,7 +875,7 @@ async fn start_container_with_daemon(
     desc: &FunctionExecutorDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = FunctionInfo::from_description(desc);
-    let image = image_resolver.resolve_image(desc);
+    let image = image_resolver.resolve_image(desc)?;
 
     // Extract resource limits from the function executor description
     let resources = desc.resources.as_ref().map(|r| {
@@ -1138,17 +1150,23 @@ mod tests {
     }
 
     #[test]
-    fn test_default_image_resolver() {
-        let resolver = DefaultImageResolver;
+    fn test_default_image_resolver_no_image() {
+        let resolver = DefaultImageResolver::new();
         let desc = create_test_fe_description("fe-123");
-        let image = resolver.resolve_image(&desc);
+        let result = resolver.resolve_image(&desc);
 
-        assert_eq!(image, "python:3.11-slim");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No image specified")
+        );
     }
 
     #[test]
-    fn test_image_resolver_with_custom_image() {
-        let resolver = DefaultImageResolver;
+    fn test_image_resolver_with_image() {
+        let resolver = DefaultImageResolver::new();
         let mut desc = create_test_fe_description("fe-123");
         desc.sandbox_metadata = Some(SandboxMetadata {
             image: Some("custom-sandbox:latest".to_string()),
@@ -1157,7 +1175,8 @@ mod tests {
         });
         let image = resolver.resolve_image(&desc);
 
-        assert_eq!(image, "custom-sandbox:latest");
+        assert!(image.is_ok());
+        assert_eq!(image.unwrap(), "custom-sandbox:latest");
     }
 
     #[test]
@@ -1217,7 +1236,7 @@ mod tests {
     #[tokio::test]
     async fn test_manager_new() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
 
@@ -1230,7 +1249,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_creates_containers() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1263,7 +1282,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_removes_containers_not_in_desired() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1286,7 +1305,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_ignores_already_tracked_containers() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1307,7 +1326,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_skips_fe_without_id() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1449,7 +1468,7 @@ mod tests {
         // This test verifies that check_timeouts() terminates containers that have
         // exceeded their timeout
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1503,7 +1522,7 @@ mod tests {
     async fn test_check_timeouts_does_not_stop_container_within_timeout() {
         // Test that check_timeouts() does NOT stop containers still within timeout
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
@@ -1541,7 +1560,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_timeouts_does_not_affect_no_timeout_containers() {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver);
+        let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);

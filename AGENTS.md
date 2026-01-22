@@ -107,6 +107,9 @@ curl -X POST http://localhost:8900/v1/namespaces/test-ns/applications/test-app/s
 **IMPORTANT**: Always run these commands after making changes:
 
 ```bash
+# Format code (required - CI will fail without this)
+just fmt
+
 # Lint (required - must pass before committing)
 just lint-rust
 
@@ -114,7 +117,7 @@ just lint-rust
 cargo test --workspace
 ```
 
-If linting fails, fix the issues. Use `just lint-fix` to auto-fix some problems.
+If linting fails, fix the issues. Note: `just fmt` requires `poetry` for Python formatting - if not installed, run `rustup run nightly cargo fmt` directly for Rust formatting.
 
 ---
 

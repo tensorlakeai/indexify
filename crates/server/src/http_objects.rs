@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
@@ -147,23 +148,14 @@ pub struct GPUResources {
     pub model: String,
 }
 
-fn default_cpus() -> f64 {
-    0.1
-}
-fn default_memory_mb() -> u64 {
-    256
-}
-fn default_ephemeral_disk_mb() -> u64 {
-    1024
-}
-
+#[serde_inline_default]
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ContainerResources {
-    #[serde(default = "default_cpus")]
+    #[serde_inline_default(0.1)]
     pub cpus: f64,
-    #[serde(default = "default_memory_mb")]
+    #[serde_inline_default(256)]
     pub memory_mb: u64,
-    #[serde(default = "default_ephemeral_disk_mb")]
+    #[serde_inline_default(1024)]
     pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<GPUResources>,

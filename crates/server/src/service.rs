@@ -222,6 +222,7 @@ impl Service {
             blob_storage: self.blob_storage_registry.clone(),
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
+            config: self.config.clone(),
         };
 
         let handle = Handle::new();

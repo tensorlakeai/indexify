@@ -57,7 +57,7 @@ impl Service {
             },
         };
 
-        let image_resolver = Arc::new(DefaultImageResolver);
+        let image_resolver = Arc::new(DefaultImageResolver::new());
         let metrics = Arc::new(DataplaneMetrics::new());
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
