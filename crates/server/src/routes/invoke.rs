@@ -123,7 +123,7 @@ async fn build_finished_event_for_outcome(
                         })
                 }
                 None => {
-                    info!("no function run output found");
+                    debug!("no function run output found");
                     None
                 }
             }
@@ -141,7 +141,7 @@ enum CheckForFinishedResult {
     NoOutcome,
     Finished(Box<RequestStateChangeEvent>),
     NotFound,
-    Error,
+    Err(anyhow::Error),
 }
 
 async fn check_for_finished(
@@ -160,13 +160,10 @@ async fn check_for_finished(
             None => CheckForFinishedResult::NoOutcome,
         },
         Ok(None) => {
-            info!("request not found, stopping stream");
+            debug!("request not found, stopping stream");
             CheckForFinishedResult::NotFound
         }
-        Err(e) => {
-            error!(?e, "failed to get request");
-            CheckForFinishedResult::Error
-        }
+        Err(e) => CheckForFinishedResult::Err(e),
     }
 }
 
@@ -240,19 +237,19 @@ pub(crate) async fn create_request_progress_stream(
 
         match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
             CheckForFinishedResult::Finished(event) => {
-                info!("request finished, sending event");
+                debug!("request finished as soon as stream started, sending event");
                 yield Event::default().json_data(event);
                 return;
             }
             CheckForFinishedResult::NoOutcome => {
-                info!("no outcome found, continuing stream");
+                debug!("no outcome found, continuing stream");
             }
             CheckForFinishedResult::NotFound => {
-                info!("request not found, stopping stream");
+                debug!("request not found, stopping stream");
                 return;
             }
-            CheckForFinishedResult::Error => {
-                error!("failed to check for finished, stopping stream");
+            CheckForFinishedResult::Err(error) => {
+                error!(?error, "failed to check for finished, stopping stream");
                 return;
             }
         }
@@ -263,15 +260,18 @@ pub(crate) async fn create_request_progress_stream(
                     debug!("received finished event: {:?}", event);
                     match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
                         CheckForFinishedResult::Finished(finished_event) => {
-                            info!("request finished, sending event");
+                            debug!("request finished, sending event");
                             yield Event::default().json_data(finished_event);
                         }
-                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound | CheckForFinishedResult::Error => {
-                            warn!("no outcome or request not found or error, sending event as is");
+                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
                             yield Event::default().json_data(event);
                         }
+                        CheckForFinishedResult::Err(error) => {
+                            error!(?error, "failed to check for finished after receiving event, stopping stream");
+                            return;
+                        }
                     }
-                    info!("finished event received, stopping stream");
+                    debug!("finished event received, stopping stream");
                     break;
                 }
                 Ok(event) => {
@@ -282,27 +282,27 @@ pub(crate) async fn create_request_progress_stream(
                     warn!("lagging behind request event stream by {} events", num);
                     match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
                         CheckForFinishedResult::Finished(event) => {
-                            info!("request finished during lag, sending event and stopping stream");
+                            debug!("request finished during lag, sending event and stopping stream");
                             yield Event::default().json_data(event);
                             break;
                         }
                         CheckForFinishedResult::NoOutcome => {
-                            info!("no outcome found during lag, continuing to listen");
+                            debug!("no outcome found during lag, continuing to listen");
                         }
                         CheckForFinishedResult::NotFound => {
-                            info!("request not found during lag, stopping stream");
+                            debug!("request not found during lag, stopping stream");
                             break;
                         }
-                        CheckForFinishedResult::Error => {
-                            error!("failed to check for finished during lag, stopping stream");
+                        CheckForFinishedResult::Err(error) => {
+                            error!(?error, "failed to check for finished during lag, stopping stream");
                             break;
                         }
                     }
                 }
                 Err(RecvError::Closed) => {
-                    info!("request event stream closed, checking for finished state");
+                    debug!("request event stream closed, checking for finished state");
                     if let CheckForFinishedResult::Finished(event) = check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
-                        info!("request finished, sending event");
+                        debug!("request finished, sending event");
                         yield Event::default().json_data(event);
                     }
                     break;
