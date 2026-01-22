@@ -18,20 +18,13 @@ use tracing::{debug, error, info, warn};
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self,
-        ApplicationState,
-        DataPayload,
-        FunctionCallId,
-        InputArgs,
-        RequestCtx,
-        RequestCtxBuilder,
-        RequestOutcome,
+        self, ApplicationState, DataPayload, FunctionCallId, InputArgs, RequestCtx,
+        RequestCtxBuilder, RequestOutcome,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        IndexifyState,
-        driver,
+        IndexifyState, driver,
         request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
         scanner::StateReader,
@@ -241,7 +234,6 @@ pub(crate) async fn create_request_progress_stream(
     let stream = async_stream::stream! {
         let reader = state.indexify_state.reader();
 
-        // Check completion when starting stream
         match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
             CheckForFinishedResult::Finished(event) => {
                 info!("request finished, sending event");
@@ -267,11 +259,11 @@ pub(crate) async fn create_request_progress_stream(
                     debug!("received finished event: {:?}", event);
                     match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
                         CheckForFinishedResult::Finished(finished_event) => {
+                            info!("request finished, sending event");
                             yield Event::default().json_data(finished_event);
                         }
                         CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound | CheckForFinishedResult::Error => {
-                            // Best effort: send the original event as fallback if we can't check state
-                            // This ensures clients always get a final message when RequestFinished is received
+                            warn!("no outcome or request not found or error, sending event as is");
                             yield Event::default().json_data(event);
                         }
                     }
@@ -284,34 +276,37 @@ pub(crate) async fn create_request_progress_stream(
                 }
                 Err(RecvError::Lagged(num)) => {
                     warn!("lagging behind request event stream by {} events", num);
-
-                    // Check if completion happened during lag
                     match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
                         CheckForFinishedResult::Finished(event) => {
-                            info!("request finished during lag, sending event");
+                            info!("request finished during lag, sending event and stopping stream");
                             yield Event::default().json_data(event);
+                            break;
                         }
-                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
-                            info!("no outcome or request not found, continuing stream");
+                        CheckForFinishedResult::NoOutcome => {
+                            info!("no outcome found during lag, continuing to listen");
+                        }
+                        CheckForFinishedResult::NotFound => {
+                            info!("request not found during lag, stopping stream");
+                            break;
                         }
                         CheckForFinishedResult::Error => {
-                            // Best effort: if we can't check state during lag, we can't send a final message
-                            // but we should still break to avoid infinite loops
                             error!("failed to check for finished during lag, stopping stream");
                             break;
                         }
                     }
-                    break;
                 }
                 Err(RecvError::Closed) => {
-                    info!("request event stream closed, stopping stream");
+                    info!("request event stream closed, checking for finished state");
+                    if let CheckForFinishedResult::Finished(event) = check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                        info!("request finished, sending event");
+                        yield Event::default().json_data(event);
+                    }
                     break;
                 }
             }
         }
     };
 
-    info!("stream finished");
     stream
 }
 
@@ -474,8 +469,8 @@ pub async fn invoke_application_with_object_v1(
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
-                driver_error.is_request_already_exists()
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>()
+                && driver_error.is_request_already_exists()
             {
                 IndexifyAPIError::conflict(&driver_error.to_string())
             } else {
