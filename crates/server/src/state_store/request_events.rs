@@ -160,7 +160,7 @@ pub struct RequestFinishedEvent {
     #[serde(default)]
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    output: Option<RequestStateFinishedOutput>,
+    pub output: Option<RequestStateFinishedOutput>,
 }
 
 impl RequestEventMetadata for RequestFinishedEvent {
