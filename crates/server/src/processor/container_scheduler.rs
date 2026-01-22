@@ -362,6 +362,7 @@ impl ContainerScheduler {
             .secret_names(sandbox.secret_names.clone())
             .timeout_secs(sandbox.timeout_secs)
             .entrypoint(sandbox.entrypoint.clone().unwrap_or_default())
+            .network_policy(sandbox.network_policy.clone())
             .build()?;
 
         self.create_container(

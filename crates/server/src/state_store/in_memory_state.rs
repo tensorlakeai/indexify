@@ -28,6 +28,7 @@ use crate::{
         FunctionRunStatus,
         Namespace,
         NamespaceBuilder,
+        NetworkPolicy,
         RequestCtx,
         RequestCtxKey,
         Sandbox,
@@ -55,6 +56,7 @@ pub struct DesiredStateFunctionExecutor {
     pub allocation_timeout_ms: u32,
     pub sandbox_timeout_secs: u64,
     pub entrypoint: Vec<String>,
+    pub network_policy: Option<NetworkPolicy>,
 }
 
 pub struct FunctionCallOutcome {

@@ -1792,6 +1792,10 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub sandbox_http_address: Option<String>,
+    /// Network access control policy for sandbox containers.
+    #[builder(default)]
+    #[serde(default)]
+    pub network_policy: Option<NetworkPolicy>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -2453,6 +2457,27 @@ impl From<&String> for SandboxKey {
     }
 }
 
+/// Network access control policy for sandbox containers.
+/// Rules are applied using host-level iptables on the DOCKER-USER chain.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct NetworkPolicy {
+    /// If false, all outbound internet access is blocked by default (DROP).
+    /// If true (default), outbound is allowed unless explicitly denied.
+    #[serde(default = "default_true")]
+    pub allow_internet_access: bool,
+    /// List of allowed destination IPs/CIDRs (e.g., "8.8.8.8", "10.0.0.0/8").
+    /// Allow rules take precedence over deny rules.
+    #[serde(default)]
+    pub allow_out: Vec<String>,
+    /// List of denied destination IPs/CIDRs (e.g., "192.168.1.100").
+    #[serde(default)]
+    pub deny_out: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// A sandbox instance that provides an interactive container environment
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 pub struct Sandbox {
@@ -2489,6 +2514,10 @@ pub struct Sandbox {
     /// Only set when the container is running and daemon is ready.
     #[builder(default)]
     pub sandbox_http_address: Option<String>,
+    /// Network access control policy for this sandbox.
+    #[builder(default)]
+    #[serde(default)]
+    pub network_policy: Option<NetworkPolicy>,
 }
 
 impl SandboxBuilder {

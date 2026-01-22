@@ -18,6 +18,26 @@ use crate::{
     utils::get_epoch_time_in_ns,
 };
 
+/// Network access control settings for sandbox creation
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct NetworkAccessControl {
+    /// If false, all outbound internet access is blocked by default.
+    /// If true (default), outbound is allowed unless explicitly denied.
+    #[serde(default = "default_true")]
+    pub allow_internet_access: bool,
+    /// List of allowed destination IPs/CIDRs (e.g., "8.8.8.8", "10.0.0.0/8").
+    /// Allow rules take precedence over deny rules.
+    #[serde(default)]
+    pub allow_out: Vec<String>,
+    /// List of denied destination IPs/CIDRs (e.g., "192.168.1.100").
+    #[serde(default)]
+    pub deny_out: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Request to create a new sandbox
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSandboxRequest {
@@ -39,6 +59,9 @@ pub struct CreateSandboxRequest {
     /// If not provided, sandbox waits for commands via HTTP API.
     #[serde(default)]
     pub entrypoint: Option<Vec<String>>,
+    /// Network access control settings (optional).
+    #[serde(default)]
+    pub network: Option<NetworkAccessControl>,
 }
 
 /// Response after creating a sandbox
@@ -153,6 +176,11 @@ pub async fn create_sandbox(
         .secret_names(request.secret_names.clone())
         .timeout_secs(timeout_secs)
         .entrypoint(request.entrypoint.clone())
+        .network_policy(request.network.map(|n| data_model::NetworkPolicy {
+            allow_internet_access: n.allow_internet_access,
+            allow_out: n.allow_out,
+            deny_out: n.deny_out,
+        }))
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
 

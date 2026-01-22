@@ -18,6 +18,7 @@ use crate::{
     daemon_client::DaemonClient,
     driver::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::{ContainerCounts, DataplaneMetrics},
+    network_rules,
     state_file::{PersistedContainer, StateFile},
 };
 
@@ -644,6 +645,19 @@ impl FunctionContainerManager {
                     event = "container_killing",
                     "Killing container after grace period"
                 );
+
+                // Clean up network rules before killing container
+                // (need container IP while it's still running)
+                if let Ok(ip) = network_rules::get_container_ip(&handle.id) &&
+                    let Err(e) = network_rules::remove_rules(&handle.id, &ip)
+                {
+                    tracing::warn!(
+                        fe_id = %info.fe_id,
+                        error = %e,
+                        "Failed to remove network rules"
+                    );
+                }
+
                 if let Err(e) = driver.kill(&handle).await {
                     tracing::warn!(
                         fe_id = %info.fe_id,
@@ -807,6 +821,14 @@ impl FunctionContainerManager {
                                                     app_version = %info.app_version,
                                                     "Daemon is unhealthy, terminating container"
                                                 );
+                                                // Clean up network rules before killing
+                                                if let Ok(ip) =
+                                                    network_rules::get_container_ip(&handle.id)
+                                                {
+                                                    let _ = network_rules::remove_rules(
+                                                        &handle.id, &ip,
+                                                    );
+                                                }
                                                 let _ = self.driver.kill(&handle).await;
                                                 container.state = ContainerState::Terminated {
                                                     reason:
@@ -932,6 +954,37 @@ async fn start_container_with_daemon(
 
     // Start the container (daemon will be PID 1)
     let handle = driver.start(config).await?;
+
+    // Apply network firewall rules BEFORE daemon connection.
+    // Container has IP now, but hasn't done any network requests yet.
+    // This ensures network policy is enforced before any user code runs.
+    if let Some(policy) = desc
+        .sandbox_metadata
+        .as_ref()
+        .and_then(|m| m.network_policy.as_ref())
+    {
+        match network_rules::get_container_ip(&handle.id) {
+            Ok(ip) => {
+                if let Err(e) = network_rules::apply_rules(&handle.id, &ip, policy) {
+                    tracing::warn!(
+                        fe_id = %info.fe_id,
+                        container_id = %handle.id,
+                        error = %e,
+                        "Failed to apply network rules (continuing anyway)"
+                    );
+                    // Continue anyway - rules are defense-in-depth
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    fe_id = %info.fe_id,
+                    container_id = %handle.id,
+                    error = %e,
+                    "Failed to get container IP for network rules (continuing anyway)"
+                );
+            }
+        }
+    }
 
     // Get the daemon address from the handle
     let daemon_addr = handle
@@ -1172,6 +1225,7 @@ mod tests {
             image: Some("custom-sandbox:latest".to_string()),
             timeout_secs: None,
             entrypoint: vec![],
+            network_policy: None,
         });
         let image = resolver.resolve_image(&desc);
 
@@ -1351,6 +1405,7 @@ mod tests {
             image: None,
             timeout_secs: Some(timeout_secs),
             entrypoint: vec![],
+            network_policy: None,
         });
         desc
     }

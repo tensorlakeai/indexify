@@ -65,6 +65,8 @@ When modifying `.proto` files:
 
 ## 2. Running Tests
 
+**IMPORTANT**: Always test in debug mode, not release mode. Debug builds are faster and provide better error messages.
+
 ```bash
 # Unit tests
 cargo test --workspace
@@ -92,7 +94,10 @@ server_addr: "http://localhost:8901"
 driver:
   type: docker
 EOF
-cargo run -p indexify-dataplane -- --config /tmp/docker-config.yaml
+
+# IMPORTANT: On macOS, always use RUN_DOCKER_TESTS=1 when running with Docker driver
+# Otherwise cargo may recompile without the Linux daemon binary
+RUN_DOCKER_TESTS=1 cargo run -p indexify-dataplane -- --config /tmp/docker-config.yaml
 
 # 4. Create and test a sandbox
 curl -X POST http://localhost:8900/v1/namespaces/test-ns/applications/test-app/sandboxes \
@@ -141,3 +146,46 @@ If linting fails, fix the issues. Note: `just fmt` requires `poetry` for Python 
 | Server gRPC | 8901 |
 | Container Daemon gRPC | 9500 |
 | Container Daemon HTTP | 9501 |
+
+---
+
+## 6. Sandbox HTTP API
+
+When a sandbox is running, its HTTP API is exposed on a dynamically assigned port (returned in `sandbox_http_address`). The API provides:
+
+### Process Management
+```bash
+# Start a process
+curl -X POST "http://<sandbox_addr>/api/v1/processes" \
+  -H "Content-Type: application/json" \
+  -d '{"command": "python", "args": ["-c", "print(1+1)"], "working_dir": "/app"}'
+
+# Get process status
+curl "http://<sandbox_addr>/api/v1/processes/{pid}"
+
+# Get process output
+curl "http://<sandbox_addr>/api/v1/processes/{pid}/output"
+
+# Kill a process
+curl -X DELETE "http://<sandbox_addr>/api/v1/processes/{pid}"
+```
+
+### File Operations
+```bash
+# Read a file
+curl "http://<sandbox_addr>/api/v1/files?path=/app/file.txt"
+
+# Write a file
+curl -X PUT "http://<sandbox_addr>/api/v1/files?path=/app/file.txt" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "file contents"
+
+# List directory
+curl "http://<sandbox_addr>/api/v1/files/list?path=/app"
+```
+
+### Health Check
+```bash
+curl "http://<sandbox_addr>/api/v1/health"
+# Returns: {"healthy": true}
+```

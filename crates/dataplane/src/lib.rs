@@ -8,6 +8,7 @@ pub mod daemon_client;
 pub mod driver;
 pub mod function_container_manager;
 pub mod metrics;
+pub mod network_rules;
 pub mod state_file;
 
 // Re-export key types for convenience

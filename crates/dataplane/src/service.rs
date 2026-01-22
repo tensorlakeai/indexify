@@ -469,11 +469,11 @@ async fn create_channel(config: &DataplaneConfig) -> Result<Channel> {
         endpoint = endpoint.tls_config(tls_config)?;
     }
 
-    let channel = endpoint
-        .connect()
-        .await
-        .context("Failed to connect to server")?;
+    // Use connect_lazy() so the dataplane can start even if the server is
+    // unavailable. The connection will be established when the first request is
+    // made (heartbeat).
+    let channel = endpoint.connect_lazy();
 
-    tracing::info!(server_addr = %config.server_addr, "Connected to server");
+    tracing::info!(server_addr = %config.server_addr, "Channel created");
     Ok(channel)
 }

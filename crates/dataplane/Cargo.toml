@@ -33,6 +33,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 sysinfo = "0.33"
 bollard = { workspace = true }
 futures-util = { workspace = true }
+lazy_static = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
