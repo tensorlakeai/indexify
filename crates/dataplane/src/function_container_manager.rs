@@ -18,6 +18,7 @@ use crate::{
     daemon_client::DaemonClient,
     driver::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::{ContainerCounts, DataplaneMetrics},
+    state_file::{PersistedContainer, StateFile},
 };
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -187,6 +188,7 @@ pub struct FunctionContainerManager {
     image_resolver: Arc<dyn ImageResolver>,
     containers: Arc<Mutex<HashMap<String, ManagedContainer>>>,
     metrics: Arc<DataplaneMetrics>,
+    state_file: Arc<StateFile>,
 }
 
 impl FunctionContainerManager {
@@ -194,13 +196,103 @@ impl FunctionContainerManager {
         driver: Arc<dyn ProcessDriver>,
         image_resolver: Arc<dyn ImageResolver>,
         metrics: Arc<DataplaneMetrics>,
+        state_file: Arc<StateFile>,
     ) -> Self {
         Self {
             driver,
             image_resolver,
             containers: Arc::new(Mutex::new(HashMap::new())),
             metrics,
+            state_file,
         }
+    }
+
+    /// Recover containers from the state file.
+    ///
+    /// This should be called on startup to reconnect to any containers that
+    /// were running before the dataplane restarted.
+    pub async fn recover(&self) -> usize {
+        let persisted = self.state_file.get_all().await;
+        let mut recovered = 0;
+
+        for entry in persisted {
+            // Check if the container is still alive
+            let handle = ProcessHandle {
+                id: entry.handle_id.clone(),
+                daemon_addr: Some(entry.daemon_addr.clone()),
+                http_addr: Some(entry.http_addr.clone()),
+            };
+
+            match self.driver.alive(&handle).await {
+                Ok(true) => {
+                    // Container is still alive, try to reconnect to daemon
+                    match DaemonClient::connect_with_retry(
+                        &entry.daemon_addr,
+                        std::time::Duration::from_secs(5),
+                    )
+                    .await
+                    {
+                        Ok(daemon_client) => {
+                            tracing::info!(
+                                fe_id = %entry.fe_id,
+                                handle_id = %entry.handle_id,
+                                daemon_addr = %entry.daemon_addr,
+                                "Recovered container from state file"
+                            );
+
+                            // Create a minimal description for the recovered container
+                            let description = FunctionExecutorDescription {
+                                id: Some(entry.fe_id.clone()),
+                                ..Default::default()
+                            };
+
+                            let container = ManagedContainer {
+                                description,
+                                state: ContainerState::Running {
+                                    handle,
+                                    daemon_client,
+                                },
+                                created_at: Instant::now(),
+                                started_at: Some(Instant::now()),
+                                sandbox_http_address: Some(entry.http_addr.clone()),
+                            };
+
+                            let mut containers = self.containers.lock().await;
+                            containers.insert(entry.fe_id.clone(), container);
+                            recovered += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                fe_id = %entry.fe_id,
+                                handle_id = %entry.handle_id,
+                                error = %e,
+                                "Failed to reconnect to daemon, removing from state"
+                            );
+                            let _ = self.state_file.remove(&entry.fe_id).await;
+                        }
+                    }
+                }
+                Ok(false) => {
+                    tracing::info!(
+                        fe_id = %entry.fe_id,
+                        handle_id = %entry.handle_id,
+                        "Container no longer alive, removing from state"
+                    );
+                    let _ = self.state_file.remove(&entry.fe_id).await;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        fe_id = %entry.fe_id,
+                        handle_id = %entry.handle_id,
+                        error = %e,
+                        "Failed to check container status, removing from state"
+                    );
+                    let _ = self.state_file.remove(&entry.fe_id).await;
+                }
+            }
+        }
+
+        recovered
     }
 
     /// Sync the containers with the desired state from the server.
@@ -254,7 +346,7 @@ impl FunctionContainerManager {
                 let info = container.info();
                 match &container.state {
                     ContainerState::Terminated { .. } => {
-                        // Server no longer wants this FE, remove from memory
+                        // Server no longer wants this FE, remove from memory and state file
                         tracing::info!(
                             fe_id = %info.fe_id,
                             namespace = %info.namespace,
@@ -263,6 +355,13 @@ impl FunctionContainerManager {
                             app_version = %info.app_version,
                             "Removed terminated container from memory"
                         );
+                        if let Err(e) = self.state_file.remove(&id).await {
+                            tracing::warn!(
+                                fe_id = %info.fe_id,
+                                error = %e,
+                                "Failed to remove container from state file"
+                            );
+                        }
                         containers.remove(&id);
                     }
                     ContainerState::Stopping { .. } => {
@@ -316,6 +415,7 @@ impl FunctionContainerManager {
                 let image_resolver = self.image_resolver.clone();
                 let containers_ref = self.containers.clone();
                 let metrics = self.metrics.clone();
+                let state_file = self.state_file.clone();
                 let desc_clone = desc.clone();
 
                 tokio::spawn(async move {
@@ -347,6 +447,30 @@ impl FunctionContainerManager {
                                     event = "container_started",
                                     "Container started with daemon"
                                 );
+
+                                // Persist to state file for recovery after restart
+                                if let (Some(daemon_addr), Some(http_addr)) =
+                                    (&handle.daemon_addr, &handle.http_addr)
+                                {
+                                    let persisted = PersistedContainer {
+                                        fe_id: id.clone(),
+                                        handle_id: handle.id.clone(),
+                                        daemon_addr: daemon_addr.clone(),
+                                        http_addr: http_addr.clone(),
+                                        started_at: std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_millis() as u64)
+                                            .unwrap_or(0),
+                                    };
+                                    if let Err(e) = state_file.upsert(persisted).await {
+                                        tracing::warn!(
+                                            fe_id = %info.fe_id,
+                                            error = %e,
+                                            "Failed to persist container state"
+                                        );
+                                    }
+                                }
+
                                 container.sandbox_http_address = handle.http_addr.clone();
                                 container.state = ContainerState::Running {
                                     handle,
@@ -419,41 +543,49 @@ impl FunctionContainerManager {
             _ => return,
         };
 
-        let info = container.info();
-        tracing::info!(
-            fe_id = %info.fe_id,
-            namespace = %info.namespace,
-            app = %info.app,
-            fn_name = %info.fn_name,
-            app_version = %info.app_version,
-            container_type = %container_type,
-            event = "container_stopping",
-            "Signaling container to stop via daemon"
-        );
+        // Extract fe_id for logging before modifying container state
+        let fe_id_for_log = container
+            .description
+            .id
+            .clone()
+            .unwrap_or_default();
+        {
+            let info = container.info();
+            tracing::info!(
+                fe_id = %info.fe_id,
+                namespace = %info.namespace,
+                app = %info.app,
+                fn_name = %info.fn_name,
+                app_version = %info.app_version,
+                container_type = %container_type,
+                event = "container_stopping",
+                "Signaling container to stop via daemon"
+            );
 
-        // Try to signal via daemon first (SIGTERM to the function executor)
-        if let Some(mut client) = daemon_client.clone() {
-            if let Err(e) = client.send_signal(15).await {
-                tracing::warn!(
-                    fe_id = %info.fe_id,
-                    error = %e,
-                    "Failed to send signal via daemon, falling back to container signal"
-                );
-                // Fall back to docker signal
-                if let Err(e) = self.driver.send_sig(&handle, 15).await {
+            // Try to signal via daemon first (SIGTERM to the function executor)
+            if let Some(mut client) = daemon_client.clone() {
+                if let Err(e) = client.send_signal(15).await {
                     tracing::warn!(
                         fe_id = %info.fe_id,
                         error = %e,
-                        "Failed to send signal to container"
+                        "Failed to send signal via daemon, falling back to container signal"
                     );
+                    // Fall back to docker signal
+                    if let Err(e) = self.driver.send_sig(&handle, 15).await {
+                        tracing::warn!(
+                            fe_id = %info.fe_id,
+                            error = %e,
+                            "Failed to send signal to container"
+                        );
+                    }
                 }
+            } else if let Err(e) = self.driver.send_sig(&handle, 15).await {
+                tracing::warn!(
+                    fe_id = %info.fe_id,
+                    error = %e,
+                    "Failed to send signal to container"
+                );
             }
-        } else if let Err(e) = self.driver.send_sig(&handle, 15).await {
-            tracing::warn!(
-                fe_id = %info.fe_id,
-                error = %e,
-                "Failed to send signal to container"
-            );
         }
 
         // Move to stopping state with the reason
@@ -462,6 +594,15 @@ impl FunctionContainerManager {
             daemon_client,
             reason,
         };
+
+        // Remove from state file since container is no longer running
+        if let Err(e) = self.state_file.remove(&id).await {
+            tracing::warn!(
+                fe_id = %fe_id_for_log,
+                error = %e,
+                "Failed to remove container from state file"
+            );
+        }
 
         // Schedule kill after grace period
         let driver = self.driver.clone();
@@ -873,6 +1014,7 @@ mod tests {
 
     use async_trait::async_trait;
     use proto_api::executor_api_pb::{FunctionRef, SandboxMetadata};
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -1068,13 +1210,22 @@ mod tests {
         Arc::new(DataplaneMetrics::new())
     }
 
+    async fn create_test_state_file() -> Arc<StateFile> {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        // Leak the tempdir so it doesn't get cleaned up during the test
+        std::mem::forget(dir);
+        Arc::new(StateFile::new(&path).await.unwrap())
+    }
+
     #[tokio::test]
     async fn test_manager_new() {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
+        let state_file = create_test_state_file().await;
 
-        let manager = FunctionContainerManager::new(driver, resolver, metrics);
+        let manager = FunctionContainerManager::new(driver, resolver, metrics, state_file);
         let states = manager.get_states().await;
 
         assert!(states.is_empty());
@@ -1085,7 +1236,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Sync with one desired FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1117,7 +1269,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // First sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1139,7 +1292,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1159,7 +1313,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Sync with FE that has no ID
         let mut desc = create_test_fe_description("fe-123");
@@ -1300,7 +1455,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Insert a container that started 10 seconds ago with a 5 second timeout
         // (already timed out)
@@ -1353,7 +1509,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Insert a container that just started with a 600 second timeout
         {
@@ -1390,7 +1547,8 @@ mod tests {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver);
         let metrics = create_test_metrics();
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics);
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
 
         // Insert a container with no timeout that started a long time ago
         {

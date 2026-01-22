@@ -2003,6 +2003,7 @@ dependencies = [
  "serde",
  "serde-inline-default",
  "serde-saphyr",
+ "serde_json",
  "sha2",
  "sysinfo 0.33.1",
  "tempfile",

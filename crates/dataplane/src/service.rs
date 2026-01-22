@@ -29,6 +29,7 @@ use crate::{
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
     metrics::DataplaneMetrics,
     resources::{probe_free_resources, probe_host_resources},
+    state_file::StateFile,
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -58,10 +59,16 @@ impl Service {
 
         let image_resolver = Arc::new(DefaultImageResolver);
         let metrics = Arc::new(DataplaneMetrics::new());
+        let state_file = Arc::new(
+            StateFile::new(&config.state_file)
+                .await
+                .context("Failed to initialize state file")?,
+        );
         let container_manager = Arc::new(FunctionContainerManager::new(
             driver,
             image_resolver,
             metrics.clone(),
+            state_file,
         ));
 
         Ok(Self {
@@ -76,6 +83,12 @@ impl Service {
     pub async fn run(self) -> Result<()> {
         let executor_id = self.config.executor_id.clone();
         tracing::info!(%executor_id, "Starting dataplane service");
+
+        // Recover containers from previous run
+        let recovered = self.container_manager.recover().await;
+        if recovered > 0 {
+            tracing::info!(recovered, "Recovered containers from state file");
+        }
 
         let cancel_token = CancellationToken::new();
         let heartbeat_healthy = Arc::new(AtomicBool::new(false));

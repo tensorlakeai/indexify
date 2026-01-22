@@ -153,6 +153,9 @@ pub struct DataplaneConfig {
     /// Process driver configuration.
     #[serde(default)]
     pub driver: DriverConfig,
+    /// Path to the state file for persisting container state across restarts.
+    #[serde_inline_default("./dataplane-state.json".to_string())]
+    pub state_file: String,
 }
 
 fn default_executor_id() -> String {
@@ -168,6 +171,7 @@ impl Default for DataplaneConfig {
             tls: TlsConfig::default(),
             telemetry: TelemetryConfig::default(),
             driver: DriverConfig::default(),
+            state_file: "./dataplane-state.json".to_string(),
         }
     }
 }

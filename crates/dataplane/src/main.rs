@@ -12,6 +12,7 @@ mod metrics;
 mod otel_tracing;
 mod resources;
 mod service;
+mod state_file;
 
 use config::DataplaneConfig;
 use otel_tracing::setup_tracing;

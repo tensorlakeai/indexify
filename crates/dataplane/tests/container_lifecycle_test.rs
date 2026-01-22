@@ -21,6 +21,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 // Import from the crate being tested
 use indexify_dataplane::driver::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
+use indexify_dataplane::state_file::StateFile;
 use indexify_dataplane::{
     DataplaneMetrics,
     function_container_manager::{FunctionContainerManager, ImageResolver},
@@ -39,6 +40,14 @@ use tokio_util::sync::CancellationToken;
 
 fn create_test_metrics() -> Arc<DataplaneMetrics> {
     Arc::new(DataplaneMetrics::new())
+}
+
+async fn create_test_state_file() -> Arc<StateFile> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.json");
+    // Leak the tempdir so it doesn't get cleaned up during the test
+    std::mem::forget(dir);
+    Arc::new(StateFile::new(&path).await.unwrap())
 }
 
 /// Test image resolver
@@ -305,7 +314,8 @@ async fn test_sync_creates_container_with_daemon() {
 
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
-    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics());
+    let state_file = create_test_state_file().await;
+    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics(), state_file);
 
     // Initially no containers
     let states = manager.get_states().await;
@@ -367,7 +377,8 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
 
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
-    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics());
+    let state_file = create_test_state_file().await;
+    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics(), state_file);
 
     // Create a container
     let desired = vec![create_test_fe_description("fe-to-delete")];
@@ -428,7 +439,8 @@ async fn test_health_check_detects_container_death() {
 
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
-    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics());
+    let state_file = create_test_state_file().await;
+    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics(), state_file);
 
     // Create a container
     let desired = vec![create_test_fe_description("fe-health-check")];
@@ -506,7 +518,8 @@ async fn test_multiple_containers_lifecycle() {
 
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
-    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics());
+    let state_file = create_test_state_file().await;
+    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics(), state_file);
 
     // Create multiple containers
     let desired = vec![
@@ -573,7 +586,8 @@ async fn test_sync_idempotent() {
 
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
-    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics());
+    let state_file = create_test_state_file().await;
+    let manager = FunctionContainerManager::new(driver.clone(), resolver, create_test_metrics(), state_file);
 
     let desired = vec![create_test_fe_description("fe-idempotent")];
 
