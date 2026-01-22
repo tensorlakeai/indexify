@@ -1148,8 +1148,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_lag_recovery_no_outcome_continues_stream() {
-        // Tests that when lag occurs but request is still in progress (NoOutcome),
-        // the stream continues listening and can receive the finished event later
         let namespace = TEST_NAMESPACE;
         let request_id = "req-lag-no-outcome";
 
@@ -1158,91 +1156,7 @@ mod tests {
             TEST_APP_NAME,
             TEST_APP_VERSION,
             request_id,
-            None, // No outcome yet - request still in progress
-        )
-        .await;
-
-        let (tx, stream) = create_test_stream(
-            state.clone(),
-            namespace,
-            TEST_APP_NAME,
-            request_id,
-            LAG_CHANNEL_CAPACITY, // Small capacity to trigger lag
-        )
-        .await;
-
-        // Send multiple events to trigger lag
-        for i in 0..3 {
-            let event = create_request_started_event(
-                namespace,
-                TEST_APP_NAME,
-                TEST_APP_VERSION,
-                &format!("{}-{}", request_id, i),
-            );
-            let _ = tx.send(event);
-        }
-
-        // After lag recovery (request still in progress), send the actual finished event
-        // This simulates the request completing after the lag was handled
-        let finished_event = create_request_finished_event(
-            namespace,
-            TEST_APP_NAME,
-            TEST_APP_VERSION,
-            request_id,
-            RequestOutcome::Success,
-        );
-        tx.send(finished_event).unwrap();
-
-        let events = collect_stream_events_pinned(stream).await;
-        // Should have received the finished event after recovering from lag
-        assert!(
-            events.len() >= 1,
-            "Should receive finished event after lag recovery with NoOutcome"
-        );
-        assert_contains_finished_event(&events);
-    }
-
-    #[tokio::test]
-    async fn test_lag_with_not_found_stops_stream() {
-        // Tests that when lag occurs and request is not found, the stream stops
-        let namespace = TEST_NAMESPACE;
-        let request_id = "req-lag-not-found";
-
-        // Create state but DON'T create the request - simulates request not found
-        let state = create_test_route_state().await;
-
-        let (tx, stream) = create_test_stream(
-            state,
-            namespace,
-            TEST_APP_NAME,
-            request_id,
-            DEFAULT_CHANNEL_CAPACITY,
-        )
-        .await;
-
-        // The initial check will return NotFound and stop the stream
-        drop(tx);
-
-        let events = collect_stream_events_pinned(stream).await;
-        assert_eq!(
-            events.len(),
-            0,
-            "Should return empty stream when request not found"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_lag_then_finished_event_received() {
-        // Tests the full flow: lag occurs, request still in progress, then finished event arrives
-        let namespace = TEST_NAMESPACE;
-        let request_id = "req-lag-then-finish";
-
-        let (state, _ctx) = setup_test_with_request_ctx(
-            namespace,
-            TEST_APP_NAME,
-            TEST_APP_VERSION,
-            request_id,
-            None, // No outcome yet
+            None,
         )
         .await;
 
@@ -1255,7 +1169,81 @@ mod tests {
         )
         .await;
 
-        // Trigger lag with multiple events
+        for i in 0..3 {
+            let event = create_request_started_event(
+                namespace,
+                TEST_APP_NAME,
+                TEST_APP_VERSION,
+                &format!("{}-{}", request_id, i),
+            );
+            let _ = tx.send(event);
+        }
+
+        let finished_event = create_request_finished_event(
+            namespace,
+            TEST_APP_NAME,
+            TEST_APP_VERSION,
+            request_id,
+            RequestOutcome::Success,
+        );
+        tx.send(finished_event).unwrap();
+
+        let events = collect_stream_events_pinned(stream).await;
+        assert!(
+            events.len() >= 1,
+            "Should receive finished event after lag recovery with NoOutcome"
+        );
+        assert_contains_finished_event(&events);
+    }
+
+    #[tokio::test]
+    async fn test_lag_with_not_found_stops_stream() {
+        let namespace = TEST_NAMESPACE;
+        let request_id = "req-lag-not-found";
+        let state = create_test_route_state().await;
+
+        let (tx, stream) = create_test_stream(
+            state,
+            namespace,
+            TEST_APP_NAME,
+            request_id,
+            DEFAULT_CHANNEL_CAPACITY,
+        )
+        .await;
+
+        drop(tx);
+
+        let events = collect_stream_events_pinned(stream).await;
+        assert_eq!(
+            events.len(),
+            0,
+            "Should return empty stream when request not found"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lag_then_finished_event_received() {
+        let namespace = TEST_NAMESPACE;
+        let request_id = "req-lag-then-finish";
+
+        let (state, _ctx) = setup_test_with_request_ctx(
+            namespace,
+            TEST_APP_NAME,
+            TEST_APP_VERSION,
+            request_id,
+            None,
+        )
+        .await;
+
+        let (tx, stream) = create_test_stream(
+            state.clone(),
+            namespace,
+            TEST_APP_NAME,
+            request_id,
+            LAG_CHANNEL_CAPACITY,
+        )
+        .await;
+
         for i in 0..5 {
             let event = create_function_run_created_event(
                 namespace,
@@ -1268,7 +1256,6 @@ mod tests {
             let _ = tx.send(event);
         }
 
-        // Now update the state to have an outcome and send finished event
         update_request_outcome(
             &state,
             namespace,
@@ -1289,7 +1276,6 @@ mod tests {
         tx.send(finished_event).unwrap();
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should receive at least the finished event
         assert!(
             events.len() >= 1,
             "Should receive finished event after lag and state update"
@@ -1298,8 +1284,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_closed_checks_for_finished() {
-        // Tests that when the channel closes, we check if the request finished
-        // and send the final event if so
         let namespace = TEST_NAMESPACE;
         let request_id = "req-closed-finished";
 
@@ -1308,7 +1292,7 @@ mod tests {
             TEST_APP_NAME,
             TEST_APP_VERSION,
             request_id,
-            None, // No outcome yet
+            None,
         )
         .await;
 
@@ -1321,7 +1305,6 @@ mod tests {
         )
         .await;
 
-        // Update the request to finished state before closing channel
         update_request_outcome(
             &state,
             namespace,
@@ -1332,11 +1315,9 @@ mod tests {
         .await
         .unwrap();
 
-        // Close the channel without sending any events
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should receive the finished event because we check state on channel close
         assert_eq!(
             events.len(),
             1,
@@ -1347,8 +1328,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_closed_no_outcome() {
-        // Tests that when the channel closes and request has no outcome,
-        // we don't send anything
         let namespace = TEST_NAMESPACE;
         let request_id = "req-closed-no-outcome";
 
@@ -1357,7 +1336,7 @@ mod tests {
             TEST_APP_NAME,
             TEST_APP_VERSION,
             request_id,
-            None, // No outcome
+            None,
         )
         .await;
 
@@ -1370,11 +1349,9 @@ mod tests {
         )
         .await;
 
-        // Close the channel without updating outcome
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should not receive any events since request has no outcome
         assert_eq!(
             events.len(),
             0,
