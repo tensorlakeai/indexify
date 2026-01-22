@@ -8,7 +8,12 @@ mod tests {
 
     use crate::{
         data_model::{
-            self, DataPayload, FunctionCallId, RequestCtx, RequestCtxBuilder, RequestFailureReason,
+            self,
+            DataPayload,
+            FunctionCallId,
+            RequestCtx,
+            RequestCtxBuilder,
+            RequestFailureReason,
             RequestOutcome,
             test_objects::tests::{TEST_NAMESPACE, mock_app_with_retries, mock_data_payload},
         },

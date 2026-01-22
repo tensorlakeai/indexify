@@ -6,7 +6,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        http_objects_v1::ApplicationMetadata, metrics, routes::routes_state::RouteState,
+        http_objects_v1::ApplicationMetadata,
+        metrics,
+        routes::routes_state::RouteState,
         testing::TestService,
     };
 

@@ -18,13 +18,20 @@ use tracing::{debug, error, info, warn};
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self, ApplicationState, DataPayload, FunctionCallId, InputArgs, RequestCtx,
-        RequestCtxBuilder, RequestOutcome,
+        self,
+        ApplicationState,
+        DataPayload,
+        FunctionCallId,
+        InputArgs,
+        RequestCtx,
+        RequestCtxBuilder,
+        RequestOutcome,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        IndexifyState, driver,
+        IndexifyState,
+        driver,
         request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
         scanner::StateReader,
@@ -132,7 +139,7 @@ async fn build_finished_event_for_outcome(
 
 enum CheckForFinishedResult {
     NoOutcome,
-    Finished(RequestStateChangeEvent),
+    Finished(Box<RequestStateChangeEvent>),
     NotFound,
     Error,
 }
@@ -144,14 +151,11 @@ async fn check_for_finished(
     application: &str,
     request_id: &str,
 ) -> CheckForFinishedResult {
-    match reader
-        .request_ctx(&namespace, &application, &request_id)
-        .await
-    {
+    match reader.request_ctx(namespace, application, request_id).await {
         Ok(Some(ref context)) => match &context.outcome {
             Some(outcome) => {
-                let event = build_finished_event_for_outcome(&state, &context, &outcome).await;
-                CheckForFinishedResult::Finished(event)
+                let event = build_finished_event_for_outcome(state, context, outcome).await;
+                CheckForFinishedResult::Finished(Box::new(event))
             }
             None => CheckForFinishedResult::NoOutcome,
         },
@@ -231,7 +235,7 @@ pub(crate) async fn create_request_progress_stream(
     application: String,
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
-    let stream = async_stream::stream! {
+    async_stream::stream! {
         let reader = state.indexify_state.reader();
 
         match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
@@ -305,9 +309,7 @@ pub(crate) async fn create_request_progress_stream(
                 }
             }
         }
-    };
-
-    stream
+    }
 }
 
 #[derive(Serialize)]
@@ -469,8 +471,8 @@ pub async fn invoke_application_with_object_v1(
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if let Some(driver_error) = e.downcast_ref::<driver::Error>()
-                && driver_error.is_request_already_exists()
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
+                driver_error.is_request_already_exists()
             {
                 IndexifyAPIError::conflict(&driver_error.to_string())
             } else {
