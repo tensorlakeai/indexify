@@ -315,6 +315,21 @@ class FunctionRef(_message.Message):
         application_version: _Optional[str] = ...,
     ) -> None: ...
 
+class SandboxMetadata(_message.Message):
+    __slots__ = ("timeout_secs", "entrypoint", "image")
+    TIMEOUT_SECS_FIELD_NUMBER: _ClassVar[int]
+    ENTRYPOINT_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_FIELD_NUMBER: _ClassVar[int]
+    timeout_secs: int
+    entrypoint: _containers.RepeatedScalarFieldContainer[str]
+    image: str
+    def __init__(
+        self,
+        timeout_secs: _Optional[int] = ...,
+        entrypoint: _Optional[_Iterable[str]] = ...,
+        image: _Optional[str] = ...,
+    ) -> None: ...
+
 class FunctionExecutorDescription(_message.Message):
     __slots__ = (
         "id",
@@ -325,9 +340,7 @@ class FunctionExecutorDescription(_message.Message):
         "resources",
         "max_concurrency",
         "allocation_timeout_ms",
-        "image",
-        "sandbox_timeout_secs",
-        "entrypoint",
+        "sandbox_metadata",
         "container_type",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
@@ -338,9 +351,7 @@ class FunctionExecutorDescription(_message.Message):
     RESOURCES_FIELD_NUMBER: _ClassVar[int]
     MAX_CONCURRENCY_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
-    IMAGE_FIELD_NUMBER: _ClassVar[int]
-    SANDBOX_TIMEOUT_SECS_FIELD_NUMBER: _ClassVar[int]
-    ENTRYPOINT_FIELD_NUMBER: _ClassVar[int]
+    SANDBOX_METADATA_FIELD_NUMBER: _ClassVar[int]
     CONTAINER_TYPE_FIELD_NUMBER: _ClassVar[int]
     id: str
     function: FunctionRef
@@ -350,9 +361,7 @@ class FunctionExecutorDescription(_message.Message):
     resources: FunctionExecutorResources
     max_concurrency: int
     allocation_timeout_ms: int
-    image: str
-    sandbox_timeout_secs: int
-    entrypoint: _containers.RepeatedScalarFieldContainer[str]
+    sandbox_metadata: SandboxMetadata
     container_type: FunctionExecutorType
     def __init__(
         self,
@@ -364,9 +373,7 @@ class FunctionExecutorDescription(_message.Message):
         resources: _Optional[_Union[FunctionExecutorResources, _Mapping]] = ...,
         max_concurrency: _Optional[int] = ...,
         allocation_timeout_ms: _Optional[int] = ...,
-        image: _Optional[str] = ...,
-        sandbox_timeout_secs: _Optional[int] = ...,
-        entrypoint: _Optional[_Iterable[str]] = ...,
+        sandbox_metadata: _Optional[_Union[SandboxMetadata, _Mapping]] = ...,
         container_type: _Optional[_Union[FunctionExecutorType, str]] = ...,
     ) -> None: ...
 
@@ -376,21 +383,18 @@ class FunctionExecutorState(_message.Message):
         "status",
         "termination_reason",
         "allocation_ids_caused_termination",
-        "daemon_http_address",
-        "container_type",
+        "sandbox_http_address",
     )
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_IDS_CAUSED_TERMINATION_FIELD_NUMBER: _ClassVar[int]
-    DAEMON_HTTP_ADDRESS_FIELD_NUMBER: _ClassVar[int]
-    CONTAINER_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SANDBOX_HTTP_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
     termination_reason: FunctionExecutorTerminationReason
     allocation_ids_caused_termination: _containers.RepeatedScalarFieldContainer[str]
-    daemon_http_address: str
-    container_type: FunctionExecutorType
+    sandbox_http_address: str
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
@@ -399,8 +403,7 @@ class FunctionExecutorState(_message.Message):
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
         allocation_ids_caused_termination: _Optional[_Iterable[str]] = ...,
-        daemon_http_address: _Optional[str] = ...,
-        container_type: _Optional[_Union[FunctionExecutorType, str]] = ...,
+        sandbox_http_address: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):

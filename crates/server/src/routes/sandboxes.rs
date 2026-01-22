@@ -71,9 +71,8 @@ pub struct SandboxInfo {
     pub executor_id: Option<String>,
     pub resources: ContainerResourcesInfo,
     pub timeout_secs: u64,
-    /// HTTP address of the daemon running inside the container.
-    /// Format: "host:port" (e.g., "127.0.0.1:64759")
-    pub daemon_http_address: Option<String>,
+    /// HTTP address of the sandbox API (host:port).
+    pub sandbox_http_address: Option<String>,
 }
 
 impl From<&Sandbox> for SandboxInfo {
@@ -94,7 +93,7 @@ impl From<&Sandbox> for SandboxInfo {
                 ephemeral_disk_mb: sandbox.resources.ephemeral_disk_mb,
             },
             timeout_secs: sandbox.timeout_secs,
-            daemon_http_address: sandbox.daemon_http_address.clone(),
+            sandbox_http_address: sandbox.sandbox_http_address.clone(),
         }
     }
 }

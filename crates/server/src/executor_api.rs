@@ -373,26 +373,29 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
 
-        let container_type = match function_executor_state.container_type() {
-            FunctionExecutorTypePb::Unknown => ContainerType::Function, /* Default to Function */
-            // for backwards
-            // compatibility
-            FunctionExecutorTypePb::Function => ContainerType::Function,
-            FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
-        };
-
         let description = function_executor_state.description.as_ref();
+
+        // Get container_type from description (moved from FunctionExecutorState)
+        let container_type = description
+            .map(|d| match d.container_type() {
+                FunctionExecutorTypePb::Unknown => ContainerType::Function, // Default for backwards compat
+                FunctionExecutorTypePb::Function => ContainerType::Function,
+                FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
+            })
+            .unwrap_or(ContainerType::Function);
+
         let secret_names = description
             .map(|d| d.secret_names.clone())
             .unwrap_or_default();
-        let timeout_secs = description
-            .and_then(|d| d.sandbox_timeout_secs)
-            .unwrap_or(0);
-        let entrypoint = description
-            .map(|d| d.entrypoint.clone())
+
+        // Read sandbox-specific fields from sandbox_metadata
+        let sandbox_metadata = description.and_then(|d| d.sandbox_metadata.as_ref());
+        let timeout_secs = sandbox_metadata.and_then(|m| m.timeout_secs).unwrap_or(0);
+        let entrypoint = sandbox_metadata
+            .map(|m| m.entrypoint.clone())
             .unwrap_or_default();
-        let image = description.and_then(|d| d.image.clone());
-        let daemon_http_address = function_executor_state.daemon_http_address.clone();
+        let image = sandbox_metadata.and_then(|m| m.image.clone());
+        let sandbox_http_address = function_executor_state.sandbox_http_address.clone();
 
         let state = match function_executor_state.status() {
             FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
@@ -418,7 +421,7 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .timeout_secs(timeout_secs)
             .entrypoint(entrypoint)
             .image(image)
-            .daemon_http_address(daemon_http_address)
+            .sandbox_http_address(sandbox_http_address)
             .build()
             .map_err(Into::into)
     }

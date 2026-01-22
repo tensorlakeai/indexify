@@ -42,6 +42,7 @@ use crate::{
         FunctionExecutorDescription,
         FunctionExecutorType as FunctionExecutorTypePb,
         FunctionRef,
+        SandboxMetadata,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     pb_helpers::*,
@@ -658,6 +659,21 @@ impl ExecutorManager {
                 data_model::ContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
             };
 
+            // Build sandbox_metadata for sandbox containers
+            let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {
+                Some(SandboxMetadata {
+                    image: desired_state_fe.image.clone(),
+                    timeout_secs: if desired_state_fe.sandbox_timeout_secs > 0 {
+                        Some(desired_state_fe.sandbox_timeout_secs)
+                    } else {
+                        None
+                    },
+                    entrypoint: desired_state_fe.entrypoint.clone(),
+                })
+            } else {
+                None
+            };
+
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -672,13 +688,7 @@ impl ExecutorManager {
                 allocation_timeout_ms: Some(desired_state_fe.allocation_timeout_ms),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 max_concurrency: Some(fe.max_concurrency),
-                image: desired_state_fe.image.clone(),
-                sandbox_timeout_secs: if desired_state_fe.sandbox_timeout_secs > 0 {
-                    Some(desired_state_fe.sandbox_timeout_secs)
-                } else {
-                    None
-                },
-                entrypoint: desired_state_fe.entrypoint.clone(),
+                sandbox_metadata,
                 container_type: Some(fe_type_pb.into()),
             };
             function_executors_pb.push(fe_description_pb);

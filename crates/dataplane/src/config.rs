@@ -63,8 +63,14 @@ pub enum DriverConfig {
     #[default]
     ForkExec,
     Docker {
+        /// Docker daemon address. Supports:
+        /// - Unix socket: `unix:///var/run/docker.sock` or `/var/run/docker.sock`
+        /// - HTTP: `http://localhost:2375` or `tcp://localhost:2375`
+        /// - HTTPS: `https://localhost:2376`
+        ///
+        /// If not specified, uses Docker's default socket location.
         #[serde(default)]
-        socket_path: Option<String>,
+        address: Option<String>,
     },
 }
 

@@ -30,6 +30,8 @@ sha2.workspace = true
 tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
 sysinfo = "0.33"
+bollard = { workspace = true }
+futures-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

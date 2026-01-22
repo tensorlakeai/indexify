@@ -116,8 +116,8 @@ const SandboxDetailsPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const daemonUrl = sandbox?.daemon_http_address
-    ? `http://${sandbox.daemon_http_address}`
+  const daemonUrl = sandbox?.sandbox_http_address
+    ? `http://${sandbox.sandbox_http_address}`
     : null
 
   const fetchProcesses = useCallback(async () => {
@@ -342,20 +342,20 @@ const SandboxDetailsPage = () => {
                 </Grid>
               )}
 
-              {sandbox.daemon_http_address && (
+              {sandbox.sandbox_http_address && (
                 <Grid item xs={12} md={6}>
                   <Typography
                     variant="subtitle2"
                     color="text.secondary"
                     gutterBottom
                   >
-                    Daemon Address
+                    Sandbox Address
                   </Typography>
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                      {sandbox.daemon_http_address}
+                      {sandbox.sandbox_http_address}
                     </Typography>
-                    <CopyText text={sandbox.daemon_http_address} />
+                    <CopyText text={sandbox.sandbox_http_address} />
                   </Box>
                 </Grid>
               )}

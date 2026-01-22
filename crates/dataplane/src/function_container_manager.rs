@@ -104,9 +104,9 @@ struct ManagedContainer {
     created_at: Instant,
     /// When the container started running (set when state becomes Running)
     started_at: Option<Instant>,
-    /// HTTP address of the daemon (for sandbox containers).
+    /// HTTP address of the sandbox API (host:port).
     /// Set when the container becomes Running.
-    daemon_http_address: Option<String>,
+    sandbox_http_address: Option<String>,
 }
 
 impl ManagedContainer {
@@ -125,8 +125,7 @@ impl ManagedContainer {
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
             allocation_ids_caused_termination: vec![],
-            daemon_http_address: self.daemon_http_address.clone(),
-            container_type: self.description.container_type,
+            sandbox_http_address: self.sandbox_http_address.clone(),
         }
     }
 
@@ -138,10 +137,14 @@ impl ManagedContainer {
     /// Returns true if the container should be terminated due to timeout.
     fn is_timed_out(&self) -> bool {
         // Only check timeout for running containers with a timeout configured
-        let timeout_secs = self.description.sandbox_timeout_secs.unwrap_or(0);
-        if timeout_secs == 0 {
+        let Some(timeout_secs) = self
+            .description
+            .sandbox_metadata
+            .as_ref()
+            .and_then(|m| m.timeout_secs)
+        else {
             return false; // No timeout configured
-        }
+        };
 
         if !matches!(self.state, ContainerState::Running { .. }) {
             return false; // Not running, can't timeout
@@ -167,8 +170,10 @@ pub struct DefaultImageResolver;
 
 impl ImageResolver for DefaultImageResolver {
     fn resolve_image(&self, description: &FunctionExecutorDescription) -> String {
-        // Use image from description if provided (e.g., for sandboxes)
-        if let Some(ref image) = description.image {
+        // Use image from sandbox_metadata if provided (for sandboxes)
+        if let Some(ref sandbox_metadata) = description.sandbox_metadata
+            && let Some(ref image) = sandbox_metadata.image
+        {
             return image.clone();
         }
         // Fall back to default Python image for functions
@@ -213,23 +218,31 @@ impl FunctionContainerManager {
             .collect();
 
         for id in timed_out_ids {
-            if let Some(container) = containers.get_mut(&id) {
-                let info = container.info();
-                let timeout_secs = container.description.sandbox_timeout_secs.unwrap_or(0);
-                tracing::warn!(
-                    fe_id = %info.fe_id,
-                    namespace = %info.namespace,
-                    app = %info.app,
-                    fn_name = %info.fn_name,
-                    timeout_secs = timeout_secs,
-                    "Sandbox container timed out, terminating"
-                );
-                self.initiate_stop(
-                    container,
-                    FunctionExecutorTerminationReason::FunctionTimeout,
-                )
-                .await;
-            }
+            let Some(container) = containers.get_mut(&id) else {
+                continue;
+            };
+            let Some(timeout_secs) = container
+                .description
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.timeout_secs)
+            else {
+                continue;
+            };
+            let info = container.info();
+            tracing::warn!(
+                fe_id = %info.fe_id,
+                namespace = %info.namespace,
+                app = %info.app,
+                fn_name = %info.fn_name,
+                timeout_secs = timeout_secs,
+                "Sandbox container timed out, terminating"
+            );
+            self.initiate_stop(
+                container,
+                FunctionExecutorTerminationReason::FunctionTimeout,
+            )
+            .await;
         }
 
         // Find containers to remove (not in desired state)
@@ -294,7 +307,7 @@ impl FunctionContainerManager {
                     state: ContainerState::Pending,
                     created_at: Instant::now(),
                     started_at: None,
-                    daemon_http_address: None,
+                    sandbox_http_address: None,
                 };
                 containers.insert(id.clone(), container);
 
@@ -334,7 +347,7 @@ impl FunctionContainerManager {
                                     event = "container_started",
                                     "Container started with daemon"
                                 );
-                                container.daemon_http_address = handle.http_addr.clone();
+                                container.sandbox_http_address = handle.http_addr.clone();
                                 container.state = ContainerState::Running {
                                     handle,
                                     daemon_client,
@@ -550,28 +563,36 @@ impl FunctionContainerManager {
 
         // Initiate stop for timed out containers
         for id in timed_out_ids {
-            if let Some(container) = containers.get_mut(&id) {
-                let info = container.info();
-                let timeout_secs = container.description.sandbox_timeout_secs.unwrap_or(0);
-                let elapsed = container
-                    .started_at
-                    .map(|s| s.elapsed().as_secs())
-                    .unwrap_or(0);
-                tracing::warn!(
-                    fe_id = %info.fe_id,
-                    namespace = %info.namespace,
-                    app = %info.app,
-                    fn_name = %info.fn_name,
-                    timeout_secs = timeout_secs,
-                    elapsed_secs = elapsed,
-                    "Sandbox container timed out, terminating"
-                );
-                self.initiate_stop(
-                    container,
-                    FunctionExecutorTerminationReason::FunctionTimeout,
-                )
-                .await;
-            }
+            let Some(container) = containers.get_mut(&id) else {
+                continue;
+            };
+            let Some(timeout_secs) = container
+                .description
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.timeout_secs)
+            else {
+                continue;
+            };
+            let info = container.info();
+            let elapsed = container
+                .started_at
+                .map(|s| s.elapsed().as_secs())
+                .unwrap_or(0);
+            tracing::warn!(
+                fe_id = %info.fe_id,
+                namespace = %info.namespace,
+                app = %info.app,
+                fn_name = %info.fn_name,
+                timeout_secs = timeout_secs,
+                elapsed_secs = elapsed,
+                "Sandbox container timed out, terminating"
+            );
+            self.initiate_stop(
+                container,
+                FunctionExecutorTerminationReason::FunctionTimeout,
+            )
+            .await;
         }
     }
 
@@ -718,11 +739,17 @@ async fn start_container_with_daemon(
     });
 
     // Start the container with the daemon as PID 1.
-    // If entrypoint is provided, pass it to the daemon to start as a child process.
-    // Otherwise, daemon just waits for commands via its HTTP API.
-    let (command, args) = if !desc.entrypoint.is_empty() {
-        let cmd = desc.entrypoint[0].clone();
-        let args: Vec<String> = desc.entrypoint.iter().skip(1).cloned().collect();
+    // If entrypoint is provided in sandbox_metadata, pass it to the daemon to start
+    // as a child process. Otherwise, daemon just waits for commands via its
+    // HTTP API.
+    let entrypoint = desc
+        .sandbox_metadata
+        .as_ref()
+        .map(|m| m.entrypoint.clone())
+        .unwrap_or_default();
+    let (command, args) = if !entrypoint.is_empty() {
+        let cmd = entrypoint[0].clone();
+        let args: Vec<String> = entrypoint.iter().skip(1).cloned().collect();
         (cmd, args)
     } else {
         (String::new(), vec![])
@@ -845,7 +872,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
-    use proto_api::executor_api_pb::FunctionRef;
+    use proto_api::executor_api_pb::{FunctionRef, SandboxMetadata};
 
     use super::*;
 
@@ -932,9 +959,7 @@ mod tests {
             resources: None,
             max_concurrency: None,
             allocation_timeout_ms: None,
-            image: None,
-            sandbox_timeout_secs: None,
-            entrypoint: vec![],
+            sandbox_metadata: None,
             container_type: None,
         }
     }
@@ -962,9 +987,7 @@ mod tests {
             resources: None,
             max_concurrency: None,
             allocation_timeout_ms: None,
-            image: None,
-            sandbox_timeout_secs: None,
-            entrypoint: vec![],
+            sandbox_metadata: None,
             container_type: None,
         };
         let info = FunctionInfo::from_description(&desc);
@@ -989,7 +1012,11 @@ mod tests {
     fn test_image_resolver_with_custom_image() {
         let resolver = DefaultImageResolver;
         let mut desc = create_test_fe_description("fe-123");
-        desc.image = Some("custom-sandbox:latest".to_string());
+        desc.sandbox_metadata = Some(SandboxMetadata {
+            image: Some("custom-sandbox:latest".to_string()),
+            timeout_secs: None,
+            entrypoint: vec![],
+        });
         let image = resolver.resolve_image(&desc);
 
         assert_eq!(image, "custom-sandbox:latest");
@@ -1002,7 +1029,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1011,7 +1038,7 @@ mod tests {
             Some(FunctionExecutorStatus::Pending.into())
         );
         assert!(proto_state.termination_reason.is_none());
-        assert!(proto_state.daemon_http_address.is_none());
+        assert!(proto_state.sandbox_http_address.is_none());
     }
 
     #[test]
@@ -1023,7 +1050,7 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1150,7 +1177,11 @@ mod tests {
         timeout_secs: u64,
     ) -> FunctionExecutorDescription {
         let mut desc = create_test_fe_description(id);
-        desc.sandbox_timeout_secs = Some(timeout_secs);
+        desc.sandbox_metadata = Some(SandboxMetadata {
+            image: None,
+            timeout_secs: Some(timeout_secs),
+            entrypoint: vec![],
+        });
         desc
     }
 
@@ -1176,7 +1207,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(1000)),
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1190,7 +1221,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(100)),
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1206,7 +1237,7 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1222,7 +1253,7 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: Some(Instant::now()), // Just started
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1239,7 +1270,7 @@ mod tests {
             created_at: Instant::now(),
             // Started 15 seconds ago, so 10 second timeout is exceeded
             started_at: Some(Instant::now() - Duration::from_secs(15)),
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1256,7 +1287,7 @@ mod tests {
             created_at: Instant::now(),
             // Started exactly 10 seconds ago - should be timed out (>= comparison)
             started_at: Some(Instant::now() - Duration::from_secs(10)),
-            daemon_http_address: None,
+            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1284,7 +1315,7 @@ mod tests {
                 created_at: Instant::now(),
                 // Set started_at to 10 seconds ago - well past the 5 second timeout
                 started_at: Some(Instant::now() - Duration::from_secs(10)),
-                daemon_http_address: None,
+                sandbox_http_address: None,
             };
             containers.insert("fe-timeout-test".to_string(), container);
         }
@@ -1335,7 +1366,7 @@ mod tests {
                 },
                 created_at: Instant::now(),
                 started_at: Some(Instant::now()), // Just started
-                daemon_http_address: None,
+                sandbox_http_address: None,
             };
             containers.insert("fe-not-expired".to_string(), container);
         }
@@ -1373,7 +1404,7 @@ mod tests {
                 created_at: Instant::now(),
                 // Started 1 hour ago, but has no timeout so shouldn't be stopped
                 started_at: Some(Instant::now() - Duration::from_secs(3600)),
-                daemon_http_address: None,
+                sandbox_http_address: None,
             };
             containers.insert("fe-no-timeout".to_string(), container);
         }

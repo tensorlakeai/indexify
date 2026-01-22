@@ -1806,10 +1806,10 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub entrypoint: Vec<String>,
-    // The HTTP Address for sandboxes
+    /// HTTP address of the sandbox API (host:port).
     #[builder(default)]
     #[serde(default)]
-    pub daemon_http_address: Option<String>,
+    pub sandbox_http_address: Option<String>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -1841,9 +1841,9 @@ impl Container {
         // Only update fields that change after self FE was created.
         // Other FE must represent the same FE.
         self.state = other.state.clone();
-        // Update daemon_http_address if reported by executor
-        if other.daemon_http_address.is_some() {
-            self.daemon_http_address = other.daemon_http_address.clone();
+        // Update sandbox_http_address if reported by executor
+        if other.sandbox_http_address.is_some() {
+            self.sandbox_http_address = other.sandbox_http_address.clone();
         }
     }
 }
@@ -2501,11 +2501,10 @@ pub struct Sandbox {
     /// Optional entrypoint command to run when sandbox starts
     #[builder(default)]
     pub entrypoint: Option<Vec<String>>,
-    /// HTTP address of the daemon running inside the container.
-    /// Format: "host:port" (e.g., "127.0.0.1:64759")
+    /// HTTP address of the sandbox API (host:port).
     /// Only set when the container is running and daemon is ready.
     #[builder(default)]
-    pub daemon_http_address: Option<String>,
+    pub sandbox_http_address: Option<String>,
 }
 
 impl SandboxBuilder {

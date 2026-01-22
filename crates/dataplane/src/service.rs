@@ -50,9 +50,9 @@ impl Service {
 
         let driver: Arc<dyn ProcessDriver> = match &config.driver {
             DriverConfig::ForkExec => Arc::new(ForkExecDriver::new()),
-            DriverConfig::Docker { socket_path } => match socket_path {
-                Some(path) => Arc::new(DockerDriver::with_socket(path.clone())),
-                None => Arc::new(DockerDriver::new()),
+            DriverConfig::Docker { address } => match address {
+                Some(addr) => Arc::new(DockerDriver::with_address(addr)?),
+                None => Arc::new(DockerDriver::new()?),
             },
         };
 

@@ -150,10 +150,10 @@ impl ContainerReconciler {
                 if matches!(server_c.desired_state, ContainerState::Terminated { .. }) {
                     continue;
                 }
-                // Check if state changed or if daemon_http_address is newly available
+                // Check if state changed or if sandbox_http_address is newly available
                 let state_changed = executor_c.state != server_c.function_container.state;
-                let http_addr_changed = executor_c.daemon_http_address.is_some() &&
-                    server_c.function_container.daemon_http_address.is_none();
+                let http_addr_changed = executor_c.sandbox_http_address.is_some() &&
+                    server_c.function_container.sandbox_http_address.is_none();
 
                 if state_changed || http_addr_changed {
                     let mut server_c_clone = server_c.clone();
@@ -163,17 +163,17 @@ impl ContainerReconciler {
                         server_c_clone.clone(),
                     );
 
-                    // Propagate daemon_http_address to associated sandbox
+                    // Propagate sandbox_http_address to associated sandbox
                     // For sandbox containers, function_name is the sandbox_id
-                    if let Some(ref new_http_addr) = executor_c.daemon_http_address {
+                    if let Some(ref new_http_addr) = executor_c.sandbox_http_address {
                         let fc = &server_c.function_container;
                         let sandbox_key =
                             SandboxKey::new(&fc.namespace, &fc.application_name, &fc.function_name);
                         if let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) &&
-                            sandbox.daemon_http_address.is_none()
+                            sandbox.sandbox_http_address.is_none()
                         {
                             let mut updated_sandbox = (**sandbox).clone();
-                            updated_sandbox.daemon_http_address = Some(new_http_addr.clone());
+                            updated_sandbox.sandbox_http_address = Some(new_http_addr.clone());
                             update
                                 .updated_sandboxes
                                 .insert(sandbox_key, updated_sandbox);

@@ -247,9 +247,7 @@ fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
         resources: None,
         max_concurrency: None,
         allocation_timeout_ms: None,
-        image: None,
-        sandbox_timeout_secs: None,
-        entrypoint: vec![],
+        sandbox_metadata: None,
         container_type: None,
     }
 }
