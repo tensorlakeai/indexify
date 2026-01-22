@@ -96,43 +96,29 @@ async fn build_finished_event_for_outcome(
     ctx: &RequestCtx,
     outcome: &RequestOutcome,
 ) -> RequestStateChangeEvent {
-    let output = match outcome {
-        RequestOutcome::Success => {
-            debug!("building finished event for success outcome");
-            // Get the entrypoint function's output (uses request_id as function_call_id)
-            let function_run = ctx
-                .function_runs
-                .get(&FunctionCallId::from(ctx.request_id.as_str()))
-                .and_then(|fn_run| fn_run.output.clone());
+    if !outcome.is_success() {
+        return RequestStateChangeEvent::finished(ctx, outcome, None);
+    }
 
-            match function_run {
-                Some(payload) => {
-                    read_json_output(&payload, state, &ctx.namespace)
-                        .await
-                        .map(|body| {
-                            debug!("function run output found");
-                            RequestStateFinishedOutput {
-                                body: Some(body),
-                                content_encoding: payload.encoding,
-                                path: build_output_path(
-                                    &ctx.namespace,
-                                    &ctx.application_name,
-                                    &ctx.request_id,
-                                ),
-                            }
-                        })
-                }
-                None => {
-                    debug!("no function run output found");
-                    None
-                }
-            }
-        }
-        RequestOutcome::Failure(_) | RequestOutcome::Unknown => {
-            debug!("building finished event for failure or unknown outcome");
-            None
-        }
+    let function_run_output = ctx
+        .function_runs
+        .get(&FunctionCallId::from(ctx.request_id.as_str()))
+        .and_then(|fn_run| fn_run.output.clone());
+
+    let Some(payload) = function_run_output else {
+        return RequestStateChangeEvent::finished(ctx, outcome, None);
     };
+
+    let output = read_json_output(&payload, state, &ctx.namespace)
+        .await
+        .map(|body| {
+            debug!("function run output found");
+            RequestStateFinishedOutput {
+                body: Some(body),
+                content_encoding: payload.encoding,
+                path: build_output_path(&ctx.namespace, &ctx.application_name, &ctx.request_id),
+            }
+        });
 
     RequestStateChangeEvent::finished(ctx, outcome, output)
 }
