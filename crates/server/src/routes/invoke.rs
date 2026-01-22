@@ -13,7 +13,7 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use super::routes_state::RouteState;
 use crate::{
