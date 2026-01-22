@@ -29,7 +29,7 @@ boto3 = "^1.42.14"
 structlog = "25.5.0"
 # Adds function-executor binary, utils lib, sdk used in indexify-cli commands.
 # We need to specify the tensorlake version exactly because pip install doesn't respect poetry.lock files.
-tensorlake = "0.2.98"
+tensorlake = "0.3.3"
 # Uncomment the next line to use local tensorlake package (only for development!)
 # tensorlake = { path = "../tensorlake", develop = true }
 # grpcio is provided by tensorlake
