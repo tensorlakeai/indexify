@@ -172,8 +172,8 @@ pub struct DefaultImageResolver;
 impl ImageResolver for DefaultImageResolver {
     fn resolve_image(&self, description: &FunctionExecutorDescription) -> String {
         // Use image from sandbox_metadata if provided (for sandboxes)
-        if let Some(ref sandbox_metadata) = description.sandbox_metadata
-            && let Some(ref image) = sandbox_metadata.image
+        if let Some(ref sandbox_metadata) = description.sandbox_metadata &&
+            let Some(ref image) = sandbox_metadata.image
         {
             return image.clone();
         }
@@ -544,11 +544,7 @@ impl FunctionContainerManager {
         };
 
         // Extract fe_id for logging before modifying container state
-        let fe_id_for_log = container
-            .description
-            .id
-            .clone()
-            .unwrap_or_default();
+        let fe_id_for_log = container.description.id.clone().unwrap_or_default();
         {
             let info = container.info();
             tracing::info!(

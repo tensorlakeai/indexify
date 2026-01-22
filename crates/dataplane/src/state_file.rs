@@ -1,7 +1,8 @@
 //! State file for persisting container state across dataplane restarts.
 //!
 //! This module provides functionality to save and load container state to/from
-//! a JSON file, enabling the dataplane to recover running containers after restart.
+//! a JSON file, enabling the dataplane to recover running containers after
+//! restart.
 
 use std::{
     collections::HashMap,
@@ -18,7 +19,8 @@ use tracing::{info, warn};
 pub struct PersistedContainer {
     /// Function executor ID.
     pub fe_id: String,
-    /// Process/container handle ID (container name for Docker, PID for ForkExec).
+    /// Process/container handle ID (container name for Docker, PID for
+    /// ForkExec).
     pub handle_id: String,
     /// gRPC daemon address (host:port).
     pub daemon_addr: String,
@@ -44,7 +46,8 @@ pub struct StateFile {
 impl StateFile {
     /// Create a new StateFile manager.
     ///
-    /// If the file exists, its contents are loaded. Otherwise, starts with empty state.
+    /// If the file exists, its contents are loaded. Otherwise, starts with
+    /// empty state.
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let state = if path.exists() {
@@ -125,8 +128,9 @@ impl StateFile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::tempdir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_state_file_create_and_persist() {
