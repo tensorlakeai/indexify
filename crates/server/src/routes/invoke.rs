@@ -228,7 +228,7 @@ async fn create_request_progress_stream(
                     // Check if completion happened during lag
                     match reader.request_ctx(&namespace, &application, &request_id).await {
                         Ok(Some(context)) => {
-                            if let Some(outcome) = &context.outcome {
+                            if let Some(outcome) = &context.outcome && outcome.is_success() {
                                 yield Event::default().json_data(
                                     build_finished_event_with_output(&state, &context, outcome).await
                                 );
